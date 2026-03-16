@@ -1,0 +1,20 @@
+_BR_OPTIONAL_COLS = [
+    "Sessions - Total", "Sessions - Total - B2B", "Session Percentage - Total",
+    "Page Views - Total", "Page Views - Total - B2B", "Featured Offer Percentage",
+    "Units Ordered", "Units Ordered - B2B", "Unit Session Percentage",
+    "Ordered Product Sales", "Ordered Product Sales - B2B",
+    "Total Order Items", "Refund Rate", "Shipped Product Sales", "Units Shipped",
+]
+
+_PAGES = [
+    "🏠 Inicio",
+    "📊 Search Term Report",
+    "🔍 Search Query Performance",
+    "📁 Bulk Campañas",
+    "💰 Business Report",
+    "🔗 Análisis Cruzado STR vs SQP",
+    "📈 Tendencia Multi-Semana",
+    "🔻 Análisis de Funnel",
+    "🔬 Reportes Atom 11",
+    "🛡️ Reportes MerchanSpring",
+]

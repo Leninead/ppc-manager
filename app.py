@@ -5,6 +5,8 @@ import os
 import re
 
 from core.i18n import _I18N
+from core.constants import _BR_OPTIONAL_COLS, _PAGES
+from core.helpers import _color_pct, extract_sqp_brand, read_sqp
 
 
 def _parse_atom11(filepath):
@@ -79,15 +81,6 @@ def _parse_atom11(filepath):
     return pd.DataFrame(rows), entity_cols, col_map, fmt
 
 
-def _color_pct(val):
-    """Cell style for % change columns."""
-    if pd.isna(val):
-        return ""
-    if val > 0:
-        return "color: #28a745; font-weight: bold"
-    if val < 0:
-        return "color: #dc3545; font-weight: bold"
-    return "color: gray"
 
 # ── Atom 11 helpers ───────────────────────────────────────────────────────────
 _ENTITY_TYPE_LABELS = {
@@ -659,13 +652,6 @@ def _build_atom11_excel(display_df, kc, kp, tipo, per_c, per_p, delta_cols,
     wb.save(buf)
     return buf
 
-_BR_OPTIONAL_COLS = [
-    "Sessions - Total", "Sessions - Total - B2B", "Session Percentage - Total",
-    "Page Views - Total", "Page Views - Total - B2B", "Featured Offer Percentage",
-    "Units Ordered", "Units Ordered - B2B", "Unit Session Percentage",
-    "Ordered Product Sales", "Ordered Product Sales - B2B",
-    "Total Order Items", "Refund Rate", "Shipped Product Sales", "Units Shipped",
-]
 
 
 def _parse_business_report_map(filepath_or_file):
@@ -971,24 +957,6 @@ def _generate_parent_evo_summary(pe_df, lang="es"):
     return "\n".join(lines)
 
 
-def extract_sqp_brand(file):
-    """Extrae el nombre de marca de la fila de metadata del SQP de Amazon."""
-    try:
-        first_row = pd.read_csv(file, nrows=0, header=None).columns[0] if not file.name.endswith(".xlsx") else str(pd.read_excel(file, nrows=1, header=None).iloc[0, 0])
-        file.seek(0)
-        match = re.search(r'Brand=\["([^"]+)"\]', first_row, re.IGNORECASE)
-        if match:
-            return match.group(1).lower().strip()
-    except Exception:
-        pass
-    file.seek(0)
-    return None
-
-def read_sqp(file):
-    """Lee un archivo SQP de Amazon, saltando la fila de metadata inicial."""
-    if file.name.endswith(".xlsx"):
-        return pd.read_excel(file, skiprows=1)
-    return pd.read_csv(file, skiprows=1)
 
 # ── MerchanSpring helpers ─────────────────────────────────────────────────────
 
@@ -2547,18 +2515,6 @@ def _auto_load_business_report_map():
 if "parent_child_map" not in st.session_state:
     _auto_load_business_report_map()
 
-_PAGES = [
-    "🏠 Inicio",
-    "📊 Search Term Report",
-    "🔍 Search Query Performance",
-    "📁 Bulk Campañas",
-    "💰 Business Report",
-    "🔗 Análisis Cruzado STR vs SQP",
-    "📈 Tendencia Multi-Semana",
-    "🔻 Análisis de Funnel",
-    "🔬 Reportes Atom 11",
-    "🛡️ Reportes MerchanSpring",
-]
 
 if "selected_page" not in st.session_state:
     st.session_state["selected_page"] = "🏠 Inicio"
