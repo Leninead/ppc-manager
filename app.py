@@ -18,6 +18,7 @@ from modules.merchanspring.excel_export import _build_ms_pdf_excel, _build_merch
 from modules.merchanspring.style_helpers import _s_acos, _s_margin, _s_delta, _s_eff, _s_stock
 from modules.pages.inicio import render as _render_inicio
 from modules.pages.search_term_report import render as _render_str
+from modules.pages.search_query_performance import render as _render_sqp
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -80,14 +81,7 @@ if selected == "📊 Search Term Report":
     _render_str()
 
 if selected == "🔍 Search Query Performance":
-    st.header("🔍 Search Query Performance")
-    st.caption("Datos de rendimiento de búsqueda orgánica exportados desde Amazon Brand Analytics.")
-    st.divider()
-    file_sqp = st.file_uploader("Sube tu SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="sqp")
-    if file_sqp:
-        df = read_sqp(file_sqp)
-        st.success(f"✅ {len(df)} filas cargadas")
-        st.dataframe(df, use_container_width=True)
+    _render_sqp()
 
 if selected == "📁 Bulk Campañas":
     st.header("📁 Bulk File de Campañas")
