@@ -22,6 +22,7 @@ from modules.pages.search_query_performance import render as _render_sqp
 from modules.pages.bulk_campanas import render as _render_bulk
 from modules.pages.business_report import render as _render_br
 from modules.pages.analisis_cruzado import render as _render_cruzado
+from modules.pages.tendencia_multisemana import render as _render_tendencia
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -96,77 +97,7 @@ if selected == "🔗 Análisis Cruzado STR vs SQP":
     _render_cruzado()
 
 if selected == "📈 Tendencia Multi-Semana":
-    st.header("📈 Tendencia de Impresiones Multi-Semana")
-    st.caption("Compará hasta 4 semanas de SQP para identificar keywords en alza, estables o en caída.")
-    st.divider()
-    st.info("Subí hasta 4 archivos SQP de distintas semanas para ver la tendencia por keyword.")
-
-    sqp_files = []
-    cols_up = st.columns(4)
-    for i, col in enumerate(cols_up):
-        f = col.file_uploader(f"Semana {i+1}", type=["xlsx", "csv"], key=f"sqp_trend_{i}")
-        if f:
-            sqp_files.append(f)
-
-    if len(sqp_files) >= 2:
-        imp_col_t = "Impressions: Total Count"
-        sqp_col_t = "Search Query"
-
-        weeks = []
-        for f in sqp_files:
-            df_w = read_sqp(f)
-            df_w[sqp_col_t] = df_w[sqp_col_t].str.lower().str.strip()
-            if imp_col_t in df_w.columns:
-                df_w[imp_col_t] = pd.to_numeric(df_w[imp_col_t], errors="coerce").fillna(0)
-            # Extraer fecha desde Reporting Date o nombre de archivo
-            label = None
-            if "Reporting Date" in df_w.columns:
-                label = str(df_w["Reporting Date"].dropna().iloc[0]) if not df_w["Reporting Date"].dropna().empty else f.name
-            else:
-                label = f.name
-            weeks.append((label, df_w[[sqp_col_t, imp_col_t]].rename(columns={imp_col_t: label})))
-
-        df_trend = weeks[0][1]
-        for _, df_w in weeks[1:]:
-            df_trend = df_trend.merge(df_w, on=sqp_col_t, how="outer").fillna(0)
-
-        week_cols = [w[0] for w in weeks]
-        first_col, last_col = week_cols[0], week_cols[-1]
-
-        def tendencia(row):
-            v1, v2 = row[first_col], row[last_col]
-            if v2 > v1 * 1.1:
-                return "↑"
-            elif v2 < v1 * 0.9:
-                return "↓"
-            return "→"
-
-        df_trend["Tendencia"] = df_trend.apply(tendencia, axis=1)
-        df_trend = df_trend[[sqp_col_t, "Tendencia"] + week_cols].sort_values(last_col, ascending=False)
-
-        st.markdown(f"↑ sube >10% · ↓ baja >10% · → estable")
-
-        t1, t2, t3, t4 = st.columns(4)
-        t1.metric("Total keywords", len(df_trend))
-        t2.metric("↑ Subiendo", (df_trend["Tendencia"] == "↑").sum())
-        t3.metric("→ Estables",  (df_trend["Tendencia"] == "→").sum())
-        t4.metric("↓ Bajando",   (df_trend["Tendencia"] == "↓").sum())
-
-        row_height = 35
-        header_height = 38
-        st.dataframe(df_trend, use_container_width=True, height=header_height + row_height * len(df_trend))
-
-        buffer_t = io.BytesIO()
-        df_trend.to_excel(buffer_t, index=False)
-        st.download_button(
-            label="⬇️ Exportar tendencias a Excel",
-            data=buffer_t.getvalue(),
-            file_name="tendencia_sqp.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-    elif len(sqp_files) == 1:
-        st.warning("Subí al menos 2 semanas para ver la tendencia.")
+    _render_tendencia()
 
 if selected == "🔻 Análisis de Funnel":
     st.header("🔻 Análisis de Funnel")
