@@ -15,6 +15,7 @@ from modules.atom11.parent_evolution import _build_parent_evolution, _generate_p
 from modules.atom11.excel_export import _build_atom11_excel
 from modules.merchanspring.parser import _parse_merchanspring, _parse_merchanspring_pdf
 from modules.merchanspring.excel_export import _build_ms_pdf_excel, _build_merchanspring_excel
+from modules.merchanspring.style_helpers import _s_acos, _s_margin, _s_delta, _s_eff, _s_stock
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -974,47 +975,6 @@ if selected == "🛡️ Reportes MerchanSpring":
                             st.metric(label=kpi["name"], value=kpi["val"], delta=delta_str)
 
             st.divider()
-
-            # ── Style helpers ─────────────────────────────────────────────
-            def _s_acos(val):
-                try:
-                    v = float(val)
-                    if v < 30:  return "background-color:#C6EFCE;color:#276221"
-                    if v < 60:  return "background-color:#FFEB9C;color:#9C5700"
-                    return "background-color:#FFC7CE;color:#9C0006"
-                except: return ""
-
-            def _s_margin(val):
-                try:
-                    v = float(val)
-                    if v >= 40: return "background-color:#C6EFCE;color:#276221"
-                    if v >= 20: return "background-color:#FFEB9C;color:#9C5700"
-                    return "background-color:#FFC7CE;color:#9C0006"
-                except: return ""
-
-            def _s_delta(val):
-                try:
-                    v = float(val)
-                    if v > 5:   return "background-color:#C6EFCE;color:#276221"
-                    if v < -5:  return "background-color:#FFC7CE;color:#9C0006"
-                    return "background-color:#FFEB9C;color:#9C5700"
-                except: return ""
-
-            def _s_eff(val):
-                vl = str(val).lower()
-                if "poor" in vl:              return "background-color:#FFC7CE;color:#9C0006"
-                if "good" in vl or "great" in vl: return "background-color:#C6EFCE;color:#276221"
-                if "average" in vl:           return "background-color:#FFEB9C;color:#9C5700"
-                return ""
-
-            def _s_stock(val):
-                vl = str(val).lower()
-                if "in stock"  in vl: return "background-color:#C6EFCE;color:#276221"
-                if "slow"      in vl: return "background-color:#FFEB9C;color:#9C5700"
-                if "no stock"  in vl or "out" in vl or "critical" in vl:
-                    return "background-color:#FFC7CE;color:#9C0006"
-                if "partial"   in vl: return "background-color:#FFE0B2;color:#BF360C"
-                return ""
 
             if is_pdf:
                 # ── Section detection log ──────────────────────────────────
