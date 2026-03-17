@@ -6,8 +6,7 @@
 **Ruta local:** `C:\proyectos\ppc-manager`  
 **Comando:** `python -m streamlit run app.py`  
 **Stack:** Python + Streamlit + Pandas + OpenPyXL + pdfplumber  
-**Arquitectura:** Single file — `app.py` (~3,975 líneas)
-
+**Arquitectura:** Modularizando — `app.py` (~3,257 líneas) + `core/` + `modules/`
 ## ⚙️ Setup
 ```bash
 streamlit run app.py
@@ -267,3 +266,36 @@ Usá edits quirúrgicos — nunca reescribas funciones completas si el cambio es
 Ante cualquier duda sobre arquitectura o estado del proyecto, referite al CLAUDE.md adjunto.
 Cuando agregues features nuevas, recordame actualizar el CLAUDE.md al final.
 ```
+## 🏗️ Estado de modularización (2026-03-16)
+
+app.py original: 3,974 líneas → actual: ~3,257 líneas
+
+### ✅ Módulos extraídos
+- `core/i18n.py` — _I18N (dict ES/EN)
+- `core/constants.py` — _BR_OPTIONAL_COLS, _PAGES
+- `core/helpers.py` — _color_pct, read_sqp, extract_sqp_brand
+- `core/business_report.py` — _BIZ_DIR, _parse_business_report_map, _auto_load_business_report_map
+- `modules/atom11/parser.py` — _parse_atom11, _ENTITY_TYPE_LABELS, _detect_atom11_type, _extract_period_df, _summarize_daterange, _split_two_weeks
+- `modules/atom11/analysis.py` — _kpis, _generate_summary, _diag_items, _rec_items
+
+### 🔜 Pendiente (continuar mañana)
+- `modules/atom11/parent_evolution.py`
+- `modules/atom11/excel_export.py`
+- `modules/merchanspring/` (4 archivos)
+- `modules/pages/` (10 archivos)
+- Reescribir app.py como router minimal
+## 🗂️ Features en evaluación / Backlog
+
+### 📅 Tab: "Account Pulse" — Monitor de Salud Diaria
+**Origen:** Análisis Setex MX, 17/03/2026
+**Problema que resuelve:** Contextualizar caídas de ventas sin análisis manual.
+**Inputs:** Business Report Daily CSV + Campaign file
+**Outputs:** Dashboard + resumen ejecutivo copiable para cliente
+
+**Funcionalidades planeadas:**
+1. Gráfico ventas diarias con marcado de fines de semana y festivos MX/USA
+2. Comparación semana a semana automática
+3. Detección de anomalías (caídas >30% del promedio) con posible causa
+4. Tabla semáforo de BuyBox por ASIN
+5. Separación campañas nuevas vs antiguas por fecha de inicio
+6. Resumen ejecutivo copiable para responder al cliente
