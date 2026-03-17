@@ -266,9 +266,9 @@ Usá edits quirúrgicos — nunca reescribas funciones completas si el cambio es
 Ante cualquier duda sobre arquitectura o estado del proyecto, referite al CLAUDE.md adjunto.
 Cuando agregues features nuevas, recordame actualizar el CLAUDE.md al final.
 ```
-## 🏗️ Estado de modularización (2026-03-16)
+## 🏗️ Estado de modularización (2026-03-17)
 
-app.py original: 3,974 líneas → actual: ~3,257 líneas
+app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar)
 
 ### ✅ Módulos extraídos
 - `core/i18n.py` — _I18N (dict ES/EN)
@@ -277,13 +277,44 @@ app.py original: 3,974 líneas → actual: ~3,257 líneas
 - `core/business_report.py` — _BIZ_DIR, _parse_business_report_map, _auto_load_business_report_map
 - `modules/atom11/parser.py` — _parse_atom11, _ENTITY_TYPE_LABELS, _detect_atom11_type, _extract_period_df, _summarize_daterange, _split_two_weeks
 - `modules/atom11/analysis.py` — _kpis, _generate_summary, _diag_items, _rec_items
+- `modules/atom11/parent_evolution.py` — _build_parent_evolution, _generate_parent_evo_summary
+- `modules/atom11/excel_export.py` — _build_atom11_excel
+- `modules/merchanspring/parser.py` — _parse_merchanspring, _parse_merchanspring_pdf
+- `modules/merchanspring/excel_export.py` — _build_merchanspring_excel, _build_ms_pdf_excel
+- `modules/merchanspring/style_helpers.py` — _s_acos, _s_margin, _s_delta, _s_eff, _s_stock
+- `modules/pages/inicio.py` — render()
+- `modules/pages/search_term_report.py` — render()
+- `modules/pages/search_query_performance.py` — render()
+- `modules/pages/bulk_campanas.py` — render()
+- `modules/pages/business_report.py` — render()
+- `modules/pages/analisis_cruzado.py` — render()
+- `modules/pages/tendencia_multisemana.py` — render()
+- `modules/pages/analisis_funnel.py` — render()
+- `modules/pages/atom11.py` — render()
+- `modules/pages/merchanspring.py` — render()
 
-### 🔜 Pendiente (continuar mañana)
-- `modules/atom11/parent_evolution.py`
-- `modules/atom11/excel_export.py`
-- `modules/merchanspring/` (4 archivos)
-- `modules/pages/` (10 archivos)
-- Reescribir app.py como router minimal
+### 🔜 Pendiente
+- [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
+- [ ] Bug: tendencia_multisemana.py KeyError cuando se suben dos SQPs iguales
+
+## 🛡️ MerchanSpring — Estado actual (2026-03-17)
+
+### ✅ Hecho hoy
+- Parser PDF completamente defensivo (try/except en cada sección)
+- 5 tabs en UI: Summary, Advertising, Inventory & Health, WoW Comparison, Details
+- Tab Details muestra: Traffic by Parent/Child, Cancellations, Sales by Category/Country/Brand, BSR, BuyBox Winning/Losing, Shipping, Review Status
+- Tab Advertising muestra datos reales si Amazon Ads está conectado en MerchanSpring
+
+### 🔜 Pendiente MerchanSpring
+- [ ] WoW Completo PDF — mejorar hoja "📈 WoW Comparison" con:
+  Product | ASIN | Sales Δ% | Units Δ% | Sessions Δ% | CVR Δ% | BuyBox% |
+  Ad Sales Δ% | Ad Spend Δ% | ACoS | TACoS | Contribution Margin ($) | Contribution Margin (%) | Profit %
+  - Contribution Margin = Shipped Sales - Selling Fees - Fulfilment - Advertising
+  - Datos a nivel Parent (usando tc_parent_df del parser PDF)
+  - Testear con PDF (no XLSX) — el XLSX de Dermaglos no tiene Advertising conectado
+- [ ] Fix XLSX parser — IndexError: list index out of range cuando el usuario elige elementos distintos en MerchanSpring
+- [ ] Soporte formato NorseTradesman (XLSX custom del AM) — pendiente decisión
+
 ## 🗂️ Features en evaluación / Backlog
 
 ### 📅 Tab: "Account Pulse" — Monitor de Salud Diaria
