@@ -464,19 +464,40 @@ def _parse_merchanspring_pdf(file):
         tc_parent_rows = []
         if tc_parent_m:
             tc_block = tc_parent_m.group(1)
-            tc_row_re = re.compile(
+            # Extended regex: PV PV_wow% Rev Rev_wow% Units Units_wow% Conv Conv_delta BB BB_delta
+            tc_row_ext = re.compile(
+                r'^(.+?)\s+([\d,]+)\s+([\-\+\d]+%|\+?\d+%|-)\s+(-?[\$\d,\.]+)\s+([\-\+\d]+%|-)\s+(\d+)\s+([\-\+\d]+%|-)\s+([\d\.]+%)\s+([\d\.]+\s*ppt|-)\s+([\d\.]+%)\s+([\d\.]+\s*ppt|-)',
+                re.MULTILINE
+            )
+            # Fallback: 6-group (original)
+            tc_row_base = re.compile(
                 r'^(.+?)\s+([\d,]+)\s+(-?[\$\d,\.]+)\s+(\d+)\s+([\d\.]+%)\s+([\d\.]+%)',
                 re.MULTILINE
             )
-            for m in tc_row_re.finditer(tc_block):
+            for m in tc_row_ext.finditer(tc_block):
                 tc_parent_rows.append({
                     "Product":          m.group(1).strip(),
                     "Page Views":       m.group(2),
-                    "Ordered Revenue":  m.group(3),
-                    "Ordered Units":    m.group(4),
-                    "Conversion":       m.group(5),
-                    "Buybox Win %":     m.group(6),
+                    "PV WoW (%)":       m.group(3),
+                    "Ordered Revenue":  m.group(4),
+                    "Rev WoW (%)":      m.group(5),
+                    "Ordered Units":    m.group(6),
+                    "Units WoW (%)":    m.group(7),
+                    "Conversion":       m.group(8),
+                    "Conv Delta":       m.group(9),
+                    "Buybox Win %":     m.group(10),
+                    "BB Delta":         m.group(11),
                 })
+            if not tc_parent_rows:
+                for m in tc_row_base.finditer(tc_block):
+                    tc_parent_rows.append({
+                        "Product":          m.group(1).strip(),
+                        "Page Views":       m.group(2),
+                        "Ordered Revenue":  m.group(3),
+                        "Ordered Units":    m.group(4),
+                        "Conversion":       m.group(5),
+                        "Buybox Win %":     m.group(6),
+                    })
         result["tc_parent_df"] = pd.DataFrame(tc_parent_rows) if tc_parent_rows else pd.DataFrame()
         result["traffic_by_product_parent_df"] = result["tc_parent_df"]
         _slog_df(tc_parent_rows, tc_parent_m, "Traffic by Product - Parent")
@@ -494,19 +515,38 @@ def _parse_merchanspring_pdf(file):
         tc_child_rows = []
         if tc_child_m:
             tc_block = tc_child_m.group(1)
-            tc_row_re = re.compile(
+            tc_row_ext = re.compile(
+                r'^(.+?)\s+([\d,]+)\s+([\-\+\d]+%|\+?\d+%|-)\s+(-?[\$\d,\.]+)\s+([\-\+\d]+%|-)\s+(\d+)\s+([\-\+\d]+%|-)\s+([\d\.]+%)\s+([\d\.]+\s*ppt|-)\s+([\d\.]+%)\s+([\d\.]+\s*ppt|-)',
+                re.MULTILINE
+            )
+            tc_row_base = re.compile(
                 r'^(.+?)\s+([\d,]+)\s+(-?[\$\d,\.]+)\s+(\d+)\s+([\d\.]+%)\s+([\d\.]+%)',
                 re.MULTILINE
             )
-            for m in tc_row_re.finditer(tc_block):
+            for m in tc_row_ext.finditer(tc_block):
                 tc_child_rows.append({
                     "Product":         m.group(1).strip(),
                     "Page Views":      m.group(2),
-                    "Ordered Revenue": m.group(3),
-                    "Ordered Units":   m.group(4),
-                    "Conversion":      m.group(5),
-                    "Buybox Win %":    m.group(6),
+                    "PV WoW (%)":      m.group(3),
+                    "Ordered Revenue": m.group(4),
+                    "Rev WoW (%)":     m.group(5),
+                    "Ordered Units":   m.group(6),
+                    "Units WoW (%)":   m.group(7),
+                    "Conversion":      m.group(8),
+                    "Conv Delta":      m.group(9),
+                    "Buybox Win %":    m.group(10),
+                    "BB Delta":        m.group(11),
                 })
+            if not tc_child_rows:
+                for m in tc_row_base.finditer(tc_block):
+                    tc_child_rows.append({
+                        "Product":         m.group(1).strip(),
+                        "Page Views":      m.group(2),
+                        "Ordered Revenue": m.group(3),
+                        "Ordered Units":   m.group(4),
+                        "Conversion":      m.group(5),
+                        "Buybox Win %":    m.group(6),
+                    })
         result["tc_child_df"] = pd.DataFrame(tc_child_rows) if tc_child_rows else pd.DataFrame()
         result["traffic_by_product_child_df"] = result["tc_child_df"]
         _slog_df(tc_child_rows, tc_child_m, "Traffic by Product - Child")

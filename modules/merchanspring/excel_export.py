@@ -295,114 +295,262 @@ def _build_ms_pdf_excel(data, client_name=""):
     ws4 = wb.create_sheet("📈 WoW Comparison")
     ws4.sheet_view.showGridLines = False
 
-    WOW_GROUPS = [
-        ("SALES",         ["This Week", "Prior Week", "\u0394 %"], False),
-        ("UNITS",         ["This Week", "Prior Week", "\u0394 %"], False),
-        ("SESSIONS",      ["This Week", "Prior Week", "\u0394 %"], False),
-        ("CVR",           ["This Week", "Prior Week", "\u0394 %"], False),
-        ("TACoS",         ["This Week", "Prior Week", "\u0394 %"], True),
-        ("AD SALES",      ["This Week", "Prior Week", "\u0394 %"], True),
-        ("ORGANIC SALES", ["This Week", "Prior Week", "\u0394 %"], False),
-        ("AD SPEND",      ["This Week", "Prior Week", "\u0394 %"], True),
-        ("PROFIT",        ["\u0394 %"],                            False),
+    # Column spec: (header, width, fmt, is_delta, is_orange_group)
+    WOW_COLS = [
+        ("Product",                  42, "@",        False, False),
+        ("ASIN",                     14, "@",        False, False),
+        ("Sales TW",                 13, "$#,##0.00",False, False),
+        ("Sales PW",                 13, "$#,##0.00",False, False),
+        ("Sales \u0394%",            10, "0.0",      True,  False),
+        ("Units TW",                 10, "#,##0",    False, False),
+        ("Units PW",                 10, "#,##0",    False, False),
+        ("Units \u0394%",            10, "0.0",      True,  False),
+        ("Sessions TW",              12, "#,##0",    False, False),
+        ("Sessions PW",              12, "#,##0",    False, False),
+        ("Sessions \u0394%",         10, "0.0",      True,  False),
+        ("CVR TW",                   10, "0.0%",     False, False),
+        ("CVR PW",                   10, "0.0%",     False, False),
+        ("CVR \u0394%",              10, "0.0",      True,  False),
+        ("BuyBox %",                 10, "0.0%",     False, False),
+        ("Ad Sales TW",              13, "$#,##0.00",False, True),
+        ("Ad Sales PW",              13, "$#,##0.00",False, True),
+        ("Ad Sales \u0394%",         10, "0.0",      True,  True),
+        ("Ad Spend TW",              13, "$#,##0.00",False, True),
+        ("Ad Spend PW",              13, "$#,##0.00",False, True),
+        ("Ad Spend \u0394%",         10, "0.0",      True,  True),
+        ("ACoS",                     10, "0.0%",     False, True),
+        ("TACoS",                    10, "0.0%",     False, True),
+        ("Contrib. Margin ($)",      15, "$#,##0.00",False, False),
+        ("Contrib. Margin (%)",      15, "0.0%",     False, False),
+        ("Profit %",                 10, "0.0%",     False, False),
     ]
-    total_wow_cols = 2 + sum(len(subs) for _, subs, _ in WOW_GROUPS)  # 27
-    _title_block(ws4, title, period, total_wow_cols)
+    n4 = len(WOW_COLS)
+    _title_block(ws4, title, period, n4)
 
-    # Row 3: fixed labels for Product/ASIN + group headers
+    # Group header row (row 3): merge groups
+    GRP_SPANS = [
+        ("",         1, 2,  False),
+        ("SALES",    3, 5,  False),
+        ("UNITS",    6, 8,  False),
+        ("SESSIONS", 9, 11, False),
+        ("CVR",      12, 14, False),
+        ("BUYBOX",   15, 15, False),
+        ("AD SALES", 16, 18, True),
+        ("AD SPEND", 19, 21, True),
+        ("ACOS/TACOS",22, 23, True),
+        ("MARGIN & PROFIT", 24, 26, False),
+    ]
     ws4.row_dimensions[3].height = 16
-    for ci_fix, lbl in ((1, "Product"), (2, "ASIN")):
-        c = ws4.cell(row=3, column=ci_fix, value=lbl)
-        c.fill = _fill(DGRAY); c.font = _font(True, WHITE, 9)
-        c.alignment = _al("center"); c.border = _bd()
-    ci = 3
-    for grp_name, subs, is_orange in WOW_GROUPS:
-        span = len(subs)
+    for grp_name, c_start, c_end, is_orange in GRP_SPANS:
+        if not grp_name:
+            continue
         grp_fill = ORG_L if is_orange else DGRAY
-        grp_font_color = ORG_D if is_orange else WHITE
-        if span > 1:
-            ws4.merge_cells(start_row=3, start_column=ci, end_row=3, end_column=ci + span - 1)
-        c = ws4.cell(row=3, column=ci, value=grp_name)
-        c.fill = _fill(grp_fill); c.font = _font(True, grp_font_color, 9)
+        grp_fc   = ORG_D if is_orange else WHITE
+        if c_end > c_start:
+            ws4.merge_cells(start_row=3, start_column=c_start, end_row=3, end_column=c_end)
+        c = ws4.cell(row=3, column=c_start, value=grp_name)
+        c.fill = _fill(grp_fill); c.font = _font(True, grp_fc, 9)
         c.alignment = _al("center"); c.border = _bd()
-        ci += span
 
-    # Row 4: sub-headers
-    sub_hdr_vals = ["Product", "ASIN"]
-    for _, subs, _ in WOW_GROUPS:
-        sub_hdr_vals.extend(subs)
-    _hdr(ws4, 4, sub_hdr_vals)
+    # Row 4: column headers
+    _hdr(ws4, 4, [col[0] for col in WOW_COLS])
 
-    # Rows 5+: product data
-    sum4 = data.get("summary_df", pd.DataFrame())
-    if not sum4.empty:
-        sum4 = sum4.reset_index(drop=True)
-        for ri in range(len(sum4)):
-            rn  = 5 + ri
-            row = sum4.iloc[ri]
+    # Column widths
+    for ci_w, (_, w, *_rest) in enumerate(WOW_COLS, 1):
+        ws4.column_dimensions[get_column_letter(ci_w)].width = w
+
+    # ── Build row data from tc_parent_df + prod_profit_df + adv data ─────
+    tc_df     = data.get("tc_parent_df", pd.DataFrame())
+    pp_df     = data.get("prod_profit_df", pd.DataFrame())
+    adv_sum   = data.get("adv_summary", {})
+    adv_df    = data.get("adv_df", pd.DataFrame())
+    pnl_met   = data.get("pnl_metrics", {})
+
+    # Build profit lookup by product name (fuzzy — first 30 chars)
+    profit_lookup = {}
+    if not pp_df.empty:
+        for _, prow in pp_df.iterrows():
+            pname = str(prow.get("Product", ""))[:30].lower().strip()
+            if pname:
+                profit_lookup[pname] = prow
+
+    # Build ad lookup by ASIN if available
+    ad_lookup = {}
+    if not adv_df.empty and "ASIN" in adv_df.columns:
+        for _, arow in adv_df.iterrows():
+            asin = str(arow.get("ASIN", "")).strip()
+            if asin and asin != "-":
+                ad_lookup[asin] = arow
+
+    data_start_row = 5
+    n_rows = 0
+
+    if not tc_df.empty:
+        tc_df = tc_df.reset_index(drop=True)
+        has_wow = "Rev WoW (%)" in tc_df.columns
+
+        # Totals accumulators
+        t_sales_tw = 0; t_sales_pw = 0
+        t_units_tw = 0; t_units_pw = 0
+        t_pv_tw = 0;    t_pv_pw = 0
+        t_ad_sales = 0;  t_ad_spend = 0
+        t_cm = 0;        t_shipped = 0
+
+        for ri in range(len(tc_df)):
+            rn  = data_start_row + ri
+            row = tc_df.iloc[ri]
             ws4.row_dimensions[rn].height = 15
             row_bg = WHITE if ri % 2 == 0 else LGRAY
 
-            sales_tw   = row.get("Total Sales ($)", 0)
-            sales_wow  = row.get("Sales WoW (%)", "-")
-            sales_pw   = _calc_prior(sales_tw, sales_wow)
-            sales_d    = _parse_wow_pct(sales_wow)
+            product = str(row.get("Product", ""))
+            # Try to extract ASIN from product name or from the ASIN field
+            asin_val = str(row.get("ASIN", "")) if "ASIN" in tc_df.columns else "-"
 
-            units_tw   = row.get("Units Sold", 0)
-            units_wow  = row.get("Units WoW (%)", "-")
-            units_pw   = _calc_prior(units_tw, units_wow)
-            units_d    = _parse_wow_pct(units_wow)
+            # Parse numeric values
+            rev_tw  = _num(row.get("Ordered Revenue", 0)) or 0
+            units_tw = _num(row.get("Ordered Units", 0)) or 0
+            pv_tw    = _num(row.get("Page Views", 0)) or 0
+            conv_tw  = _num(str(row.get("Conversion", "0")).replace("%", "")) or 0
+            bb_pct   = _num(str(row.get("Buybox Win %", "0")).replace("%", "")) or 0
 
-            def _dc(cn, val, fmt=None, delta=False, left=False):
-                if delta and isinstance(val, float):
-                    if val > 5:   bg4, fg4 = GRN_L, GRN_D
+            # Prior period from WoW deltas
+            rev_wow  = _parse_wow_pct(row.get("Rev WoW (%)", "-")) if has_wow else None
+            units_wow = _parse_wow_pct(row.get("Units WoW (%)", "-")) if has_wow else None
+            pv_wow   = _parse_wow_pct(row.get("PV WoW (%)", "-")) if has_wow else None
+
+            rev_pw   = _calc_prior(rev_tw, row.get("Rev WoW (%)", "-")) if has_wow else "-"
+            units_pw = _calc_prior(units_tw, row.get("Units WoW (%)", "-")) if has_wow else "-"
+            pv_pw    = _calc_prior(pv_tw, row.get("PV WoW (%)", "-")) if has_wow else "-"
+
+            # CVR prior: derive from prior sessions and units
+            cvr_pw = None
+            if isinstance(pv_pw, (int, float)) and pv_pw > 0 and isinstance(units_pw, (int, float)):
+                cvr_pw = units_pw / pv_pw * 100
+            cvr_delta = (conv_tw - cvr_pw) if cvr_pw is not None else None
+
+            # Ad data for this product
+            ad_row = ad_lookup.get(asin_val)
+            ad_sales_tw = _num(ad_row.get("Ad Sales", 0)) if ad_row is not None else None
+            ad_spend_tw = _num(ad_row.get("Spend", 0)) if ad_row is not None else None
+            acos_val = None
+            if ad_sales_tw and ad_sales_tw > 0 and ad_spend_tw is not None:
+                acos_val = ad_spend_tw / ad_sales_tw * 100
+            tacos_val = None
+            if rev_tw > 0 and ad_spend_tw is not None:
+                tacos_val = ad_spend_tw / rev_tw * 100
+
+            # Profit data
+            p_key = product[:30].lower().strip()
+            p_row = profit_lookup.get(p_key)
+            shipped   = _num(p_row.get("Shipped Sales ($)", 0)) if p_row is not None else None
+            sell_fees = _num(p_row.get("Selling Fees ($)", 0)) if p_row is not None else None
+            fulfil    = _num(p_row.get("Fulfilment ($)", 0)) if p_row is not None else None
+            ad_cost   = ad_spend_tw if ad_spend_tw else 0
+            cm = None; cm_pct = None; profit_pct_val = None
+            if shipped is not None and sell_fees is not None and fulfil is not None:
+                cm = shipped - (abs(sell_fees) + abs(fulfil) + abs(ad_cost))
+                cm_pct = (cm / shipped * 100) if shipped > 0 else 0
+            profit_val = _num(p_row.get("Profit ($)", 0)) if p_row is not None else None
+            if profit_val is not None and shipped and shipped > 0:
+                profit_pct_val = profit_val / shipped * 100
+
+            # Accumulate totals
+            t_sales_tw += rev_tw
+            t_units_tw += int(units_tw)
+            t_pv_tw    += int(pv_tw)
+            if isinstance(rev_pw, (int, float)): t_sales_pw += rev_pw
+            if isinstance(units_pw, (int, float)): t_units_pw += int(units_pw)
+            if isinstance(pv_pw, (int, float)): t_pv_pw += int(pv_pw)
+            if ad_sales_tw: t_ad_sales += ad_sales_tw
+            if ad_spend_tw: t_ad_spend += ad_spend_tw
+            if cm is not None: t_cm += cm
+            if shipped: t_shipped += shipped
+
+            # Write cells
+            vals = [
+                product, asin_val,
+                rev_tw, rev_pw if isinstance(rev_pw, (int, float)) else "-", rev_wow,
+                int(units_tw), units_pw if isinstance(units_pw, (int, float)) else "-", units_wow,
+                int(pv_tw), pv_pw if isinstance(pv_pw, (int, float)) else "-", pv_wow,
+                conv_tw / 100 if conv_tw else 0, (cvr_pw / 100) if cvr_pw is not None else "-", cvr_delta,
+                bb_pct / 100 if bb_pct else 0,
+                ad_sales_tw if ad_sales_tw else "-", "-", "-",
+                ad_spend_tw if ad_spend_tw else "-", "-", "-",
+                (acos_val / 100) if acos_val is not None else "-",
+                (tacos_val / 100) if tacos_val is not None else "-",
+                cm if cm is not None else "-",
+                (cm_pct / 100) if cm_pct is not None else "-",
+                (profit_pct_val / 100) if profit_pct_val is not None else "-",
+            ]
+
+            for ci, ((_hdr_name, _w, fmt, is_delta, _is_orn), val) in enumerate(zip(WOW_COLS, vals), 1):
+                bg4, fg4 = row_bg, "000000"
+                if is_delta and isinstance(val, (int, float)):
+                    if val > 5:    bg4, fg4 = GRN_L, GRN_D
                     elif val < -5: bg4, fg4 = RED_L, RED_D
                     else:          bg4, fg4 = YEL_L, YEL_D
-                else:
-                    bg4, fg4 = row_bg, "000000"
-                _cell(ws4, rn, cn, val, bg=bg4, fg=fg4, fmt=fmt, left=left or (cn <= 2))
+                display = val if val != "-" else "-"
+                _cell(ws4, rn, ci, display, bg=bg4, fg=fg4,
+                      fmt=fmt if val != "-" else None,
+                      left=(ci <= 2))
 
-            _dc(1, str(row.get("Product", "")), left=True)
-            _dc(2, str(row.get("ASIN", "")),    left=True)
-            # SALES
-            _dc(3,  sales_tw,  "$#,##0.00")
-            _dc(4,  sales_pw,  "$#,##0.00" if isinstance(sales_pw, float) else None)
-            _dc(5,  sales_d,   "0.00", delta=True)
-            # UNITS
-            _dc(6,  units_tw,  "#,##0")
-            _dc(7,  units_pw,  "#,##0" if isinstance(units_pw, float) else None)
-            _dc(8,  units_d,   "0.00", delta=True)
-            # SESSIONS (not available)
-            for cn in (9, 10, 11):  _dc(cn, "-")
-            # CVR (not available)
-            for cn in (12, 13, 14): _dc(cn, "-")
-            # TACoS (not connected)
-            for cn in (15, 16, 17): _dc(cn, "\u2014")
-            # AD SALES (not connected)
-            for cn in (18, 19, 20): _dc(cn, "\u2014")
-            # ORGANIC SALES (proxy = Total Sales, no ads)
-            _dc(21, sales_tw,  "$#,##0.00")
-            _dc(22, "-")
-            _dc(23, sales_d,   "0.00", delta=True)
-            # AD SPEND (not connected)
-            for cn in (24, 25, 26): _dc(cn, "\u2014")
-            # PROFIT Δ %
-            _dc(27, "-")
+        n_rows = len(tc_df)
 
-    # Note row below data
-    note_rn = 5 + (len(sum4) if not sum4.empty else 0) + 1
-    ws4.merge_cells(start_row=note_rn, start_column=1, end_row=note_rn, end_column=total_wow_cols)
+        # ── TOTALS row ──────────────────────────────────────────────────
+        tot_rn = data_start_row + n_rows
+        ws4.row_dimensions[tot_rn].height = 18
+
+        sales_delta_tot = ((t_sales_tw - t_sales_pw) / t_sales_pw * 100) if t_sales_pw > 0 else "-"
+        units_delta_tot = ((t_units_tw - t_units_pw) / t_units_pw * 100) if t_units_pw > 0 else "-"
+        pv_delta_tot    = ((t_pv_tw - t_pv_pw) / t_pv_pw * 100) if t_pv_pw > 0 else "-"
+        cvr_tw_tot      = (t_units_tw / t_pv_tw * 100) if t_pv_tw > 0 else 0
+        cvr_pw_tot      = (t_units_pw / t_pv_pw * 100) if t_pv_pw > 0 else 0
+        cvr_d_tot       = cvr_tw_tot - cvr_pw_tot if cvr_pw_tot else "-"
+        acos_tot        = (t_ad_spend / t_ad_sales * 100) if t_ad_sales > 0 else "-"
+        tacos_tot       = (t_ad_spend / t_sales_tw * 100) if t_sales_tw > 0 else "-"
+        cm_pct_tot      = (t_cm / t_shipped * 100) if t_shipped > 0 else "-"
+        profit_pct_str  = pnl_met.get("Profit %", "-")
+        profit_pct_tot  = _num(str(profit_pct_str).replace("%", ""))
+
+        tot_vals = [
+            "TOTALS", "",
+            t_sales_tw, t_sales_pw if t_sales_pw else "-", sales_delta_tot,
+            t_units_tw, t_units_pw if t_units_pw else "-", units_delta_tot,
+            t_pv_tw, t_pv_pw if t_pv_pw else "-", pv_delta_tot,
+            cvr_tw_tot / 100 if cvr_tw_tot else 0, cvr_pw_tot / 100 if cvr_pw_tot else "-", cvr_d_tot,
+            "-",
+            t_ad_sales if t_ad_sales else "-", "-", "-",
+            t_ad_spend if t_ad_spend else "-", "-", "-",
+            (acos_tot / 100) if isinstance(acos_tot, (int, float)) else "-",
+            (tacos_tot / 100) if isinstance(tacos_tot, (int, float)) else "-",
+            t_cm if t_cm else "-",
+            (cm_pct_tot / 100) if isinstance(cm_pct_tot, (int, float)) else "-",
+            (profit_pct_tot / 100) if profit_pct_tot is not None else "-",
+        ]
+
+        for ci, ((_hdr_name, _w, fmt, is_delta, _is_orn), val) in enumerate(zip(WOW_COLS, tot_vals), 1):
+            bg4, fg4 = NAVY, WHITE
+            if is_delta and isinstance(val, (int, float)):
+                if val > 5:    bg4, fg4 = GRN_L, GRN_D
+                elif val < -5: bg4, fg4 = RED_L, RED_D
+                else:          bg4, fg4 = YEL_L, YEL_D
+            _cell(ws4, tot_rn, ci, val if val != "-" else "-", bg=bg4, fg=fg4,
+                  bold=True, fmt=fmt if val != "-" else None, left=(ci == 1))
+
+        n_rows += 1
+
+    else:
+        _no_data_row(ws4, data_start_row, n4,
+                     "No traffic data available — tc_parent_df is empty")
+
+    # Note row
+    note_rn = data_start_row + n_rows + 1
+    ws4.merge_cells(start_row=note_rn, start_column=1, end_row=note_rn, end_column=n4)
     nc = ws4.cell(row=note_rn, column=1,
-                  value="* TACoS, Ad Sales y Ad Spend no disponibles \u2014 conectar Amazon Ads en MerchantSpring: Settings \u2192 Integrations")
+                  value="* Ad Sales PW / Ad Spend PW require historical ad data. Contribution Margin = Shipped Sales - Selling Fees - Fulfilment - Ad Spend.")
     nc.fill = _fill(YEL_L); nc.font = _font(False, YEL_D, 8)
     nc.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
     ws4.row_dimensions[note_rn].height = 20
-
-    # Column widths
-    ws4.column_dimensions["A"].width = 42
-    ws4.column_dimensions["B"].width = 14
-    for ci_w in range(3, total_wow_cols + 1):
-        ws4.column_dimensions[get_column_letter(ci_w)].width = 11
     ws4.freeze_panes = "C5"
 
     buf = io.BytesIO()
