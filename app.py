@@ -20,6 +20,7 @@ from modules.pages.inicio import render as _render_inicio
 from modules.pages.search_term_report import render as _render_str
 from modules.pages.search_query_performance import render as _render_sqp
 from modules.pages.bulk_campanas import render as _render_bulk
+from modules.pages.business_report import render as _render_br
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -88,14 +89,7 @@ if selected == "📁 Bulk Campañas":
     _render_bulk()
 
 if selected == "💰 Business Report":
-    st.header("💰 Business Report")
-    st.caption("Reporte de ventas y sesiones exportado desde Amazon Seller Central.")
-    st.divider()
-    file_br = st.file_uploader("Sube tu Business Report (.xlsx o .csv)", type=["xlsx", "csv"], key="br")
-    if file_br:
-        df = pd.read_excel(file_br) if file_br.name.endswith(".xlsx") else pd.read_csv(file_br)
-        st.success(f"✅ {len(df)} filas cargadas")
-        st.dataframe(df, use_container_width=True)
+    _render_br()
 
 if selected == "🔗 Análisis Cruzado STR vs SQP":
     st.header("🔗 Análisis Cruzado STR vs SQP")
