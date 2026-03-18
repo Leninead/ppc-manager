@@ -60,7 +60,7 @@ with st.sidebar:
     st.button("🔻 Análisis de Funnel", use_container_width=True, on_click=_nav, args=("🔻 Análisis de Funnel",), key="nav_funnel")
 
     st.markdown("**📋 Reportes**")
-    for _pg in ["🔬 Reportes Atom 11", "🛡️ Reportes MerchanSpring"]:
+    for _pg in ["🔬 Reportes Atom 11", "🛡️ Reportes MerchanSpring", "📊 Weekly Client Report"]:
         st.button(_pg, use_container_width=True, on_click=_nav, args=(_pg,), key=f"nav_{_pg}")
 
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
@@ -112,3 +112,6 @@ if selected == "🔬 Reportes Atom 11":
 
 if selected == "🛡️ Reportes MerchanSpring":
     _render_ms()
+
+if selected == "📊 Weekly Client Report":
+    render_weekly()

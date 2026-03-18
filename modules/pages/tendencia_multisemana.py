@@ -1,4 +1,5 @@
 import io
+import hashlib
 
 import streamlit as st
 import pandas as pd
@@ -23,9 +24,29 @@ def render():
         imp_col_t = "Impressions: Total Count"
         sqp_col_t = "Search Query"
 
+        # Detectar archivos duplicados por hash
+        seen_hashes = {}
+        unique_files = []
+        for f in sqp_files:
+            f.seek(0)
+            file_hash = hashlib.md5(f.read()).hexdigest()
+            f.seek(0)
+            if file_hash in seen_hashes:
+                st.warning(f"⚠️ \"{f.name}\" es idéntico a \"{seen_hashes[file_hash]}\" — se omite.")
+            else:
+                seen_hashes[file_hash] = f.name
+                unique_files.append(f)
+        sqp_files = unique_files
+
+        if len(sqp_files) < 2:
+            st.warning("Necesitás al menos 2 archivos distintos para ver la tendencia.")
+            return
+
         weeks = []
+        used_labels = set()
         for f in sqp_files:
             df_w = read_sqp(f)
+            df_w = df_w.drop_duplicates(subset=[sqp_col_t] if sqp_col_t in df_w.columns else None)
             df_w[sqp_col_t] = df_w[sqp_col_t].str.lower().str.strip()
             if imp_col_t in df_w.columns:
                 df_w[imp_col_t] = pd.to_numeric(df_w[imp_col_t], errors="coerce").fillna(0)
@@ -35,6 +56,13 @@ def render():
                 label = str(df_w["Reporting Date"].dropna().iloc[0]) if not df_w["Reporting Date"].dropna().empty else f.name
             else:
                 label = f.name
+            # Desambiguar labels duplicados
+            base_label = label
+            suffix = 2
+            while label in used_labels:
+                label = f"{base_label} ({suffix})"
+                suffix += 1
+            used_labels.add(label)
             weeks.append((label, df_w[[sqp_col_t, imp_col_t]].rename(columns={imp_col_t: label})))
 
         df_trend = weeks[0][1]

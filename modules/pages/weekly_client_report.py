@@ -136,7 +136,107 @@ def _parse_atom11_wow(file):
     return result
 
 
-def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es", br_daily=None):
+def _parse_campaign_csv(file):
+    """Parse Campaign Manager CSV → dict con métricas agregadas + lista de campañas."""
+    df = pd.read_csv(file)
+
+    def _n(col):
+        for c in df.columns:
+            if col.lower() in c.lower():
+                return c
+        return None
+
+    def _to_float(series):
+        return pd.to_numeric(
+            series.astype(str).str.replace(r"[MX$,%]", "", regex=True).str.replace(",", ""),
+            errors="coerce").fillna(0)
+
+    imp_col   = _n("Impressions")
+    click_col = _n("Clicks")
+    ctr_col   = _n("Click-Through Rate") or _n("CTR")
+    spend_col = _n("Spend") or _n("Total cost") or _n("Cost")
+    sales_col = _n("Sales") or _n("Total Sales")
+    orders_col = _n("Orders") or _n("Purchases")
+    acos_col  = _n("ACOS") or _n("ACoS")
+    camp_col  = _n("Campaign Name") or _n("Campaign name")
+    port_col  = _n("Portfolio name") or _n("Portfolio")
+    dpv_col   = _n("Detail Page View") or _n("DPV")
+    ntb_orders_col = _n("New-to-brand orders") or _n("NTB orders")
+    ntb_sales_col  = _n("New-to-brand sales") or _n("NTB sales")
+
+    if imp_col:   df["_imp"]   = _to_float(df[imp_col])
+    if click_col: df["_click"] = _to_float(df[click_col])
+    if spend_col: df["_spend"] = _to_float(df[spend_col])
+    if sales_col: df["_sales"] = _to_float(df[sales_col])
+    if orders_col: df["_orders"] = _to_float(df[orders_col])
+    if dpv_col:   df["_dpv"]   = _to_float(df[dpv_col])
+    if ntb_orders_col: df["_ntb_orders"] = _to_float(df[ntb_orders_col])
+    if ntb_sales_col:  df["_ntb_sales"]  = _to_float(df[ntb_sales_col])
+
+    totals = {
+        "Impressions": df["_imp"].sum()   if "_imp"   in df else 0,
+        "Clicks":      df["_click"].sum() if "_click" in df else 0,
+        "Spend":       df["_spend"].sum() if "_spend" in df else 0,
+        "Sales":       df["_sales"].sum() if "_sales" in df else 0,
+        "Orders":      df["_orders"].sum() if "_orders" in df else 0,
+        "DPV":         df["_dpv"].sum()   if "_dpv"   in df else 0,
+        "NTB_Orders":  df["_ntb_orders"].sum() if "_ntb_orders" in df else 0,
+        "NTB_Sales":   df["_ntb_sales"].sum()  if "_ntb_sales"  in df else 0,
+    }
+    totals["CTR"] = (totals["Clicks"] / totals["Impressions"] * 100) if totals["Impressions"] > 0 else 0
+    totals["ACoS"] = (totals["Spend"] / totals["Sales"] * 100) if totals["Sales"] > 0 else 0
+    totals["CPC"] = (totals["Spend"] / totals["Clicks"]) if totals["Clicks"] > 0 else 0
+    totals["NTB_Pct"] = (totals["NTB_Orders"] / totals["Orders"] * 100) if totals["Orders"] > 0 and totals["NTB_Orders"] > 0 else 0
+
+    # Top campaigns by spend
+    campaigns = []
+    if camp_col and "_spend" in df:
+        grp_cols = [camp_col]
+        agg_map = {"_spend": "sum"}
+        if "_imp"    in df: agg_map["_imp"]    = "sum"
+        if "_click"  in df: agg_map["_click"]  = "sum"
+        if "_sales"  in df: agg_map["_sales"]  = "sum"
+        if "_orders" in df: agg_map["_orders"] = "sum"
+        camp_df = df.groupby(camp_col, as_index=False).agg(agg_map)
+        camp_df = camp_df.sort_values("_spend", ascending=False).head(15)
+        for _, r in camp_df.iterrows():
+            imp_v = r.get("_imp", 0)
+            clk_v = r.get("_click", 0)
+            sal_v = r.get("_sales", 0)
+            spd_v = r.get("_spend", 0)
+            campaigns.append({
+                "Campaign": str(r[camp_col])[:60],
+                "Impressions": int(imp_v),
+                "Clicks": int(clk_v),
+                "CTR": round(clk_v / imp_v * 100, 2) if imp_v > 0 else 0,
+                "Spend": round(spd_v, 2),
+                "Sales": round(sal_v, 2),
+                "ACoS": round(spd_v / sal_v * 100, 1) if sal_v > 0 else 0,
+                "Orders": int(r.get("_orders", 0)),
+            })
+
+    # Portfolios
+    portfolios = []
+    if port_col and "_spend" in df:
+        port_df = df.groupby(port_col, as_index=False).agg(agg_map)
+        port_df = port_df.sort_values("_spend", ascending=False)
+        for _, r in port_df.iterrows():
+            pname = str(r[port_col]).strip()
+            if not pname or pname in ("nan", "None", ""): pname = "(Sin Portfolio)"
+            imp_v = r.get("_imp", 0)
+            sal_v = r.get("_sales", 0)
+            spd_v = r.get("_spend", 0)
+            portfolios.append({
+                "Portfolio": pname[:40],
+                "Spend": round(spd_v, 2),
+                "Sales": round(sal_v, 2),
+                "ACoS": round(spd_v / sal_v * 100, 1) if sal_v > 0 else 0,
+            })
+
+    return {"totals": totals, "campaigns": campaigns, "portfolios": portfolios}
+
+
+def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es", br_daily=None, camp_data=None):
     NAVY="0D1B3E"; WHITE="FFFFFF"; LGRAY="F7FAFC"; DGRAY="2D3748"; MGRAY="CBD5E0"
     GRN_L="C6EFCE"; GRN_D="276221"; RED_L="FFC7CE"; RED_D="9C0006"
     YEL_L="FFEB9C"; YEL_D="9C5700"; ORG_L="FFE0B2"; ORG_D="BF360C"
@@ -461,7 +561,119 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         ws1.column_dimensions[get_column_letter(ci_w)].width = 12
     ws1.freeze_panes = "C4"
 
-    # ── SHEET 2: Reporte Ejecutivo ───────────────────────────
+    # ── SHEET 2: Advertising ──────────────────────────────────
+    ws_ad = wb_out.create_sheet("\U0001f4e3 Advertising")
+    ws_ad.sheet_view.showGridLines = False
+    if camp_data:
+        ct = camp_data["totals"]
+        AD_COLS = 8
+        # Title
+        ws_ad.merge_cells(start_row=1, start_column=1, end_row=1, end_column=AD_COLS)
+        c = ws_ad.cell(row=1, column=1, value=f"{client_name} — Advertising Overview")
+        c.fill = _fill(NAVY); c.font = _font(True, WHITE, 14)
+        c.alignment = _al("left"); c.border = _bd()
+        ws_ad.row_dimensions[1].height = 28
+
+        # KPI cards row
+        ad_kpis = [
+            ("Impressions", f"{ct['Impressions']:,.0f}"),
+            ("Clicks", f"{ct['Clicks']:,.0f}"),
+            ("CTR", f"{ct['CTR']:.2f}%"),
+            ("CPC", f"${ct['CPC']:.2f}"),
+            ("Spend", f"${ct['Spend']:,.2f}"),
+            ("Sales", f"${ct['Sales']:,.2f}"),
+            ("ACoS", f"{ct['ACoS']:.1f}%"),
+            ("Orders", f"{ct['Orders']:,.0f}"),
+        ]
+        for ki, (kn, kv) in enumerate(ad_kpis, 1):
+            _cell(ws_ad, 2, ki, kn, bg=DGRAY, fg=WHITE, bold=True, size=8)
+            _cell(ws_ad, 3, ki, kv, bg=LGRAY, bold=True, size=9)
+        ws_ad.row_dimensions[2].height = 14
+        ws_ad.row_dimensions[3].height = 18
+
+        # NTB row if available
+        ad_rn = 4
+        if ct.get("NTB_Orders", 0) > 0 or ct.get("DPV", 0) > 0:
+            ws_ad.merge_cells(start_row=ad_rn, start_column=1, end_row=ad_rn, end_column=AD_COLS)
+            ntb_txt = []
+            if ct["DPV"] > 0: ntb_txt.append(f"DPV: {ct['DPV']:,.0f}")
+            if ct["NTB_Orders"] > 0: ntb_txt.append(f"NTB Orders: {ct['NTB_Orders']:,.0f} ({ct['NTB_Pct']:.1f}%)")
+            if ct["NTB_Sales"] > 0: ntb_txt.append(f"NTB Sales: ${ct['NTB_Sales']:,.2f}")
+            c = ws_ad.cell(row=ad_rn, column=1, value="  ".join(ntb_txt))
+            c.fill = _fill(BLUE_L); c.font = _font(True, BLUE_D, 9)
+            c.alignment = _al("left"); c.border = _bd()
+            ad_rn += 1
+
+        # Top campaigns
+        ad_rn += 1
+        camps = camp_data.get("campaigns", [])
+        if camps:
+            ad_rn = _sec(ws_ad, ad_rn, f"TOP {len(camps)} CAMPAIGNS BY SPEND", AD_COLS, bg=ORG_L, fg=ORG_D)
+            camp_hdrs = ["Campaign", "Impressions", "Clicks", "CTR%", "Spend", "Sales", "ACoS%", "Orders"]
+            _hdr(ws_ad, ad_rn, camp_hdrs)
+            ad_rn += 1
+            for ci_c, camp in enumerate(camps):
+                row_bg = WHITE if ci_c % 2 == 0 else LGRAY
+                _cell(ws_ad, ad_rn, 1, camp["Campaign"], bg=row_bg, left=True)
+                _cell(ws_ad, ad_rn, 2, camp["Impressions"], bg=row_bg, fmt="#,##0")
+                _cell(ws_ad, ad_rn, 3, camp["Clicks"], bg=row_bg, fmt="#,##0")
+                _cell(ws_ad, ad_rn, 4, camp["CTR"], bg=row_bg, fmt="0.00")
+                _cell(ws_ad, ad_rn, 5, camp["Spend"], bg=row_bg, fmt='"$"#,##0.00')
+                _cell(ws_ad, ad_rn, 6, camp["Sales"], bg=row_bg, fmt='"$"#,##0.00')
+                acos_v = camp["ACoS"]
+                bg_a = GRN_L if acos_v < 30 else (YEL_L if acos_v < 60 else RED_L)
+                fg_a = GRN_D if acos_v < 30 else (YEL_D if acos_v < 60 else RED_D)
+                _cell(ws_ad, ad_rn, 7, acos_v, bg=bg_a, fg=fg_a, fmt="0.0")
+                _cell(ws_ad, ad_rn, 8, camp["Orders"], bg=row_bg, fmt="#,##0")
+                ws_ad.row_dimensions[ad_rn].height = 16
+                ad_rn += 1
+
+            # Alarmas ACoS > 60%
+            alarm_camps = [c for c in camps if c["ACoS"] > 60 and c["Spend"] > 0]
+            if alarm_camps:
+                ad_rn += 1
+                ad_rn = _sec(ws_ad, ad_rn, f"\u26a0\ufe0f ALARMAS — {len(alarm_camps)} CAMPAÑAS CON ACoS > 60%", AD_COLS, bg=RED_L, fg=RED_D)
+                for ac in alarm_camps:
+                    ws_ad.merge_cells(start_row=ad_rn, start_column=1, end_row=ad_rn, end_column=AD_COLS)
+                    c = ws_ad.cell(row=ad_rn, column=1,
+                                   value=f"  {ac['Campaign']} — ACoS {ac['ACoS']:.1f}% | Spend ${ac['Spend']:,.2f} | Sales ${ac['Sales']:,.2f}")
+                    c.fill = _fill(RED_L); c.font = _font(False, RED_D, 9)
+                    c.alignment = _al("left"); c.border = _bd()
+                    ws_ad.row_dimensions[ad_rn].height = 16
+                    ad_rn += 1
+
+        # Portfolios
+        ports = camp_data.get("portfolios", [])
+        if ports:
+            ad_rn += 1
+            ad_rn = _sec(ws_ad, ad_rn, "PORTFOLIOS", AD_COLS, bg=DGRAY, fg=WHITE)
+            port_hdrs = ["Portfolio", "Spend", "Sales", "ACoS%", "", "", "", ""]
+            _hdr(ws_ad, ad_rn, port_hdrs)
+            ad_rn += 1
+            for pi, port in enumerate(ports):
+                row_bg = WHITE if pi % 2 == 0 else LGRAY
+                _cell(ws_ad, ad_rn, 1, port["Portfolio"], bg=row_bg, left=True)
+                _cell(ws_ad, ad_rn, 2, port["Spend"], bg=row_bg, fmt='"$"#,##0.00')
+                _cell(ws_ad, ad_rn, 3, port["Sales"], bg=row_bg, fmt='"$"#,##0.00')
+                pa = port["ACoS"]
+                bg_p = GRN_L if pa < 30 else (YEL_L if pa < 60 else RED_L)
+                fg_p = GRN_D if pa < 30 else (YEL_D if pa < 60 else RED_D)
+                _cell(ws_ad, ad_rn, 4, pa, bg=bg_p, fg=fg_p, fmt="0.0")
+                ws_ad.row_dimensions[ad_rn].height = 16
+                ad_rn += 1
+
+        ws_ad.column_dimensions["A"].width = 50
+        for ci_w in range(2, AD_COLS + 1):
+            ws_ad.column_dimensions[get_column_letter(ci_w)].width = 14
+    else:
+        # No campaign data — show placeholder
+        ws_ad.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
+        c = ws_ad.cell(row=1, column=1, value="⚠️ No se cargó Campaign CSV — sube el archivo para ver métricas de Advertising")
+        c.fill = _fill(YEL_L); c.font = _font(True, YEL_D, 11)
+        c.alignment = _al("left"); c.border = _bd()
+        ws_ad.column_dimensions["A"].width = 80
+
+    # ── SHEET 3: Reporte Ejecutivo ───────────────────────────
     ws2 = wb_out.create_sheet("\U0001f4cb Reporte Ejecutivo")
     ws2.sheet_view.showGridLines = False
     ws2.column_dimensions["A"].width = 80
@@ -603,17 +815,23 @@ def render():
     st.caption("Atom 11 \u2192 ASIN \u2192 DateRange 14 d\u00edas. Split autom\u00e1tico 7+7.")
     atom_file = st.file_uploader("Atom 11 ASIN (.xlsx)", type=["xlsx"], key="atom_wow")
 
-    if br_daily_file or br_child_file or atom_file:
+    st.markdown("#### 4\ufe0f\u20e3 Campaign Report")
+    st.caption("Campaign Manager \u2192 Advertising \u2192 Campaign Manager \u2192 mismo date range de 14 d\u00edas")
+    camp_file = st.file_uploader("Campaign CSV (.csv)", type=["csv"], key="wcr_campaign")
+
+    if br_daily_file or br_child_file or atom_file or camp_file:
         st.divider()
         try:
             br_daily_data = _parse_br_daily_wow(br_daily_file) if br_daily_file else None
             br_child_data = _parse_br_wow(br_child_file)       if br_child_file else {}
             atom_data     = _parse_atom11_wow(atom_file)        if atom_file     else {}
+            camp_data     = _parse_campaign_csv(camp_file)      if camp_file     else None
 
             msgs = []
             if br_daily_data: msgs.append(f"BR diario \u2713 TW={br_daily_data['dates_tw'][-1]}")
             if br_child_data: msgs.append(f"{len(br_child_data)} ASINs BR child \u2713")
             if atom_data:     msgs.append(f"{len(atom_data)} ASINs Atom 11 \u2713")
+            if camp_data:     msgs.append(f"{len(camp_data.get('campaigns',[]))} camps · {camp_data['totals']['Impressions']:,.0f} imps \u2713")
             st.success("\u2705 " + " \u00b7 ".join(msgs))
 
             if br_daily_data:
@@ -662,6 +880,7 @@ def render():
                 atom_tw=atom_data, atom_pw={},
                 client_name=client_w or "Client",
                 lang=lang_w, br_daily=br_daily_data,
+                camp_data=camp_data,
             )
             safe_n = (client_w or "report").replace(" ", "_")[:30]
             st.download_button(
