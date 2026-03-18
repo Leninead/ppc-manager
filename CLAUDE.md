@@ -292,10 +292,59 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar)
 - `modules/pages/analisis_funnel.py` — render()
 - `modules/pages/atom11.py` — render()
 - `modules/pages/merchanspring.py` — render()
+- `modules/pages/weekly_client_report.py` — render() ✅ creado 17/03/2026
 
 ### 🔜 Pendiente
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
 - [ ] Bug: tendencia_multisemana.py KeyError cuando se suben dos SQPs iguales
+
+---
+
+## 📊 Tab: Weekly Client Report (2026-03-17)
+
+**Estado:** ✅ Módulo creado y funcionando
+
+### Inputs (4 archivos, mismo date range 14 días)
+| Archivo | Dónde bajarlo | Para qué |
+|---------|--------------|---------|
+| BR diario 14d | Sales Dashboard → By Date → Sales and Traffic | CUENTA TOTAL con PW/TW |
+| BR by Child | By ASIN → Detail Page Sales and Traffic By Child Item | Desglose por ASIN |
+| Atom 11 ASIN | Atom 11 → ASIN → DateRange 14 días | Ad Spend/Sales por ASIN, split 7+7 |
+| Campaign CSV | Campaign Manager → mismo date range | Impressions/CTR/DPV/NTB |
+
+### Lógica de split
+- Atom 11: `TW = dates[-7:]`, `PW = dates[:-7]` — funciona con 13 o 14 fechas
+- BR diario: `TW = últimos 7 días`, `PW = anteriores`
+- BR by Child: snapshot sin fecha → solo TW, Sales PW muestra `—`
+- Campaign CSV: debe bajarse con el mismo date range de 14 días (no lifetime)
+
+### Output Excel 3 hojas
+- `📈 WoW Comparison` — fila azul CUENTA TOTAL + desglose por ASIN
+  - Columnas: Sales / Units / Sessions / CVR / BuyBox / Ad Sales / Ad Spend / ACoS / TACoS
+- `📣 Advertising` — métricas PW vs TW + top 10 camps + alarmas ACoS>60% + portfolios
+- `📋 Reporte Ejecutivo` — análisis redactado automático, toggle ES/EN
+
+### Funciones en `modules/pages/weekly_client_report.py`
+```python
+_parse_br_daily_wow(file)   # BR diario → dict Sales/Units/Sessions/CVR/BuyBox TW+PW
+_parse_br_wow(file)         # BR by Child → dict {asin: {Title, Sales, Units, Sessions, CVR, BuyBox}}
+_parse_atom11_wow(file)     # Atom 11 wide → dict {asin: {Spend_TW/PW, Sales_TW/PW, Orders_TW/PW}}
+_build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name, lang, br_daily)  # → BytesIO 3 hojas
+render()                    # página Streamlit con uploaders + preview + download
+```
+
+### Fixes importantes
+- `BuyBox_TW = None` cuando el BR diario no tiene esa columna (ej: M&B)
+- `_parse_br_daily_wow` detecta automáticamente `Unit Session Percentage` o `Order Item Session Percentage`
+- BuyBox con 0 sesiones → se ignora (evita falsos positivos en el ejecutivo)
+- `ACoS/TACoS` semáforo invertido (bajar es bueno) en la hoja Advertising
+
+### Clientes probados
+- **Love To Dream MX** — 56 ASINs, ACoS 22.7%, TACoS 17.4%, semana +43.9% ventas
+- **M&B (Mott & Bow)** — 159 ASINs, ACoS 8.6%, TACoS 5.4%, semana +58.3% ventas
+  - BR diario sin columna BuyBox estándar → BuyBox CUENTA TOTAL muestra `—`
+
+---
 
 ## 🛡️ MerchanSpring — Estado actual (2026-03-17)
 
@@ -330,3 +379,64 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar)
 4. Tabla semáforo de BuyBox por ASIN
 5. Separación campañas nuevas vs antiguas por fecha de inicio
 6. Resumen ejecutivo copiable para responder al cliente
+
+---
+
+## 📌 Reglas de trabajo — Flujo de código (2026-03-17)
+
+**IMPORTANTE:** Claude (chat) nunca da código para copiar/pegar manualmente.
+Siempre genera **prompts para Claude Code en VS Code** que ejecute los cambios de forma autónoma.
+
+### Flujo correcto
+1. Claude (chat) diseña la lógica y redacta el prompt
+2. Lenin copia el prompt en Claude Code (VS Code)
+3. Claude Code ejecuta los cambios con autonomía absoluta
+4. Claude Code confirma qué líneas modificó
+
+### Formato de prompt para Claude Code
+- Incluir: ruta exacta del archivo, cambios específicos, sin preguntas, confirmar al terminar
+- Nunca pausar por dudas — tomar la decisión más razonable y continuar
+
+---
+
+## 🚧 Pendiente al arrancar próxima sesión (2026-03-17)
+
+### ⚠️ Weekly Client Report — FALTA CONECTAR EN app.py
+
+El módulo existe y funciona:
+- `modules/pages/weekly_client_report.py` ✅ — 678 líneas, creado por Claude Code
+- Import ya agregado en `app.py` línea 29 ✅
+
+**Faltan 2 cambios en `app.py`** — usar este prompt en Claude Code:
+```
+Modificar app.py en C:\proyectos\ppc-manager
+
+Hacer exactamente estos 2 cambios sin tocar nada más:
+
+1. Encontrar la línea del sidebar que contiene el for loop con "Reportes Atom 11"
+   y "Reportes MerchanSpring". Agregar "📊 Weekly Client Report" al final de esa
+   lista, antes del corchete de cierre ].
+
+2. Al final del archivo, después del último bloque "if selected ==", agregar:
+
+if selected == "📊 Weekly Client Report":
+    render_weekly()
+
+No crear archivos nuevos. No modificar nada más. Solo esos 2 cambios en app.py.
+Confirmar qué líneas modificaste al terminar.
+```
+
+**Después de aplicar:** correr la app y verificar que aparece "📊 Weekly Client Report" en el sidebar.
+
+### Estado de módulos
+- `modules/pages/weekly_client_report.py` ✅ creado
+- `app.py` import ✅ línea 29
+- `app.py` sidebar ❌ falta agregar tab
+- `app.py` routing ❌ falta `if selected ==`
+
+### Git pendiente
+```bash
+git add .
+git commit -m "feat: Weekly Client Report — módulo completo + routing app.py"
+git push
+```

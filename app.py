@@ -26,6 +26,7 @@ from modules.pages.tendencia_multisemana import render as _render_tendencia
 from modules.pages.analisis_funnel import render as _render_funnel
 from modules.pages.atom11 import render as _render_atom11
 from modules.pages.merchanspring import render as _render_ms
+from modules.pages.weekly_client_report import render as render_weekly
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
