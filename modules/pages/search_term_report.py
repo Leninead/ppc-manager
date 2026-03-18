@@ -59,7 +59,11 @@ def render():
     df["_acos"]   = _to_num(df, cols["acos"])
     df["_ctr"]    = _to_num(df, cols["ctr"])
 
-    tab1, tab2, tab3 = st.tabs(["📊 Vista General", "🔴 Negatives Mining", "🟢 Harvest Candidates"])
+    # Pre-init for tab4 (IA) scope
+    df_neg = pd.DataFrame()
+    df_harv = pd.DataFrame()
+
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Vista General", "🔴 Negatives Mining", "🟢 Harvest Candidates", "🤖 Análisis IA"])
 
     # ── TAB 1: Vista General (código original) ──────────────────────
     with tab1:
@@ -342,3 +346,54 @@ def render():
                 )
             else:
                 st.info("No se encontraron candidatos de harvest con los criterios actuales.")
+
+    # ── TAB 4: Análisis IA ─────────────────────────────────────────
+    with tab4:
+        st.subheader("🤖 Análisis IA — PPC Senior")
+        st.caption("Análisis ejecutivo generado por Claude basado en los candidatos detectados")
+
+        client_name_str = st.text_input(
+            "Nombre del cliente",
+            placeholder="Ej: Love To Dream MX",
+            key="str_client_ai",
+        )
+
+        ai_c1, ai_c2 = st.columns(2)
+        with ai_c1:
+            str_target_acos = st.slider("Target ACoS (%)", 10, 80, 30, key="str_ai_acos")
+        with ai_c2:
+            str_precio = st.number_input("Precio promedio ($)", min_value=1.0, value=30.0, step=1.0, key="str_ai_precio")
+
+        if st.button("🤖 Generar análisis", key="btn_str_ai", use_container_width=True):
+            if not client_name_str:
+                st.warning("Ingresá el nombre del cliente primero.")
+            else:
+                with st.spinner("Analizando con Claude..."):
+                    from core.ai_analyze import _claude_analyze, _build_str_prompt
+
+                    # CVR promedio del STR
+                    t_clicks = df["_clicks"].sum()
+                    t_orders = df["_orders"].sum()
+                    cvr_val = (t_orders / t_clicks * 100) if t_clicks > 0 else 10.0
+
+                    prompt = _build_str_prompt(
+                        df_neg, df_harv,
+                        client_name_str, cvr_val, str_target_acos,
+                    )
+                    analisis = _claude_analyze(prompt)
+
+                st.markdown("---")
+                st.markdown(analisis)
+                st.markdown("---")
+
+                col_dl_a, col_dl_b = st.columns(2)
+                with col_dl_a:
+                    st.download_button(
+                        "⬇️ Descargar análisis (.txt)",
+                        data=analisis,
+                        file_name=f"analisis_str_{client_name_str.replace(' ', '_')}.txt",
+                        mime="text/plain",
+                        use_container_width=True, key="dl_str_ai",
+                    )
+                with col_dl_b:
+                    st.code(analisis, language=None)
