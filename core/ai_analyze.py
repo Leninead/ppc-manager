@@ -2,7 +2,8 @@ import os
 import anthropic
 from dotenv import load_dotenv
 
-load_dotenv()
+from pathlib import Path
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 
 def _claude_analyze(prompt: str, max_tokens: int = 800) -> str:
