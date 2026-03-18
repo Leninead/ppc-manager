@@ -225,6 +225,120 @@ def render():
             else:
                 st.success("✅ No se encontraron candidatos a negativizar con las reglas actuales.")
 
-    # ── TAB 3: Harvest Candidates (placeholder) ─────────────────────
+    # ── TAB 3: Harvest Candidates ─────────────────────────────────────
     with tab3:
-        st.info("🟢 Harvest Candidates — próximamente en Sesión 3")
+        st.subheader("🟢 Harvest Candidates")
+        st.caption("Términos listos para harvestear a Exact Match según reglas Capybaras 2026")
+
+        hc1, hc2, hc3 = st.columns(3)
+        with hc1:
+            harv_target_acos = st.slider("Target ACoS (%)", 10, 80, 30, key="harv_target_acos")
+        with hc2:
+            harv_precio = st.number_input("Precio promedio ($)", min_value=1.0, value=30.0, step=1.0, key="harv_precio")
+        with hc3:
+            harv_min_clicks = st.number_input("Clicks mínimos para CVR", min_value=5, value=15, step=1, key="harv_min_clicks")
+
+        st_col = cols["search_term"]
+        if not st_col:
+            st.warning("No se encontró columna 'Customer Search Term' en el archivo.")
+        else:
+            harvests = []
+            for _, row in df.iterrows():
+                term = str(row[st_col]).strip()
+                clicks = row["_clicks"]
+                orders = row["_orders"]
+                spend = row["_spend"]
+                sales = row["_sales"]
+
+                if orders == 0 or clicks == 0:
+                    continue
+
+                cvr_row = orders / clicks * 100
+                acos_row = (spend / sales * 100) if sales > 0 else 999
+                campaign = str(row[cols["campaign"]]).strip() if cols["campaign"] and pd.notna(row.get(cols["campaign"])) else ""
+
+                matched = []
+                best_prio = None
+
+                # Regla 1 — Principal (SOP Capybaras)
+                if orders >= 3 and acos_row <= 25.0:
+                    matched.append("Regla principal")
+                    best_prio = "Alta"
+
+                # Regla 2 — CVR alto
+                if cvr_row >= 10.0 and clicks >= harv_min_clicks and orders >= 1:
+                    matched.append("CVR alto")
+                    best_prio = best_prio or "Alta"
+
+                # Regla 3 — Volumen (ranking benefit)
+                if orders >= 5:
+                    matched.append("Volumen")
+                    if not best_prio:
+                        best_prio = "Media"
+
+                if matched:
+                    bid = max(0.10, round((cvr_row / 100) * harv_precio * (harv_target_acos / 100), 2))
+                    harvests.append({
+                        "Search Term": term,
+                        "Campaign": campaign,
+                        "Clicks": int(clicks),
+                        "Orders": int(orders),
+                        "ACoS": round(acos_row, 1),
+                        "CVR%": round(cvr_row, 1),
+                        "Bid Sugerido": bid,
+                        "Regla": " + ".join(matched),
+                        "Prioridad": best_prio,
+                    })
+
+            if harvests:
+                df_harv = pd.DataFrame(harvests)
+                prio_order = {"Alta": 0, "Media": 1}
+                df_harv["_sort"] = df_harv["Prioridad"].map(prio_order)
+                df_harv = df_harv.sort_values(["_sort", "Orders"], ascending=[True, False]).drop(columns=["_sort"])
+
+                n_alta  = (df_harv["Prioridad"] == "Alta").sum()
+                n_media = (df_harv["Prioridad"] == "Media").sum()
+                avg_bid = df_harv["Bid Sugerido"].mean()
+
+                hm1, hm2, hm3, hm4 = st.columns(4)
+                hm1.metric("Total candidatos", len(df_harv))
+                hm2.metric("🟢 Alta", n_alta)
+                hm3.metric("🔵 Media", n_media)
+                hm4.metric("Bid promedio", f"${avg_bid:.2f}")
+
+                def _color_harv_prio(val):
+                    if val == "Alta": return "background-color: #C6EFCE; color: #276221"
+                    return "background-color: #DBEAFE; color: #1E3A8A"
+
+                st.dataframe(
+                    df_harv.style.applymap(_color_harv_prio, subset=["Prioridad"]),
+                    use_container_width=True,
+                    height=min(38 + 35 * len(df_harv), 800),
+                )
+
+                # Export bulk-ready formato Amazon
+                st.markdown("---")
+                st.markdown("**📦 Export bulk-ready para Amazon — Exact Match**")
+                st.caption("Campaign Name y Ad Group Name vacíos — el AM los completa antes de subir.")
+                df_hbulk = pd.DataFrame({
+                    "Product": "",
+                    "Entity": "Keyword",
+                    "Operation": "Create",
+                    "Campaign Name": "",
+                    "Ad Group Name": "",
+                    "Keyword": df_harv["Search Term"].values,
+                    "Match Type": "exact",
+                    "Max Bid": df_harv["Bid Sugerido"].values,
+                })
+                st.dataframe(df_hbulk, use_container_width=True)
+                buf_h = io.BytesIO()
+                df_hbulk.to_excel(buf_h, index=False)
+                st.download_button(
+                    "⬇️ Descargar Harvest Bulk (formato Amazon)",
+                    data=buf_h.getvalue(),
+                    file_name="harvest_exact_bulk.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True, key="harv_dl",
+                )
+            else:
+                st.info("No se encontraron candidatos de harvest con los criterios actuales.")
