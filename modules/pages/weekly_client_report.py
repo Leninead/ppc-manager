@@ -891,6 +891,102 @@ def render():
                 use_container_width=True, key="weekly_dl",
             )
 
+            # ── Análisis IA ────────────────────────────────────────
+            st.divider()
+            if st.button("🤖 Generar análisis IA", key="btn_weekly_ai", use_container_width=True):
+                if not (client_w or "").strip():
+                    st.warning("Ingresá el nombre del cliente primero.")
+                elif not br_daily_data:
+                    st.warning("Cargá al menos el BR diario para generar el análisis.")
+                else:
+                    with st.spinner("Analizando con Claude..."):
+                        from core.ai_analyze import _claude_analyze
+
+                        # Métricas cuenta total
+                        sales_tw = br_daily_data.get("Sales_TW", 0)
+                        sales_pw = br_daily_data.get("Sales_PW", 0)
+                        sessions_tw = br_daily_data.get("Sessions_TW", 0)
+                        sessions_pw = br_daily_data.get("Sessions_PW", 0)
+                        cvr_tw = br_daily_data.get("CVR_TW", 0)
+                        cvr_pw = br_daily_data.get("CVR_PW", 0)
+                        buybox_tw = br_daily_data.get("BuyBox_TW", None)
+
+                        sales_wow = ((sales_tw - sales_pw) / sales_pw * 100) if sales_pw else 0
+                        sessions_wow = ((sessions_tw - sessions_pw) / sessions_pw * 100) if sessions_pw else 0
+                        cvr_wow = ((cvr_tw - cvr_pw) / cvr_pw * 100) if cvr_pw else 0
+
+                        # Ad metrics
+                        spend_tw = sum(v.get("Spend_TW", 0) for v in atom_data.values()) if atom_data else 0
+                        spend_pw = sum(v.get("Spend_PW", 0) for v in atom_data.values()) if atom_data else 0
+                        ad_sales_tw = sum(v.get("Sales_TW", 0) for v in atom_data.values()) if atom_data else 0
+                        ad_sales_pw = sum(v.get("Sales_PW", 0) for v in atom_data.values()) if atom_data else 0
+                        acos_tw = (spend_tw / ad_sales_tw * 100) if ad_sales_tw else 0
+                        tacos_tw = (spend_tw / sales_tw * 100) if sales_tw else 0
+
+                        # Alarmas de campañas
+                        alarmas = []
+                        if camp_data:
+                            for camp in camp_data.get("campaigns", []):
+                                if camp.get("ACoS", 0) > 60:
+                                    alarmas.append(f"{camp.get('Campaign', '')} — ACoS {camp.get('ACoS', 0):.1f}%")
+                        alarmas_txt = "\n".join(alarmas[:5]) if alarmas else "Sin alarmas críticas"
+
+                        prompt = f"""Sos un experto senior en Amazon PPC redactando el reporte semanal de {client_w}.
+
+MÉTRICAS CUENTA TOTAL (PW vs TW):
+- Ventas TW: ${sales_tw:,.2f} | PW: ${sales_pw:,.2f} | WoW: {sales_wow:+.1f}%
+- Sesiones TW: {sessions_tw:,} | PW: {sessions_pw:,} | WoW: {sessions_wow:+.1f}%
+- CVR TW: {cvr_tw:.2f}% | PW: {cvr_pw:.2f}% | WoW: {cvr_wow:+.1f}%
+- BuyBox TW: {f"{buybox_tw:.1f}%" if buybox_tw else "—"}
+
+PUBLICIDAD:
+- Ad Spend TW: ${spend_tw:,.2f} | PW: ${spend_pw:,.2f}
+- Ad Sales TW: ${ad_sales_tw:,.2f} | PW: ${ad_sales_pw:,.2f}
+- ACoS TW: {acos_tw:.1f}%
+- TACoS TW: {tacos_tw:.1f}%
+
+ALARMAS DE CAMPAÑAS (ACoS > 60%):
+{alarmas_txt}
+
+Redactá un resumen ejecutivo semanal en español para enviar al cliente.
+Formato exacto:
+
+📊 RESUMEN SEMANAL — {client_w}
+
+📍 SITUACIÓN GENERAL
+[2-3 líneas con el estado de la semana — si fue buena/mala y el driver principal]
+
+📈 HIGHLIGHTS
+[2-3 bullets con los logros más importantes de la semana]
+
+⚠️ ATENCIÓN
+[1-2 bullets con alertas o acciones que el cliente debe conocer]
+
+🎯 PRÓXIMOS PASOS
+[2-3 acciones concretas que el equipo va a ejecutar la semana que viene]
+
+Tono: profesional pero cercano. Máximo 200 palabras.
+Usá los números reales. No inventes métricas.
+"""
+                        analisis = _claude_analyze(prompt)
+
+                    st.markdown("---")
+                    st.markdown(analisis)
+                    st.markdown("---")
+
+                    wai_a, wai_b = st.columns(2)
+                    with wai_a:
+                        st.download_button(
+                            "⬇️ Descargar resumen (.txt)",
+                            data=analisis,
+                            file_name=f"resumen_semanal_{(client_w or 'report').replace(' ', '_')}.txt",
+                            mime="text/plain",
+                            use_container_width=True, key="dl_weekly_ai",
+                        )
+                    with wai_b:
+                        st.markdown("**📋 Copiar para Slack:**")
+                        st.code(analisis, language=None)
+
         except Exception as e:
             st.error(f"Error: {e}")
             import traceback
