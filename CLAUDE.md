@@ -440,3 +440,57 @@ git add .
 git commit -m "feat: Weekly Client Report — módulo completo + routing app.py"
 git push
 ```
+## 🧠 Análisis experto — Roadmap sesión 2026-03-18
+
+### 🔴 Prioridad 1 — Fix inmediato al arrancar
+Conectar Weekly Client Report en app.py (ver prompt en sección anterior).
+
+### 🔴 Prioridad 2 — Bug conocido
+Fix KeyError en `tendencia_multisemana.py` cuando se suben dos SQPs iguales.
+Solución: `df.drop_duplicates()` + check de hash del archivo antes de procesar.
+
+---
+
+### 🗺️ Roadmap features nuevas (por prioridad)
+
+| # | Feature | Impacto | Esfuerzo |
+|---|---------|---------|---------|
+| 1 | Bid Optimizer — Target ACoS → bid sugerido por keyword | Alto | 1 sesión |
+| 2 | Impression Share en Análisis Cruzado STR vs SQP | Alto | 30 min |
+| 3 | Keyword canibalización desde Bulk file | Medio | 1 sesión |
+| 4 | Cache `@st.cache_data` en parsers pesados (Atom11, MS PDF) | Medio | 30 min |
+| 5 | P&L simplificado por ASIN (Contribution Margin estimado) | Alto | 2 sesiones |
+| 6 | Bulk harvest listo para subir a Amazon (formato exacto bulk) | Alto | 1 sesión |
+
+---
+
+### 📐 Detalle de features
+
+#### Bid Optimizer
+- Input: Search Term Report + Target ACoS del cliente
+- Fórmula: `bid_sugerido = (CVR × Precio × Target_ACoS) / 100`
+- Output: tabla keyword | bid actual | bid sugerido | delta | acción (subir/bajar/pausar)
+
+#### Impression Share (agregar a Análisis Cruzado)
+- `Impression Share` = impresiones propias / impresiones totales mercado (dato en SQP)
+- `Click Share` = clicks propios / clicks totales mercado
+- Convierte el análisis cruzado en competitive intelligence real
+
+#### Keyword Canibalización
+- Input: Bulk file (campañas ENABLED)
+- Detecta: misma keyword en Broad + Phrase + Exact dentro de la misma cuenta
+- Output: tabla keyword | campañas que la tienen | match types | spend duplicado estimado
+
+#### Cache parsers pesados
+- Agregar `@st.cache_data` a: `_parse_atom11`, `_parse_merchanspring_pdf`, `_parse_merchanspring`
+- Impacto: si el usuario cambia un filtro, no re-parsea el archivo entero
+
+#### P&L Simplificado
+- Inputs: ventas brutas, referral fee (~15%), FBA fee (manual o CSV), ad spend
+- `Contribution Margin = Ventas - Referral Fee - FBA - PPC`
+- Semáforo por ASIN: 🟢 CM > 20% | 🟡 10–20% | 🔴 < 10%
+
+#### Bulk Harvest Automático
+- Extiende el Análisis Funnel actual
+- Export en formato bulk Amazon: Campaign | Ad Group | Keyword | Bid | Match Type
+- Listo para subir directo en Seller Central sin edición manual
