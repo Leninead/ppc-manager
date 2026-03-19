@@ -653,3 +653,33 @@ git push
 git checkout .   # descarta cambios, vuelve al último commit
 git diff app.py  # ver qué cambió antes de deshacer
 ```
+
+---
+
+## Dermaglos — Plan de ataque (2026-03-19)
+
+### Contexto
+Dos ASINs prioritarios para reestructurar completo:
+- B0CYLMJJJC — Moisturizing Cream 1.76oz | $9.99 | 149 units | BSR 85k
+- B0CYLM4L23 — Body Lotion 13.52oz | $18.89 | 65 units | BSR 122k
+
+Analisis completo en: C:\proyectos\ppc-manager\notes\DERMAGLOS.md
+
+### Fase 1 — Listing (en curso)
+Optimizar titulos, bullets y backend keywords basado en analisis Rufus.
+Diferencial clave: Vitamin A + Allantoin para uso nocturno y zonas secas.
+No competir en el territorio de CeraVe/Vanicream (ceramidas).
+
+### Fase 2 — Estructura de campanas
+Lenin pasa la estructura deseada.
+Claude genera bulk listo para subir al Campaign Manager.
+Naming convention Capybaras standard.
+
+### Fase 3 — Automatizacion
+Rules para Atom 11 en formato bulk.
+Listo para importar sin edicion manual.
+
+### Flujo de trabajo
+1. HOY: Titulos + bullets + backend keywords B0CYLMJJJC y B0CYLM4L23
+2. LUEGO: Lenin pasa estructura campanas → Claude genera bulk Campaign Manager
+3. AL FINAL: Claude genera rules Atom 11 en formato bulk para importar
