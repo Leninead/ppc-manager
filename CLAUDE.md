@@ -638,6 +638,24 @@ Siempre genera **prompts para Claude Code en VS Code** que ejecute los cambios.
 - Nunca pausar por dudas — tomar la decisión más razonable y continuar
 - Siempre verificar que la app corra después del cambio
 
+### ✅ Estructura de respuesta — Después de cada prompt ejecutado
+
+Cada vez que Claude (chat) entregue un prompt para Claude Code, debe incluir
+al final estas 3 secciones:
+
+**🔍 Qué revisar en la app:**
+Pasos concretos para verificar que el cambio funcionó correctamente
+(ej: "Abrí la app → andá al sidebar → verificá que aparece X → subí archivo Y → confirmá que se ve Z")
+
+**🐛 Si algo no funciona:**
+Síntoma más probable y qué revisar primero
+
+**💾 Git cuando todo esté OK:**
+```bash
+git add .
+git commit -m "feat: [descripción del cambio recién hecho]"
+```
+
 ---
 
 ## 🔚 Git — Recordatorio de flujo
