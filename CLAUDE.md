@@ -179,7 +179,7 @@ _build_merchanspring_excel(data, client_name)
 
 ## 📊 Tab: Weekly Client Report (2026-03-17)
 
-**Estado:** módulo listo, falta conectar en app.py
+**Estado:** ✅ completo y conectado en app.py — 2026-03-19
 
 ### Inputs (4 archivos, date range 14 días)
 | Archivo | Dónde bajarlo | Para qué |
@@ -211,39 +211,6 @@ render()
 ### Clientes probados
 - **Love To Dream MX** — 56 ASINs, ACoS 22.7%, TACoS 17.4%, semana +43.9%
 - **M&B (Mott & Bow)** — 159 ASINs, ACoS 8.6%, TACoS 5.4%, semana +58.3%
-
----
-
-## 🚨 PENDIENTE URGENTE AL ARRANCAR (2026-03-18)
-
-### 1. ⚠️ Conectar Weekly Client Report en app.py
-
-**Prompt para Claude Code:**
-```
-Modificar app.py en C:\proyectos\ppc-manager
-
-Hacer exactamente estos 2 cambios:
-
-1. En el sidebar, en la lista que contiene "Reportes Atom 11" y "Reportes MerchanSpring",
-   agregar "📊 Weekly Client Report" al final, antes del cierre ].
-
-2. Al final del archivo, después del último bloque "if selected ==", agregar:
-
-if selected == "📊 Weekly Client Report":
-    render_weekly()
-
-No crear archivos nuevos. Solo esos 2 cambios. Confirmar líneas modificadas.
-```
-
-### 2. 🐛 Fix bug tendencia_multisemana.py
-KeyError cuando se suben dos SQPs iguales.
-Solución: `df.drop_duplicates()` + check hash del archivo antes de procesar.
-
-### 3. Git al arrancar
-```bash
-git add .
-git commit -m "checkpoint: antes de [tarea del día]"
-```
 
 ---
 
