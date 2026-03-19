@@ -1,15 +1,36 @@
 import os
 import anthropic
 from dotenv import load_dotenv
-
 from pathlib import Path
-load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
+
+# Intentar cargar .env, pero priorizar variable de entorno del sistema
+_env_path = Path(__file__).parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(dotenv_path=_env_path, override=False)
 
 
 def _claude_analyze(prompt: str, max_tokens: int = 800) -> str:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    # Leer key de multiples fuentes en orden de prioridad
+    api_key = (
+        os.environ.get("ANTHROPIC_API_KEY") or
+        os.getenv("ANTHROPIC_API_KEY")
+    )
+
+    if not api_key:
+        # Intentar leer directamente del .env como fallback
+        try:
+            env_path = Path(__file__).parent.parent / ".env"
+            if env_path.exists():
+                for line in env_path.read_text(encoding="utf-8").splitlines():
+                    if line.startswith("ANTHROPIC_API_KEY="):
+                        api_key = line.split("=", 1)[1].strip()
+                        break
+        except Exception:
+            pass
+
     if not api_key:
         return "⚠️ API key no configurada. Verificá el archivo .env"
+
     try:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
@@ -19,9 +40,9 @@ def _claude_analyze(prompt: str, max_tokens: int = 800) -> str:
         )
         return response.content[0].text
     except anthropic.AuthenticationError:
-        return "⚠️ API key inválida. Verificá el archivo .env"
+        return "⚠️ API key invalida. Verificá el archivo .env"
     except anthropic.RateLimitError:
-        return "⚠️ Límite de requests alcanzado. Esperá unos segundos."
+        return "⚠️ Limite de requests alcanzado. Esperá unos segundos."
     except Exception as e:
         return f"⚠️ Error al conectar con Claude API: {str(e)}"
 
