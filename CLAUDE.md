@@ -589,39 +589,47 @@ _FESTIVOS_MX = {
 
 ---
 
-## 📌 Reglas de trabajo — Flujo de código
+## Reglas de trabajo — Flujo de codigo
 
-**IMPORTANTE:** Claude (chat) nunca da código para copiar/pegar manualmente.
-Siempre genera **prompts para Claude Code en VS Code** que ejecute los cambios.
+Claude (chat) nunca da codigo para copiar/pegar manualmente.
+Siempre genera prompts para Claude Code en VS Code que ejecute los cambios.
 
-### Flujo correcto
-1. Claude (chat) diseña la lógica y redacta el prompt
-2. Lenin copia el prompt en Claude Code (VS Code)
-3. Claude Code ejecuta los cambios con autonomía absoluta
-4. Claude Code confirma qué líneas modificó
+### Flujo para cambios de codigo
+1. Claude (chat) disena la logica y redacta el prompt
+2. Lenin copia en Claude Code (VS Code)
+3. Claude Code ejecuta con autonomia absoluta
+4. Claude Code confirma que lineas modifico
 
-### Formato de prompt para Claude Code
-- Incluir: ruta exacta del archivo, cambios específicos, sin preguntas, confirmar al terminar
-- Nunca pausar por dudas — tomar la decisión más razonable y continuar
-- Siempre verificar que la app corra después del cambio
+### Flujo para actualizar archivos .md de clientes (DERMAGLOS, LTD, MB, setex, etc.)
+1. Claude (chat) genera el contenido nuevo del archivo
+2. Claude (chat) redacta UN prompt para Claude Code con el contenido completo
+3. Lenin pega el prompt en Claude Code (10 segundos)
+4. Claude Code escribe el archivo directamente en C:\proyectos\ppc-manager\notes\
+5. Lenin hace git add + commit + push
 
-### ✅ Estructura de respuesta — Después de cada prompt ejecutado
+NUNCA mas usar scripts update_X.py ni copiar manualmente archivos.
+NUNCA descargar archivos intermedios para actualizar .md de clientes.
+El prompt para Claude Code siempre incluye la ruta exacta y el contenido completo.
 
-Cada vez que Claude (chat) entregue un prompt para Claude Code, debe incluir
-al final estas 3 secciones:
+### Formato del prompt para actualizar un .md de cliente
 
-**🔍 Qué revisar en la app:**
-Pasos concretos para verificar que el cambio funcionó correctamente
-(ej: "Abrí la app → andá al sidebar → verificá que aparece X → subí archivo Y → confirmá que se ve Z")
+Siempre usar este formato exacto cuando Claude Code tenga que escribir un archivo .md:
 
-**🐛 Si algo no funciona:**
-Síntoma más probable y qué revisar primero
+Crear o reemplazar el archivo C:\proyectos\ppc-manager\notes\[NombreCliente].md
+con el siguiente contenido exacto (reemplazar todo el contenido existente):
 
-**💾 Git cuando todo esté OK:**
-```bash
-git add .
-git commit -m "feat: [descripción del cambio recién hecho]"
-```
+---INICIO DEL CONTENIDO---
+[contenido completo del archivo]
+---FIN DEL CONTENIDO---
+
+No tocar ningun otro archivo. Confirmar que el archivo fue escrito
+y decir cuantas lineas tiene.
+
+### Formato de prompt para cambios de codigo
+- Incluir ruta exacta del archivo
+- Cambios especificos sin preguntas
+- Confirmar al terminar
+- Nunca pausar por dudas — tomar la decision mas razonable
 
 ---
 
