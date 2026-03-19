@@ -30,7 +30,7 @@ No hay build step, test suite ni linter configurado.
 | 8 | 🔻 Análisis de Funnel | ✅ completo |
 | 9 | 🔬 Reportes Atom 11 | ✅ completo |
 | 10 | 🛡️ Reportes MerchanSpring | ✅ completo |
-| 11 | 📊 Weekly Client Report | ⚠️ módulo listo, falta conectar en app.py |
+| 11 | 📊 Weekly Client Report | ✅ completo |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.  
 `_PAGES` lista el orden completo. Sidebar agrupa por sección.
@@ -67,7 +67,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar)
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
-- [ ] Bug: tendencia_multisemana.py KeyError cuando se suben dos SQPs iguales
+- [x] Bug: tendencia_multisemana.py KeyError cuando se suben dos SQPs iguales — fix aplicado 2026-03-19
 
 ---
 
@@ -481,12 +481,12 @@ Modos: Conservador (solo bajan bids) | Agresivo (sube, baja y pausa) | Custom
 
 | Sesión | Qué hacemos | Tab | Resultado |
 |--------|------------|-----|-----------|
-| **1** | Fix routing Weekly Report + bug SQPs duplicados | app.py | App completa y sin bugs |
-| **2** | Negatives Mining en STR (sub-tab nuevo) | STR | Primer output accionable |
-| **3** | Harvest Engine en STR + Export bulk | STR | Bulk de negativos y harvest listos |
-| **4** | Market Share + Gap Analysis en SQP | SQP | Intelligence real del mercado |
-| **5** | Health Check en Bulk | Bulk | Diagnóstico de estructura |
-| **6** | Acción sugerida + Bulk output en Cruzado | Cruzado | Campañas nuevas listas |
+| ~~**1**~~ | ~~Fix routing Weekly Report + bug SQPs duplicados~~ | ~~app.py~~ | ✅ Completado 2026-03-19 |
+| ~~**2**~~ | ~~Negatives Mining en STR~~ | ~~STR~~ | ✅ Completado (detectado 2026-03-19) |
+| ~~**3**~~ | ~~Harvest Engine en STR + Export bulk~~ | ~~STR~~ | ✅ Completado (detectado 2026-03-19) |
+| ~~**4**~~ | ~~Market Share + Gap Analysis en SQP~~ | ~~SQP~~ | ✅ Completado (detectado 2026-03-19) |
+| **5** | Acción sugerida + Bulk output en Cruzado | Cruzado | Campañas nuevas listas |
+| **6** | Health Check en Bulk | Bulk | Diagnóstico de estructura |
 | **7** | Bid Optimizer (tab nueva) | Nuevo | Bids calculados en bulk |
 | **8** | Account Pulse (tab nueva) | Nuevo | Monitor de salud diaria |
 | **9** | Funnel Builder (upgrade Análisis Funnel) | Upgrade | Funnel completo exportable |
