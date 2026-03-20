@@ -290,3 +290,163 @@ Aquaphor, CeraVe, Vaseline, La Roche Posay, Vanicream — decenas de miles de pu
 | Fecha | Qué hicimos | Resultado |
 |-------|------------|-----------|
 | 2026-03-19 | Análisis inicial — catálogo + campañas + STR + SQP | DERMAGLOS.md completo |
+
+| 2026-03-20 | Account review Feb-Mar: spike analysis + plan push agresivo + MerchanSpring 8 semanas | 3 archivos entregados al cliente |
+
+---
+
+## 📊 Sesión 2026-03-20 — Account Review + Plan de Push
+
+### Archivos analizados
+- `Campaign_Mar_20_2026.csv` — 100 campañas activas, performance acumulada
+- `ASIN_1774010167777.xlsx` — ventas diarias Feb 01 a Mar 18, 2026 (ASIN Sales + ASIN Name)
+- `MerchanSpring data` — 8 semanas Jan 22 a Mar 18, 2026 (pasted en chat)
+
+### Entregables generados
+1. `Dermaglos_AccountReview_Mar2026.xlsx` — Excel 4 hojas: Resumen Ejecutivo | Ventas Diarias | Campañas | Estrategia
+2. `Dermaglos_StrategicReport_Mar2026.pdf` — PDF ejecutivo 3 páginas para cliente
+3. `Dermaglos_ResumenEjecutivo_Mar2026.docx` — Word resumen ejecutivo para meet
+
+---
+
+## 📈 KPIs consolidados — Feb 01 a Mar 18, 2026
+
+### Ventas orgánicas (ASIN Sales)
+| Período | Ventas | Órdenes | Avg/Día |
+|---------|--------|---------|---------|
+| Febrero 2026 (28 días) | $5,503.03 | ~310 | $196.54 |
+| Marzo 2026 (18 días) | $3,229.48 | ~184 | $179.42 |
+| **TOTAL** | **$8,732.51** | **~494** | **$189.84 avg** |
+
+### KPIs de campañas (Campaign Manager Mar 20)
+| Métrica | Valor |
+|---------|-------|
+| Impressions | 675,698 |
+| Clicks | 1,601 |
+| Spend | $2,195.78 |
+| Ad Sales | $2,123.48 |
+| Orders (ads) | 122 |
+| ACoS | 103.4% 🔴 |
+| CTR | 0.24% |
+| CVR (ads) | 7.6% |
+
+### MerchanSpring — 8 semanas (Jan 22 - Mar 18)
+| Semana | Ventas | Profit | ACoS% | TACoS% | CVR% |
+|--------|--------|--------|-------|--------|------|
+| 22-28 Ene | $1,259.94 | -$387.47 | 121.8% | 64.2% | 5.4% |
+| 29 Ene-4 Feb | $1,250.72 | -$606.22 | 123.3% | 71.7% | 5.4% |
+| 5-11 Feb | $1,128.09 | -$307.14 | 166.9% | 56.7% | 6.8% |
+| 12-18 Feb | $1,091.17 | -$199.61 | 106.2% | 46.5% | 8.2% |
+| 19-25 Feb | $1,382.45 | -$209.57 | 83.9% | 44.3% | 8.9% |
+| **26 Feb-4 Mar** | **$1,906.37** | **+$176.04** | **51.5%** | **22.5%** | **11.1%** |
+| 5-11 Mar | $1,099.28 | +$37.37 | 60.0% | 26.1% | 7.6% |
+| 12-18 Mar | $1,293.01 | +$134.35 | 88.4% | 23.0% | 9.6% |
+| **TOTAL 8 semanas** | **$10,411.03** | **-$1,362.25** | **96.8%** | **43.0%** | **7.6%** |
+
+> ✅ **Punto de inflexion: semana 26 Feb - 4 Mar** — primer profit positivo, mejor ACoS del periodo, CVR 11.1%
+> ✅ **Ultimas 3 semanas en profit** — la cuenta esta en trayectoria correcta
+> ⚠️ **El pico Feb 26-28 es normalización al baseline, NO caída estructural** — Mar 12-18 ($1,293) comparable a mejores semanas de febrero
+
+---
+
+## 🚀 Análisis del Pico — Feb 26-28
+
+| Fecha | Ventas | Órdenes | vs. Promedio |
+|-------|--------|---------|-------------|
+| Feb 25 | $189.63 | 11 | baseline |
+| Feb 26 | $356.25 | 16 | +88% |
+| Feb 27 | $440.42 | 19 | +132% MÁXIMO |
+| Feb 28 | $305.48 | 17 | +61% |
+| Mar 01 | $235.57 | 14 | +24% |
+| Mar 03+ | ~$160/día | 7-12 | normalización |
+
+- Promedio diario cuenta: $189.84 | Umbral spike (avg+1.5σ): $291.59
+- Los 3 días superaron el umbral estadístico — evento genuino
+- Causa probable: acumulación de historial + keywords optimizadas + mejor mix de tráfico
+- La caída posterior es normalización — NO pérdida estructural
+
+---
+
+## 📦 Portfolio Performance — Campaign Manager Mar 20
+
+| Portfolio | Spend | Sales | ACoS% | Orders | Estado |
+|-----------|-------|-------|-------|--------|--------|
+| Body Lotion | $538.47 | $401.80 | 134.0% | 21 | 🔴 |
+| Body Cream | $532.31 | $296.58 | 179.5% | 20 | 🔴 |
+| Dermatological 2Pack | $370.64 | $387.45 | 95.7% | 24 | 🟡 |
+| Body Lotion 2Pack | $246.59 | $338.09 | 72.9% | 11 | 🟡 |
+| Dermatological Cream | $180.12 | $210.81 | 85.4% | 19 | 🟡 |
+| Facial Cleanser | $166.31 | $79.22 | 209.9% | 8 | 🔴 |
+| Hyaluronic Serum | $83.71 | $257.78 | 32.5% | 12 | ✅ |
+| Facial Skincare Set | $49.61 | $113.07 | 43.9% | 5 | ✅ |
+| SBH Campaigns | $4.87 | $0.00 | — | 0 | ⚠️ |
+| Scavenger | $1.45 | $18.89 | 7.7% | 1 | ✅ |
+
+---
+
+## 🎯 Hero ASINs — Feb-Mar 2026
+
+### B0CYLMJJJC — Moisturizing Cream $9.99
+- Ventas período: $2,157.84 | Órdenes: 208 | Hero #1 de cuenta
+- Discovery AUTO: ACoS 53%, 12 órdenes — señal positiva, escalar
+- Target ACoS máximo: 20% (precio $9.99 limita margen)
+
+### B0CYLM4L23 — Body Lotion $18.89
+- Ventas período: $1,983.45 | Órdenes: 99 | Hero #2 de cuenta
+- Phrase Dermaglos brand: ACoS 30.7%, 8 órdenes — muy eficiente
+- PT ASIN TOP COMP: $97 gastados, 0 órdenes → PAUSAR
+
+---
+
+## ✅ Acciones ejecutadas en sesión
+
+- [x] Análisis spike Feb 26-28 — confirmado como evento positivo, no caída
+- [x] Análisis portfolio vs. hero ASINs
+- [x] Excel 4 hojas generado y entregado
+- [x] PDF ejecutivo 3 páginas generado y entregado
+- [x] Word resumen ejecutivo generado y entregado
+
+---
+
+## 📋 Pendientes actualizados (post sesión 2026-03-20)
+
+### 🔴 HOY
+- [ ] Negativizar: micellar water MR (ACoS 320%) | lotion dry skin | body moisturizers | bioderma micellar
+- [ ] Pausar PT ASIN Body Lotion TOP COMP ($97, 0 órdenes)
+- [ ] Pausar PT ASIN Lotion 2Pack Retinol ($117, 0 órdenes) — total $214 recuperados
+- [ ] Pausar ads B0F6VZMF2V (2 units disponibles, 73 unfulfillable)
+
+### 🟡 Semana 1
+- [ ] Harvest dermaglos brand → 1 SP Exact Brand consolidada (23 órdenes totales, ACoS <21%)
+- [ ] Harvest allantoin cream → Exact Match (3 órdenes, ACoS 23%, CVR 30%)
+- [ ] Harvest dermaglos hidratacion esencial → Exact (ACoS 4.6%)
+- [ ] Escalar vitamin a cream Exact: bid $1.50-2.00, budget $10→$25/día
+- [ ] Nueva campaña Vitamin A Phrase: vitamin a cream for face | for skin | and e cream
+- [ ] Escalar SB Brand Defensive: budget $15→$30/día
+- [ ] Escalar Discovery AUTO B0CYLMJJJC: budget $10→$25/día
+- [ ] Definir Target ACoS por ASIN (Cream ≤20% | Lotion ≤35%)
+
+### 🟢 Semana 2-3
+- [ ] Nueva SP Phrase ES Cream: crema hidratante | crema corporal | vitamina e para la cara
+- [ ] Nueva SP Phrase ES Lotion: locion corporal | crema hidratante para el cuerpo
+- [ ] SB Video (SBV): vitamin a cream + brand terms
+- [ ] SD Remarketing Cream: retargeting visitantes B0CYLMJJJC
+- [ ] Separar portfolios por ASIN hero con budget independiente
+
+### 🔜 Fase 2 (pendiente de sesión anterior)
+- [ ] Estructura de campañas bulk para Campaign Manager
+- [ ] Rules Atom 11 en formato bulk para importar
+- [ ] Resolver Reserved B0F548KTXD (114 units)
+
+---
+
+## 🎯 Metas Q2 2026
+
+| Métrica | Actual Q1 | Meta Q2 | Cómo |
+|---------|-----------|---------|------|
+| ACoS cuenta | 103.4% | ≤55% | Negativizaciones + harvest + reenfoque |
+| Ad Sales/día | $77/día | ≥$150/día | Vitamin A cluster + ES keywords |
+| CVR | 7.6% | ≥10% | Keywords más relevantes |
+| BSR Cream | 85,129 | ≤50,000 | Velocity orgánica + ads escaladas |
+| BSR Lotion | 122,785 | ≤80,000 | Campañas ES + vitamin A lotion |
+| IS% vitamin a cream | 8.9% | ≥20% | Escalar exact + phrase + SBV |
