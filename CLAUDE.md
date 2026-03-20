@@ -704,8 +704,8 @@ Si dice NO ENCONTRADA — cerrar y reabrir VS Code resuelve.
 - Hero ASINs: B0CYLMJJJC (Cream $9.99) | B0CYLM4L23 (Lotion $18.89)
 - Fase 1 COMPLETADA: listing optimizado con STR + SQP + Rufus
 - PDF entregado: Dermaglos_Listing_Optimization_2026.pdf
-- Fase 2 PENDIENTE: campanas reestructuradas bulk Campaign Manager
-- Fase 3 PENDIENTE: rules Atom 11 formato bulk
+- Fase 2 COMPLETADA: campañas reestructuradas bulk Campaign Manager
+- Fase 3 COMPLETADA: rules Atom 11 formato bulk
 - Doc: notes/DERMAGLOS.md
 
 ## Claude API integrada (2026-03-19)
@@ -715,3 +715,153 @@ Modelo: claude-sonnet-4-6
 Funciones: _claude_analyze, _build_str_prompt, _build_sqp_prompt
 Integrado en: STR tab 4 + SQP tab 4 + Weekly Client Report
 Costo: menos de $0.01 por analisis
+
+---
+
+## 🚀 Plan de implementación — Módulos nuevos 2026-03-20
+
+### Contexto
+Todo lo que se hizo manualmente el 20/03/2026 con Dermaglos (análisis STR+SQP+Bulk,
+generación de bulks de campañas, diseño de Atom11 rules) se puede meter en el software.
+Flujo de trabajo: Lenin + Claude (chat) diseñan la lógica → Claude Code implementa.
+
+---
+
+### SESIÓN 1 — STR: tab Negativizar (threshold por precio)
+**Esfuerzo:** Bajo | **Impacto:** Alto — se usa cada semana
+
+Tab nueva dentro del módulo Search Term Report:
+```python
+# Lógica central
+def _calcular_threshold(precio, cvr):
+    if precio < 12:   return 18, 15.00   # TIER LOW
+    elif precio <= 22: return 22, 22.00  # TIER MID
+    else:              return 28, 30.00  # TIER HIGH
+    # Fórmula: clicks = round(1/CVR) × 2
+
+# UI
+# Input: precio del producto → auto-asigna tier y threshold
+# Muestra: tabla de términos candidatos a negar (clicks > threshold, orders = 0)
+# Checkbox: selección manual de cuáles negar
+# Export: negative keywords en formato bulk Amazon
+```
+
+---
+
+### SESIÓN 2 — Campaign Analyzer (diagnóstico semáforo)
+**Esfuerzo:** Medio | **Impacto:** Alto — evita el problema de IDs al pausar
+
+Upgrade del módulo Bulk Campañas. Input: Campaign CSV de Campaign Manager.
+
+Diagnóstico automático:
+- 🔴 PAUSAR — spend > threshold por precio con 0 órdenes
+- 🟡 REVISAR — ACoS > target × 2
+- ✅ ESCALAR — ACoS < target × 0.5 con órdenes confirmadas
+- ⚫ FANTASMAS — campañas con 0 impresiones activas
+- ⚠️ MAL PORTFOLIO — campañas en portfolio equivocado (detecta por ASIN en nombre)
+
+Output:
+- Tabla semáforo con diagnóstico por campaña
+- Métrica "Spend recuperable: $X" si pausás las rojas
+- Nota: las pausas se hacen manualmente en Campaign Manager (bulk update requiere Campaign ID numérico real)
+
+---
+
+### SESIÓN 3 — Análisis Cruzado → + Acción sugerida
+**Esfuerzo:** Medio | **Impacto:** Alto — automatiza el análisis STR+SQP+Bulk
+
+Ya estaba en el roadmap. Agregar al módulo existente:
+```python
+def _recomendar_accion(row, target_acos):
+    # Brand Defensive → convierte bien en STR, es brand term
+    # Vitamin A Core → PS% > 10% en SQP, cluster ganador
+    # Spanish → query en español detectado en SQP
+    # PAT → competitor ASIN identificado
+    # PAUSAR → ACoS > target × 2 AND clicks > threshold_tier
+    # ESCALAR → ACoS < target × 0.5 AND orders >= 2
+```
+
+Output adicional: tabla de acciones sugeridas + export bulk con negativos listos
+
+---
+
+### SESIÓN 4 — Campaign Builder (el corazón)
+**Esfuerzo:** Alto | **Impacto:** Muy alto — automatiza todo el trabajo del 20/03
+
+Módulo nuevo en sección EJECUCIÓN.
+
+Inputs:
+- STR (.xlsx)
+- SQP (.csv)
+- Bulk actual (.csv) — detecta qué ya existe para no duplicar
+- Target ACoS (slider)
+- Precio del producto + ASIN + SKU
+- Tabla editable de competidores (ASIN, precio, revenue)
+
+Proceso automático:
+- Detecta clusters de keywords por intención (Brand / Vitamin A / Spanish / Discovery / PAT)
+- Calcula bid = CVR × precio × target_ACoS
+- Agrupa en campañas de MAX 5 keywords (regla Capybaras 2026)
+- Genera cross-negatives automáticamente
+- Detecta campañas existentes para no duplicar
+- Naming convention: `[Producto] - [ASIN] - SP - KW - [MATCH] - [Descriptor]`
+
+Output:
+- Preview de campañas en UI (tabla editable antes de exportar)
+- Bulk xlsx en formato exacto Amazon → listo para subir directo a Campaign Manager
+- Nota: las operaciones UPDATE (pausar existentes) requieren Campaign ID numérico — hacer manualmente
+
+---
+
+### SESIÓN 5 — Atom11 Rules Builder
+**Esfuerzo:** Alto | **Impacto:** Alto — aplicable a todas las marcas
+
+Módulo nuevo en sección EJECUCIÓN.
+
+Tab 1 — Configuración:
+- Prefijo naming (DG, MB, STX...)
+- Target ACoS cuenta
+- Tabla ASINs con precio → auto-asigna tier (LOW/MID/HIGH)
+
+Tab 2 — Preview rules:
+- Muestra las 44 rules con nombre, condición, acción
+- Editable — ajustar thresholds por marca
+- Color coding: verde=increase / rojo=decrease / gris=stop
+
+Tab 3 — Export:
+- CSV importable a Atom11
+- .md documentación para el repo
+
+Sistema de tiers (hardcoded, editable por usuario):
+- TIER LOW (<$12): clicks_neg=18, spend_stop=$15
+- TIER MID ($12-$22): clicks_neg=22, spend_stop=$22
+- TIER HIGH (>$22): clicks_neg=28, spend_stop=$30
+
+---
+
+### Nueva arquitectura de navegación
+SECCIÓN ANÁLISIS (existente)
+📊 Search Term Report       ← + tab Negativizar (Sesión 1)
+🔍 Search Query Performance ← sin cambios
+📁 Bulk Campañas            ← → Campaign Analyzer (Sesión 2)
+💰 Business Report          ← sin cambios
+SECCIÓN CRUCE (existente)
+🔗 Análisis Cruzado         ← + Acción sugerida (Sesión 3)
+📈 Tendencia Multi-Semana   ← sin cambios
+SECCIÓN EJECUCIÓN (nueva)
+🚀 Campaign Builder         ← Sesión 4
+🤖 Atom11 Rules Builder     ← Sesión 5
+SECCIÓN REPORTES (existente — sin cambios)
+🔻 Análisis de Funnel
+🔬 Reportes Atom 11
+🛡️ Reportes MerchanSpring
+📊 Weekly Client Report
+
+---
+
+### Regla de trabajo para estas sesiones
+1. Lenin + Claude (chat) diseñan la lógica y validan contra datos reales
+2. Claude (chat) genera el prompt detallado para Claude Code
+3. Claude Code implementa el módulo completo
+4. Lenin testea con archivos reales y reporta
+Nunca implementar sin datos reales de validación primero.
