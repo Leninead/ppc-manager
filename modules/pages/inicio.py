@@ -6,7 +6,7 @@ _GRIS_CLR = "#F5F5F5"
 _GRIS_TXT = "#888888"
 
 
-def _area_card(emoji, titulo, descripcion, ownership, modulos, activo=True):
+def _area_card(emoji, titulo, descripcion, ownership, modulos, activo=True, grande=False):
     border_color = _NARANJA if activo else "#DDDDDD"
     bg_color     = "#FFFFFF" if activo else _GRIS_CLR
     badge_color  = "#E8F5E9" if activo else "#F5F5F5"
@@ -20,13 +20,17 @@ def _area_card(emoji, titulo, descripcion, ownership, modulos, activo=True):
         for m in modulos
     ]) if modulos else ""
 
+    emoji_size  = "2.4rem" if grande else "1.6rem"
+    titulo_size = "1.2rem" if grande else "0.95rem"
+    padding     = "1.8rem" if grande else "1.2rem"
+
     return (
-        f"<div style='border:1.5px solid {border_color};border-radius:12px;"
-        f"padding:1.2rem;margin-bottom:0.75rem;background:{bg_color};"
+        f"<div style='border:2px solid {border_color};border-radius:12px;"
+        f"padding:{padding};margin-bottom:0.75rem;background:{bg_color};"
         f"opacity:{opacity};height:100%;'>"
-        f"<div style='display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;'>"
-        f"<span style='font-size:1.6rem;'>{emoji}</span>"
-        f"<span style='font-weight:700;font-size:0.95rem;color:{_NEGRO};'>{titulo}</span>"
+        f"<div style='display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;'>"
+        f"<span style='font-size:{emoji_size};'>{emoji}</span>"
+        f"<span style='font-weight:700;font-size:{titulo_size};color:{_NEGRO};'>{titulo}</span>"
         f"<span style='margin-left:auto;background:{badge_color};color:{badge_txt};"
         f"font-size:0.70rem;padding:2px 8px;border-radius:20px;white-space:nowrap;'>{badge_label}</span>"
         f"</div>"
@@ -64,22 +68,38 @@ def render():
     with col1:
         st.markdown(_area_card(
             "📊", "PPC",
-            "Gestionamos campañas publicitarias en Amazon para maximizar ventas y rentabilidad, optimizando estrategias de PPC y performance.",
+            "Gestionamos campañas publicitarias en Amazon para maximizar ventas y rentabilidad, optimizando estrategias de PPC y performance."
+            "<div style='margin-top:0.8rem;padding:0.75rem;background:#FFF3EE;"
+            "border-radius:8px;border-left:3px solid #E84000;'>"
+            "<div style='font-size:0.72rem;font-weight:700;color:#E84000;"
+            "margin-bottom:0.4rem;letter-spacing:0.05em;'>FLUJO DE TRABAJO</div>"
+            "<div style='font-size:0.75rem;color:#444;line-height:1.8;'>"
+            "1️⃣ <b>STR</b> — Analizar keywords y negativizar<br>"
+            "2️⃣ <b>SQP</b> — Analizar market share orgánico<br>"
+            "3️⃣ <b>Análisis Cruzado</b> — Detectar oportunidades STR+SQP<br>"
+            "4️⃣ <b>Tendencia</b> — Ver evolución multi-semana<br>"
+            "5️⃣ <b>Bulk Campañas</b> — Diagnosticar salud de campañas<br>"
+            "6️⃣ <b>Business Report</b> — Ver ventas totales y TACoS<br>"
+            "7️⃣ <b>Análisis de Funnel</b> — Detectar brechas estructurales<br>"
+            "8️⃣ <b>Bid Optimizer</b> — Calcular bids por ASIN<br>"
+            "9️⃣ <b>Campaign Builder</b> — Generar bulk listo para subir"
+            "</div></div>",
             "Guille Neuman",
-            ["STR", "SQP", "Bulk Campañas", "Business Report",
-             "Análisis Cruzado", "Tendencia Multi-Semana",
+            ["STR", "SQP", "Análisis Cruzado", "Tendencia",
+             "Bulk Campañas", "Business Report",
              "Análisis de Funnel", "Bid Optimizer", "Campaign Builder"],
-            activo=True
+            activo=True, grande=True
         ), unsafe_allow_html=True)
 
     with col2:
-        st.markdown(_area_card(
-            "👥", "Account Manager",
-            "Somos el nexo con el cliente: coordinamos equipos, analizamos resultados y garantizamos el cumplimiento de los objetivos de cada cuenta.",
-            "Eduardo Maya",
-            ["Reportes Atom 11", "Reportes MerchanSpring", "Weekly Client Report"],
-            activo=True
-        ), unsafe_allow_html=True)
+        st.markdown(
+            _area_card(
+                "👥", "Account Manager",
+                "Somos el nexo con el cliente: coordinamos equipos, analizamos resultados y garantizamos el cumplimiento de los objetivos de cada cuenta.",
+                "Eduardo Maya",
+                ["Reportes Atom 11", "Reportes MerchanSpring", "Weekly Client Report"],
+                activo=True, grande=True
+            ), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
 
@@ -181,8 +201,13 @@ def render():
 
     # ── Footer ────────────────────────────────────────────────────────────
     st.markdown(
-        f"<div style='font-size:0.75rem;color:{_GRIS_TXT};text-align:center;'>"
-        f"Desarrollado por Lenin Acosta · Capybaras Agency · 2026"
+        f"<div style='text-align:center;padding:1.5rem 0;'>"
+        f"<div style='font-size:0.95rem;color:{_GRIS_TXT};margin-bottom:0.3rem;'>"
+        f"Desarrollado por</div>"
+        f"<div style='font-size:1.3rem;font-weight:800;color:{_NARANJA};'>"
+        f"Lenin Acosta</div>"
+        f"<div style='font-size:0.85rem;color:{_GRIS_TXT};margin-top:0.2rem;'>"
+        f"Capybaras Agency · 2026</div>"
         f"</div>",
         unsafe_allow_html=True,
     )

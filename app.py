@@ -32,6 +32,86 @@ from modules.pages.campaign_builder import render as render_campaign_builder
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
+st.markdown("""
+<style>
+/* ── Sidebar fondo oscuro ─────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background-color: #1A1A1A !important;
+    min-width: 180px !important;
+    max-width: 180px !important;
+}
+
+/* ── Texto del sidebar ────────────────────────────────────────── */
+[data-testid="stSidebar"] * {
+    color: #CCCCCC !important;
+}
+
+/* ── Botones del sidebar ──────────────────────────────────────── */
+[data-testid="stSidebar"] button {
+    background-color: transparent !important;
+    border: none !important;
+    border-radius: 6px !important;
+    color: #CCCCCC !important;
+    font-size: 0.78rem !important;
+    padding: 0.3rem 0.5rem !important;
+    text-align: left !important;
+    width: 100% !important;
+    transition: background 0.15s ease !important;
+}
+
+[data-testid="stSidebar"] button:hover {
+    background-color: #2A2A2A !important;
+    color: #FFFFFF !important;
+}
+
+/* ── Labels de sección (markdown bold) ───────────────────────── */
+[data-testid="stSidebar"] .stMarkdown p {
+    color: #888888 !important;
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+    margin: 0.75rem 0 0.25rem 0.5rem !important;
+}
+
+/* ── Labels custom HTML en sidebar ───────────────────────────── */
+[data-testid="stSidebar"] .stMarkdown div {
+    color: #E84000 !important;
+    font-size: 0.85rem !important;
+    font-weight: 800 !important;
+}
+
+/* ── Divider ──────────────────────────────────────────────────── */
+[data-testid="stSidebar"] hr {
+    border-color: #333333 !important;
+    margin: 0.5rem 0 !important;
+}
+
+/* ── Título/caption del sidebar ───────────────────────────────── */
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+    color: #E84000 !important;
+    font-size: 0.85rem !important;
+}
+
+/* ── Footer del sidebar ───────────────────────────────────────── */
+[data-testid="stSidebar"] div[style*="margin-top:2rem"] {
+    color: #555555 !important;
+}
+
+/* ── Ocultar el collapse arrow del sidebar ────────────────────── */
+[data-testid="stSidebarCollapseButton"] {
+    display: none !important;
+}
+
+/* ── Área principal — quitar padding excesivo ─────────────────── */
+[data-testid="stAppViewContainer"] > .main {
+    padding-left: 1rem !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 if "parent_child_map" not in st.session_state:
     _auto_load_business_report_map()
@@ -44,42 +124,65 @@ def _nav(page):
     st.session_state["selected_page"] = page
 
 with st.sidebar:
-    st.title("🦫 Capybaras Agency OS")
-    st.caption("PPC Manager — v1.0")
+    st.markdown(
+        "<div style='padding:0.75rem 0.5rem 0.25rem;'>"
+        "<span style='font-size:1.4rem;'>🦫</span>"
+        "<span style='font-size:0.75rem;font-weight:800;color:#E84000;"
+        "margin-left:0.4rem;vertical-align:middle;'>Capybaras OS</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
-    st.button("🏠 Inicio", use_container_width=True, on_click=_nav, args=("🏠 Inicio",), key="nav_home")
+    st.button("🏠 Inicio", use_container_width=True, on_click=_nav,
+              args=("🏠 Inicio",), key="nav_home")
 
-    st.markdown("**📊 Análisis**")
-    for _pg in ["📊 Search Term Report", "🔍 Search Query Performance", "📁 Bulk Campañas", "💰 Business Report"]:
-        st.button(_pg, use_container_width=True, on_click=_nav, args=(_pg,), key=f"nav_{_pg}")
+    st.markdown(
+        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
+        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
+        "📊 PPC</div>",
+        unsafe_allow_html=True,
+    )
+    for _pg in [
+        "📊 Search Term Report",
+        "🔍 Search Query Performance",
+        "🔗 Análisis Cruzado STR vs SQP",
+        "📈 Tendencia Multi-Semana",
+        "📁 Bulk Campañas",
+        "💰 Business Report",
+        "🔻 Análisis de Funnel",
+        "🧠 Bid Optimizer",
+        "🚀 Campaign Builder",
+    ]:
+        st.button(_pg, use_container_width=True, on_click=_nav,
+                  args=(_pg,), key=f"nav_{_pg}")
 
-    st.markdown("**🔗 Cruce y Tendencias**")
-    for _pg in ["🔗 Análisis Cruzado STR vs SQP", "📈 Tendencia Multi-Semana"]:
-        st.button(_pg, use_container_width=True, on_click=_nav, args=(_pg,), key=f"nav_{_pg}")
-
-    st.markdown("**🔺 Automatización**")
-    st.button("🔻 Análisis de Funnel", use_container_width=True, on_click=_nav, args=("🔻 Análisis de Funnel",), key="nav_funnel")
-    st.button("🧠 Bid Optimizer", use_container_width=True, on_click=_nav, args=("🧠 Bid Optimizer",), key="nav_bid_opt")
-    st.button("🚀 Campaign Builder", use_container_width=True, on_click=_nav, args=("🚀 Campaign Builder",), key="nav_campaign_builder")
-
-    st.markdown("**📋 Reportes**")
-    for _pg in ["🔬 Reportes Atom 11", "🛡️ Reportes MerchanSpring", "📊 Weekly Client Report"]:
-        st.button(_pg, use_container_width=True, on_click=_nav, args=(_pg,), key=f"nav_{_pg}")
+    st.markdown(
+        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
+        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
+        "👥 ACCOUNT</div>",
+        unsafe_allow_html=True,
+    )
+    for _pg in ["🔬 Reportes Atom 11", "🛡️ Reportes MerchanSpring",
+                "📊 Weekly Client Report"]:
+        st.button(_pg, use_container_width=True, on_click=_nav,
+                  args=(_pg,), key=f"nav_{_pg}")
 
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
     _pe_label = (
-        f"🧬 Parent-Child: {_n_pe_parents} parents cargados"
-        if _n_pe_parents > 0 else
-        "⚠️ Sin mapeo — agregá Business Report a data/business_report/"
+        f"🧬 {_n_pe_parents} parents"
+        if _n_pe_parents > 0 else "⚠️ Sin mapeo"
     )
     _pe_color = "#4caf50" if _n_pe_parents > 0 else "#ff9800"
     st.markdown(
-        "<div style='margin-top:2rem;font-size:0.72rem;color:#888;'>"
-        "Desarrollado por Lenin Acosta · Capybaras Agency · 2026"
-        "</div>"
-        f"<div style='font-size:0.72rem;color:{_pe_color};margin-top:0.35rem;'>"
-        f"{_pe_label}"
+        "<div style='margin-top:2rem;padding:0 0.5rem;'>"
+        "<div style='font-size:0.78rem;font-weight:600;color:#AAAAAA;"
+        "line-height:1.6;'>Desarrollado por<br>"
+        "<span style='color:#E84000;font-weight:800;font-size:0.85rem;'>"
+        "Lenin Acosta</span><br>"
+        "<span style='color:#777777;'>Capybaras Agency · 2026</span></div>"
+        f"<div style='font-size:0.72rem;color:{_pe_color};"
+        f"margin-top:0.4rem;'>{_pe_label}</div>"
         "</div>",
         unsafe_allow_html=True,
     )
