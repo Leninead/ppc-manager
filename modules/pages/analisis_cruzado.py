@@ -160,16 +160,10 @@ def render():
                 st.caption("Resumen ejecutivo accionable. Cada término clasificado con una acción concreta.")
 
                 # ── Inputs ───────────────────────────────────────────────
-                pa1, pa2 = st.columns(2)
-                target_acos_pa = pa1.number_input(
+                target_acos_pa = st.number_input(
                     "Target ACoS (%)",
                     min_value=1.0, max_value=200.0, value=35.0, step=1.0,
                     key="pa_target_acos"
-                )
-                precio_pa = pa2.number_input(
-                    "Precio del producto ($)",
-                    min_value=1.0, value=14.99, step=0.50,
-                    key="pa_precio"
                 )
 
                 st.markdown("---")
@@ -254,7 +248,7 @@ def render():
 
                 df_plan = df_sqp.copy()
                 df_plan["Acción"] = df_plan.apply(
-                    lambda r: _accion_sugerida(r, terms_str_set_pa, str_agg, target_acos_pa, precio_pa),
+                    lambda r: _accion_sugerida(r, terms_str_set_pa, str_agg, target_acos_pa, 0),
                     axis=1
                 )
                 df_plan["En STR"] = df_plan[sqp_col_pa].str.lower().str.strip().isin(terms_str_set_pa).map(
