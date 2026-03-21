@@ -27,6 +27,7 @@ from modules.pages.analisis_funnel import render as _render_funnel
 from modules.pages.atom11 import render as _render_atom11
 from modules.pages.merchanspring import render as _render_ms
 from modules.pages.weekly_client_report import render as render_weekly
+from modules.pages.bid_optimizer import render as render_bid_optimizer
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -58,6 +59,7 @@ with st.sidebar:
 
     st.markdown("**🔺 Automatización**")
     st.button("🔻 Análisis de Funnel", use_container_width=True, on_click=_nav, args=("🔻 Análisis de Funnel",), key="nav_funnel")
+    st.button("🧠 Bid Optimizer", use_container_width=True, on_click=_nav, args=("🧠 Bid Optimizer",), key="nav_bid_opt")
 
     st.markdown("**📋 Reportes**")
     for _pg in ["🔬 Reportes Atom 11", "🛡️ Reportes MerchanSpring", "📊 Weekly Client Report"]:
@@ -115,3 +117,6 @@ if selected == "🛡️ Reportes MerchanSpring":
 
 if selected == "📊 Weekly Client Report":
     render_weekly()
+
+if selected == "🧠 Bid Optimizer":
+    render_bid_optimizer()
