@@ -600,6 +600,23 @@ Siempre genera prompts para Claude Code en VS Code que ejecute los cambios.
 3. Claude Code ejecuta con autonomia absoluta
 4. Claude Code confirma que lineas modifico
 
+### Post-implementación — siempre después de cada prompt de código
+
+**Checklist de testing:**
+- Testear el módulo nuevo con archivo real
+- Testear que módulos adyacentes no se rompieron
+- Verificar que los filtros/inputs cambian el output correctamente
+- Verificar que los botones de descarga funcionan
+
+**Git al terminar siempre:**
+```bash
+git add .
+git commit -m "feat/fix/improve: [descripción]"
+git push
+```
+
+No confirmar como terminado hasta que py_compile pase Y el test manual sea exitoso.
+
 ### Flujo para actualizar archivos .md de clientes (DERMAGLOS, LTD, MB, setex, etc.)
 1. Claude (chat) genera el contenido nuevo del archivo
 2. Claude (chat) redacta UN prompt para Claude Code con el contenido completo
