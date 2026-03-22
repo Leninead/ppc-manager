@@ -18,19 +18,21 @@ No hay build step, test suite ni linter configurado.
 
 ## 📐 Estructura de navegación (Sidebar) — Estado actual
 
-| # | Página | Estado |
-|---|--------|--------|
-| 1 | 🏠 Inicio | ✅ completo |
-| 2 | 📊 Search Term Report | ✅ completo |
-| 3 | 🔍 Search Query Performance | ✅ completo |
-| 4 | 📁 Bulk Campañas | ✅ completo |
-| 5 | 💰 Business Report | ✅ completo |
-| 6 | 🔗 Análisis Cruzado STR vs SQP | ✅ completo |
-| 7 | 📈 Tendencia Multi-Semana | ✅ completo |
-| 8 | 🔻 Análisis de Funnel | ✅ completo |
-| 9 | 🔬 Reportes Atom 11 | ✅ completo |
-| 10 | 🛡️ Reportes MerchanSpring | ✅ completo |
-| 11 | 📊 Weekly Client Report | ✅ completo |
+| # | Página | Sección | Estado |
+|---|--------|---------|--------|
+| 1 | 🏠 Inicio | — | ✅ rediseñado 2026-03-21 |
+| 2 | 📊 Search Term Report | PPC | ✅ completo |
+| 3 | 🔍 Search Query Performance | PPC | ✅ completo |
+| 4 | 🔗 Análisis Cruzado STR vs SQP | PPC | ✅ + Plan de Acción 2026-03-21 |
+| 5 | 📈 Tendencia Multi-Semana | PPC | ✅ completo |
+| 6 | 📁 Bulk Campañas | PPC | ✅ + Campaign Analyzer 2026-03-21 |
+| 7 | 💰 Business Report | PPC | ✅ completo |
+| 8 | 🔻 Análisis de Funnel | PPC | ✅ completo |
+| 9 | 🧠 Bid Optimizer | PPC | ✅ nuevo 2026-03-21 |
+| 10 | 🚀 Campaign Builder | PPC | ✅ nuevo 2026-03-21 |
+| 11 | 🔬 Reportes Atom 11 | Account Manager | ✅ completo |
+| 12 | 🛡️ Reportes MerchanSpring | Account Manager | ✅ completo |
+| 13 | 📊 Weekly Client Report | Account Manager | ✅ completo |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.  
 `_PAGES` lista el orden completo. Sidebar agrupa por sección.
@@ -39,7 +41,7 @@ Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.
 
 ## 🏗️ Estado de modularización (2026-03-18)
 
-app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar)
+app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro)
 
 ### ✅ Módulos extraídos
 - `core/i18n.py` — _I18N (dict ES/EN)
@@ -64,6 +66,8 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar)
 - `modules/pages/atom11.py` — render()
 - `modules/pages/merchanspring.py` — render()
 - `modules/pages/weekly_client_report.py` — render() ✅ creado 17/03/2026
+- `modules/pages/bid_optimizer.py` — render() ✅ creado 2026-03-21
+- `modules/pages/campaign_builder.py` — render() ✅ creado 2026-03-21
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -452,13 +456,14 @@ Modos: Conservador (solo bajan bids) | Agresivo (sube, baja y pausa) | Custom
 | ~~**2**~~ | ~~Negatives Mining en STR~~ | ~~STR~~ | ✅ Completado (detectado 2026-03-19) |
 | ~~**3**~~ | ~~Harvest Engine en STR + Export bulk~~ | ~~STR~~ | ✅ Completado (detectado 2026-03-19) |
 | ~~**4**~~ | ~~Market Share + Gap Analysis en SQP~~ | ~~SQP~~ | ✅ Completado (detectado 2026-03-19) |
-| **5** | Acción sugerida + Bulk output en Cruzado | Cruzado | Campañas nuevas listas |
-| **6** | Health Check en Bulk | Bulk | Diagnóstico de estructura |
-| **7** | Bid Optimizer (tab nueva) | Nuevo | Bids calculados en bulk |
-| **8** | Account Pulse (tab nueva) | Nuevo | Monitor de salud diaria |
-| **9** | Funnel Builder (upgrade Análisis Funnel) | Upgrade | Funnel completo exportable |
-| **10** | Bulk Upload Builder (tab nueva) | Nuevo | Constructor de bulk visual |
-| **11** | Automation Rules Builder (tab nueva) | Nuevo | Rules Atom 11 exportables |
+| ~~**5**~~ | ~~Campaign Analyzer en Bulk Campañas~~ | ~~Bulk~~ | ✅ Completado 2026-03-21 |
+| ~~**6**~~ | ~~Plan de Acción + fix marca en Análisis Cruzado~~ | ~~Cruzado~~ | ✅ Completado 2026-03-21 |
+| ~~**7**~~ | ~~Bid Optimizer (módulo nuevo)~~ | ~~Automatización~~ | ✅ Completado 2026-03-21 |
+| ~~**8**~~ | ~~Campaign Builder (módulo nuevo)~~ | ~~Automatización~~ | ✅ Completado 2026-03-21 |
+| ~~**9**~~ | ~~Agency OS — rediseño inicio + sidebar oscuro~~ | ~~app.py + inicio.py~~ | ✅ Completado 2026-03-21 |
+| **10** | Atom11 Rules Builder | Nuevo | Rules Atom 11 exportables |
+| **11** | Account Pulse | Nuevo | Monitor de salud diaria |
+| **12** | SOP completo de todas las tabs | Docs | SOP Capybaras Agency OS |
 
 ---
 
@@ -882,3 +887,33 @@ SECCIÓN REPORTES (existente — sin cambios)
 3. Claude Code implementa el módulo completo
 4. Lenin testea con archivos reales y reporta
 Nunca implementar sin datos reales de validación primero.
+
+---
+
+## 📅 Sesión 2026-03-21 — Lo que hicimos
+
+### Módulos nuevos
+- **Campaign Analyzer** — tab nueva en Bulk Campañas. Input: Campaign CSV. Diagnóstico semáforo (PAUSAR/REVISAR/ESCALAR/FANTASMA/OK). Spend recuperable. Thresholds configurables por el AM.
+- **Plan de Acción** — tab nueva en Análisis Cruzado. Clasifica keywords en: ESCALAR / AGREGAR / DEFENDER / NO ATACAR / BAJAR BID / MONITOREAR. Fix detección marca manual cuando SQP no la detecta. Export bulk accionables.
+- **Bid Optimizer** — módulo nuevo en Automatización. Input: STR + Inventory Report (.txt). CVR de ads reales. Precio de lista exacto desde Inventory Report. Bid = CVR × precio × target ACoS. Ajuste % editable por ASIN.
+- **Campaign Builder** — módulo nuevo en Automatización. Input: Plan de Acción bulk. Clustering automático: Brand / Vitamin A / Spanish / Discovery / PAT. Spanish prioridad sobre Brand (mercado hispano USA). Filtro confianza: LANZAR AHORA vs PROBAR. Max 5 KWs por campaña. Naming convention Capybaras. Export bulk formato exacto Amazon.
+
+### UI/UX
+- Sidebar rediseñado: fondo oscuro #1A1A1A, labels naranja #E84000, 180px de ancho
+- Página Inicio rediseñada: 9 áreas Agency OS (2 activas + 7 próximamente), ownership por área, flujo de trabajo en card PPC
+- Sidebar reordenado por flujo de trabajo: Analizar → Cruzar → Diagnosticar → Calcular → Ejecutar
+- Secciones renombradas: PPC Manager + Account Manager
+
+### Fixes
+- fix: input manual de marca cuando SQP no detecta automáticamente
+- fix: Campaign Builder — Spanish prioridad sobre Brand para mercado hispano
+- fix: Bid Optimizer extrae ASIN del Campaign Name cuando no hay columna Advertised ASIN
+- fix: Bid Optimizer cruza STR + Inventory Report para precio de lista exacto
+
+### Archivos modificados hoy
+- `app.py` — sidebar oscuro + reorden + nuevos módulos
+- `modules/pages/inicio.py` — rediseño completo Agency OS
+- `modules/pages/bulk_campanas.py` — + Campaign Analyzer tab
+- `modules/pages/analisis_cruzado.py` — + Plan de Acción tab + fix marca
+- `modules/pages/bid_optimizer.py` — NUEVO
+- `modules/pages/campaign_builder.py` — NUEVO

@@ -4,4 +4,6 @@ data/
 *.csv
 app_backup.py
 notes/
+!notes/knowledge/
+!notes/knowledge/**
 .env
