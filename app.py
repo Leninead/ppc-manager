@@ -29,6 +29,7 @@ from modules.pages.merchanspring import render as _render_ms
 from modules.pages.weekly_client_report import render as render_weekly
 from modules.pages.bid_optimizer import render as render_bid_optimizer
 from modules.pages.campaign_builder import render as render_campaign_builder
+from modules.pages.atom11_rules_builder import render as render_atom11_rules
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -153,6 +154,7 @@ with st.sidebar:
         "🔻 Análisis de Funnel",
         "🧠 Bid Optimizer",
         "🚀 Campaign Builder",
+        "🤖 Atom11 Rules Builder",
     ]:
         st.button(_pg, use_container_width=True, on_click=_nav,
                   args=(_pg,), key=f"nav_{_pg}")
@@ -228,3 +230,6 @@ if selected == "🧠 Bid Optimizer":
 
 if selected == "🚀 Campaign Builder":
     render_campaign_builder()
+
+if selected == "🤖 Atom11 Rules Builder":
+    render_atom11_rules()

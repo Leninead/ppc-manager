@@ -17,4 +17,7 @@ _PAGES = [
     "🔻 Análisis de Funnel",
     "🔬 Reportes Atom 11",
     "🛡️ Reportes MerchanSpring",
+    "🧠 Bid Optimizer",
+    "🚀 Campaign Builder",
+    "🤖 Atom11 Rules Builder",
 ]
