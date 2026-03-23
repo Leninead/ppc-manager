@@ -154,7 +154,7 @@ with st.sidebar:
         "🔻 Análisis de Funnel",
         "🧠 Bid Optimizer",
         "🚀 Campaign Builder",
-        "🤖 Atom11 Rules Builder",
+        "⚙️ Atom11 Rules Builder",
     ]:
         st.button(_pg, use_container_width=True, on_click=_nav,
                   args=(_pg,), key=f"nav_{_pg}")
@@ -231,5 +231,5 @@ if selected == "🧠 Bid Optimizer":
 if selected == "🚀 Campaign Builder":
     render_campaign_builder()
 
-if selected == "🤖 Atom11 Rules Builder":
+if selected == "⚙️ Atom11 Rules Builder":
     render_atom11_rules()

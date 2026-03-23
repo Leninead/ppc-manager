@@ -69,7 +69,7 @@ def _assign_tier(precio: float) -> str:
 
 
 def _calc_objective_targets(target_cuenta: int) -> dict:
-    return {obj: max(5, int(target_cuenta * mult))
+    return {obj: max(5, round(target_cuenta * mult))
             for obj, mult in _OBJ_MULTIPLIERS.items()}
 
 
@@ -431,9 +431,38 @@ def _build_rules_excel(rules: list[dict], prefix: str, target_cuenta: int) -> by
 # ── Main render ────────────────────────────────────────────────────────────
 
 def render():
-    st.header("🤖 Atom11 Rules Builder")
+    st.header("⚙️ Atom11 Rules Builder")
     st.caption("Clasifica campañas por objetivo y genera rules dinámicas listas para importar en Atom11.")
     st.divider()
+
+    with st.expander("📖 Cómo usar este módulo", expanded=False):
+        st.markdown("""
+**Atom11 Rules Builder** genera la configuración completa de automatización para Atom11 en 3 pasos:
+
+**Paso 1 — Configuración** (tab ⚙️)
+- Definí el prefijo de tu marca (DG, MB, STX, LTD...)
+- Ajustá el Target ACoS de la cuenta (las rules se recalculan automáticamente)
+- Revisá que los ASINs y precios estén correctos → los tiers se asignan solos
+
+**Paso 2 — Campaign Groups** (tab 📁)
+- Subí el Campaign CSV de Amazon Campaign Manager
+- El sistema clasifica cada campaña en su objetivo: DISCOVERY, RANKING, CONQUEST, DEFENSIVE, PROFIT, REMARKETING o SCAVENGER
+- Podés reclasificar manualmente si alguna quedó mal
+- Exportá el Excel → cada sheet es un grupo para importar en Atom11
+
+**Paso 3 — Rules Generator** (tab 📋)
+- Genera 274 rules automáticamente basadas en tu configuración
+- Cada objetivo tiene sus propios thresholds de ACoS (más tolerante en DISCOVERY, más estricto en PROFIT)
+- Exportá el Excel como referencia para cargar las rules en Atom11
+
+**Cómo cargar en Atom11:**
+1. Subir Campaign Groups → Atom11 > Campaigns > importar cada sheet como grupo
+2. Crear rules manualmente en Atom11 usando el Excel de Rules como referencia
+3. Asignar cada rule al grupo de campañas correspondiente
+4. Frecuencia recomendada: Martes y Viernes, 6:00 AM
+
+**Tip:** Empezá por las Bid rules de RANKING y DEFENSIVE (los grupos con más campañas). Las Placement rules y Harvest pueden esperar a la semana siguiente.
+        """)
 
     tab1, tab2, tab3 = st.tabs(["⚙️ Configuración", "📁 Campaign Groups", "📋 Rules Generator"])
 
