@@ -622,6 +622,35 @@ git push
 
 No confirmar como terminado hasta que py_compile pase Y el test manual sea exitoso.
 
+---
+
+### 🔄 Cierre de sesión — Checklist completo
+
+**Al FINAL de cada sesión de trabajo, en este orden:**
+
+**1. Git commit:**
+```bash
+git add .
+git commit -m "feat/fix/improve: [descripción de lo que hicimos]"
+git push
+```
+
+**2. Actualizar .md de clientes** con pendientes y acciones ejecutadas
+(DERMAGLOS.md, LTD.md, MB.md, setex.md según corresponda)
+
+**3. Actualizar CLAUDE.md** con módulos nuevos, fixes y estado actual
+
+**4. Subir archivos actualizados al proyecto de Claude**
+Ir a claude.ai → proyecto → panel derecho → Archivos → reemplazar:
+- `app.py`
+- `CLAUDE.md`
+- `DERMAGLOS.md` (o .md del cliente trabajado)
+- Cualquier módulo nuevo o modificado en `modules/pages/`
+
+Sin este paso, la próxima sesión arranca con contexto desactualizado.
+
+---
+
 ### Flujo para actualizar archivos .md de clientes (DERMAGLOS, LTD, MB, setex, etc.)
 1. Claude (chat) genera el contenido nuevo del archivo
 2. Claude (chat) redacta UN prompt para Claude Code con el contenido completo
@@ -917,3 +946,24 @@ Nunca implementar sin datos reales de validación primero.
 - `modules/pages/analisis_cruzado.py` — + Plan de Acción tab + fix marca
 - `modules/pages/bid_optimizer.py` — NUEVO
 - `modules/pages/campaign_builder.py` — NUEVO
+
+## 🔑 Cambiar cuenta de Claude Code
+
+### Desde terminal normal (fuera de Claude Code)
+```bash
+claude auth logout
+claude login
+```
+
+### Desde dentro de Claude Code
+```
+/login
+```
+
+Seleccionar opción **1 — Claude account with subscription** → browser → ingresar con la cuenta deseada.
+
+### Cuentas
+| Cuenta | Uso |
+|--------|-----|
+| lenin.acosta@capybaras.agency | Agencia — PPC Manager, clientes |
+| cuenta personal | Proyectos personales |
