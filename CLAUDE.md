@@ -33,6 +33,7 @@ No hay build step, test suite ni linter configurado.
 | 11 | 🔬 Reportes Atom 11 | Account Manager | ✅ completo |
 | 12 | 🛡️ Reportes MerchanSpring | Account Manager | ✅ completo |
 | 13 | 📊 Weekly Client Report | Account Manager | ✅ completo |
+| 14 | ⚙️ Atom11 Rules Builder | Automatización | ✅ nuevo 2026-03-23 |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.  
 `_PAGES` lista el orden completo. Sidebar agrupa por sección.
@@ -68,6 +69,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/weekly_client_report.py` — render() ✅ creado 17/03/2026
 - `modules/pages/bid_optimizer.py` — render() ✅ creado 2026-03-21
 - `modules/pages/campaign_builder.py` — render() ✅ creado 2026-03-21
+- `modules/pages/atom11_rules_builder.py` — render() ✅ creado 2026-03-23
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -461,7 +463,7 @@ Modos: Conservador (solo bajan bids) | Agresivo (sube, baja y pausa) | Custom
 | ~~**7**~~ | ~~Bid Optimizer (módulo nuevo)~~ | ~~Automatización~~ | ✅ Completado 2026-03-21 |
 | ~~**8**~~ | ~~Campaign Builder (módulo nuevo)~~ | ~~Automatización~~ | ✅ Completado 2026-03-21 |
 | ~~**9**~~ | ~~Agency OS — rediseño inicio + sidebar oscuro~~ | ~~app.py + inicio.py~~ | ✅ Completado 2026-03-21 |
-| **10** | Atom11 Rules Builder | Nuevo | Rules Atom 11 exportables |
+| ~~**10**~~ | ~~Atom11 Rules Builder~~ | ~~Nuevo~~ | ✅ Completado 2026-03-23 — módulo multi-marca, 3 tabs, 274 rules por objetivo |
 | **11** | Account Pulse | Nuevo | Monitor de salud diaria |
 | **12** | SOP completo de todas las tabs | Docs | SOP Capybaras Agency OS |
 
@@ -946,6 +948,78 @@ Nunca implementar sin datos reales de validación primero.
 - `modules/pages/analisis_cruzado.py` — + Plan de Acción tab + fix marca
 - `modules/pages/bid_optimizer.py` — NUEVO
 - `modules/pages/campaign_builder.py` — NUEVO
+
+---
+
+## 📅 Sesión 2026-03-23 — Lo que hicimos
+
+### Módulos nuevos
+- **Atom11 Rules Builder** — módulo nuevo en Automatización (Sesión 10 del roadmap). 3 sub-tabs:
+  - Tab 1: Configuración — prefijo marca, brand terms, target ACoS cuenta, tabla ASINs editable → auto-calcula tiers y targets por objetivo
+  - Tab 2: Campaign Groups — sube Campaign CSV → clasifica campañas automáticamente en 11 grupos por objetivo (DISCOVERY/RANKING/CONQUEST/DEFENSIVE/PROFIT/REMARKETING/SCAVENGER) → export Excel multi-sheet para Atom11
+  - Tab 3: Rules Generator — genera 274 rules con thresholds dinámicos por objetivo → preview por expander → export Excel
+  - **Multi-marca:** todo configurable — prefijo, brand terms, ASINs, targets. No hardcoded a Dermaglos.
+
+### Framework de clasificación de campañas (best practices 2026)
+- **DISCOVERY** (Target: 120% cuenta) = AUTO + BROAD → comprando data
+- **RANKING** (Target: 100% cuenta) = KWs Exact/Phrase → posicionando
+- **CONQUEST** (Target: ~86% cuenta) = PAT / ASIN / Category → robando tráfico
+- **DEFENSIVE** (Target: ~71% cuenta) = Brand KWs → protegiendo marca
+- **PROFIT** (Target: 50% cuenta) = Harvested winners → eficiencia
+- **REMARKETING** (Target: ~71% cuenta) = SD retargeting → recuperando visitantes
+- **SCAVENGER** = Catch-all, sin rules automáticas
+
+### Atom11 Rules — Diseño v2026.1
+- 274 rules totales (6 objetivos × ~45 rules cada uno)
+- Bid Optimiser: 7 niveles × 3 tiers × 6 objetivos = 126 rules
+- Placement Optimiser: 6 niveles × 3 tiers × 6 objetivos = 108 rules
+- Negate: 3 tiers × 6 objetivos = 18 rules
+- Hard Stop: 3 tiers × 6 objetivos = 18 rules
+- Harvest: 2 rules × 2 objetivos (solo DISCOVERY + RANKING) = 4 rules
+- Thresholds calculados dinámicamente como % del target ACoS del objetivo
+- Tiers por precio: LOW (<$12), MID ($12-22), HIGH (>$22)
+
+### Trabajo con cliente Dermaglos
+- Clasificación de 123 campañas en 11 grupos por objetivo
+- 274 rules diseñadas alineadas al 70% target cuenta (DEFENSIVE en 50%)
+- 2 Excel generados: DG_Atom11_Campaign_Groups.xlsx + DG_Atom11_Rules_Complete_v2026.xlsx
+- Checklist de migración Atom11 en 3 fases (hoy/semana 1/semana 2)
+- DERMAGLOS.md actualizado con toda la info nueva
+
+### Organización de notas
+- Nueva estructura: notes/brands/{marca}/ para separar notas por cliente
+- Movidos: DERMAGLOS.md → brands/dermaglos/, LTD.md → brands/ltd/, MB.md → brands/mb/, setex.md → brands/setex/
+
+### Archivos creados/modificados
+- `modules/pages/atom11_rules_builder.py` — NUEVO (módulo completo)
+- `app.py` — + import + sidebar button + routing para Atom11 Rules Builder
+- `notes/brands/dermaglos/DERMAGLOS.md` — actualizado con clasificación campañas + rules v2026.1
+- `notes/brands/dermaglos/Atom11_Rules.md` — rules originales v1
+- `notes/brands/dermaglos/2026-03-23-checklist-migracion-atom11.md` — checklist migración
+
+### ⚠️ Pendiente de esta sesión
+- [ ] Testing completo del módulo con Campaign CSV real
+- [ ] Actualizar Atom11.md con rules v2026.1 completas
+- [ ] Subir archivos actualizados al proyecto de Claude
+
+---
+
+## 📂 Nueva estructura de notas (2026-03-23)
+
+```
+notes/
+├── knowledge/           ← inteligencia general (tendencias, SOPs, AI)
+├── brands/
+│   ├── dermaglos/       ← DERMAGLOS.md + Atom11_Rules.md + checklists
+│   ├── ltd/             ← LTD.md
+│   ├── mb/              ← MB.md
+│   └── setex/           ← setex.md
+├── Biblioteca.md        ← SOP biblioteca de conocimiento
+├── INTELLIGENCE-INDEX.md
+└── Slack #learnings-implementations.md
+```
+
+---
 
 ## 🔑 Cambiar cuenta de Claude Code
 
