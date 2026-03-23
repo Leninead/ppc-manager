@@ -1041,3 +1041,100 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 |--------|-----|
 | lenin.acosta@capybaras.agency | Agencia — PPC Manager, clientes |
 | cuenta personal | Proyectos personales |
+
+# INSTRUCCIONES PARA CLAUDE CODE
+# Agregar esta sección al final del CLAUDE.md existente en C:\proyectos\ppc-manager\CLAUDE.md
+# (justo después de la sección "Sesión 2026-03-23 — Lo que hicimos" existente)
+# NO borrar nada existente — solo AGREGAR al final.
+
+---
+
+## 📅 Sesión 2026-03-23b — Lo que hicimos (continuación tarde)
+
+### Atom11 Rules — Migración a v2026.2 AGRESIVO
+- **Thresholds recalculados** — multiplicadores DEC más agresivos para cuenta sangrando a 76% ACoS:
+  - DEC SOFT: 1.30× → **1.14×** del target
+  - DEC RISK: 1.50× → **1.36×** del target
+  - DEC CTRL: 1.80× → **1.57×** del target
+  - DEC HARD: 2.20× (bid -40%) → **1.86× (PAUSE TARGET)** ← cambio más importante
+- **6 rules RANKING SP creadas en Atom11** — Bid Optimiser MID, 41 campañas, thresholds v2026.2:
+  - INC AGG <35% (+15%) | INC SOFT 35-60% (+8%) | FLAT 60-70% | DEC SOFT >80% (-10%) | DEC RISK >95% (-15%) | DEC CTRL >110% (-25%) | DEC HARD >130% (PAUSE TARGET)
+- **Rules viejas pausadas:**
+  - 14 rules RANKING SP (Bid + Placement, thresholds v1 desactualizados, 23 campañas → ahora son 41)
+  - 10 rules DEFENSIVE SP (Bid + Placement, thresholds v1, 13 campañas → ahora son 23)
+- **2 Excel regenerados** con thresholds agresivos:
+  - `DG_Atom11_CheatSheet_v2_AGRESIVO.xlsx` — 52 rules en 3 fases, listo para copiar en Atom11
+  - `DG_Atom11_Rules_Complete_v2026_2_AGRESIVO.xlsx` — 256 rules referencia completa (3 tiers × 6 objetivos)
+
+### Thresholds v2026.2 por objetivo (todos PAUSE TARGET en DEC HARD)
+| Objetivo | Target | INC AGG < | INC SOFT | Flat Zone | DEC SOFT > | DEC RISK > | DEC CTRL > | DEC HARD > (PAUSE) |
+|----------|--------|-----------|----------|-----------|------------|------------|------------|-------------------|
+| RANKING | 70% | 35% | 35-60% | 60-70% | 80% | 95% | 110% | 130% |
+| DEFENSIVE | 50% | 25% | 25-42% | 42-50% | 57% | 68% | 78% | 93% |
+| DISCOVERY | 84% | 42% | 42-71% | 71-84% | 96% | 114% | 132% | 156% |
+| CONQUEST | 60% | 30% | 30-51% | 51-60% | 68% | 82% | 94% | 112% |
+| PROFIT | 35% | 18% | 18-30% | 30-35% | 40% | 48% | 55% | 65% |
+| REMARKETING | 50% | 25% | 25-42% | 42-50% | 57% | 68% | 78% | 93% |
+
+### Cliente Dermaglos — Acciones ejecutadas
+- **B0CYLDSQ5L Body Cream $13.49** — cliente pidió "reducción fuerte de ads":
+  - 15 campañas identificadas para PAUSAR (DISCOVERY + RANKING genéricos + CONQUEST)
+  - 5 campañas para MANTENER con bids bajos $0.50 (Brand Defensive + Core Hero)
+  - 3 campañas para REVISAR (PAT related + Phrase Core + KWS Validation)
+  - Resultado estimado: cortar ~70-80% del spend de Body Cream
+- **Rules existentes en Atom11 auditadas:** 51 rules totales (Feb 2026), 9 problemas detectados:
+  1. No segmentadas por tier
+  2. Thresholds desactualizados
+  3. DEFENSIVE sin INC rules
+  4. Campañas faltantes (23→41 RANKING, 13→23 DEFENSIVE)
+  5. DISCOVERY/CONQUEST/PROFIT sin rules (0 de 36 campañas)
+  6. Negate con threshold fijo (25) en vez de tiers
+  7. Harvest PAUSED
+  8. Anti-Drain genérica
+  9. SB rules custom (mantener)
+
+### Claude in Chrome — Intentado automatización Atom11
+- **Conectado exitosamente** a Chrome de trabajo (perfil "Lenin Capybaras")
+- **Navegó a Atom11** — puede ver rules, tomar screenshots, leer DOM
+- **Problemas encontrados:**
+  - Kebab menu (⋮) fuera del viewport visible (x=1785, viewport=1713)
+  - Menú usa group-hover CSS, difícil de disparar programáticamente
+  - Google Sheets interacción compleja para copiar campañas
+  - Cada rule tiene ~15 interacciones (dropdowns, inputs, selects, file upload)
+- **Conclusión:** automatización parcial posible pero no eficiente para esta sesión
+- **Alternativa propuesta:** Cowork (Claude Desktop) con proyecto dedicado
+
+### Decisión: Migrar flujo de automatización a Cowork
+- Crear proyecto "Atom11 Automation" en Claude Desktop / Cowork
+- Archivos de contexto: CLAUDE.md + Atom11_Rules.md + CheatSheet + Campaign Groups
+- Tareas: crear rules automáticamente en Atom11 via Claude in Chrome
+
+### Estado actual Atom11 Dermaglos (al cerrar sesión)
+| Grupo | Rules nuevas v2026.2 | Rules viejas pausadas | Pendiente |
+|-------|---------------------|----------------------|-----------|
+| RANKING SP | 6 Bid ✅ | 14 (Bid + Placement) | Placement, Negate, HardStop |
+| DEFENSIVE SP | 0 | 10 (Bid + Placement) | 6 Bid + Negate + HardStop |
+| DISCOVERY SP | 0 | 0 | 6 Bid + Negate + HardStop + Harvest |
+| CONQUEST SP | 0 | 0 | 6 Bid + Negate + HardStop |
+| PROFIT SP | 0 | 0 | 6 Bid + Negate + HardStop |
+| REMARKETING SD | 0 | 0 (activas viejas) | 6 Bid + Negate + HardStop |
+| SB | — | 0 (activas viejas) | Mantener separadas |
+| SD DEFENSIVE | — | 0 (activas viejas) | Mantener separadas |
+
+### Archivos generados hoy
+- `DG_Atom11_CheatSheet_v2_AGRESIVO.xlsx` — 52 rules, 3 fases, TIER MID only
+- `DG_Atom11_Rules_Complete_v2026_2_AGRESIVO.xlsx` — 256 rules referencia completa
+- (anteriores de la mañana: DG_Atom11_Campaign_Groups.xlsx + DG_Atom11_Rules_Complete_v2026.xlsx)
+
+### ⚠️ Pendiente próxima sesión
+- [ ] Crear 6 rules DEFENSIVE SP en Atom11 (cheat sheet #7-#12)
+- [ ] Crear 8 rules Negate + HardStop en Atom11 (cheat sheet #13-#20)
+- [ ] Crear 12 rules DISCOVERY + CONQUEST en Atom11 (cheat sheet #21-#32, Fase 2)
+- [ ] Crear 4 Harvest rules (cheat sheet #33-#36, Fase 2)
+- [ ] Pausar campañas B0CYLDSQ5L (15 campañas RANKING/DISCOVERY/CONQUEST)
+- [ ] Bajar bids a $0.50 en campañas B0CYLDSQ5L que se mantengan
+- [ ] Probar automatización Atom11 desde Cowork (Claude Desktop)
+- [ ] Testing módulo Atom11 Rules Builder con Campaign CSV real
+- [ ] Actualizar Atom11_Rules.md con v2026.2 thresholds
+- [ ] Sesión 11: Account Pulse (roadmap)
+
