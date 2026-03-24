@@ -1042,6 +1042,43 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 | lenin.acosta@capybaras.agency | Agencia — PPC Manager, clientes |
 | cuenta personal | Proyectos personales |
 
+---
+
+## 📅 Sesión 2026-03-23b — Atom11 Rules v2026.2 AGRESIVO
+
+### Cambios de thresholds
+- Multiplicadores DEC más agresivos: SOFT 1.14× | RISK 1.36× | CTRL 1.57× | HARD 1.86× (PAUSE TARGET)
+- Antes: 1.3× | 1.5× | 1.8× | 2.2× (bid -40%)
+- DEC HARD ahora pausa el keyword en vez de bajar bid — corta el sangrado
+
+### Fase 1 COMPLETA — 20 rules activas en Atom11
+- 6 RANKING SP Bid (target 70%, 41 camps) — creadas manual
+- 6 DEFENSIVE SP Bid (target 50%, 23 camps) — creadas Cowork
+- 4 Negate (RANKING/DEFENSIVE/DISCOVERY/CONQUEST, clicks>21, orders=0) — Cowork
+- 4 Hard-Stop (spend>$22, orders=0, clicks>21, decrease 50%) — Cowork
+- 24 rules viejas pausadas (14 RANKING + 10 DEFENSIVE)
+- Todas: TIER MID, Wait 3d, Tue+Fri 06:00
+
+### B0CYLDSQ5L Body Cream — reducción fuerte ejecutada
+- 15 campañas pausadas (DISCOVERY + RANKING genéricos + CONQUEST)
+- 5 campañas mantenidas con bid $0.50 (Brand Defensive + Core Hero)
+
+### Claude in Chrome + Cowork
+- Automatización de Atom11 via Cowork funciona — creó 14 rules automáticamente
+- Flujo: Create Custom Rule → llenar form → JS para seleccionar campañas → Create Rule
+- Clonar rules funciona para mismo objetivo (cambiar solo nombre + condiciones)
+- Limitación: campañas Manual vs Automatic targeting se seleccionan por separado
+
+### Archivos generados
+- DG_Atom11_CheatSheet_v2_AGRESIVO.xlsx — 52 rules, 3 fases
+- DG_Atom11_Rules_Complete_v2026_2_AGRESIVO.xlsx — 256 rules referencia
+- TASKS.md — tareas del día para Cowork
+
+### Pendiente Fase 2 (16 rules) — ver TASKS.md
+- 6 DISCOVERY SP Bid (target 84%)
+- 6 CONQUEST SP Bid (target 60%)
+- 4 Harvest (DISCOVERY + RANKING)
+
 # INSTRUCCIONES PARA CLAUDE CODE
 # Agregar esta sección al final del CLAUDE.md existente en C:\proyectos\ppc-manager\CLAUDE.md
 # (justo después de la sección "Sesión 2026-03-23 — Lo que hicimos" existente)
