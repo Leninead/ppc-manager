@@ -1,6 +1,29 @@
+import re
 import streamlit as st
 import pandas as pd
 import io as _io_ca
+
+
+# ── Naming convention Capybaras: [Marca] | [ASIN] | [MKT] | [Tipo] | [Match] | [Cluster]
+_NAMING_PATTERN = re.compile(
+    r'^[^|]+\|'    # Marca
+    r'\s*B0[A-Z0-9]{8}\s*\|'  # ASIN
+    r'[^|]+\|'    # MKT (SP/SB/SD)
+    r'[^|]+\|'    # Tipo (KW/PAT/AUTO)
+    r'[^|]+\|'    # Match (Exact/Broad/Phrase)
+    r'.+$',       # Cluster
+    re.IGNORECASE
+)
+
+_NAMING_LOOSE = re.compile(r'B0[A-Z0-9]{8}', re.IGNORECASE)
+
+
+def _check_naming(name):
+    """Retorna (is_capybaras, has_asin) para un campaign name."""
+    n = str(name).strip()
+    is_capy = bool(_NAMING_PATTERN.match(n))
+    has_asin = bool(_NAMING_LOOSE.search(n))
+    return is_capy, has_asin
 
 
 def render():
@@ -21,7 +44,7 @@ def render():
             st.dataframe(df_bulk_raw, use_container_width=True)
 
         # ══════════════════════════════════════════════════════════════════
-        # TAB 2 — Campaign Analyzer
+        # TAB 2 — Campaign Analyzer (Auditoría PPC)
         # ══════════════════════════════════════════════════════════════════
         with bulk_tab2:
             st.markdown("### 🚦 Campaign Analyzer")
@@ -92,6 +115,34 @@ def render():
 
                 df_ca['Diagnóstico'] = df_ca.apply(_diagnostico, axis=1)
 
+                # ── Naming convention check ──────────────────────────────
+                camp_col = 'Campaign name'
+                if camp_col in df_ca.columns:
+                    naming_results = df_ca[camp_col].apply(_check_naming)
+                    df_ca['_naming_capy'] = naming_results.apply(lambda x: x[0])
+                    df_ca['_naming_asin'] = naming_results.apply(lambda x: x[1])
+
+                    n_capy = df_ca['_naming_capy'].sum()
+                    n_asin_only = (~df_ca['_naming_capy'] & df_ca['_naming_asin']).sum()
+                    n_bad = (~df_ca['_naming_capy'] & ~df_ca['_naming_asin']).sum()
+
+                    df_ca['Naming'] = df_ca.apply(
+                        lambda r: "✅ Capybaras" if r['_naming_capy']
+                        else ("🟡 Tiene ASIN" if r['_naming_asin'] else "🔴 Sin estándar"),
+                        axis=1
+                    )
+
+                # ── Target Graduation (si hay columna Targeting) ─────────
+                tgt_col = next((c for c in df_ca.columns if 'targeting' in c.lower() and 'type' not in c.lower()), None)
+                has_tgt_graduation = False
+                df_tgt_dead = pd.DataFrame()
+                if tgt_col:
+                    # Targets con 0 impresiones = candidatos a pausar
+                    tgt_rows = df_ca[df_ca[tgt_col].notna() & (df_ca[tgt_col].astype(str).str.strip() != "")]
+                    if not tgt_rows.empty:
+                        df_tgt_dead = tgt_rows[tgt_rows['_impr'] == 0].copy()
+                        has_tgt_graduation = len(df_tgt_dead) > 0
+
                 # ── KPIs globales ─────────────────────────────────────────
                 total_spend   = df_ca['_spend'].sum()
                 total_sales   = df_ca['_sales'].sum()
@@ -116,6 +167,32 @@ def render():
                 dc4.metric("✅ Escalar",    diag_counts.get("✅ ESCALAR", 0))
                 dc5.metric("⚪ OK",         diag_counts.get("⚪ OK", 0))
 
+                # ── Naming convention resumen ────────────────────────────
+                if camp_col in df_ca.columns:
+                    st.markdown("#### Naming Convention")
+                    nc1, nc2, nc3 = st.columns(3)
+                    nc1.metric("✅ Capybaras estándar", int(n_capy))
+                    nc2.metric("🟡 Tiene ASIN (parcial)", int(n_asin_only))
+                    nc3.metric("🔴 Sin estándar", int(n_bad))
+
+                    if n_bad > 0:
+                        with st.expander(f"Ver {int(n_bad)} campañas sin naming estándar"):
+                            df_bad_naming = df_ca[~df_ca['_naming_capy'] & ~df_ca['_naming_asin']][[camp_col, '_spend', '_orders']].copy()
+                            df_bad_naming.columns = ['Campaign', 'Spend', 'Orders']
+                            st.dataframe(df_bad_naming.sort_values('Spend', ascending=False), use_container_width=True, hide_index=True)
+
+                # ── Target Graduation ─────────────────────────────────────
+                if has_tgt_graduation:
+                    st.markdown("#### Target Graduation")
+                    st.caption(f"**{len(df_tgt_dead)} targets** con 0 impresiones en el período completo. Candidatos a pausar.")
+                    with st.expander(f"Ver {len(df_tgt_dead)} targets sin impresiones"):
+                        tgt_show_cols = [camp_col, tgt_col, '_spend', '_clicks']
+                        tgt_show_cols = [c for c in tgt_show_cols if c in df_tgt_dead.columns]
+                        st.dataframe(
+                            df_tgt_dead[tgt_show_cols].rename(columns={'_spend': 'Spend', '_clicks': 'Clicks'}),
+                            use_container_width=True, hide_index=True
+                        )
+
                 st.markdown("---")
 
                 # ── Filtro por diagnóstico ────────────────────────────────
@@ -127,6 +204,8 @@ def render():
                 # ── Tabla semáforo ────────────────────────────────────────
                 show_cols = ['Diagnóstico', 'Campaign name', 'Portfolio name',
                              '_spend', '_sales', '_acos', '_orders', '_impr', '_clicks']
+                if camp_col in df_ca.columns and '_naming_capy' in df_ca.columns:
+                    show_cols.insert(2, 'Naming')
                 if 'Campaign start date' in df_show.columns:
                     show_cols.append('Campaign start date')
                 if 'Campaign bid strategy' in df_show.columns:
@@ -159,7 +238,8 @@ def render():
                     }
                     return colors.get(val, "")
 
-                styled = df_tabla.style.map(_color_diag, subset=['Diagnóstico'])
+                style_subsets = ['Diagnóstico']
+                styled = df_tabla.style.map(_color_diag, subset=style_subsets)
                 st.dataframe(styled, use_container_width=True, height=500)
 
                 # ── Nota aclaratoria ──────────────────────────────────────
@@ -167,7 +247,11 @@ def render():
 
                 # ── Export ────────────────────────────────────────────────
                 buf_ca = _io_ca.BytesIO()
-                df_tabla.to_excel(buf_ca, index=False)
+                with pd.ExcelWriter(buf_ca, engine="openpyxl") as writer:
+                    df_tabla.to_excel(writer, sheet_name="Diagnóstico", index=False)
+                    if has_tgt_graduation and not df_tgt_dead.empty:
+                        tgt_export = df_tgt_dead[tgt_show_cols].rename(columns={'_spend': 'Spend', '_clicks': 'Clicks'})
+                        tgt_export.to_excel(writer, sheet_name="Targets 0 Impr", index=False)
                 st.download_button(
                     label=f"⬇️ Exportar diagnóstico ({len(df_tabla)} campañas)",
                     data=buf_ca.getvalue(),

@@ -70,7 +70,7 @@ def render():
                 if c in df_sqp.columns:
                     df_sqp[c] = pd.to_numeric(df_sqp[c], errors="coerce").fillna(0)
 
-            cruzado_tab1, cruzado_tab2 = st.tabs(["🔗 Análisis Cruzado", "🎯 Plan de Acción"])
+            cruzado_tab1, cruzado_tab2, cruzado_tab3 = st.tabs(["🔗 Análisis Cruzado", "🎯 Plan de Acción", "📊 PPC Insights por ASIN"])
 
             # ══════════════════════════════════════════════════════════════
             # TAB 1 — Análisis Cruzado (contenido original)
@@ -341,3 +341,210 @@ def render():
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="download_plan_accion"
                     )
+
+            # ══════════════════════════════════════════════════════════════
+            # TAB 3 — PPC Insights por ASIN
+            # ══════════════════════════════════════════════════════════════
+            with cruzado_tab3:
+                st.markdown("### 📊 PPC Insights por ASIN")
+                st.caption("Resumen de performance STR + market share SQP por ASIN. Subí el BR by ASIN para enriquecer.")
+
+                # ── BR por ASIN opcional ──────────────────────────────────
+                file_br_asin = st.file_uploader(
+                    "Business Report by ASIN (opcional, .csv/.xlsx)",
+                    type=["csv", "xlsx"],
+                    key="cruzado_br_asin",
+                )
+
+                br_asin_data = {}
+                if file_br_asin:
+                    try:
+                        df_br_a = pd.read_excel(file_br_asin) if file_br_asin.name.endswith(".xlsx") else pd.read_csv(file_br_asin)
+                        asin_col_br = next((c for c in df_br_a.columns if "asin" in c.lower()), None)
+                        title_col_br = next((c for c in df_br_a.columns if "title" in c.lower()), None)
+                        sess_col_br = next((c for c in df_br_a.columns if "session" in c.lower() and "total" in c.lower()), None)
+                        sales_col_br = next((c for c in df_br_a.columns if "ordered product sales" in c.lower()), None)
+                        units_col_br = next((c for c in df_br_a.columns if "units ordered" in c.lower()), None)
+
+                        if asin_col_br:
+                            for _, row_br in df_br_a.iterrows():
+                                a = str(row_br[asin_col_br]).strip()
+                                if not a or a == "nan":
+                                    continue
+                                br_asin_data[a] = {
+                                    "Title": str(row_br[title_col_br])[:50] if title_col_br else "",
+                                    "Sessions": pd.to_numeric(str(row_br.get(sess_col_br, 0)).replace(",", ""), errors="coerce") or 0 if sess_col_br else 0,
+                                    "Sales": pd.to_numeric(str(row_br.get(sales_col_br, 0)).replace("$", "").replace(",", "").replace("MX", ""), errors="coerce") or 0 if sales_col_br else 0,
+                                    "Units": pd.to_numeric(str(row_br.get(units_col_br, 0)).replace(",", ""), errors="coerce") or 0 if units_col_br else 0,
+                                }
+                            st.success(f"✅ BR cargado — {len(br_asin_data)} ASINs")
+                    except Exception as e:
+                        st.warning(f"⚠️ Error leyendo BR: {e}")
+
+                st.markdown("---")
+
+                # ── Detectar ASINs del STR ────────────────────────────────
+                asin_col_str = next((c for c in df_str.columns if "advertised asin" in c.lower()), None)
+                camp_col_str = next((c for c in df_str.columns if "campaign name" in c.lower()), None)
+                spend_col_str = next((c for c in df_str.columns if "spend" in c.lower()), None)
+                sales_col_str = next((c for c in df_str.columns if "sales" in c.lower()
+                                      and "other" not in c.lower() and "advertised" not in c.lower()), None)
+                orders_col_str = next((c for c in df_str.columns if "orders" in c.lower()), None)
+                clicks_col_str = next((c for c in df_str.columns if "clicks" in c.lower()), None)
+
+                if not asin_col_str:
+                    # Intentar extraer de Campaign Name
+                    import re as _re_cr
+                    if camp_col_str:
+                        df_str["_asin_ext"] = df_str[camp_col_str].astype(str).str.extract(r'(B0[A-Z0-9]{8})', expand=False)
+                        if df_str["_asin_ext"].notna().any():
+                            asin_col_str = "_asin_ext"
+
+                if not asin_col_str:
+                    st.warning("⚠️ No se detectó columna de ASIN en el STR. Necesitás 'Advertised ASIN' o ASIN en el Campaign Name.")
+                else:
+                    # Limpiar numéricos del STR
+                    def _to_num_cr(series):
+                        return pd.to_numeric(
+                            series.astype(str).str.replace(r"[MX$,%]", "", regex=True).str.replace(",", ""),
+                            errors="coerce"
+                        ).fillna(0)
+
+                    for c in [spend_col_str, sales_col_str, orders_col_str, clicks_col_str]:
+                        if c and c in df_str.columns:
+                            df_str[c] = _to_num_cr(df_str[c])
+
+                    # Agrupar STR por ASIN
+                    agg_map_str = {}
+                    if spend_col_str: agg_map_str[spend_col_str] = "sum"
+                    if sales_col_str: agg_map_str[sales_col_str] = "sum"
+                    if orders_col_str: agg_map_str[orders_col_str] = "sum"
+                    if clicks_col_str: agg_map_str[clicks_col_str] = "sum"
+
+                    if agg_map_str:
+                        df_asin_str = df_str.groupby(asin_col_str, as_index=False).agg(agg_map_str)
+                    else:
+                        df_asin_str = df_str[[asin_col_str]].drop_duplicates()
+
+                    asins = sorted(df_asin_str[asin_col_str].dropna().unique())
+
+                    if not asins:
+                        st.info("No se detectaron ASINs en el STR.")
+                    else:
+                        st.markdown(f"#### {len(asins)} ASINs detectados")
+
+                        # ── SQP: impression share por ASIN (Brand columns) ───
+                        br_imp_col = "Impressions: Brand Count"
+                        br_click_col = "Clicks: Brand Count"
+                        br_pur_col = "Purchases: Brand Count"
+                        for sqp_c in [br_imp_col, br_click_col, br_pur_col]:
+                            if sqp_c in df_sqp.columns:
+                                df_sqp[sqp_c] = pd.to_numeric(df_sqp[sqp_c], errors="coerce").fillna(0)
+
+                        # Calcular share totales del SQP
+                        total_sqp_imps = df_sqp[imp_col].sum() if imp_col in df_sqp.columns else 0
+                        brand_sqp_imps = df_sqp[br_imp_col].sum() if br_imp_col in df_sqp.columns else 0
+                        imp_share_global = (brand_sqp_imps / total_sqp_imps * 100) if total_sqp_imps > 0 else 0
+
+                        # ── Resumen por ASIN ──────────────────────────────────
+                        insights_rows = []
+                        for asin in asins:
+                            asin_row = df_asin_str[df_asin_str[asin_col_str] == asin]
+                            if asin_row.empty:
+                                continue
+                            ar = asin_row.iloc[0]
+
+                            spend_a = ar.get(spend_col_str, 0) if spend_col_str else 0
+                            sales_a = ar.get(sales_col_str, 0) if sales_col_str else 0
+                            orders_a = ar.get(orders_col_str, 0) if orders_col_str else 0
+                            clicks_a = ar.get(clicks_col_str, 0) if clicks_col_str else 0
+                            acos_a = (spend_a / sales_a * 100) if sales_a > 0 else 0
+                            cvr_a = (orders_a / clicks_a * 100) if clicks_a > 0 else 0
+
+                            # BR data
+                            br_info = br_asin_data.get(asin, {})
+                            title = br_info.get("Title", asin[:20])
+
+                            insights_rows.append({
+                                "ASIN": asin,
+                                "Producto": title if title else asin,
+                                "Ad Spend": round(spend_a, 2),
+                                "Ad Sales": round(sales_a, 2),
+                                "ACoS %": round(acos_a, 1),
+                                "Orders": int(orders_a),
+                                "CVR %": round(cvr_a, 1),
+                                "Sessions (BR)": int(br_info.get("Sessions", 0)),
+                                "Total Sales (BR)": round(br_info.get("Sales", 0), 2),
+                            })
+
+                        if insights_rows:
+                            df_insights = pd.DataFrame(insights_rows)
+
+                            # KPIs
+                            i1, i2, i3 = st.columns(3)
+                            i1.metric("ASINs con ads", len(df_insights))
+                            i2.metric("Impression Share global", f"{imp_share_global:.1f}%")
+                            total_ad_spend = df_insights["Ad Spend"].sum()
+                            total_ad_sales = df_insights["Ad Sales"].sum()
+                            i3.metric("ACoS promedio", f"{total_ad_spend / total_ad_sales * 100:.1f}%" if total_ad_sales > 0 else "—")
+
+                            def _color_acos_insight(val):
+                                if val <= 0: return ""
+                                if val < 25: return "background-color: #E8F5E9; color: #1B5E20"
+                                if val < 50: return "background-color: #FFF8E1; color: #F57F17"
+                                return "background-color: #FFEBEE; color: #B71C1C"
+
+                            styled_ins = df_insights.style.map(_color_acos_insight, subset=["ACoS %"])
+                            st.dataframe(styled_ins, use_container_width=True, hide_index=True)
+
+                            # ── Top 5 keywords por ASIN (expanders) ──────────
+                            st.markdown("---")
+                            st.markdown("#### Top 5 keywords por ASIN")
+
+                            search_term_col = str_col
+                            for asin in asins[:15]:  # Limitar a 15 ASINs para no saturar
+                                asin_df = df_str[df_str[asin_col_str] == asin].copy()
+                                if asin_df.empty:
+                                    continue
+
+                                if sales_col_str and sales_col_str in asin_df.columns:
+                                    top_kw = asin_df.nlargest(5, sales_col_str)
+                                elif spend_col_str and spend_col_str in asin_df.columns:
+                                    top_kw = asin_df.nlargest(5, spend_col_str)
+                                else:
+                                    top_kw = asin_df.head(5)
+
+                                title_label = br_asin_data.get(asin, {}).get("Title", "")
+                                label = f"{asin} — {title_label}" if title_label else asin
+                                asin_spend = asin_df[spend_col_str].sum() if spend_col_str else 0
+                                asin_sales_v = asin_df[sales_col_str].sum() if sales_col_str else 0
+                                asin_acos = (asin_spend / asin_sales_v * 100) if asin_sales_v > 0 else 0
+
+                                with st.expander(f"{label} | ACoS {asin_acos:.1f}% | ${asin_spend:,.2f} spend"):
+                                    show_kw_cols = [search_term_col]
+                                    if spend_col_str: show_kw_cols.append(spend_col_str)
+                                    if sales_col_str: show_kw_cols.append(sales_col_str)
+                                    if orders_col_str: show_kw_cols.append(orders_col_str)
+                                    if clicks_col_str: show_kw_cols.append(clicks_col_str)
+                                    show_kw_cols = [c for c in show_kw_cols if c in top_kw.columns]
+
+                                    # Detectar gaps: keywords en SQP que podrían beneficiar este ASIN
+                                    asin_terms = set(asin_df[search_term_col].dropna().str.lower().str.strip())
+                                    gaps = terms_sqp - asin_terms
+                                    n_gaps = len(gaps)
+
+                                    st.dataframe(top_kw[show_kw_cols], use_container_width=True, hide_index=True)
+                                    if n_gaps > 0:
+                                        st.caption(f"🔍 {n_gaps} queries del SQP no tienen ads para este ASIN — posibles gaps de cobertura.")
+
+                            # ── Export ────────────────────────────────────────
+                            st.markdown("---")
+                            buf_ins = io.BytesIO()
+                            df_insights.to_excel(buf_ins, index=False)
+                            st.download_button(
+                                label=f"📥 Exportar Insights por ASIN ({len(df_insights)} ASINs)",
+                                data=buf_ins.getvalue(),
+                                file_name="ppc_insights_asin.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="download_insights_asin"
+                            )

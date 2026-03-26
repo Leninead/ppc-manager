@@ -236,7 +236,7 @@ def _parse_campaign_csv(file):
     return {"totals": totals, "campaigns": campaigns, "portfolios": portfolios}
 
 
-def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es", br_daily=None, camp_data=None):
+def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es", br_daily=None, camp_data=None, changelog_text=""):
     NAVY="0D1B3E"; WHITE="FFFFFF"; LGRAY="F7FAFC"; DGRAY="2D3748"; MGRAY="CBD5E0"
     GRN_L="C6EFCE"; GRN_D="276221"; RED_L="FFC7CE"; RED_D="9C0006"
     YEL_L="FFEB9C"; YEL_D="9C5700"; ORG_L="FFE0B2"; ORG_D="BF360C"
@@ -785,6 +785,32 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     cur = _erow(cur, f"\u2705 {t['sec_conclusion']}", bg=NAVY, fg=WHITE, bold=True, h=18)
     cur = _erow(cur, f"  {t['conclusion'].format(trend=trend, action=action)}", h=30, wrap=True)
 
+    # ── SHEET 4: Changelog (opcional) ──────────────────────────────
+    if changelog_text and changelog_text.strip():
+        ws_cl = wb_out.create_sheet("\U0001f4dd Changelog")
+        ws_cl.sheet_view.showGridLines = False
+        ws_cl.column_dimensions["A"].width = 20
+        ws_cl.column_dimensions["B"].width = 80
+
+        ws_cl.merge_cells(start_row=1, start_column=1, end_row=1, end_column=2)
+        c = ws_cl.cell(row=1, column=1, value=f"{client_name} — Changelog")
+        c.fill = _fill(NAVY); c.font = _font(True, WHITE, 14)
+        c.alignment = _al("left"); c.border = _bd()
+        ws_cl.row_dimensions[1].height = 28
+
+        from datetime import date as _date
+        _cell(ws_cl, 2, 1, "Fecha", bg=DGRAY, fg=WHITE, bold=True)
+        _cell(ws_cl, 2, 2, "Cambios realizados", bg=DGRAY, fg=WHITE, bold=True)
+        ws_cl.row_dimensions[2].height = 16
+
+        _cell(ws_cl, 3, 1, str(_date.today()), bg=LGRAY, left=True)
+        c_txt = ws_cl.cell(row=3, column=2, value=changelog_text.strip())
+        c_txt.fill = _fill(LGRAY)
+        c_txt.font = _font(size=9)
+        c_txt.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        c_txt.border = _bd()
+        ws_cl.row_dimensions[3].height = max(30, min(200, 15 * changelog_text.count("\n") + 30))
+
     buf = io.BytesIO()
     wb_out.save(buf)
     buf.seek(0)
@@ -818,6 +844,15 @@ def render():
     st.markdown("#### 4\ufe0f\u20e3 Campaign Report")
     st.caption("Campaign Manager \u2192 Advertising \u2192 Campaign Manager \u2192 mismo date range de 14 d\u00edas")
     camp_file = st.file_uploader("Campaign CSV (.csv)", type=["csv"], key="wcr_campaign")
+
+    st.markdown("#### 📝 Changelog (opcional)")
+    st.caption("Cambios técnicos realizados esta semana — se agrega como hoja extra al Excel.")
+    changelog_input = st.text_area(
+        "Cambios técnicos realizados esta semana",
+        placeholder="Ej:\n- Pausadas 5 campañas DISCOVERY con ACoS >100%\n- Nuevas rules Atom11 para DEFENSIVE\n- Ajuste bids -15% en CONQUEST",
+        key="wcr_changelog",
+        height=100,
+    )
 
     if br_daily_file or br_child_file or atom_file or camp_file:
         st.divider()
@@ -881,6 +916,7 @@ def render():
                 client_name=client_w or "Client",
                 lang=lang_w, br_daily=br_daily_data,
                 camp_data=camp_data,
+                changelog_text=changelog_input,
             )
             safe_n = (client_w or "report").replace(" ", "_")[:30]
             st.download_button(

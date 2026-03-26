@@ -193,7 +193,7 @@ def render():
                     return "background-color: #F5F5F5; color: #666"
 
                 st.dataframe(
-                    df_show.style.applymap(_color_prio, subset=["Prioridad"]),
+                    df_show.style.map(_color_prio, subset=["Prioridad"]),
                     use_container_width=True,
                     height=min(38 + 35 * len(df_show), 800),
                 )
@@ -241,6 +241,43 @@ def render():
             harv_precio = st.number_input("Precio promedio ($)", min_value=1.0, value=30.0, step=1.0, key="harv_precio")
         with hc3:
             harv_min_clicks = st.number_input("Clicks mínimos para CVR", min_value=5, value=15, step=1, key="harv_min_clicks")
+
+        # ── Anti-canibalización: Campaign CSV opcional ────────────────
+        st.markdown("---")
+        st.markdown("**Anti-canibalización** (opcional)")
+        st.caption("Subí el Campaign CSV o Bulk para detectar keywords que ya están en Exact activo.")
+        file_camp_harv = st.file_uploader(
+            "Campaign CSV / Bulk (.xlsx o .csv)",
+            type=["xlsx", "csv"],
+            key="harv_anti_canib",
+        )
+
+        existing_exact_kws = set()
+        if file_camp_harv:
+            try:
+                df_camp_h = pd.read_excel(file_camp_harv) if file_camp_harv.name.endswith(".xlsx") else pd.read_csv(file_camp_harv)
+                # Detectar columnas
+                kw_col_h = next((c for c in df_camp_h.columns if "keyword" in c.lower() and "text" in c.lower()), None)
+                if not kw_col_h:
+                    kw_col_h = next((c for c in df_camp_h.columns if "keyword" in c.lower() or "targeting" in c.lower()), None)
+                mt_col_h = next((c for c in df_camp_h.columns if "match type" in c.lower()), None)
+                st_col_h = next((c for c in df_camp_h.columns if c.lower() == "state" or c.lower() == "status"), None)
+
+                if kw_col_h:
+                    df_kw = df_camp_h.copy()
+                    # Filtrar solo Exact + Enabled
+                    if mt_col_h:
+                        df_kw = df_kw[df_kw[mt_col_h].astype(str).str.lower().str.strip().isin(["exact", "exact match"])]
+                    if st_col_h:
+                        df_kw = df_kw[df_kw[st_col_h].astype(str).str.lower().str.strip().isin(["enabled", "active"])]
+                    existing_exact_kws = set(df_kw[kw_col_h].dropna().astype(str).str.lower().str.strip())
+                    st.success(f"✅ {len(existing_exact_kws)} keywords Exact activas detectadas")
+                else:
+                    st.warning("⚠️ No se encontró columna de keywords en el archivo.")
+            except Exception as e:
+                st.warning(f"⚠️ Error leyendo Campaign CSV: {e}")
+
+        st.markdown("---")
 
         st_col = cols["search_term"]
         if not st_col:
@@ -300,22 +337,51 @@ def render():
                 df_harv["_sort"] = df_harv["Prioridad"].map(prio_order)
                 df_harv = df_harv.sort_values(["_sort", "Orders"], ascending=[True, False]).drop(columns=["_sort"])
 
+                # ── Anti-canibalización: marcar duplicados ────────────
+                if existing_exact_kws:
+                    df_harv["Ya en Exact"] = df_harv["Search Term"].str.lower().str.strip().isin(existing_exact_kws).map(
+                        {True: "⚠️ Ya en Exact activo", False: ""}
+                    )
+                    n_dupes = (df_harv["Ya en Exact"] != "").sum()
+                    n_nuevos = len(df_harv) - n_dupes
+                else:
+                    df_harv["Ya en Exact"] = ""
+                    n_dupes = 0
+                    n_nuevos = len(df_harv)
+
                 n_alta  = (df_harv["Prioridad"] == "Alta").sum()
                 n_media = (df_harv["Prioridad"] == "Media").sum()
                 avg_bid = df_harv["Bid Sugerido"].mean()
 
-                hm1, hm2, hm3, hm4 = st.columns(4)
-                hm1.metric("Total candidatos", len(df_harv))
-                hm2.metric("🟢 Alta", n_alta)
-                hm3.metric("🔵 Media", n_media)
-                hm4.metric("Bid promedio", f"${avg_bid:.2f}")
+                if existing_exact_kws:
+                    hm1, hm2, hm3, hm4, hm5 = st.columns(5)
+                    hm1.metric("Total candidatos", len(df_harv))
+                    hm2.metric("🟢 Alta", n_alta)
+                    hm3.metric("🔵 Media", n_media)
+                    hm4.metric("Bid promedio", f"${avg_bid:.2f}")
+                    hm5.metric("⚠️ Ya en Exact", n_dupes)
+                else:
+                    hm1, hm2, hm3, hm4 = st.columns(4)
+                    hm1.metric("Total candidatos", len(df_harv))
+                    hm2.metric("🟢 Alta", n_alta)
+                    hm3.metric("🔵 Media", n_media)
+                    hm4.metric("Bid promedio", f"${avg_bid:.2f}")
 
                 def _color_harv_prio(val):
                     if val == "Alta": return "background-color: #C6EFCE; color: #276221"
                     return "background-color: #DBEAFE; color: #1E3A8A"
 
+                def _color_exact_dup(val):
+                    if val and "Ya en Exact" in str(val): return "background-color: #FFF3E0; color: #BF360C"
+                    return ""
+
+                style_cols = ["Prioridad"]
+                styled_harv = df_harv.style.map(_color_harv_prio, subset=["Prioridad"])
+                if existing_exact_kws:
+                    styled_harv = styled_harv.map(_color_exact_dup, subset=["Ya en Exact"])
+
                 st.dataframe(
-                    df_harv.style.applymap(_color_harv_prio, subset=["Prioridad"]),
+                    styled_harv,
                     use_container_width=True,
                     height=min(38 + 35 * len(df_harv), 800),
                 )
@@ -323,16 +389,32 @@ def render():
                 # Export bulk-ready formato Amazon
                 st.markdown("---")
                 st.markdown("**📦 Export bulk-ready para Amazon — Exact Match**")
-                st.caption("Campaign Name y Ad Group Name vacíos — el AM los completa antes de subir.")
+
+                # Checkbox para incluir/excluir duplicados
+                if existing_exact_kws and n_dupes > 0:
+                    incluir_dupes = st.checkbox(
+                        f"Incluir {n_dupes} keywords que ya están en Exact activo",
+                        value=False,
+                        key="harv_include_dupes",
+                    )
+                    df_harv_export = df_harv if incluir_dupes else df_harv[df_harv["Ya en Exact"] == ""]
+                    if not incluir_dupes:
+                        st.caption(f"Exportando {len(df_harv_export)} keywords nuevas (excluidas {n_dupes} que ya están en Exact).")
+                    else:
+                        st.caption("Exportando TODAS las keywords incluyendo las que ya están en Exact.")
+                else:
+                    df_harv_export = df_harv
+                    st.caption("Campaign Name y Ad Group Name vacíos — el AM los completa antes de subir.")
+
                 df_hbulk = pd.DataFrame({
                     "Product": "",
                     "Entity": "Keyword",
                     "Operation": "Create",
                     "Campaign Name": "",
                     "Ad Group Name": "",
-                    "Keyword": df_harv["Search Term"].values,
+                    "Keyword": df_harv_export["Search Term"].values,
                     "Match Type": "exact",
-                    "Max Bid": df_harv["Bid Sugerido"].values,
+                    "Max Bid": df_harv_export["Bid Sugerido"].values,
                 })
                 st.dataframe(df_hbulk, use_container_width=True)
                 buf_h = io.BytesIO()
