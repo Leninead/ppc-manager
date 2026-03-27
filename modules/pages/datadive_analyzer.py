@@ -253,6 +253,23 @@ def _parse_rank_radar(data, name):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Style helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+def _color_score(val, green_thresh, yellow_thresh):
+    try:
+        v = float(val)
+        if v >= green_thresh:
+            return "background-color: #E8F5E9; color: #1B5E20"
+        elif v >= yellow_thresh:
+            return "background-color: #FFF8E1; color: #F57F17"
+        else:
+            return "background-color: #FFEBEE; color: #B71C1C"
+    except (ValueError, TypeError):
+        return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Render
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -336,6 +353,10 @@ def render():
                     return ""
 
                 styled = df_show.style
+                if "Relevance" in df_show.columns:
+                    styled = styled.map(lambda v: _color_score(v, 3, 2), subset=["Relevance"])
+                if "Launch Score" in df_show.columns:
+                    styled = styled.map(lambda v: _color_score(v, 7, 4), subset=["Launch Score"])
                 if "Rankeado" in df_show.columns:
                     styled = styled.map(_color_ranked, subset=["Rankeado"])
                 st.dataframe(styled, use_container_width=True, height=min(38 + 35 * len(df_show), 600))
@@ -440,6 +461,8 @@ def render():
                     return [""] * len(row)
 
                 styled_comp = df_comp.style.apply(_highlight_my_asin, axis=1)
+                if rating_col and rating_col in df_comp.columns:
+                    styled_comp = styled_comp.map(lambda v: _color_score(v, 4.5, 4.0), subset=[rating_col])
                 st.dataframe(styled_comp, use_container_width=True, height=min(38 + 35 * len(df_comp), 600))
 
                 st.markdown("---")

@@ -343,8 +343,23 @@ def render():
         k4.metric("Launch Priority max", f"{df_kw['Launch Priority'].max():,.0f}")
 
         # ── Table ────────────────────────────────────────────────────
+        def _color_comp_count(val):
+            try:
+                v = int(val)
+                if v >= n_comp:
+                    return "background-color: #E8F5E9; color: #1B5E20"
+                elif v >= 2:
+                    return "background-color: #FFF8E1; color: #F57F17"
+                else:
+                    return "background-color: #F5F5F5; color: #666"
+            except (ValueError, TypeError):
+                return ""
+
+        styled_kw = df_kw.style
+        if "Competidores" in df_kw.columns:
+            styled_kw = styled_kw.map(_color_comp_count, subset=["Competidores"])
         st.dataframe(
-            df_kw,
+            styled_kw,
             use_container_width=True,
             height=min(38 + 35 * len(df_kw), 600),
         )
