@@ -34,6 +34,7 @@ No hay build step, test suite ni linter configurado.
 | 12 | 🛡️ Reportes MerchanSpring | Account Manager | ✅ completo |
 | 13 | 📊 Weekly Client Report | Account Manager | ✅ completo |
 | 14 | ⚙️ Atom11 Rules Builder | Automatización | ✅ nuevo 2026-03-23 |
+| 15 | 📅 Account Pulse | Account Manager | ✅ nuevo 2026-03-26 |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.  
 `_PAGES` lista el orden completo. Sidebar agrupa por sección.
@@ -70,6 +71,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/bid_optimizer.py` — render() ✅ creado 2026-03-21
 - `modules/pages/campaign_builder.py` — render() ✅ creado 2026-03-21
 - `modules/pages/atom11_rules_builder.py` — render() ✅ creado 2026-03-23
+- `modules/pages/account_pulse.py` — render() ✅ creado 2026-03-26
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -1174,4 +1176,36 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - [ ] Testing módulo Atom11 Rules Builder con Campaign CSV real
 - [ ] Actualizar Atom11_Rules.md con v2026.2 thresholds
 - [ ] Sesión 11: Account Pulse (roadmap)
+
+---
+
+## 📅 Sesión 2026-03-26 — Lo que hicimos
+
+### Sub-agents creados (.claude/agents/)
+- **ppc-module-builder** — Sonnet, orange, project memory
+- **excel-export-builder** — Sonnet, orange, project memory
+- **atom11-specialist** — Opus, purple, project memory
+- **client-notes-updater** — Haiku, green, project memory
+- **code-reviewer** — Haiku, red, project memory (read-only)
+
+### Upgrades implementados (5 módulos)
+- **Bid Optimizer** — nueva tab "Placements & Budget": `_PLACEMENT_RULES`, `_detect_campaign_type()`, tabla referencia placements por tipo campaña, budget estimado, export
+- **Campaign Analyzer** — upgrade a Auditoría PPC: `_check_naming()`, naming convention check, target graduation (0 impressions), export multi-sheet
+- **Weekly Client Report** — changelog: `st.text_area` + hoja "Changelog" en Excel
+- **STR Harvest** — anti-canibalización: cruce con Campaign CSV, marca duplicados Exact activos, checkbox incluir/excluir
+- **Análisis Cruzado** — nueva tab "PPC Insights por ASIN": BR uploader opcional, resumen por ASIN, top 5 keywords, gap detection, export
+
+### Archivos modificados
+- `modules/pages/bid_optimizer.py`
+- `modules/pages/bulk_campanas.py`
+- `modules/pages/weekly_client_report.py`
+- `modules/pages/search_term_report.py`
+- `modules/pages/analisis_cruzado.py`
+- `.claude/agents/` (5 archivos nuevos)
+
+### ⚠️ Pendiente
+- [ ] Testing con archivos reales de cada módulo modificado
+- [ ] Account Pulse — módulo nuevo pendiente (Sesión 11)
+- [ ] Actualizar PPC-SOP-Manager.md con nuevos features
+- [ ] Git push final
 

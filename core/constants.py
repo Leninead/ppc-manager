@@ -20,4 +20,5 @@ _PAGES = [
     "🧠 Bid Optimizer",
     "🚀 Campaign Builder",
     "🤖 Atom11 Rules Builder",
+    "📅 Account Pulse",
 ]

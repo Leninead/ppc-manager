@@ -30,6 +30,7 @@ from modules.pages.weekly_client_report import render as render_weekly
 from modules.pages.bid_optimizer import render as render_bid_optimizer
 from modules.pages.campaign_builder import render as render_campaign_builder
 from modules.pages.atom11_rules_builder import render as render_atom11_rules
+from modules.pages.account_pulse import render as render_account_pulse
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -166,7 +167,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     for _pg in ["🔬 Reportes Atom 11", "🛡️ Reportes MerchanSpring",
-                "📊 Weekly Client Report"]:
+                "📊 Weekly Client Report", "📅 Account Pulse"]:
         st.button(_pg, use_container_width=True, on_click=_nav,
                   args=(_pg,), key=f"nav_{_pg}")
 
@@ -233,3 +234,6 @@ if selected == "🚀 Campaign Builder":
 
 if selected == "⚙️ Atom11 Rules Builder":
     render_atom11_rules()
+
+if selected == "📅 Account Pulse":
+    render_account_pulse()
