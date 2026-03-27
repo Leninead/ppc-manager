@@ -94,7 +94,7 @@ def render():
         unsafe_allow_html=True
     )
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(_area_card(
             "📊", "PPC Manager",
@@ -114,52 +114,31 @@ def render():
             "8️⃣ <b>Bid Optimizer</b> — Bids + Placements<br>"
             "9️⃣ <b>Campaign Builder</b> — Bulk listo para Amazon<br>"
             "🔟 <b>Atom11 Rules</b> — Automatización"
-            "</div>"
-            "<br>"
-            "<div style='font-size:0.72rem;font-weight:700;color:#E84000;"
-            "margin-bottom:0.4rem;letter-spacing:0.05em;'>RESEARCH & ANÁLISIS</div>"
-            "<div style='font-size:0.75rem;color:#444;line-height:1.8;'>"
-            "🧲 <b>DataDive</b> — Análisis de nicho y competidores<br>"
-            "🧲 <b>Helium 10</b> — Cerebro reverse ASIN + competitor gap<br>"
-            "📢 <b>SBH Recommendation</b> — Targets para Sponsored Brand Headline<br>"
-            "🔎 <b>PPC Insights</b> — Health score por ASIN<br>"
-            "📈 <b>PPC Forecast</b> — Proyección de ventas y spend<br>"
-            "🛡️ <b>PPC Audit</b> — Auditoría completa de cuenta<br>"
-            "📊 <b>Account Pulse</b> — Monitor de salud diaria"
             "</div></div>",
             "Guille Neuman",
             ["STR", "SQP", "Análisis Cruzado", "Tendencia",
              "Bulk Campañas", "Business Report", "Funnel",
-             "Bid Optimizer", "Campaign Builder", "Atom11 Rules",
-             "DataDive", "Helium 10", "SBH Recommendation",
-             "PPC Insights", "PPC Forecast", "PPC Audit", "Account Pulse"],
-            activo=True, grande=True, count=17
+             "Bid Optimizer", "Campaign Builder"],
+            activo=True, count=10
         ), unsafe_allow_html=True)
 
     with col2:
-        # Account Manager + Inteligencia stacked
-        st.markdown(_area_card(
-            "🧠", "Inteligencia",
-            "Análisis avanzado: health score por ASIN, proyección de ventas y auditoría integral de cuenta.",
-            "Lenin Acosta",
-            ["PPC Insights Engine", "PPC Forecast", "PPC Audit"],
-            activo=True, count=3
-        ), unsafe_allow_html=True)
-
-        st.markdown(_area_card(
-            "🔬", "Research",
-            "Análisis de nicho, competidores y tracking de keywords con DataDive y Helium 10.",
-            "Lenin Acosta",
-            ["DataDive Analyzer", "Helium 10 Analyzer", "SBH Recommendation"],
-            activo=True, count=3
-        ), unsafe_allow_html=True)
-
         st.markdown(_area_card(
             "👥", "Account Manager",
             "Reportes, monitoreo y comunicación con el cliente.",
             "Eduardo Maya",
             ["Reportes Atom 11", "MerchanSpring", "Weekly Report", "Account Pulse"],
             activo=True, count=4
+        ), unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(_area_card(
+            "🔬", "Research & Intelligence",
+            "Análisis profundo de nicho, competidores y salud de cuenta. Herramientas de investigación avanzadas para decisiones estratégicas.",
+            "Lenin Acosta",
+            ["DataDive", "Helium 10", "SBH Recommendation",
+             "PPC Insights", "PPC Forecast", "PPC Audit", "Account Pulse"],
+            activo=True, count=7
         ), unsafe_allow_html=True)
 
     col_kb = st.columns([1])
