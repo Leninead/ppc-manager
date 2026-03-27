@@ -1227,6 +1227,8 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - [x] PPC Insights Engine — módulo nuevo ✅ completado 2026-03-26
 - [x] PPC Forecast — módulo nuevo ✅ completado 2026-03-26
 - [x] PPC Audit — módulo nuevo ✅ completado 2026-03-26
-- [ ] Actualizar PPC-SOP-Manager.md con nuevos features
+- [x] Actualizar PPC-SOP-Manager.md con nuevos features ✅ 2026-03-26
+- [x] Rediseñar inicio.py con 18 módulos + changelog ✅ 2026-03-26
+- [x] Code review — 38 archivos compilados, 2 fixes aplicados ✅ 2026-03-26
 - [ ] Git push final
 

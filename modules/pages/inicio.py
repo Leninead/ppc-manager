@@ -5,13 +5,33 @@ _NEGRO    = "#1F1F1F"
 _GRIS_CLR = "#F5F5F5"
 _GRIS_TXT = "#888888"
 
+_VERSION = "v2.0"
+_DATE    = "2026-03-26"
+_TOTAL_MODULOS = 18
 
-def _area_card(emoji, titulo, descripcion, ownership, modulos, activo=True, grande=False):
+_CHANGELOG = [
+    ("2026-03-26", "PPC Insights Engine — health score por ASIN cruzando STR+SQP+BR+Campaigns"),
+    ("2026-03-26", "PPC Forecast — proyección de ventas con tendencia lineal + estacionalidad"),
+    ("2026-03-26", "PPC Audit — auditoría integral con score de cuenta 0-100"),
+    ("2026-03-26", "Account Pulse — monitor de salud diaria con ventas, BuyBox, campañas"),
+    ("2026-03-26", "Bid Optimizer — tab Placements & Budget con referencia SOP"),
+    ("2026-03-26", "Campaign Analyzer — upgrade a Auditoría PPC con naming check"),
+    ("2026-03-26", "Weekly Client Report — changelog integrado en Excel"),
+    ("2026-03-26", "STR Harvest — anti-canibalización automática con Campaign CSV"),
+    ("2026-03-26", "Análisis Cruzado — tab PPC Insights por ASIN"),
+    ("2026-03-23", "Atom11 Rules Builder — 274 rules por cuenta, multi-marca"),
+    ("2026-03-21", "Campaign Builder — bulk Amazon listo para subir"),
+    ("2026-03-21", "Bid Optimizer — bids por CVR real + Inventory Report"),
+    ("2026-03-21", "Sidebar oscuro + rediseño Agency OS"),
+]
+
+
+def _area_card(emoji, titulo, descripcion, ownership, modulos, activo=True, grande=False, count=None):
     border_color = _NARANJA if activo else "#DDDDDD"
     bg_color     = "#FFFFFF" if activo else _GRIS_CLR
     badge_color  = "#E8F5E9" if activo else "#F5F5F5"
     badge_txt    = "#2E7D32" if activo else _GRIS_TXT
-    badge_label  = "✅ activo" if activo else "🔒 próximamente"
+    badge_label  = f"✅ {count} módulos" if count else ("✅ activo" if activo else "🔒 próximamente")
     opacity      = "1" if activo else "0.55"
 
     mods_html = "".join([
@@ -50,8 +70,11 @@ def render():
         f"<div>"
         f"<div style='font-size:1.6rem;font-weight:800;color:{_NEGRO};'>Capybaras Agency OS</div>"
         f"<div style='font-size:0.85rem;color:{_GRIS_TXT};'>"
-        f"El sistema operativo de la agencia — v2.0</div>"
+        f"El sistema operativo de la agencia — {_VERSION} — {_DATE}</div>"
         f"</div>"
+        f"<div style='margin-left:auto;background:#1A1A1A;color:{_NARANJA};"
+        f"padding:0.5rem 1rem;border-radius:8px;font-weight:800;font-size:1.1rem;'>"
+        f"{_TOTAL_MODULOS} módulos activos</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -67,43 +90,75 @@ def render():
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(_area_card(
-            "📊", "PPC",
-            "Gestionamos campañas publicitarias en Amazon para maximizar ventas y rentabilidad, optimizando estrategias de PPC y performance."
+            "📊", "PPC Manager",
+            "Gestionamos campañas publicitarias en Amazon para maximizar ventas y rentabilidad."
             "<div style='margin-top:0.8rem;padding:0.75rem;background:#FFF3EE;"
             "border-radius:8px;border-left:3px solid #E84000;'>"
             "<div style='font-size:0.72rem;font-weight:700;color:#E84000;"
             "margin-bottom:0.4rem;letter-spacing:0.05em;'>FLUJO DE TRABAJO</div>"
             "<div style='font-size:0.75rem;color:#444;line-height:1.8;'>"
-            "1️⃣ <b>STR</b> — Analizar keywords y negativizar<br>"
-            "2️⃣ <b>SQP</b> — Analizar market share orgánico<br>"
-            "3️⃣ <b>Análisis Cruzado</b> — Detectar oportunidades STR+SQP<br>"
-            "4️⃣ <b>Tendencia</b> — Ver evolución multi-semana<br>"
-            "5️⃣ <b>Bulk Campañas</b> — Diagnosticar salud de campañas<br>"
-            "6️⃣ <b>Business Report</b> — Ver ventas totales y TACoS<br>"
-            "7️⃣ <b>Análisis de Funnel</b> — Detectar brechas estructurales<br>"
-            "8️⃣ <b>Bid Optimizer</b> — Calcular bids por ASIN<br>"
-            "9️⃣ <b>Campaign Builder</b> — Generar bulk listo para subir"
+            "1️⃣ <b>STR</b> — Negativizar + Harvestear<br>"
+            "2️⃣ <b>SQP</b> — Market share orgánico<br>"
+            "3️⃣ <b>Análisis Cruzado</b> — Oportunidades STR+SQP<br>"
+            "4️⃣ <b>Tendencia</b> — Evolución multi-semana<br>"
+            "5️⃣ <b>Bulk Campañas</b> — Diagnóstico + Auditoría<br>"
+            "6️⃣ <b>Business Report</b> — Ventas y TACoS<br>"
+            "7️⃣ <b>Funnel</b> — Brechas estructurales<br>"
+            "8️⃣ <b>Bid Optimizer</b> — Bids + Placements<br>"
+            "9️⃣ <b>Campaign Builder</b> — Bulk listo para Amazon<br>"
+            "🔟 <b>Atom11 Rules</b> — Automatización"
             "</div></div>",
             "Guille Neuman",
             ["STR", "SQP", "Análisis Cruzado", "Tendencia",
              "Bulk Campañas", "Business Report",
-             "Análisis de Funnel", "Bid Optimizer", "Campaign Builder"],
-            activo=True, grande=True
+             "Funnel", "Bid Optimizer", "Campaign Builder", "Atom11 Rules"],
+            activo=True, grande=True, count=10
         ), unsafe_allow_html=True)
 
     with col2:
-        st.markdown(
-            _area_card(
-                "👥", "Account Manager",
-                "Somos el nexo con el cliente: coordinamos equipos, analizamos resultados y garantizamos el cumplimiento de los objetivos de cada cuenta.",
-                "Eduardo Maya",
-                ["Reportes Atom 11", "Reportes MerchanSpring", "Weekly Client Report"],
-                activo=True, grande=True
-            ), unsafe_allow_html=True)
+        # Account Manager + Inteligencia stacked
+        st.markdown(_area_card(
+            "🧠", "Inteligencia",
+            "Análisis avanzado: health score por ASIN, proyección de ventas y auditoría integral de cuenta.",
+            "Lenin Acosta",
+            ["PPC Insights Engine", "PPC Forecast", "PPC Audit"],
+            activo=True, count=3
+        ), unsafe_allow_html=True)
+
+        st.markdown(_area_card(
+            "👥", "Account Manager",
+            "Reportes, monitoreo y comunicación con el cliente.",
+            "Eduardo Maya",
+            ["Reportes Atom 11", "MerchanSpring", "Weekly Report", "Account Pulse"],
+            activo=True, count=4
+        ), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
 
-    # ── Fila 1 próximamente ───────────────────────────────────────────────
+    # ── Changelog reciente ────────────────────────────────────────────────
+    st.markdown(
+        f"<div style='font-weight:700;font-size:0.95rem;color:{_NEGRO};"
+        f"margin-bottom:0.75rem;'>📝 Changelog reciente</div>",
+        unsafe_allow_html=True
+    )
+
+    changelog_html = "".join([
+        f"<div style='display:flex;gap:0.75rem;padding:0.35rem 0;"
+        f"border-bottom:1px solid #F0F0F0;font-size:0.78rem;'>"
+        f"<span style='color:{_GRIS_TXT};white-space:nowrap;min-width:85px;'>{date}</span>"
+        f"<span style='color:#333;'>{desc}</span></div>"
+        for date, desc in _CHANGELOG[:10]
+    ])
+
+    st.markdown(
+        f"<div style='background:#FAFAFA;border-radius:8px;padding:0.75rem 1rem;"
+        f"border:1px solid #EEE;max-height:280px;overflow-y:auto;'>{changelog_html}</div>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
+
+    # ── Próximamente ──────────────────────────────────────────────────────
     st.markdown(
         f"<div style='font-weight:700;font-size:0.95rem;color:{_NEGRO};"
         f"margin-bottom:0.75rem;'>🔒 Próximamente</div>",
@@ -114,86 +169,66 @@ def render():
     with col3:
         st.markdown(_area_card(
             "🚚", "Supply Chain",
-            "Coordinamos abastecimiento, inventario y logística para asegurar disponibilidad y eficiencia operativa.",
-            "Julian López / Federico Valero",
-            [],
-            activo=False
+            "Abastecimiento, inventario y logística.",
+            "Julian López / Federico Valero", [], activo=False
         ), unsafe_allow_html=True)
 
     with col4:
         st.markdown(_area_card(
             "🚦", "Tráfico Externo",
-            "Impulsamos el crecimiento de las marcas con estrategias de medios, mailing y contenido que generan tráfico y posicionamiento.",
-            "María Fernanda Rojas",
-            [],
-            activo=False
+            "Medios, mailing y contenido para tráfico externo.",
+            "María Fernanda Rojas", [], activo=False
         ), unsafe_allow_html=True)
 
     with col5:
         st.markdown(_area_card(
             "🎨", "Diseño",
-            "Creamos contenido visual estratégico para marcas y productos, potenciando su identidad y optimizando su impacto en Amazon y otros canales.",
-            "Guido Pedregoza",
-            [],
-            activo=False
+            "Contenido visual para marcas y productos.",
+            "Guido Pedregoza", [], activo=False
         ), unsafe_allow_html=True)
 
-    # ── Fila 2 próximamente ───────────────────────────────────────────────
     col6, col7, col8 = st.columns(3)
     with col6:
         st.markdown(_area_card(
             "👔", "RRHH",
-            "Cuidamos la cultura y el talento del equipo, impulsando el bienestar, la motivación y el crecimiento profesional dentro de la agencia.",
-            "Keila Vivas",
-            [],
-            activo=False
+            "Cultura, talento y crecimiento del equipo.",
+            "Keila Vivas", [], activo=False
         ), unsafe_allow_html=True)
 
     with col7:
         st.markdown(_area_card(
             "💼", "Sales",
-            "Lideramos el desarrollo comercial de la agencia, generando nuevos leads, fortaleciendo relaciones con clientes y asegurando la rentabilidad de cada cuenta.",
-            "—",
-            [],
-            activo=False
+            "Desarrollo comercial y nuevos leads.",
+            "—", [], activo=False
         ), unsafe_allow_html=True)
 
     with col8:
         st.markdown(_area_card(
             "🏥", "Account Health",
-            "Mantenemos las cuentas en perfecto estado dentro de Amazon, resolviendo incidencias y asegurando el cumplimiento de políticas y métricas clave.",
-            "—",
-            [],
-            activo=False
+            "Incidencias y cumplimiento de políticas Amazon.",
+            "—", [], activo=False
         ), unsafe_allow_html=True)
 
-    # ── Fila 3 próximamente ───────────────────────────────────────────────
     col9, col10, col11 = st.columns(3)
     with col9:
         st.markdown(_area_card(
             "🛒", "Marketplaces",
-            "Gestionamos la presencia y crecimiento de las marcas en Amazon, Mercado Libre y otros canales, asegurando operación, visibilidad y expansión clave.",
-            "—",
-            [],
-            activo=False
+            "Expansión a Amazon, Mercado Libre y otros canales.",
+            "—", [], activo=False
         ), unsafe_allow_html=True)
 
     with col10:
         st.markdown(_area_card(
             "📈", "Dirección General",
-            "Dashboard ejecutivo, rentabilidad por cliente y área, proyecciones y forecast con KPIs en tiempo real.",
-            "—",
-            [],
-            activo=False
+            "Dashboard ejecutivo, rentabilidad y KPIs.",
+            "—", [], activo=False
         ), unsafe_allow_html=True)
 
     with col11:
         st.markdown(_area_card(
             "🔌", "Expansión Futura",
-            "API Amazon Ads directa, alertas automáticas de anomalías, notificaciones WhatsApp/Slack, multi-cuenta y multi-marketplace.",
-            "—",
-            [],
-            activo=False
+            "API Amazon Ads, alertas, WhatsApp/Slack, multi-cuenta.",
+            "—", [], activo=False
         ), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)

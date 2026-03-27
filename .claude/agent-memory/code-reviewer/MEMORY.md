@@ -1,0 +1,3 @@
+- [Project Architecture](project_architecture.md) — module structure, page routing, naming conventions
+- [Hardcoded Client Data Issues](hardcoded_data.md) — critical issues in atom11_rules_builder.py, campaign_builder.py
+- [Missing Cache Decorators](cache_issues.md) — performance optimization opportunities in parsers
