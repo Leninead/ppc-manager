@@ -5,7 +5,7 @@ import numpy as np
 import streamlit as st
 import pandas as pd
 
-from core.helpers import read_sqp
+from core.helpers import read_sqp, kpi_card
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -328,14 +328,18 @@ def render():
                     df_filtered["Rankeado"] = "❌ No"
 
                 k1, k2, k3, k4 = st.columns(4)
-                k1.metric("Keywords", len(df_filtered))
-                k2.metric("SV total", f"{df_filtered['SV'].sum():,.0f}")
-                k3.metric("SV promedio", f"{df_filtered['SV'].mean():,.0f}" if len(df_filtered) else "—")
-                if my_asin:
-                    ranked_count = df_filtered["Mi Ranking"].notna().sum() if "Mi Ranking" in df_filtered.columns else 0
-                    k4.metric(f"Rankeadas ({my_asin[:10]})", f"{ranked_count}/{len(df_filtered)}")
-                else:
-                    k4.metric("Competidores", len(competitor_asins))
+                with k1:
+                    st.markdown(kpi_card("Keywords", str(len(df_filtered))), unsafe_allow_html=True)
+                with k2:
+                    st.markdown(kpi_card("SV total", f"{df_filtered['SV'].sum():,.0f}"), unsafe_allow_html=True)
+                with k3:
+                    st.markdown(kpi_card("SV promedio", f"{df_filtered['SV'].mean():,.0f}" if len(df_filtered) else "—"), unsafe_allow_html=True)
+                with k4:
+                    if my_asin:
+                        ranked_count = df_filtered["Mi Ranking"].notna().sum() if "Mi Ranking" in df_filtered.columns else 0
+                        st.markdown(kpi_card(f"Rankeadas ({my_asin[:10]})", f"{ranked_count}/{len(df_filtered)}"), unsafe_allow_html=True)
+                    else:
+                        st.markdown(kpi_card("Competidores", str(len(competitor_asins))), unsafe_allow_html=True)
 
                 display_cols = ["Search Term", "SV", "Relevance", "Launch Score", "Sugg. Bid"]
                 if "Mi Ranking" in df_filtered.columns:
@@ -373,8 +377,10 @@ def render():
                     if not df_gaps.empty:
                         df_gaps = df_gaps.sort_values("SV", ascending=False)
                         g1, g2 = st.columns(2)
-                        g1.metric("Gaps detectados", len(df_gaps))
-                        g2.metric("SV perdido", f"{df_gaps['SV'].sum():,.0f}")
+                        with g1:
+                            st.markdown(kpi_card("Gaps detectados", str(len(df_gaps))), unsafe_allow_html=True)
+                        with g2:
+                            st.markdown(kpi_card("SV perdido", f"{df_gaps['SV'].sum():,.0f}"), unsafe_allow_html=True)
                         gap_cols = ["Search Term", "SV", "Relevance", "Launch Score"]
                         if "Competidores rankeados" in df_gaps.columns:
                             gap_cols.append("Competidores rankeados")
@@ -534,12 +540,16 @@ def render():
                     )
 
                 k1, k2, k3, k4 = st.columns(4)
-                k1.metric("Keywords", len(df_rr))
+                with k1:
+                    st.markdown(kpi_card("Keywords", str(len(df_rr))), unsafe_allow_html=True)
                 if "Tendencia" in df_rr.columns:
-                    k2.metric("↑ Mejorando", (df_rr["Tendencia"] == "↑ Mejorando").sum())
-                    k3.metric("↓ Cayendo", (df_rr["Tendencia"] == "↓ Cayendo").sum())
+                    with k2:
+                        st.markdown(kpi_card("Mejorando", str((df_rr["Tendencia"] == "↑ Mejorando").sum())), unsafe_allow_html=True)
+                    with k3:
+                        st.markdown(kpi_card("Cayendo", str((df_rr["Tendencia"] == "↓ Cayendo").sum())), unsafe_allow_html=True)
                 if "PPC Activo" in df_rr.columns:
-                    k4.metric("Con PPC", (df_rr["PPC Activo"] == "✅ Sí").sum())
+                    with k4:
+                        st.markdown(kpi_card("Con PPC", str((df_rr["PPC Activo"] == "✅ Sí").sum())), unsafe_allow_html=True)
 
                 display_cols_rr = ["Search Term", "SV", "Relevance", "Median Rank"]
                 if "Rank Actual" in df_rr.columns:
@@ -603,8 +613,10 @@ def render():
                     n_with_ppc = (df_rr["PPC Activo"] == "✅ Sí").sum()
                     n_without_ppc = (df_rr["PPC Activo"] == "❌ No").sum()
                     pc1, pc2 = st.columns(2)
-                    pc1.metric("Con PPC activo", n_with_ppc)
-                    pc2.metric("Sin PPC (oportunidades)", n_without_ppc)
+                    with pc1:
+                        st.markdown(kpi_card("Con PPC activo", str(n_with_ppc)), unsafe_allow_html=True)
+                    with pc2:
+                        st.markdown(kpi_card("Sin PPC (oportunidades)", str(n_without_ppc)), unsafe_allow_html=True)
                     if n_without_ppc > 0:
                         with st.expander(f"Ver {n_without_ppc} keywords sin PPC"):
                             no_ppc = df_rr[df_rr["PPC Activo"] == "❌ No"]
@@ -761,13 +773,17 @@ def render():
                         df_vol = pd.DataFrame(rows_vol).sort_values("SV", ascending=False).reset_index(drop=True)
 
                         # KPIs
-                        vk1, vk2, vk3, vk4 = st.columns(4)
-                        vk1.metric("Keywords analizadas", len(df_vol))
-                        vk2.metric("🟢 Estables", (df_vol["Volatilidad"] == "🟢 ESTABLE").sum())
-                        vk3.metric("🔴 Muy volátiles", (df_vol["Volatilidad"] == "🔴 MUY VOLÁTIL").sum())
                         n_risk = (df_vol["Flag"].str.contains("RIESGO", na=False)).sum()
                         n_opp = (df_vol["Flag"].str.contains("OPORTUNIDAD", na=False)).sum()
-                        vk4.metric("⚠️ Riesgos / 💰 Oportunidades", f"{n_risk} / {n_opp}")
+                        vk1, vk2, vk3, vk4 = st.columns(4)
+                        with vk1:
+                            st.markdown(kpi_card("Keywords analizadas", str(len(df_vol))), unsafe_allow_html=True)
+                        with vk2:
+                            st.markdown(kpi_card("Estables", str((df_vol["Volatilidad"] == "🟢 ESTABLE").sum())), unsafe_allow_html=True)
+                        with vk3:
+                            st.markdown(kpi_card("Muy volátiles", str((df_vol["Volatilidad"] == "🔴 MUY VOLÁTIL").sum())), unsafe_allow_html=True)
+                        with vk4:
+                            st.markdown(kpi_card("Riesgos / Oportunidades", f"{n_risk} / {n_opp}"), unsafe_allow_html=True)
 
                         # Filter
                         vol_filter = st.multiselect(

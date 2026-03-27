@@ -5,6 +5,8 @@ from collections import Counter
 import streamlit as st
 import pandas as pd
 
+from core.helpers import kpi_card
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Parser
@@ -143,20 +145,27 @@ def render():
 
         # ── KPIs ─────────────────────────────────────────────────────
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Keywords", f"{len(df_f):,}")
+        with k1:
+            st.markdown(kpi_card("Keywords", f"{len(df_f):,}"), unsafe_allow_html=True)
         if "Organic Rank" in df_f.columns:
-            k2.metric("Con Organic Rank", int(df_f["Organic Rank"].notna().sum()))
+            with k2:
+                st.markdown(kpi_card("Con Organic Rank", str(int(df_f["Organic Rank"].notna().sum()))), unsafe_allow_html=True)
         if "Sponsored Rank" in df_f.columns:
-            k3.metric("Con Sponsored Rank", int(df_f["Sponsored Rank"].notna().sum()))
+            with k3:
+                st.markdown(kpi_card("Con Sponsored Rank", str(int(df_f["Sponsored Rank"].notna().sum()))), unsafe_allow_html=True)
         if "Search Volume" in df_f.columns:
-            k4.metric("SV promedio", f"{df_f['Search Volume'].mean():,.0f}")
+            with k4:
+                st.markdown(kpi_card("SV promedio", f"{df_f['Search Volume'].mean():,.0f}"), unsafe_allow_html=True)
 
         if "Oportunidad" in df_f.columns:
             opp_counts = df_f["Oportunidad"].value_counts()
             o1, o2, o3 = st.columns(3)
-            o1.metric("🟢 Oportunidad PPC", opp_counts.get("🟢 Oportunidad PPC", 0))
-            o2.metric("🟡 Depende de Ads", opp_counts.get("🟡 Depende de Ads", 0))
-            o3.metric("✅ Ambos (Org+Spon)", opp_counts.get("✅ Ambos", 0))
+            with o1:
+                st.markdown(kpi_card("Oportunidad PPC", str(opp_counts.get("🟢 Oportunidad PPC", 0))), unsafe_allow_html=True)
+            with o2:
+                st.markdown(kpi_card("Depende de Ads", str(opp_counts.get("🟡 Depende de Ads", 0))), unsafe_allow_html=True)
+            with o3:
+                st.markdown(kpi_card("Ambos (Org+Spon)", str(opp_counts.get("✅ Ambos", 0))), unsafe_allow_html=True)
 
         # ── Table ────────────────────────────────────────────────────
         display_cols = [c for c in [
@@ -337,10 +346,14 @@ def render():
 
         # ── KPIs ─────────────────────────────────────────────────────
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Keywords relevantes", len(df_kw))
-        k2.metric("SV total", f"{df_kw['Search Volume'].sum():,.0f}")
-        k3.metric("Clusters", df_kw["Cluster"].nunique())
-        k4.metric("Launch Priority max", f"{df_kw['Launch Priority'].max():,.0f}")
+        with k1:
+            st.markdown(kpi_card("Keywords relevantes", str(len(df_kw))), unsafe_allow_html=True)
+        with k2:
+            st.markdown(kpi_card("SV total", f"{df_kw['Search Volume'].sum():,.0f}"), unsafe_allow_html=True)
+        with k3:
+            st.markdown(kpi_card("Clusters", str(df_kw["Cluster"].nunique())), unsafe_allow_html=True)
+        with k4:
+            st.markdown(kpi_card("Launch Priority max", f"{df_kw['Launch Priority'].max():,.0f}"), unsafe_allow_html=True)
 
         # ── Table ────────────────────────────────────────────────────
         def _color_comp_count(val):
@@ -563,10 +576,14 @@ def render():
         # ── KPIs ─────────────────────────────────────────────────────
         action_counts = df_gap["Acción"].value_counts()
         gk1, gk2, gk3, gk4 = st.columns(4)
-        gk1.metric("Gaps totales", len(df_gap))
-        gk2.metric("🚀 Atacar", action_counts.get("🚀 ATACAR", 0))
-        gk3.metric("👁️ Monitorear", action_counts.get("👁️ MONITOREAR", 0))
-        gk4.metric("SV en gaps", f"{df_gap['Search Volume'].sum():,.0f}")
+        with gk1:
+            st.markdown(kpi_card("Gaps totales", str(len(df_gap))), unsafe_allow_html=True)
+        with gk2:
+            st.markdown(kpi_card("Atacar", str(action_counts.get("🚀 ATACAR", 0))), unsafe_allow_html=True)
+        with gk3:
+            st.markdown(kpi_card("Monitorear", str(action_counts.get("👁️ MONITOREAR", 0))), unsafe_allow_html=True)
+        with gk4:
+            st.markdown(kpi_card("SV en gaps", f"{df_gap['Search Volume'].sum():,.0f}"), unsafe_allow_html=True)
 
         # ── Filter by action ─────────────────────────────────────────
         action_filter = st.multiselect(

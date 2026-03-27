@@ -3,6 +3,7 @@ import io
 import numpy as np
 import pandas as pd
 import streamlit as st
+from core.helpers import kpi_card
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -344,12 +345,16 @@ def render():
 
     # ── SECCIÓN 1: Métricas históricas ───────────────────────────────────────
     st.subheader("Métricas Históricas")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Días de datos", f"{n_days}")
-    c2.metric("Ventas promedio/día", f"${avg_daily:.2f}")
     trend_sign = "+" if slope >= 0 else ""
-    c3.metric("Tendencia", f"{trend_sign}{slope:.2f} $/día")
-    c4.metric("Ratio Finde/Laboral", f"{weekend_ratio:.2f}x")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(kpi_card("Días de datos", str(n_days)), unsafe_allow_html=True)
+    with c2:
+        st.markdown(kpi_card("Ventas promedio/día", f"${avg_daily:.2f}"), unsafe_allow_html=True)
+    with c3:
+        st.markdown(kpi_card("Tendencia", f"{trend_sign}{slope:.2f} $/día"), unsafe_allow_html=True)
+    with c4:
+        st.markdown(kpi_card("Ratio Finde/Laboral", f"{weekend_ratio:.2f}x"), unsafe_allow_html=True)
 
     # ── SECCIÓN 2: Gráfico ───────────────────────────────────────────────────
     st.subheader("Tendencia Histórica + Proyección")

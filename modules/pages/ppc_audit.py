@@ -4,6 +4,7 @@ import datetime
 
 import streamlit as st
 import pandas as pd
+from core.helpers import kpi_card
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
@@ -692,11 +693,16 @@ def render():
             pts_cov = 10
 
         bp1, bp2, bp3, bp4, bp5 = st.columns(5)
-        bp1.metric("Estructura", f"{pts_structure}/20")
-        bp2.metric("Naming", f"{pts_naming}/15")
-        bp3.metric("Eficiencia", f"{pts_eff}/25")
-        bp4.metric("Desperdicio", f"{pts_waste}/20")
-        bp5.metric("Cobertura", f"{pts_cov}/20")
+        with bp1:
+            st.markdown(kpi_card("Estructura", f"{pts_structure}/20"), unsafe_allow_html=True)
+        with bp2:
+            st.markdown(kpi_card("Naming", f"{pts_naming}/15"), unsafe_allow_html=True)
+        with bp3:
+            st.markdown(kpi_card("Eficiencia", f"{pts_eff}/25"), unsafe_allow_html=True)
+        with bp4:
+            st.markdown(kpi_card("Desperdicio", f"{pts_waste}/20"), unsafe_allow_html=True)
+        with bp5:
+            st.markdown(kpi_card("Cobertura", f"{pts_cov}/20"), unsafe_allow_html=True)
 
         st.divider()
 
