@@ -206,13 +206,13 @@ def render():
 
     wf_html = ""
     wf_html += _wf_level(1, "📥", "Subí tus datos", "#2196F3",
-        ["STR", "SQP", "Bulk", "BR", "DataDive", "Helium 10"],
+        ["STR", "SQP", "Bulk", "BR", "DataDive", "Helium 10", "Account Pulse"],
         "Archivos base desde Amazon, DataDive y Helium 10")
     wf_html += _wf_level(2, "🔍", "Analizá", "#FF9800",
         ["Análisis Cruzado", "Funnel", "Tendencia", "PPC Audit"],
         "Cruzar datos, detectar brechas y auditar la cuenta")
     wf_html += _wf_level(3, "🧠", "Inteligencia", "#9C27B0",
-        ["PPC Insights", "Forecast", "Ranking Volatility", "SBH Targets"],
+        ["PPC Insights", "Forecast", "DataDive", "SBH Targets"],
         "Health score, proyecciones, volatilidad y targeting SBH")
     wf_html += _wf_level(4, "🚀", "Ejecutá", "#4CAF50",
         ["Campaign Builder", "Bid Optimizer", "Atom11 Rules"],

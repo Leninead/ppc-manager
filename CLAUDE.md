@@ -20,7 +20,7 @@ No hay build step, test suite ni linter configurado.
 
 | # | Página | Sección | Estado |
 |---|--------|---------|--------|
-| 1 | 🏠 Inicio | — | ✅ rediseñado 2026-03-21 |
+| 1 | 🏠 Inicio | — | ✅ rediseñado 2026-03-27 (3 cards + flujo guiado + changelog) |
 | 2 | 📊 Search Term Report | PPC | ✅ completo |
 | 3 | 🔍 Search Query Performance | PPC | ✅ completo |
 | 4 | 🔗 Análisis Cruzado STR vs SQP | PPC | ✅ + Plan de Acción 2026-03-21 |
@@ -30,21 +30,21 @@ No hay build step, test suite ni linter configurado.
 | 8 | 🔻 Análisis de Funnel | PPC | ✅ completo |
 | 9 | 🧠 Bid Optimizer | PPC | ✅ nuevo 2026-03-21 |
 | 10 | 🚀 Campaign Builder | PPC | ✅ nuevo 2026-03-21 |
-| 11 | 🔬 Reportes Atom 11 | Account Manager | ✅ completo |
-| 12 | 🛡️ Reportes MerchanSpring | Account Manager | ✅ completo |
-| 13 | 📊 Weekly Client Report | Account Manager | ✅ completo |
-| 14 | ⚙️ Atom11 Rules Builder | Automatización | ✅ nuevo 2026-03-23 |
-| 15 | 📅 Account Pulse | Account Manager | ✅ nuevo 2026-03-26 |
-| 16 | 🔎 PPC Insights Engine | Inteligencia | ✅ nuevo 2026-03-26 |
-| 17 | 🔮 PPC Forecast | Inteligencia | ✅ nuevo 2026-03-26 |
-| 18 | 📋 PPC Audit | Inteligencia | ✅ nuevo 2026-03-26 |
-| 19 | 🔬 DataDive Analyzer | Research | ✅ nuevo 2026-03-27 |
-| 20 | 🧲 Helium 10 Analyzer | Research | ✅ nuevo 2026-03-27 |
-| 21 | 📢 SBH Recommendation | Research | ✅ nuevo 2026-03-27 |
-| 22 | 📚 Knowledge Base | Knowledge | ✅ nuevo 2026-03-27 |
+| 11 | 🧲 DataDive Analyzer | Research | ✅ conectado 2026-03-27 (4 tabs: MKL, Competitors, Rank Radar, Volatility) |
+| 12 | 🧲 Helium 10 Analyzer | Research | ✅ conectado 2026-03-27 (3 tabs: Cerebro, KW Research, Competitor Gap) |
+| 13 | 📢 SBH Recommendation | Research | ✅ conectado 2026-03-27 (targets SBH cruzando MKL+SQP+Campaign) |
+| 14 | 🔎 PPC Insights | Research | ✅ conectado 2026-03-27 (health score por ASIN, 824 líneas) |
+| 15 | 📈 PPC Forecast | Research | ✅ conectado 2026-03-27 (proyección ventas + estacionalidad) |
+| 16 | 🛡️ PPC Audit | Research | ✅ conectado 2026-03-27 (auditoría integral score 0-100) |
+| 17 | 📊 Account Pulse | Research | ✅ conectado 2026-03-27 (monitor salud diaria + festivos MX) |
+| 18 | 🔬 Reportes Atom 11 | Account | ✅ completo |
+| 19 | 🛡️ Reportes MerchanSpring | Account | ✅ completo |
+| 20 | 📊 Weekly Client Report | Account | ✅ completo |
+| 21 | ⚙️ Atom11 Rules Builder | PPC | ✅ nuevo 2026-03-23 |
+| 22 | 📚 Knowledge Base | Knowledge | ✅ conectado 2026-03-27 (explorar + agregar notas .md) |
 
-Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.  
-`_PAGES` lista el orden completo. Sidebar agrupa por sección.
+Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.
+Sidebar colapsable con `st.expander` por sección: PPC (expanded) | Research | Account | Knowledge.
 
 ---
 
@@ -55,7 +55,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 ### ✅ Módulos extraídos
 - `core/i18n.py` — _I18N (dict ES/EN)
 - `core/constants.py` — _BR_OPTIONAL_COLS, _PAGES
-- `core/helpers.py` — _color_pct, read_sqp, extract_sqp_brand
+- `core/helpers.py` — _color_pct, read_sqp, extract_sqp_brand, kpi_card
 - `core/business_report.py` — _BIZ_DIR, _parse_business_report_map, _auto_load_business_report_map
 - `modules/atom11/parser.py` — _parse_atom11, _detect_atom11_type, _extract_period_df, _summarize_daterange, _split_two_weeks
 - `modules/atom11/analysis.py` — _kpis, _generate_summary, _diag_items, _rec_items
@@ -78,14 +78,14 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/bid_optimizer.py` — render() ✅ creado 2026-03-21
 - `modules/pages/campaign_builder.py` — render() ✅ creado 2026-03-21
 - `modules/pages/atom11_rules_builder.py` — render() ✅ creado 2026-03-23
-- `modules/pages/account_pulse.py` — render() ✅ creado 2026-03-26
-- `modules/pages/ppc_insights.py` — render() ✅ creado 2026-03-26
-- `modules/pages/ppc_forecast.py` — render() ✅ creado 2026-03-26
-- `modules/pages/ppc_audit.py` — render() ✅ creado 2026-03-26
-- `modules/pages/datadive_analyzer.py` — render() ✅ creado 2026-03-27
-- `modules/pages/helium10_analyzer.py` — render() ✅ creado 2026-03-27
-- `modules/pages/sbh_recommendation.py` — render() ✅ creado 2026-03-27
-- `modules/pages/knowledge_base.py` — render() ✅ creado 2026-03-27
+- `modules/pages/account_pulse.py` — render() ✅ conectado 2026-03-27
+- `modules/pages/ppc_insights.py` — render() ✅ conectado 2026-03-27
+- `modules/pages/ppc_forecast.py` — render() ✅ conectado 2026-03-27
+- `modules/pages/ppc_audit.py` — render() ✅ conectado 2026-03-27
+- `modules/pages/datadive_analyzer.py` — render() ✅ conectado 2026-03-27
+- `modules/pages/helium10_analyzer.py` — render() ✅ conectado 2026-03-27
+- `modules/pages/sbh_recommendation.py` — render() ✅ conectado 2026-03-27
+- `modules/pages/knowledge_base.py` — render() ✅ conectado 2026-03-27
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -482,8 +482,9 @@ Modos: Conservador (solo bajan bids) | Agresivo (sube, baja y pausa) | Custom
 | ~~**8**~~ | ~~Campaign Builder (módulo nuevo)~~ | ~~Automatización~~ | ✅ Completado 2026-03-21 |
 | ~~**9**~~ | ~~Agency OS — rediseño inicio + sidebar oscuro~~ | ~~app.py + inicio.py~~ | ✅ Completado 2026-03-21 |
 | ~~**10**~~ | ~~Atom11 Rules Builder~~ | ~~Nuevo~~ | ✅ Completado 2026-03-23 — módulo multi-marca, 3 tabs, 274 rules por objetivo |
-| **11** | Account Pulse | Nuevo | Monitor de salud diaria |
-| **12** | SOP completo de todas las tabs | Docs | SOP Capybaras Agency OS |
+| ~~**11**~~ | ~~Conectar 8 módulos + mejoras visuales~~ | ~~app.py + 8 módulos~~ | ✅ Completado 2026-03-27 |
+| **12** | Testing completo 22 módulos con datos reales | Testing | Pendiente |
+| **13** | SOP completo de todas las tabs | Docs | SOP Capybaras Agency OS |
 
 ---
 
@@ -1302,11 +1303,50 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - `core/constants.py` — + SBH + Knowledge Base en _PAGES (22 páginas)
 - `CLAUDE.md` — filas 21-22 en tabla, módulos en lista, sesión actualizada
 
-### ⚠️ Pendiente
-- [ ] Testing DataDive Analyzer con archivos reales (MKL, Competitors, Rank Radar, Volatility)
-- [x] Helium 10 Analyzer — creado con export real de Cerebro ✅ 2026-03-27
-- [ ] Testing H10 Analyzer con archivo Cerebro real
-- [ ] Testing SBH Recommendation con MKL + SQP + Campaign CSV reales
-- [ ] Testing Knowledge Base con archivos .md del repo
-- [ ] Ajustar parsers DataDive si la estructura real difiere del spec
+---
+
+## 📅 Sesión 2026-03-27b — Lo que hicimos (conexión + mejoras visuales)
+
+### Módulos conectados al router (8 nuevos)
+- **DataDive Analyzer** — 4 tabs: MKL keywords, Competitors matrix, Rank Radar tracking, Ranking Volatility + PPC IS cruzado con SQP
+- **Helium 10 Analyzer** — 3 tabs: Cerebro reverse ASIN con oportunidades PPC, KW Research multi-competidor, Competitor Gap Analysis
+- **SBH Recommendation** — Targets para Sponsored Brand Headline cruzando MKL + SQP + Campaign CSV. Clustering automático + headlines sugeridos
+- **Knowledge Base** — 2 tabs: Explorar notas .md con búsqueda por texto/tags/categorías + Agregar nota con preview y descarga
+- **PPC Insights** — Health score 0-100 por ASIN cruzando STR + SQP + BR + Campaign CSV. Top keywords, bleeders, wasted spend
+- **PPC Forecast** — Proyección de ventas con tendencia lineal + estacionalidad. Export Excel con escenarios
+- **PPC Audit** — Auditoría integral: estructura, naming, eficiencia, desperdicio, cobertura. Score 0-100 desglosado
+- **Account Pulse** — Monitor de salud diaria: ventas, units, sessions, CVR, ACoS con WoW deltas. Festivos MX integrados
+
+### Mejoras visuales transversales
+- **kpi_card helper** — core/helpers.py → cards naranja #FFF3E0 con borde #FFD9B3, delta con flechas ↑↓→ y color verde/rojo
+- **48 st.metric migrados a kpi_card** en: PPC Insights (4), Account Pulse (5), SBH Recommendation (4), DataDive (14), Helium 10 (11), PPC Forecast (4), PPC Audit (5), Knowledge Base (1)
+- **14 empty states** reemplazados por cards visuales con icono 📂 y borde dashed
+- **8 headers unificados** con layout flex: emoji 2rem + título 1.3rem bold + caption 0.82rem
+- **Color coding en tablas** — DataDive: Relevance + Launch Score + Rating. Helium 10: Frequency/Competitor Count
+- **Sidebar colapsable** — 4 secciones con st.expander: PPC (expanded) | Research | Account | Knowledge
+- **Inicio reorganizado** — 3 cards activas (PPC 10 módulos + Account 4 + Research 7) + KB full-width + flujo guiado 5 niveles actualizado
+
+### Archivos modificados
+- `app.py` — +8 imports, +sidebar RESEARCH y KNOWLEDGE con expanders, +8 routing ifs, CSS expanders
+- `modules/pages/inicio.py` — 3 cards activas, flujo guiado actualizado, KB card, changelog
+- `modules/pages/datadive_analyzer.py` — header, empty states, kpi_cards (14), color coding
+- `modules/pages/helium10_analyzer.py` — header, empty states, kpi_cards (11), color coding
+- `modules/pages/sbh_recommendation.py` — header, empty states, kpi_cards (4), color clusters
+- `modules/pages/knowledge_base.py` — header, empty states, badges categoría
+- `modules/pages/ppc_insights.py` — header, empty states, kpi_cards (4)
+- `modules/pages/ppc_forecast.py` — header, empty states, kpi_cards (4)
+- `modules/pages/ppc_audit.py` — header, empty states, kpi_cards (5)
+- `modules/pages/account_pulse.py` — header, empty states, kpi_cards (5)
+- `core/helpers.py` — +kpi_card()
+
+### Regla operativa nueva
+- Después de cada prompt de código, Claude siempre indica qué tabs revisar y el comando git
+
+### ⚠️ Pendiente próxima sesión
+- [ ] Testing completo de los 8 módulos nuevos con archivos reales
+- [ ] Atom11 Rules Builder — verificar que está conectado en app.py
+- [ ] Account Pulse — testing con BR Daily real
+- [ ] PPC Audit — testing con STR + Campaign CSV real
+- [ ] PPC Insights — testing con STR + SQP + BR + Campaign CSV
+- [ ] Actualizar PPC-SOP-Manager.md con los 8 módulos nuevos
 

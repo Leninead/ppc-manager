@@ -118,6 +118,25 @@ st.markdown("""
 [data-testid="stAppViewContainer"] > .main {
     padding-left: 1rem !important;
 }
+
+/* ── Expanders del sidebar ──────────────────────────────────── */
+[data-testid="stSidebar"] details {
+    background-color: transparent !important;
+    border: none !important;
+    margin-bottom: 0 !important;
+}
+
+[data-testid="stSidebar"] details summary {
+    color: #E84000 !important;
+    font-size: 0.82rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.05em !important;
+    padding: 0.4rem 0.5rem !important;
+}
+
+[data-testid="stSidebar"] details summary:hover {
+    color: #FF6B00 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -146,64 +165,47 @@ with st.sidebar:
     st.button("🏠 Inicio", use_container_width=True, on_click=_nav,
               args=("🏠 Inicio",), key="nav_home")
 
-    st.markdown(
-        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
-        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
-        "📊 PPC</div>",
-        unsafe_allow_html=True,
-    )
-    for _pg in [
-        "📊 Search Term Report",
-        "🔍 Search Query Performance",
-        "🔗 Análisis Cruzado STR vs SQP",
-        "📈 Tendencia Multi-Semana",
-        "📁 Bulk Campañas",
-        "💰 Business Report",
-        "🔻 Análisis de Funnel",
-        "🧠 Bid Optimizer",
-        "🚀 Campaign Builder",
-        "⚙️ Atom11 Rules Builder",
-    ]:
-        st.button(_pg, use_container_width=True, on_click=_nav,
-                  args=(_pg,), key=f"nav_{_pg}")
+    with st.expander("📊 PPC", expanded=True):
+        for _pg in [
+            "📊 Search Term Report",
+            "🔍 Search Query Performance",
+            "🔗 Análisis Cruzado STR vs SQP",
+            "📈 Tendencia Multi-Semana",
+            "📁 Bulk Campañas",
+            "💰 Business Report",
+            "🔻 Análisis de Funnel",
+            "🧠 Bid Optimizer",
+            "🚀 Campaign Builder",
+            "⚙️ Atom11 Rules Builder",
+        ]:
+            st.button(_pg, use_container_width=True, on_click=_nav,
+                      args=(_pg,), key=f"nav_{_pg}")
 
-    st.markdown(
-        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
-        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
-        "🔬 RESEARCH</div>",
-        unsafe_allow_html=True,
-    )
-    for _pg in [
-        "🧲 DataDive Analyzer",
-        "🧲 Helium 10 Analyzer",
-        "📢 SBH Recommendation",
-        "🔎 PPC Insights",
-        "📈 PPC Forecast",
-        "🛡️ PPC Audit",
-        "📊 Account Pulse",
-    ]:
-        st.button(_pg, use_container_width=True, on_click=_nav,
-                  args=(_pg,), key=f"nav_{_pg}")
+    with st.expander("🔬 RESEARCH", expanded=False):
+        for _pg in [
+            "🧲 DataDive Analyzer",
+            "🧲 Helium 10 Analyzer",
+            "📢 SBH Recommendation",
+            "🔎 PPC Insights",
+            "📈 PPC Forecast",
+            "🛡️ PPC Audit",
+            "📊 Account Pulse",
+        ]:
+            st.button(_pg, use_container_width=True, on_click=_nav,
+                      args=(_pg,), key=f"nav_{_pg}")
 
-    st.markdown(
-        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
-        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
-        "📚 KNOWLEDGE</div>",
-        unsafe_allow_html=True,
-    )
-    st.button("📚 Knowledge Base", use_container_width=True, on_click=_nav,
-              args=("📚 Knowledge Base",), key="nav_📚 Knowledge Base")
+    with st.expander("👥 ACCOUNT", expanded=False):
+        for _pg in [
+            "🔬 Reportes Atom 11",
+            "🛡️ Reportes MerchanSpring",
+            "📊 Weekly Client Report",
+        ]:
+            st.button(_pg, use_container_width=True, on_click=_nav,
+                      args=(_pg,), key=f"nav_{_pg}")
 
-    st.markdown(
-        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
-        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
-        "👥 ACCOUNT</div>",
-        unsafe_allow_html=True,
-    )
-    for _pg in ["🔬 Reportes Atom 11", "🛡️ Reportes MerchanSpring",
-                "📊 Weekly Client Report"]:
-        st.button(_pg, use_container_width=True, on_click=_nav,
-                  args=(_pg,), key=f"nav_{_pg}")
+    with st.expander("📚 KNOWLEDGE", expanded=False):
+        st.button("📚 Knowledge Base", use_container_width=True, on_click=_nav,
+                  args=("📚 Knowledge Base",), key="nav_📚 Knowledge Base")
 
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
     _pe_label = (
