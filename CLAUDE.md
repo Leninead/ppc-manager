@@ -39,6 +39,7 @@ No hay build step, test suite ni linter configurado.
 | 17 | 🔮 PPC Forecast | Inteligencia | ✅ nuevo 2026-03-26 |
 | 18 | 📋 PPC Audit | Inteligencia | ✅ nuevo 2026-03-26 |
 | 19 | 🔬 DataDive Analyzer | Research | ✅ nuevo 2026-03-27 |
+| 20 | 🧲 Helium 10 Analyzer | Research | ✅ nuevo 2026-03-27 |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.  
 `_PAGES` lista el orden completo. Sidebar agrupa por sección.
@@ -80,6 +81,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/ppc_forecast.py` — render() ✅ creado 2026-03-26
 - `modules/pages/ppc_audit.py` — render() ✅ creado 2026-03-26
 - `modules/pages/datadive_analyzer.py` — render() ✅ creado 2026-03-27
+- `modules/pages/helium10_analyzer.py` — render() ✅ creado 2026-03-27
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -1258,9 +1260,10 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 
 ### Archivos creados/modificados
 - `modules/pages/datadive_analyzer.py` — NUEVO (380+ líneas)
-- `app.py` — + import + sidebar sección RESEARCH + routing
-- `core/constants.py` — + DataDive Analyzer en _PAGES (19 páginas)
-- `modules/pages/inicio.py` — v2.1, 19 módulos, sección Research, changelog actualizado
+- `modules/pages/helium10_analyzer.py` — NUEVO (350+ líneas, 3 tabs, Cerebro parser)
+- `app.py` — + import + sidebar sección RESEARCH (DataDive + H10) + routing
+- `core/constants.py` — + DataDive + Helium 10 en _PAGES (20 páginas)
+- `modules/pages/inicio.py` — v2.1, 20 módulos, sección Research con 2 módulos
 - `core/helpers.py` — + import streamlit, @st.cache_data en read_sqp
 - `modules/pages/search_term_report.py` — + _load_str() cached
 - `modules/pages/bulk_campanas.py` — + _load_bulk() cached, fix import io
@@ -1273,8 +1276,14 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - `modules/pages/ppc_audit.py` — + key audit_dl
 - `CLAUDE.md` — + DataDive en tabla navegación + módulos + sesión 2026-03-27
 
+### Helium 10 Analyzer — detalle
+- **Tab 1 — Cerebro Reverse ASIN**: parser `_parse_cerebro()` con @st.cache_data, maneja "-" como NaN, detecta ASIN del filename. Filtros SV + Organic Rank + IQ Score. Flags: Oportunidad PPC (organic sin ads), Depende de Ads (ads sin organic).
+- **Tab 2 — KW Research**: 1-3 Cerebros de competidores, cruza keywords, calcula Launch Priority Score = SV × (comps ranking / total) × (1 / avg rank). Clustering automático por root word. Export "KW Research Pack".
+- **Tab 3 — Competitor Gap**: tu Cerebro vs 1-2 competidores. Detecta KWs donde competidor rankea orgánicamente y vos no. Acción sugerida: ATACAR (SV≥500, rank≤15) / MONITOREAR / IGNORAR. Export con acciones.
+
 ### ⚠️ Pendiente
 - [ ] Testing DataDive Analyzer con archivos reales (MKL, Competitors, Rank Radar)
-- [ ] Ajustar parsers si la estructura real difiere del spec
-- [ ] Helium 10 parser — pendiente exports de referencia
+- [x] Helium 10 Analyzer — creado con export real de Cerebro ✅ 2026-03-27
+- [ ] Testing H10 Analyzer con archivo Cerebro real
+- [ ] Ajustar parsers DataDive si la estructura real difiere del spec
 

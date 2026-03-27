@@ -7,9 +7,10 @@ _GRIS_TXT = "#888888"
 
 _VERSION = "v2.1"
 _DATE    = "2026-03-27"
-_TOTAL_MODULOS = 19
+_TOTAL_MODULOS = 20
 
 _CHANGELOG = [
+    ("2026-03-27", "Helium 10 Analyzer — Cerebro reverse ASIN, KW Research, Competitor Gap"),
     ("2026-03-27", "DataDive Analyzer — parsers MKL Keywords, Competitors y Rank Radar"),
     ("2026-03-27", "@st.cache_data en todos los parsers + keys únicos en download_buttons"),
     ("2026-03-26", "PPC Insights Engine — health score por ASIN cruzando STR+SQP+BR+Campaigns"),
@@ -131,8 +132,8 @@ def render():
             "🔬", "Research",
             "Análisis de nicho, competidores y tracking de keywords con DataDive y Helium 10.",
             "Lenin Acosta",
-            ["DataDive Analyzer"],
-            activo=True, count=1
+            ["DataDive Analyzer", "Helium 10 Analyzer"],
+            activo=True, count=2
         ), unsafe_allow_html=True)
 
         st.markdown(_area_card(

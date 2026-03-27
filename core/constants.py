@@ -26,4 +26,5 @@ _PAGES = [
     "🔮 PPC Forecast",
     "📋 PPC Audit",
     "🔬 DataDive Analyzer",
+    "🧲 Helium 10 Analyzer",
 ]

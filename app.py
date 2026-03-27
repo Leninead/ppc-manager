@@ -35,6 +35,7 @@ from modules.pages.ppc_forecast import render as render_ppc_forecast
 from modules.pages.ppc_insights import render as render_ppc_insights
 from modules.pages.ppc_audit import render as render_ppc_audit
 from modules.pages.datadive_analyzer import render as render_datadive
+from modules.pages.helium10_analyzer import render as render_helium10
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -186,6 +187,7 @@ with st.sidebar:
     )
     for _pg in [
         "🔬 DataDive Analyzer",
+        "🧲 Helium 10 Analyzer",
     ]:
         st.button(_pg, use_container_width=True, on_click=_nav,
                   args=(_pg,), key=f"nav_{_pg}")
@@ -279,3 +281,6 @@ if selected == "📋 PPC Audit":
 
 if selected == "🔬 DataDive Analyzer":
     render_datadive()
+
+if selected == "🧲 Helium 10 Analyzer":
+    render_helium10()
