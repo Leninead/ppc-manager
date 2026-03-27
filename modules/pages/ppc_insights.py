@@ -5,7 +5,7 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-from core.helpers import read_sqp
+from core.helpers import read_sqp, kpi_card
 
 try:
     from core.ai_analyze import _claude_analyze
@@ -696,12 +696,15 @@ def render():
 
     st.markdown("### Resumen de cuenta")
     mc1, mc2, mc3, mc4 = st.columns(4)
-    mc1.metric("ASINs analizados",    str(n_asins))
-    mc2.metric("Health Score prom.",  f"{avg_score:.0f}/100")
-    mc3.metric("Spend total",         f"${total_spend:,.2f}")
-    mc4.metric("Wasted spend",        f"${total_wasted:,.2f}",
-               delta=f"-{total_wasted/total_spend*100:.1f}% del spend" if total_spend > 0 else None,
-               delta_color="inverse")
+    with mc1:
+        st.markdown(kpi_card("ASINs analizados", str(n_asins)), unsafe_allow_html=True)
+    with mc2:
+        st.markdown(kpi_card("Health Score prom.", f"{avg_score:.0f}/100"), unsafe_allow_html=True)
+    with mc3:
+        st.markdown(kpi_card("Spend total", f"${total_spend:,.2f}"), unsafe_allow_html=True)
+    with mc4:
+        pct = float(total_wasted / total_spend * 100) if total_spend > 0 else 0
+        st.markdown(kpi_card("Wasted spend", f"${total_wasted:,.2f}", delta=-pct, delta_good=False), unsafe_allow_html=True)
 
     st.divider()
 

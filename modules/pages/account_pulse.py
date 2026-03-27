@@ -5,6 +5,7 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import date as _date
+from core.helpers import kpi_card
 
 # ── Paleta Capybaras ─────────────────────────────────────────────────
 _ORG  = "E84000";  _ORG2 = "FF6B00";  _ORG_P = "FFF3E0"
@@ -651,8 +652,6 @@ def render():
             # ── KPI cards ────────────────────────────────────────
             if daily_data:
                 agg = daily_data["agg"]
-                c1, c2, c3, c4, c5 = st.columns(5)
-
                 def _dp(tw, pw):
                     if not pw or pw == 0:
                         return None
@@ -662,18 +661,21 @@ def render():
                 d_units = _dp(agg["Units_TW"], agg["Units_PW"])
                 d_sess  = _dp(agg["Sessions_TW"], agg["Sessions_PW"])
 
-                c1.metric("Sales TW", f"${agg['Sales_TW']:,.0f}",
-                          f"{d_sales:+.1f}%" if d_sales else None)
-                c2.metric("Units TW", f"{int(agg['Units_TW']):,}",
-                          f"{d_units:+.1f}%" if d_units else None)
-                c3.metric("Sessions TW", f"{int(agg['Sessions_TW']):,}",
-                          f"{d_sess:+.1f}%" if d_sess else None)
-                c4.metric("CVR TW", f"{agg['CVR_TW']:.2f}%")
-
                 total_spend = sum(c["Spend"] for c in campaigns) if campaigns else 0
                 total_ad_sales = sum(c["Sales"] for c in campaigns) if campaigns else 0
                 g_acos = (total_spend / total_ad_sales * 100) if total_ad_sales > 0 else None
-                c5.metric("ACoS", f"{g_acos:.1f}%" if g_acos else "—")
+
+                c1, c2, c3, c4, c5 = st.columns(5)
+                with c1:
+                    st.markdown(kpi_card("Sales TW", f"${agg['Sales_TW']:,.0f}", delta=d_sales), unsafe_allow_html=True)
+                with c2:
+                    st.markdown(kpi_card("Units TW", f"{int(agg['Units_TW']):,}", delta=d_units), unsafe_allow_html=True)
+                with c3:
+                    st.markdown(kpi_card("Sessions TW", f"{int(agg['Sessions_TW']):,}", delta=d_sess), unsafe_allow_html=True)
+                with c4:
+                    st.markdown(kpi_card("CVR TW", f"{agg['CVR_TW']:.2f}%"), unsafe_allow_html=True)
+                with c5:
+                    st.markdown(kpi_card("ACoS", f"{g_acos:.1f}%" if g_acos else "—"), unsafe_allow_html=True)
 
             # ── Daily table preview ──────────────────────────────
             if daily_data:

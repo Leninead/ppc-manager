@@ -34,3 +34,30 @@ def read_sqp(file):
     if file.name.endswith(".xlsx"):
         return pd.read_excel(file, skiprows=1)
     return pd.read_csv(file, skiprows=1)
+
+
+def kpi_card(label, value, delta=None, delta_good=True):
+    """Genera HTML de KPI card estilo Capybaras. Usar con st.markdown(..., unsafe_allow_html=True)."""
+    delta_html = ""
+    if delta is not None:
+        try:
+            d = float(delta)
+            color = "#1B6B2F" if (delta_good and d > 0) or (not delta_good and d < 0) else "#B71C1C"
+            if d == 0:
+                color = "#888"
+            arrow = "↑" if d > 0 else "↓" if d < 0 else "→"
+            delta_html = (
+                f"<div style='font-size:0.72rem;color:{color};font-weight:600;'>"
+                f"{arrow} {abs(d):.1f}%</div>"
+            )
+        except (ValueError, TypeError):
+            pass
+    return (
+        f"<div style='background:#FFF3E0;border:1px solid #FFD9B3;border-radius:10px;"
+        f"padding:0.8rem 1rem;text-align:center;'>"
+        f"<div style='font-size:0.72rem;color:#888;font-weight:600;text-transform:uppercase;"
+        f"letter-spacing:0.05em;'>{label}</div>"
+        f"<div style='font-size:1.4rem;font-weight:800;color:#1F1F1F;margin:0.2rem 0;'>{value}</div>"
+        f"{delta_html}"
+        f"</div>"
+    )
