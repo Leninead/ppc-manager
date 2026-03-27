@@ -90,6 +90,8 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
 - [x] Bug: tendencia_multisemana.py KeyError cuando se suben dos SQPs iguales — fix aplicado 2026-03-19
+- [x] Bug: datadive_analyzer.py return-in-tabs impedía que tabs 2-4 funcionen — fix aplicado 2026-03-27
+- [x] @st.cache_data en todos los parsers de lectura de archivos — aplicado 2026-03-27
 
 ---
 
