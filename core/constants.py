@@ -21,4 +21,7 @@ _PAGES = [
     "🚀 Campaign Builder",
     "🤖 Atom11 Rules Builder",
     "📅 Account Pulse",
+    "🔎 PPC Insights Engine",
+    "🔮 PPC Forecast",
+    "📋 PPC Audit",
 ]

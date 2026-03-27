@@ -35,6 +35,9 @@ No hay build step, test suite ni linter configurado.
 | 13 | 📊 Weekly Client Report | Account Manager | ✅ completo |
 | 14 | ⚙️ Atom11 Rules Builder | Automatización | ✅ nuevo 2026-03-23 |
 | 15 | 📅 Account Pulse | Account Manager | ✅ nuevo 2026-03-26 |
+| 16 | 🔎 PPC Insights Engine | Inteligencia | ✅ nuevo 2026-03-26 |
+| 17 | 🔮 PPC Forecast | Inteligencia | ✅ nuevo 2026-03-26 |
+| 18 | 📋 PPC Audit | Inteligencia | ✅ nuevo 2026-03-26 |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.  
 `_PAGES` lista el orden completo. Sidebar agrupa por sección.
@@ -72,6 +75,9 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/campaign_builder.py` — render() ✅ creado 2026-03-21
 - `modules/pages/atom11_rules_builder.py` — render() ✅ creado 2026-03-23
 - `modules/pages/account_pulse.py` — render() ✅ creado 2026-03-26
+- `modules/pages/ppc_insights.py` — render() ✅ creado 2026-03-26
+- `modules/pages/ppc_forecast.py` — render() ✅ creado 2026-03-26
+- `modules/pages/ppc_audit.py` — render() ✅ creado 2026-03-26
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -1194,6 +1200,12 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - **Weekly Client Report** — changelog: `st.text_area` + hoja "Changelog" en Excel
 - **STR Harvest** — anti-canibalización: cruce con Campaign CSV, marca duplicados Exact activos, checkbox incluir/excluir
 - **Análisis Cruzado** — nueva tab "PPC Insights por ASIN": BR uploader opcional, resumen por ASIN, top 5 keywords, gap detection, export
+- **Account Pulse** — módulo nuevo en Account Manager. Input: BR diario 14d + BR by Child + Campaign CSV. Split PW/TW automático. Excel 4 hojas: Resumen Ejecutivo (portada naranja), Ventas Diarias (laboral/finde/festivo MX), BuyBox & ASINs (ordenado por ventas perdidas), Campañas (NUEVA vs HEREDADA). 430+ líneas.
+
+### Módulos nuevos — Sección INTELIGENCIA (3 módulos)
+- **PPC Insights Engine** — módulo nuevo. Cruza STR + SQP + BR + Campaign CSV por ASIN. Health score 0-100 (CVR 25% + BuyBox 20% + ACoS 25% + Funnel 15% + Impression Share 15%). Cards por ASIN con expanders. Botón IA opcional. Excel multi-sheet con hasta 10 hojas por ASIN. 530 líneas.
+- **PPC Forecast** — módulo nuevo. Input: BR diario (mín 14d). Tendencia lineal (numpy polyfit), estacionalidad finde/laboral, proyección 7/14/30d. Budget recommendation. Gráfico histórico + proyección. Excel 2 hojas. 450 líneas.
+- **PPC Audit** — módulo nuevo. Input: STR + Campaign CSV (mín). Report card de cuenta 0-100. Estructura (tipos, match types, portfolios), naming convention check, eficiencia (ACoS, top campaigns), desperdicio (WAS, fantasmas), cobertura funnel por ASIN, BuyBox. Excel 5-6 hojas con portada Capybaras. 530 líneas.
 
 ### Archivos modificados
 - `modules/pages/bid_optimizer.py`
@@ -1201,11 +1213,20 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - `modules/pages/weekly_client_report.py`
 - `modules/pages/search_term_report.py`
 - `modules/pages/analisis_cruzado.py`
+- `modules/pages/account_pulse.py` — NUEVO
+- `modules/pages/ppc_insights.py` — NUEVO
+- `modules/pages/ppc_forecast.py` — NUEVO
+- `modules/pages/ppc_audit.py` — NUEVO
+- `app.py` — + sección sidebar INTELIGENCIA + imports + routing
+- `core/constants.py` — + 3 páginas nuevas
 - `.claude/agents/` (5 archivos nuevos)
 
 ### ⚠️ Pendiente
 - [ ] Testing con archivos reales de cada módulo modificado
-- [ ] Account Pulse — módulo nuevo pendiente (Sesión 11)
+- [x] Account Pulse — módulo nuevo ✅ completado 2026-03-26
+- [x] PPC Insights Engine — módulo nuevo ✅ completado 2026-03-26
+- [x] PPC Forecast — módulo nuevo ✅ completado 2026-03-26
+- [x] PPC Audit — módulo nuevo ✅ completado 2026-03-26
 - [ ] Actualizar PPC-SOP-Manager.md con nuevos features
 - [ ] Git push final
 

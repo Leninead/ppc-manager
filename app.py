@@ -31,6 +31,9 @@ from modules.pages.bid_optimizer import render as render_bid_optimizer
 from modules.pages.campaign_builder import render as render_campaign_builder
 from modules.pages.atom11_rules_builder import render as render_atom11_rules
 from modules.pages.account_pulse import render as render_account_pulse
+from modules.pages.ppc_forecast import render as render_ppc_forecast
+from modules.pages.ppc_insights import render as render_ppc_insights
+from modules.pages.ppc_audit import render as render_ppc_audit
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -163,6 +166,20 @@ with st.sidebar:
     st.markdown(
         "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
         "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
+        "🧠 INTELIGENCIA</div>",
+        unsafe_allow_html=True,
+    )
+    for _pg in [
+        "🔎 PPC Insights Engine",
+        "🔮 PPC Forecast",
+        "📋 PPC Audit",
+    ]:
+        st.button(_pg, use_container_width=True, on_click=_nav,
+                  args=(_pg,), key=f"nav_{_pg}")
+
+    st.markdown(
+        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
+        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
         "👥 ACCOUNT</div>",
         unsafe_allow_html=True,
     )
@@ -237,3 +254,12 @@ if selected == "⚙️ Atom11 Rules Builder":
 
 if selected == "📅 Account Pulse":
     render_account_pulse()
+
+if selected == "🔮 PPC Forecast":
+    render_ppc_forecast()
+
+if selected == "🔎 PPC Insights Engine":
+    render_ppc_insights()
+
+if selected == "📋 PPC Audit":
+    render_ppc_audit()
