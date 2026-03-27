@@ -5,11 +5,15 @@ _NEGRO    = "#1F1F1F"
 _GRIS_CLR = "#F5F5F5"
 _GRIS_TXT = "#888888"
 
-_VERSION = "v2.1"
+_VERSION = "v3.0"
 _DATE    = "2026-03-27"
-_TOTAL_MODULOS = 20
+_TOTAL_MODULOS = 22
 
 _CHANGELOG = [
+    ("2026-03-27", "Knowledge Base — explorador de notas .md con búsqueda, tags y categorías"),
+    ("2026-03-27", "SBH Target Recommendation — targets SBH cruzando MKL+SQP+Campaign CSV"),
+    ("2026-03-27", "Ranking Volatility — tab 4 en DataDive con std dev + PPC IS del SQP"),
+    ("2026-03-27", "Workflow Wizard — flujo de trabajo guiado piramidal en Inicio"),
     ("2026-03-27", "Helium 10 Analyzer — Cerebro reverse ASIN, KW Research, Competitor Gap"),
     ("2026-03-27", "DataDive Analyzer — parsers MKL Keywords, Competitors y Rank Radar"),
     ("2026-03-27", "@st.cache_data en todos los parsers + keys únicos en download_buttons"),
@@ -132,8 +136,8 @@ def render():
             "🔬", "Research",
             "Análisis de nicho, competidores y tracking de keywords con DataDive y Helium 10.",
             "Lenin Acosta",
-            ["DataDive Analyzer", "Helium 10 Analyzer"],
-            activo=True, count=2
+            ["DataDive Analyzer", "Helium 10 Analyzer", "SBH Recommendation"],
+            activo=True, count=3
         ), unsafe_allow_html=True)
 
         st.markdown(_area_card(
@@ -142,6 +146,14 @@ def render():
             "Eduardo Maya",
             ["Reportes Atom 11", "MerchanSpring", "Weekly Report", "Account Pulse"],
             activo=True, count=4
+        ), unsafe_allow_html=True)
+
+        st.markdown(_area_card(
+            "📚", "Knowledge",
+            "Repositorio de notas, aprendizajes y documentación del equipo.",
+            "Equipo",
+            ["Knowledge Base"],
+            activo=True, count=1
         ), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
@@ -166,6 +178,55 @@ def render():
         f"border:1px solid #EEE;max-height:280px;overflow-y:auto;'>{changelog_html}</div>",
         unsafe_allow_html=True
     )
+
+    st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
+
+    # ── Workflow Wizard ──────────────────────────────────────────────────
+    st.markdown(
+        f"<div style='font-weight:700;font-size:0.95rem;color:{_NEGRO};"
+        f"margin-bottom:0.75rem;'>🗺️ Flujo de trabajo guiado</div>",
+        unsafe_allow_html=True
+    )
+
+    def _wf_level(level_num, emoji, title, color, modules_list, desc):
+        """Build a workflow level row."""
+        btns_html = " ".join(
+            f"<span style='display:inline-block;background:{color}15;border:1px solid {color};"
+            f"border-radius:4px;padding:2px 8px;margin:2px;font-size:0.72rem;color:{color};"
+            f"font-weight:600;'>{m}</span>"
+            for m in modules_list
+        )
+        return (
+            f"<div style='display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.75rem;"
+            f"margin-bottom:0.4rem;background:#FAFAFA;border-radius:8px;"
+            f"border-left:4px solid {color};'>"
+            f"<div style='min-width:28px;text-align:center;font-size:1.1rem;'>{emoji}</div>"
+            f"<div style='flex:1;'>"
+            f"<div style='font-size:0.82rem;font-weight:700;color:{_NEGRO};'>"
+            f"Nivel {level_num}: {title}</div>"
+            f"<div style='font-size:0.72rem;color:#777;margin:2px 0 4px;'>{desc}</div>"
+            f"<div>{btns_html}</div>"
+            f"</div></div>"
+        )
+
+    wf_html = ""
+    wf_html += _wf_level(1, "📥", "Subí tus datos", "#2196F3",
+        ["STR", "SQP", "Bulk", "BR", "DataDive", "Helium 10"],
+        "Archivos base desde Amazon, DataDive y Helium 10")
+    wf_html += _wf_level(2, "🔍", "Analizá", "#FF9800",
+        ["Análisis Cruzado", "Funnel", "Tendencia", "PPC Audit"],
+        "Cruzar datos, detectar brechas y auditar la cuenta")
+    wf_html += _wf_level(3, "🧠", "Inteligencia", "#9C27B0",
+        ["PPC Insights", "Forecast", "Ranking Volatility", "SBH Targets"],
+        "Health score, proyecciones, volatilidad y targeting SBH")
+    wf_html += _wf_level(4, "🚀", "Ejecutá", "#4CAF50",
+        ["Campaign Builder", "Bid Optimizer", "Atom11 Rules"],
+        "Generar bulks, ajustar bids y crear rules de automatización")
+    wf_html += _wf_level(5, "📊", "Reportá", "#E84000",
+        ["Weekly Report", "Account Pulse", "Knowledge Base"],
+        "Reportes semanales, monitoreo diario y documentar aprendizajes")
+
+    st.markdown(wf_html, unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
 

@@ -27,4 +27,6 @@ _PAGES = [
     "📋 PPC Audit",
     "🔬 DataDive Analyzer",
     "🧲 Helium 10 Analyzer",
+    "📢 SBH Recommendation",
+    "📚 Knowledge Base",
 ]

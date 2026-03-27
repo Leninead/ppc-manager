@@ -40,6 +40,8 @@ No hay build step, test suite ni linter configurado.
 | 18 | 📋 PPC Audit | Inteligencia | ✅ nuevo 2026-03-26 |
 | 19 | 🔬 DataDive Analyzer | Research | ✅ nuevo 2026-03-27 |
 | 20 | 🧲 Helium 10 Analyzer | Research | ✅ nuevo 2026-03-27 |
+| 21 | 📢 SBH Recommendation | Research | ✅ nuevo 2026-03-27 |
+| 22 | 📚 Knowledge Base | Knowledge | ✅ nuevo 2026-03-27 |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.  
 `_PAGES` lista el orden completo. Sidebar agrupa por sección.
@@ -82,6 +84,8 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/ppc_audit.py` — render() ✅ creado 2026-03-26
 - `modules/pages/datadive_analyzer.py` — render() ✅ creado 2026-03-27
 - `modules/pages/helium10_analyzer.py` — render() ✅ creado 2026-03-27
+- `modules/pages/sbh_recommendation.py` — render() ✅ creado 2026-03-27
+- `modules/pages/knowledge_base.py` — render() ✅ creado 2026-03-27
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -1281,9 +1285,26 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - **Tab 2 — KW Research**: 1-3 Cerebros de competidores, cruza keywords, calcula Launch Priority Score = SV × (comps ranking / total) × (1 / avg rank). Clustering automático por root word. Export "KW Research Pack".
 - **Tab 3 — Competitor Gap**: tu Cerebro vs 1-2 competidores. Detecta KWs donde competidor rankea orgánicamente y vos no. Acción sugerida: ATACAR (SV≥500, rank≤15) / MONITOREAR / IGNORAR. Export con acciones.
 
+### Nuevos módulos y features (batch 2)
+- **DataDive Tab 4 — Ranking + PPC IS**: volatilidad del ranking orgánico (std dev de posiciones diarias). Clasifica ESTABLE/VOLÁTIL/MUY VOLÁTIL. Cruza con SQP para PPC Impression Share. Flags: volátil sin PPC = RIESGO, estable top 10 con PPC = oportunidad de reducir spend.
+- **SBH Target Recommendation** — módulo #21. Cruza MKL + SQP + Campaign CSV. Prioridad ALTA: SV>1000 + IS<10% + mercado comprando + no en SP. Clustering + headline sugerido por cluster. Export "SBH Target Pack" multi-sheet.
+- **Workflow Wizard** — sección piramidal en Inicio. 5 niveles: Subí datos → Analizá → Inteligencia → Ejecutá → Reportá. Cada nivel lista módulos y archivos necesarios.
+- **Knowledge Base** — módulo #22. Sube .md, parsea headers/tags/categorías/fecha del filename. Búsqueda full-text, filtro por tags y categoría. Tab para crear notas nuevas y descargar como .md.
+
+### Archivos creados/modificados (batch 2)
+- `modules/pages/datadive_analyzer.py` — REESCRITO: fix return-in-tabs bug + tab 4 Ranking Volatility
+- `modules/pages/sbh_recommendation.py` — NUEVO (230+ líneas)
+- `modules/pages/knowledge_base.py` — NUEVO (180+ líneas)
+- `modules/pages/inicio.py` — v3.0, 22 módulos, Workflow Wizard piramidal, sección Knowledge
+- `app.py` — + 2 imports, + sección KNOWLEDGE en sidebar, + 2 routings
+- `core/constants.py` — + SBH + Knowledge Base en _PAGES (22 páginas)
+- `CLAUDE.md` — filas 21-22 en tabla, módulos en lista, sesión actualizada
+
 ### ⚠️ Pendiente
-- [ ] Testing DataDive Analyzer con archivos reales (MKL, Competitors, Rank Radar)
+- [ ] Testing DataDive Analyzer con archivos reales (MKL, Competitors, Rank Radar, Volatility)
 - [x] Helium 10 Analyzer — creado con export real de Cerebro ✅ 2026-03-27
 - [ ] Testing H10 Analyzer con archivo Cerebro real
+- [ ] Testing SBH Recommendation con MKL + SQP + Campaign CSV reales
+- [ ] Testing Knowledge Base con archivos .md del repo
 - [ ] Ajustar parsers DataDive si la estructura real difiere del spec
 

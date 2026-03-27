@@ -36,6 +36,8 @@ from modules.pages.ppc_insights import render as render_ppc_insights
 from modules.pages.ppc_audit import render as render_ppc_audit
 from modules.pages.datadive_analyzer import render as render_datadive
 from modules.pages.helium10_analyzer import render as render_helium10
+from modules.pages.sbh_recommendation import render as render_sbh
+from modules.pages.knowledge_base import render as render_knowledge
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -188,6 +190,19 @@ with st.sidebar:
     for _pg in [
         "🔬 DataDive Analyzer",
         "🧲 Helium 10 Analyzer",
+        "📢 SBH Recommendation",
+    ]:
+        st.button(_pg, use_container_width=True, on_click=_nav,
+                  args=(_pg,), key=f"nav_{_pg}")
+
+    st.markdown(
+        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
+        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
+        "📚 KNOWLEDGE</div>",
+        unsafe_allow_html=True,
+    )
+    for _pg in [
+        "📚 Knowledge Base",
     ]:
         st.button(_pg, use_container_width=True, on_click=_nav,
                   args=(_pg,), key=f"nav_{_pg}")
@@ -284,3 +299,9 @@ if selected == "🔬 DataDive Analyzer":
 
 if selected == "🧲 Helium 10 Analyzer":
     render_helium10()
+
+if selected == "📢 SBH Recommendation":
+    render_sbh()
+
+if selected == "📚 Knowledge Base":
+    render_knowledge()
