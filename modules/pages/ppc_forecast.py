@@ -419,6 +419,7 @@ def render():
             data=excel_buf,
             file_name=fname_out,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="forecast_dl",
         )
     except Exception as e:
         st.error(f"Error al generar Excel: {e}")

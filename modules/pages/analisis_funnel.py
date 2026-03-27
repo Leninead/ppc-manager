@@ -5,6 +5,13 @@ import streamlit as st
 import pandas as pd
 
 
+@st.cache_data
+def _load_file(data, name):
+    """Cached reader for uploaded files."""
+    buf = io.BytesIO(data)
+    return pd.read_excel(buf) if name.endswith(".xlsx") else pd.read_csv(buf)
+
+
 def render():
     st.header("🔻 Análisis de Funnel")
     st.caption("Analizá cobertura de campañas activas, detectá brechas y generá sugerencias de harvesting.")
@@ -18,7 +25,7 @@ def render():
         file_str_f = st.file_uploader("STR (.xlsx o .csv)", type=["xlsx", "csv"], key="str_f")
 
     if file_bulk_f:
-        df_bulk = pd.read_excel(file_bulk_f) if file_bulk_f.name.endswith(".xlsx") else pd.read_csv(file_bulk_f)
+        df_bulk = _load_file(file_bulk_f.getvalue(), file_bulk_f.name)
         df_bulk.columns = df_bulk.columns.str.strip()
 
         # Columnas reales del bulk de Amazon
@@ -53,7 +60,7 @@ def render():
 
         # Cruce con STR por nombre de campaña
         if file_str_f:
-            df_str_f_data = pd.read_excel(file_str_f) if file_str_f.name.endswith(".xlsx") else pd.read_csv(file_str_f)
+            df_str_f_data = _load_file(file_str_f.getvalue(), file_str_f.name)
             df_str_f_data.columns = df_str_f_data.columns.str.strip()
 
             str_term_col = "Customer Search Term"
@@ -92,6 +99,7 @@ def render():
                     file_name="str_campanas_inactivas.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
+                    key="funnel_dl_inactivas",
                 )
 
                 if camps_sin_str:
@@ -141,6 +149,7 @@ def render():
                         file_name="campanas_sugeridas.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
+                        key="funnel_dl_sugeridas",
                     )
                 else:
                     st.success("No hay términos de campañas inactivas para sugerir.")
@@ -220,6 +229,7 @@ def render():
                         file_name="harvesting.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
+                        key="funnel_dl_harvest",
                     )
         else:
             st.markdown("#### Todas las campañas del Bulk")

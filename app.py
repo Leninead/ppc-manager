@@ -34,6 +34,7 @@ from modules.pages.account_pulse import render as render_account_pulse
 from modules.pages.ppc_forecast import render as render_ppc_forecast
 from modules.pages.ppc_insights import render as render_ppc_insights
 from modules.pages.ppc_audit import render as render_ppc_audit
+from modules.pages.datadive_analyzer import render as render_datadive
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -180,6 +181,18 @@ with st.sidebar:
     st.markdown(
         "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
         "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
+        "🔬 RESEARCH</div>",
+        unsafe_allow_html=True,
+    )
+    for _pg in [
+        "🔬 DataDive Analyzer",
+    ]:
+        st.button(_pg, use_container_width=True, on_click=_nav,
+                  args=(_pg,), key=f"nav_{_pg}")
+
+    st.markdown(
+        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
+        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
         "👥 ACCOUNT</div>",
         unsafe_allow_html=True,
     )
@@ -263,3 +276,6 @@ if selected == "🔎 PPC Insights Engine":
 
 if selected == "📋 PPC Audit":
     render_ppc_audit()
+
+if selected == "🔬 DataDive Analyzer":
+    render_datadive()

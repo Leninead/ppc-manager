@@ -25,4 +25,5 @@ _PAGES = [
     "🔎 PPC Insights Engine",
     "🔮 PPC Forecast",
     "📋 PPC Audit",
+    "🔬 DataDive Analyzer",
 ]

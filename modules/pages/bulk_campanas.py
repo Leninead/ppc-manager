@@ -1,7 +1,15 @@
+import io
 import re
+
 import streamlit as st
 import pandas as pd
-import io as _io_ca
+
+
+@st.cache_data
+def _load_bulk(data, name):
+    """Cached reader for Bulk/Campaign CSV files."""
+    buf = io.BytesIO(data)
+    return pd.read_excel(buf) if name.endswith(".xlsx") else pd.read_csv(buf)
 
 
 # ── Naming convention Capybaras: [Marca] | [ASIN] | [MKT] | [Tipo] | [Match] | [Cluster]
@@ -32,7 +40,7 @@ def render():
     st.divider()
     file_bulk = st.file_uploader("Sube tu Bulk o Campaign CSV (.xlsx o .csv)", type=["xlsx", "csv"], key="bulk")
     if file_bulk:
-        df_bulk_raw = pd.read_excel(file_bulk) if file_bulk.name.endswith(".xlsx") else pd.read_csv(file_bulk)
+        df_bulk_raw = _load_bulk(file_bulk.getvalue(), file_bulk.name)
         st.success(f"✅ {len(df_bulk_raw)} filas cargadas")
 
         bulk_tab1, bulk_tab2 = st.tabs(["📋 Vista General", "🚦 Campaign Analyzer"])
@@ -246,7 +254,7 @@ def render():
                 st.info("💡 **Las pausas se ejecutan manualmente en Campaign Manager.** El bulk update requiere Campaign ID numérico — este diagnóstico es tu guía de acción.")
 
                 # ── Export ────────────────────────────────────────────────
-                buf_ca = _io_ca.BytesIO()
+                buf_ca = io.BytesIO()
                 with pd.ExcelWriter(buf_ca, engine="openpyxl") as writer:
                     df_tabla.to_excel(writer, sheet_name="Diagnóstico", index=False)
                     if has_tgt_graduation and not df_tgt_dead.empty:

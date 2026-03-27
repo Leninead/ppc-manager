@@ -1,3 +1,4 @@
+import streamlit as st
 import pandas as pd
 import re
 
@@ -27,6 +28,7 @@ def extract_sqp_brand(file):
     return None
 
 
+@st.cache_data
 def read_sqp(file):
     """Lee un archivo SQP de Amazon, saltando la fila de metadata inicial."""
     if file.name.endswith(".xlsx"):

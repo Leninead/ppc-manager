@@ -38,6 +38,7 @@ No hay build step, test suite ni linter configurado.
 | 16 | 🔎 PPC Insights Engine | Inteligencia | ✅ nuevo 2026-03-26 |
 | 17 | 🔮 PPC Forecast | Inteligencia | ✅ nuevo 2026-03-26 |
 | 18 | 📋 PPC Audit | Inteligencia | ✅ nuevo 2026-03-26 |
+| 19 | 🔬 DataDive Analyzer | Research | ✅ nuevo 2026-03-27 |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.  
 `_PAGES` lista el orden completo. Sidebar agrupa por sección.
@@ -78,6 +79,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/ppc_insights.py` — render() ✅ creado 2026-03-26
 - `modules/pages/ppc_forecast.py` — render() ✅ creado 2026-03-26
 - `modules/pages/ppc_audit.py` — render() ✅ creado 2026-03-26
+- `modules/pages/datadive_analyzer.py` — render() ✅ creado 2026-03-27
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -1231,4 +1233,48 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - [x] Rediseñar inicio.py con 18 módulos + changelog ✅ 2026-03-26
 - [x] Code review — 38 archivos compilados, 2 fixes aplicados ✅ 2026-03-26
 - [ ] Git push final
+
+---
+
+## 📅 Sesión 2026-03-27 — Lo que hicimos
+
+### Módulos nuevos
+- **DataDive Analyzer** — módulo nuevo en sección Research. 3 tabs:
+  - Tab 1: MKL Keywords — parser niche-*-keywords.xlsx, detecta ASINs competidores, keyword gaps vs tu ASIN, filtro SV + relevance
+  - Tab 2: Competitors — parser niche-*-competitors.xlsx (estructura vertical → tabla horizontal), comparación tu ASIN vs Niche Median
+  - Tab 3: Rank Radar — parser [product].xlsx, ranking orgánico diario, tendencia ↑→↓, PPC coverage, gráfico de evolución por keyword
+  - 3 parsers cacheados con @st.cache_data
+
+### Performance & cleanup
+- **@st.cache_data agregado** a todos los parsers de lectura de archivos:
+  - `core/helpers.py` → `read_sqp()` (cubre SQP, Cruzado, Tendencia)
+  - `search_term_report.py` → `_load_str()`
+  - `bulk_campanas.py` → `_load_bulk()`
+  - `business_report.py` → `_load_br()`
+  - `analisis_cruzado.py` → `_load_str_file()`
+  - `analisis_funnel.py` → `_load_file()`
+- **9 download_buttons sin key** → keys únicos agregados (analisis_cruzado, tendencia, funnel×3, forecast, atom11_rules×2, audit)
+- **Verificación**: todos los 21 file_uploaders ya tenían keys únicos — 0 cambios necesarios
+
+### Archivos creados/modificados
+- `modules/pages/datadive_analyzer.py` — NUEVO (380+ líneas)
+- `app.py` — + import + sidebar sección RESEARCH + routing
+- `core/constants.py` — + DataDive Analyzer en _PAGES (19 páginas)
+- `modules/pages/inicio.py` — v2.1, 19 módulos, sección Research, changelog actualizado
+- `core/helpers.py` — + import streamlit, @st.cache_data en read_sqp
+- `modules/pages/search_term_report.py` — + _load_str() cached
+- `modules/pages/bulk_campanas.py` — + _load_bulk() cached, fix import io
+- `modules/pages/business_report.py` — + _load_br() cached
+- `modules/pages/analisis_cruzado.py` — + _load_str_file() cached, + key cruzado_dl_opp
+- `modules/pages/tendencia_multisemana.py` — + key tendencia_dl
+- `modules/pages/analisis_funnel.py` — + _load_file() cached, + 3 keys
+- `modules/pages/ppc_forecast.py` — + key forecast_dl
+- `modules/pages/atom11_rules_builder.py` — + 2 keys
+- `modules/pages/ppc_audit.py` — + key audit_dl
+- `CLAUDE.md` — + DataDive en tabla navegación + módulos + sesión 2026-03-27
+
+### ⚠️ Pendiente
+- [ ] Testing DataDive Analyzer con archivos reales (MKL, Competitors, Rank Radar)
+- [ ] Ajustar parsers si la estructura real difiere del spec
+- [ ] Helium 10 parser — pendiente exports de referencia
 

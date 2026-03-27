@@ -103,6 +103,7 @@ def render():
             file_name="tendencia_sqp.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
+            key="tendencia_dl",
         )
     elif len(sqp_files) == 1:
         st.warning("Subí al menos 2 semanas para ver la tendencia.")

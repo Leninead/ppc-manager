@@ -4,6 +4,13 @@ import streamlit as st
 import pandas as pd
 
 
+@st.cache_data
+def _load_str(data, name):
+    """Cached reader for STR files."""
+    buf = io.BytesIO(data)
+    return pd.read_excel(buf) if name.endswith(".xlsx") else pd.read_csv(buf)
+
+
 def _detect_cols(df):
     """Auto-detect STR column names, return dict of canonical → actual column name."""
     def _find(keywords, exclude=None):
@@ -45,7 +52,7 @@ def render():
     if not file_str:
         return
 
-    df = pd.read_excel(file_str) if file_str.name.endswith(".xlsx") else pd.read_csv(file_str)
+    df = _load_str(file_str.getvalue(), file_str.name)
     st.success(f"✅ {len(df)} filas cargadas")
 
     cols = _detect_cols(df)

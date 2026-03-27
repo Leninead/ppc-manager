@@ -6,6 +6,13 @@ import pandas as pd
 from core.helpers import read_sqp, extract_sqp_brand
 
 
+@st.cache_data
+def _load_str_file(data, name):
+    """Cached reader for STR files."""
+    buf = io.BytesIO(data)
+    return pd.read_excel(buf) if name.endswith(".xlsx") else pd.read_csv(buf)
+
+
 def render():
     st.header("🔗 Análisis Cruzado STR vs SQP")
     st.caption("Detectá oportunidades cruzando términos de búsqueda pagos (STR) con orgánicos (SQP).")
@@ -19,7 +26,7 @@ def render():
         file_sqp_x = st.file_uploader("SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="sqp_x")
 
     if file_str_x and file_sqp_x:
-        df_str = pd.read_excel(file_str_x) if file_str_x.name.endswith(".xlsx") else pd.read_csv(file_str_x)
+        df_str = _load_str_file(file_str_x.getvalue(), file_str_x.name)
         brand_name = extract_sqp_brand(file_sqp_x)
         df_sqp = read_sqp(file_sqp_x)
 
@@ -145,6 +152,7 @@ def render():
                     file_name="oportunidades_sqp.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
+                    key="cruzado_dl_opp",
                 )
 
                 # ── Tabla 3: solo en STR ─────────────────────────────────

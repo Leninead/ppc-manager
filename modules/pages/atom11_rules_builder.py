@@ -651,6 +651,7 @@ def render():
                 data=xlsx_bytes,
                 file_name=f"{pfx}_Atom11_Campaign_Groups.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="atom11_rb_dl_groups",
             )
         else:
             st.info("Sube el Campaign CSV para clasificar las campañas en grupos Atom11.")
@@ -705,6 +706,7 @@ def render():
             data=xlsx_rules,
             file_name=f"{pfx}_Atom11_Rules_Complete_v2026.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="atom11_rb_dl_rules",
         )
 
         st.info(

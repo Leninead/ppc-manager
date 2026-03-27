@@ -5,11 +5,13 @@ _NEGRO    = "#1F1F1F"
 _GRIS_CLR = "#F5F5F5"
 _GRIS_TXT = "#888888"
 
-_VERSION = "v2.0"
-_DATE    = "2026-03-26"
-_TOTAL_MODULOS = 18
+_VERSION = "v2.1"
+_DATE    = "2026-03-27"
+_TOTAL_MODULOS = 19
 
 _CHANGELOG = [
+    ("2026-03-27", "DataDive Analyzer — parsers MKL Keywords, Competitors y Rank Radar"),
+    ("2026-03-27", "@st.cache_data en todos los parsers + keys únicos en download_buttons"),
     ("2026-03-26", "PPC Insights Engine — health score por ASIN cruzando STR+SQP+BR+Campaigns"),
     ("2026-03-26", "PPC Forecast — proyección de ventas con tendencia lineal + estacionalidad"),
     ("2026-03-26", "PPC Audit — auditoría integral con score de cuenta 0-100"),
@@ -123,6 +125,14 @@ def render():
             "Lenin Acosta",
             ["PPC Insights Engine", "PPC Forecast", "PPC Audit"],
             activo=True, count=3
+        ), unsafe_allow_html=True)
+
+        st.markdown(_area_card(
+            "🔬", "Research",
+            "Análisis de nicho, competidores y tracking de keywords con DataDive y Helium 10.",
+            "Lenin Acosta",
+            ["DataDive Analyzer"],
+            activo=True, count=1
         ), unsafe_allow_html=True)
 
         st.markdown(_area_card(
