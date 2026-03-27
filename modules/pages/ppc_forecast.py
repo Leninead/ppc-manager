@@ -222,8 +222,16 @@ def _build_forecast_excel(hist_df, proj_df, metrics, client_name):
 # ── Render ───────────────────────────────────────────────────────────────────
 
 def render():
-    st.header("Forecast PPC")
-    st.caption("Proyección de ventas y spend basada en tendencia histórica + estacionalidad.")
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
+        "<span style='font-size:2rem;'>📈</span>"
+        "<div>"
+        "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>PPC Forecast</div>"
+        "<div style='font-size:0.82rem;color:#888;'>Proyección de ventas y spend basada en tendencia histórica + estacionalidad.</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     # ── Inputs globales ──────────────────────────────────────────────────────

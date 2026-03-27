@@ -556,8 +556,16 @@ def _set_header_row_at(ws, row_idx, headers):
 # ── Render ───────────────────────────────────────────────────────────────────
 
 def render():
-    st.header("Auditoria PPC")
-    st.caption("Auditoria integral de cuenta — estructura, eficiencia, desperdicio, cobertura y naming.")
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
+        "<span style='font-size:2rem;'>🛡️</span>"
+        "<div>"
+        "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>PPC Audit</div>"
+        "<div style='font-size:0.82rem;color:#888;'>Auditoría integral de cuenta — estructura, eficiencia, desperdicio, cobertura y naming.</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     # ── Inputs ───────────────────────────────────────────────────────────────

@@ -57,8 +57,16 @@ def _extract_root_words(phrase, stop_words=None):
 # ═══════════════════════════════════════════════════════════════════════
 
 def render():
-    st.header("🧲 Helium 10 Analyzer")
-    st.caption("Análisis de exports de Helium 10 Cerebro: reverse ASIN, KW research y competitor gap.")
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
+        "<span style='font-size:2rem;'>🧲</span>"
+        "<div>"
+        "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>Helium 10 Analyzer</div>"
+        "<div style='font-size:0.82rem;color:#888;'>Análisis de exports de Helium 10 Cerebro: reverse ASIN, KW research y competitor gap.</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     tab1, tab2, tab3 = st.tabs([

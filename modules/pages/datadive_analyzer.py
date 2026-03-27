@@ -257,8 +257,16 @@ def _parse_rank_radar(data, name):
 # ═══════════════════════════════════════════════════════════════════════
 
 def render():
-    st.header("🔬 DataDive Analyzer")
-    st.caption("Análisis de exports de DataDive: MKL Keywords, Competitors, Rank Radar y Ranking Volatility.")
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
+        "<span style='font-size:2rem;'>🧲</span>"
+        "<div>"
+        "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>DataDive Analyzer</div>"
+        "<div style='font-size:0.82rem;color:#888;'>Análisis de exports de DataDive: MKL Keywords, Competitors, Rank Radar y Ranking Volatility.</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     tab1, tab2, tab3, tab4 = st.tabs([

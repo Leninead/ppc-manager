@@ -587,10 +587,15 @@ def _fmt_opt(val, fmt=".1f", suffix="", none_str="—"):
 
 # ── render ────────────────────────────────────────────────────────────────────
 def render():
-    st.header("🧠 PPC Insights Engine")
-    st.caption(
-        "Análisis integral por ASIN — cruza STR, SQP, BR y Campañas "
-        "para un health score completo."
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
+        "<span style='font-size:2rem;'>🔎</span>"
+        "<div>"
+        "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>PPC Insights</div>"
+        "<div style='font-size:0.82rem;color:#888;'>Análisis integral por ASIN — cruza STR, SQP, BR y Campañas para un health score completo.</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
     )
     st.divider()
 

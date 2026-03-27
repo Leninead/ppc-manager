@@ -51,8 +51,16 @@ def _parse_md_file(data, name):
 
 
 def render():
-    st.header("📚 Knowledge Base")
-    st.caption("Repositorio de notas, aprendizajes y documentación del equipo.")
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
+        "<span style='font-size:2rem;'>📚</span>"
+        "<div>"
+        "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>Knowledge Base</div>"
+        "<div style='font-size:0.82rem;color:#888;'>Repositorio de notas, aprendizajes y documentación del equipo.</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     tab1, tab2 = st.tabs(["📖 Explorar notas", "✏️ Agregar nota"])

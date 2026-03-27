@@ -31,8 +31,16 @@ def _extract_root_words(phrase):
 # ═══════════════════════════════════════════════════════════════════════
 
 def render():
-    st.header("📢 SBH Target Recommendation")
-    st.caption("Recomendar keywords target para Sponsored Brand Headline cruzando MKL + SQP + Campaign CSV.")
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
+        "<span style='font-size:2rem;'>📢</span>"
+        "<div>"
+        "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>SBH Target Recommendation</div>"
+        "<div style='font-size:0.82rem;color:#888;'>Recomendar keywords target para Sponsored Brand Headline cruzando MKL + SQP + Campaign CSV.</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     # ── Inputs ────────────────────────────────────────────────────────

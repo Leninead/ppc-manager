@@ -601,8 +601,16 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
 
 # ── render() ─────────────────────────────────────────────────────────
 def render():
-    st.header("📅 Account Pulse")
-    st.caption("Monitor de salud diaria: BR diario 14d + BR by Child + Campaign CSV → Excel 4 hojas")
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
+        "<span style='font-size:2rem;'>📊</span>"
+        "<div>"
+        "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>Account Pulse</div>"
+        "<div style='font-size:0.82rem;color:#888;'>Monitor de salud diaria: BR diario 14d + BR by Child + Campaign CSV → Excel 4 hojas</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     client_name = st.text_input("Nombre del cliente", placeholder="Ej: Love To Dream MX",
