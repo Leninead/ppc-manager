@@ -114,12 +114,26 @@ def render():
             "8️⃣ <b>Bid Optimizer</b> — Bids + Placements<br>"
             "9️⃣ <b>Campaign Builder</b> — Bulk listo para Amazon<br>"
             "🔟 <b>Atom11 Rules</b> — Automatización"
+            "</div>"
+            "<br>"
+            "<div style='font-size:0.72rem;font-weight:700;color:#E84000;"
+            "margin-bottom:0.4rem;letter-spacing:0.05em;'>RESEARCH & ANÁLISIS</div>"
+            "<div style='font-size:0.75rem;color:#444;line-height:1.8;'>"
+            "🧲 <b>DataDive</b> — Análisis de nicho y competidores<br>"
+            "🧲 <b>Helium 10</b> — Cerebro reverse ASIN + competitor gap<br>"
+            "📢 <b>SBH Recommendation</b> — Targets para Sponsored Brand Headline<br>"
+            "🔎 <b>PPC Insights</b> — Health score por ASIN<br>"
+            "📈 <b>PPC Forecast</b> — Proyección de ventas y spend<br>"
+            "🛡️ <b>PPC Audit</b> — Auditoría completa de cuenta<br>"
+            "📊 <b>Account Pulse</b> — Monitor de salud diaria"
             "</div></div>",
             "Guille Neuman",
             ["STR", "SQP", "Análisis Cruzado", "Tendencia",
-             "Bulk Campañas", "Business Report",
-             "Funnel", "Bid Optimizer", "Campaign Builder", "Atom11 Rules"],
-            activo=True, grande=True, count=10
+             "Bulk Campañas", "Business Report", "Funnel",
+             "Bid Optimizer", "Campaign Builder", "Atom11 Rules",
+             "DataDive", "Helium 10", "SBH Recommendation",
+             "PPC Insights", "PPC Forecast", "PPC Audit", "Account Pulse"],
+            activo=True, grande=True, count=17
         ), unsafe_allow_html=True)
 
     with col2:
@@ -148,12 +162,14 @@ def render():
             activo=True, count=4
         ), unsafe_allow_html=True)
 
+    col_kb = st.columns([1])
+    with col_kb[0]:
         st.markdown(_area_card(
-            "📚", "Knowledge",
-            "Repositorio de notas, aprendizajes y documentación del equipo.",
-            "Equipo",
-            ["Knowledge Base"],
-            activo=True, count=1
+            "📚", "Knowledge Base",
+            "Repositorio centralizado de notas, aprendizajes y documentación del equipo. Buscar por tags, categorías y texto libre.",
+            "Lenin Acosta",
+            ["Explorar notas", "Agregar nota", "Búsqueda por tags"],
+            activo=True
         ), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
