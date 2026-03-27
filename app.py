@@ -170,27 +170,17 @@ with st.sidebar:
     st.markdown(
         "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
         "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
-        "🧠 INTELIGENCIA</div>",
-        unsafe_allow_html=True,
-    )
-    for _pg in [
-        "🔎 PPC Insights Engine",
-        "🔮 PPC Forecast",
-        "📋 PPC Audit",
-    ]:
-        st.button(_pg, use_container_width=True, on_click=_nav,
-                  args=(_pg,), key=f"nav_{_pg}")
-
-    st.markdown(
-        "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
-        "letter-spacing:0.05em;padding:0.6rem 0.5rem 0.2rem;'>"
         "🔬 RESEARCH</div>",
         unsafe_allow_html=True,
     )
     for _pg in [
-        "🔬 DataDive Analyzer",
+        "🧲 DataDive Analyzer",
         "🧲 Helium 10 Analyzer",
         "📢 SBH Recommendation",
+        "🔎 PPC Insights",
+        "📈 PPC Forecast",
+        "🛡️ PPC Audit",
+        "📊 Account Pulse",
     ]:
         st.button(_pg, use_container_width=True, on_click=_nav,
                   args=(_pg,), key=f"nav_{_pg}")
@@ -201,11 +191,8 @@ with st.sidebar:
         "📚 KNOWLEDGE</div>",
         unsafe_allow_html=True,
     )
-    for _pg in [
-        "📚 Knowledge Base",
-    ]:
-        st.button(_pg, use_container_width=True, on_click=_nav,
-                  args=(_pg,), key=f"nav_{_pg}")
+    st.button("📚 Knowledge Base", use_container_width=True, on_click=_nav,
+              args=("📚 Knowledge Base",), key="nav_📚 Knowledge Base")
 
     st.markdown(
         "<div style='font-size:0.82rem;font-weight:800;color:#E84000;"
@@ -214,7 +201,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     for _pg in ["🔬 Reportes Atom 11", "🛡️ Reportes MerchanSpring",
-                "📊 Weekly Client Report", "📅 Account Pulse"]:
+                "📊 Weekly Client Report"]:
         st.button(_pg, use_container_width=True, on_click=_nav,
                   args=(_pg,), key=f"nav_{_pg}")
 
@@ -282,19 +269,7 @@ if selected == "🚀 Campaign Builder":
 if selected == "⚙️ Atom11 Rules Builder":
     render_atom11_rules()
 
-if selected == "📅 Account Pulse":
-    render_account_pulse()
-
-if selected == "🔮 PPC Forecast":
-    render_ppc_forecast()
-
-if selected == "🔎 PPC Insights Engine":
-    render_ppc_insights()
-
-if selected == "📋 PPC Audit":
-    render_ppc_audit()
-
-if selected == "🔬 DataDive Analyzer":
+if selected == "🧲 DataDive Analyzer":
     render_datadive()
 
 if selected == "🧲 Helium 10 Analyzer":
@@ -302,6 +277,18 @@ if selected == "🧲 Helium 10 Analyzer":
 
 if selected == "📢 SBH Recommendation":
     render_sbh()
+
+if selected == "🔎 PPC Insights":
+    render_ppc_insights()
+
+if selected == "📈 PPC Forecast":
+    render_ppc_forecast()
+
+if selected == "🛡️ PPC Audit":
+    render_ppc_audit()
+
+if selected == "📊 Account Pulse":
+    render_account_pulse()
 
 if selected == "📚 Knowledge Base":
     render_knowledge()
