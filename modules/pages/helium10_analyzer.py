@@ -78,7 +78,16 @@ def render():
             "Sube tu Cerebro export (.xlsx)", type=["xlsx"], key="h10_cerebro",
         )
         if not file_cb:
-            st.info("Subí el archivo Cerebro exportado desde Helium 10.")
+            st.markdown(
+                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                "border-radius:12px;margin:1rem 0;'>"
+                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo Cerebro exportado desde Helium 10.</div>"
+                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                "Arrastrá o hacé click en el uploader de arriba</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
             return
 
         df_cb, detected_asin = _parse_cerebro(file_cb.getvalue(), file_cb.name)
@@ -192,7 +201,16 @@ def render():
                 files_kw.append(f)
 
         if len(files_kw) < 1:
-            st.info("Subí al menos 1 archivo Cerebro de un competidor.")
+            st.markdown(
+                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                "border-radius:12px;margin:1rem 0;'>"
+                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí al menos 1 archivo Cerebro de un competidor.</div>"
+                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                "Arrastrá o hacé click en los uploaders de arriba</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
             return
 
         # Parse all
@@ -372,10 +390,28 @@ def render():
                     gap_files_comp.append(f)
 
         if not file_mine:
-            st.info("Subí tu archivo Cerebro y al menos 1 competidor.")
+            st.markdown(
+                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                "border-radius:12px;margin:1rem 0;'>"
+                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí tu archivo Cerebro y al menos 1 competidor.</div>"
+                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                "Arrastrá o hacé click en los uploaders de arriba</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
             return
         if not gap_files_comp:
-            st.info("Subí al menos 1 archivo Cerebro de un competidor.")
+            st.markdown(
+                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                "border-radius:12px;margin:1rem 0;'>"
+                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí al menos 1 archivo Cerebro de un competidor.</div>"
+                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                "Arrastrá o hacé click en los uploaders de arriba</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
             return
 
         df_mine, my_asin = _parse_cerebro(file_mine.getvalue(), file_mine.name)

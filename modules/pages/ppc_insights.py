@@ -628,7 +628,16 @@ def render():
         f_camp = st.file_uploader("Campaign CSV (opcional)", type=["csv"], key="insights_camp")
 
     if not f_str:
-        st.info("Sube el Search Term Report para comenzar el análisis.")
+        st.markdown(
+            "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+            "border-radius:12px;margin:1rem 0;'>"
+            "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+            "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Sube el Search Term Report para comenzar el análisis.</div>"
+            "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+            "Arrastrá o hacé click en el uploader de arriba</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         return
 
     if not st.button("Generar Insights", type="primary", key="insights_run"):

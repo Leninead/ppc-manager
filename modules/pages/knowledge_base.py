@@ -70,7 +70,16 @@ def render():
         )
 
         if not files_md:
-            st.info("Subí uno o más archivos .md para explorar tu knowledge base.")
+            st.markdown(
+                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                "border-radius:12px;margin:1rem 0;'>"
+                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí uno o más archivos .md para explorar tu knowledge base.</div>"
+                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                "Arrastrá o hacé click en el uploader de arriba</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
         else:
             # Parse all files
             notes = []

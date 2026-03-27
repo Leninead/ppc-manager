@@ -367,7 +367,16 @@ def render():
                     key="dd_mkl_dl",
                 )
         else:
-            st.info("Subí el archivo niche-*-keywords.xlsx exportado desde DataDive.")
+            st.markdown(
+                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                "border-radius:12px;margin:1rem 0;'>"
+                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo niche-*-keywords.xlsx exportado desde DataDive.</div>"
+                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                "Arrastrá o hacé click en el uploader de arriba</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 2 — Competitors
@@ -435,7 +444,16 @@ def render():
                     key="dd_comp_dl",
                 )
         else:
-            st.info("Subí el archivo niche-*-competitors.xlsx exportado desde DataDive.")
+            st.markdown(
+                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                "border-radius:12px;margin:1rem 0;'>"
+                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo niche-*-competitors.xlsx exportado desde DataDive.</div>"
+                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                "Arrastrá o hacé click en el uploader de arriba</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 3 — Rank Radar
@@ -578,7 +596,16 @@ def render():
                     key="dd_rr_dl",
                 )
         else:
-            st.info("Subí el archivo de Rank Radar exportado desde DataDive.")
+            st.markdown(
+                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                "border-radius:12px;margin:1rem 0;'>"
+                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo de Rank Radar exportado desde DataDive.</div>"
+                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                "Arrastrá o hacé click en el uploader de arriba</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 4 — Ranking Volatility + PPC Impression Share
@@ -594,7 +621,16 @@ def render():
             file_sqp_v = st.file_uploader("SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="dd_vol_sqp")
 
         if not file_rr_v:
-            st.info("Subí el Rank Radar de DataDive y opcionalmente el SQP de Amazon.")
+            st.markdown(
+                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                "border-radius:12px;margin:1rem 0;'>"
+                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el Rank Radar de DataDive y opcionalmente el SQP de Amazon.</div>"
+                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                "Arrastrá o hacé click en el uploader de arriba</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
         else:
             df_v, date_cols_v, _ = _parse_rank_radar(file_rr_v.getvalue(), file_rr_v.name)
             if df_v.empty:

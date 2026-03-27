@@ -45,7 +45,16 @@ def render():
         file_camp = st.file_uploader("Campaign CSV (.xlsx o .csv)", type=["xlsx", "csv"], key="sbh_camp")
 
     if not file_mkl or not file_sqp:
-        st.info("Subí al menos el MKL de DataDive y el SQP de Amazon para generar recomendaciones.")
+        st.markdown(
+            "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+            "border-radius:12px;margin:1rem 0;'>"
+            "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+            "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí al menos el MKL de DataDive y el SQP de Amazon para generar recomendaciones.</div>"
+            "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+            "Arrastrá o hacé click en los uploaders de arriba</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         return
 
     # ── Parse MKL ─────────────────────────────────────────────────────
