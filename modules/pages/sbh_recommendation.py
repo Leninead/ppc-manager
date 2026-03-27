@@ -5,7 +5,7 @@ from collections import Counter
 import streamlit as st
 import pandas as pd
 
-from core.helpers import read_sqp, extract_sqp_brand
+from core.helpers import read_sqp, extract_sqp_brand, kpi_card
 from modules.pages.datadive_analyzer import _parse_mkl
 
 
@@ -204,10 +204,14 @@ def render():
 
     # ── KPIs ──────────────────────────────────────────────────────────
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Targets totales", len(df_sbh))
-    k2.metric("🔴 Alta prioridad", (df_sbh["Prioridad"] == "🔴 ALTA").sum())
-    k3.metric("🟡 Media prioridad", (df_sbh["Prioridad"] == "🟡 MEDIA").sum())
-    k4.metric("Clusters", df_sbh["Cluster"].nunique())
+    with k1:
+        st.markdown(kpi_card("Targets totales", str(len(df_sbh))), unsafe_allow_html=True)
+    with k2:
+        st.markdown(kpi_card("Alta prioridad", str((df_sbh["Prioridad"] == "🔴 ALTA").sum())), unsafe_allow_html=True)
+    with k3:
+        st.markdown(kpi_card("Media prioridad", str((df_sbh["Prioridad"] == "🟡 MEDIA").sum())), unsafe_allow_html=True)
+    with k4:
+        st.markdown(kpi_card("Clusters", str(df_sbh["Cluster"].nunique())), unsafe_allow_html=True)
 
     # ── Filter ────────────────────────────────────────────────────────
     prio_filter = st.multiselect(
@@ -244,7 +248,21 @@ def render():
         .sort_values("SV_Total", ascending=False)
         .reset_index()
     )
-    st.dataframe(cluster_df, use_container_width=True, hide_index=True)
+    def _color_alta(val):
+        try:
+            v = int(val)
+            if v >= 3:
+                return "background-color: #FFEBEE; color: #B71C1C"
+            if v >= 1:
+                return "background-color: #FFF8E1; color: #F57F17"
+            return ""
+        except (ValueError, TypeError):
+            return ""
+
+    styled_cluster = cluster_df.style
+    if "Alta" in cluster_df.columns:
+        styled_cluster = styled_cluster.map(_color_alta, subset=["Alta"])
+    st.dataframe(styled_cluster, use_container_width=True, hide_index=True)
 
     for cluster_name in cluster_df["Cluster"].tolist()[:10]:
         cluster_kws = df_sbh[df_sbh["Cluster"] == cluster_name].nlargest(5, "SV")

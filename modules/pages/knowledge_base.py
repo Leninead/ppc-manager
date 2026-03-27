@@ -129,15 +129,19 @@ def render():
                 tags_html = " ".join(
                     f"`#{t}`" for t in note["tags"][:8]
                 ) if note["tags"] else ""
-                cats_html = " · ".join(note["categories"])
                 date_label = note["date"] or "sin fecha"
+                cats_badges = " ".join(
+                    f"<span style='background:#FFF3E0;color:#E84000;font-size:0.65rem;"
+                    f"padding:1px 6px;border-radius:4px;font-weight:600;'>{c}</span>"
+                    for c in note["categories"]
+                )
 
                 label = f"📄 {note['title']}  —  {date_label}  ({note['word_count']} palabras)"
 
                 with st.expander(label):
                     if tags_html:
                         st.markdown(f"**Tags:** {tags_html}")
-                    st.markdown(f"**Categorías:** {cats_html}")
+                    st.markdown(f"**Categorías:** {cats_badges}", unsafe_allow_html=True)
                     st.markdown(f"**Archivo:** `{note['filename']}`")
                     st.markdown("---")
 
