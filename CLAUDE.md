@@ -1023,6 +1023,42 @@ Nunca implementar sin datos reales de validación primero.
 
 ---
 
+## 🤖 Agentes Claude Code (v2.0 — 2026-03-27)
+
+9 agentes en `.claude/agents/`, optimizados para escalar el Agency OS.
+
+| Agente | Modelo | Color | Propósito |
+|--------|--------|-------|-----------|
+| ppc-module-builder | Sonnet | 🟠 orange | Crear/modificar módulos en modules/pages/, tabs, kpi_cards, headers, empty states |
+| code-reviewer | Sonnet | 🔴 red | Review de código: 8 checks incluyendo PPC logic, return-in-tabs, keys únicas |
+| excel-export-builder | Sonnet | 🟠 orange | Funciones _build_*_excel() con branding Capybaras, semáforo ACoS, portada |
+| atom11-specialist | Opus | 🟢 green | Rules v2026.2 AGRESIVO, clasificación campañas, thresholds por tier/objetivo |
+| client-notes-updater | Haiku | 🟣 purple | Actualizar .md de clientes en notes/brands/, cierre de sesión |
+| ui-designer | Sonnet | 🔵 blue | Design system Capybaras, componentes visuales, layouts para nuevas secciones |
+| sop-writer | Haiku | 🟢 green | Auto-documentación en PPC-SOP-Manager.md y CLAUDE.md |
+| testing-agent | Sonnet | 🟡 yellow | QA: compilación, imports, smoke test, checklist 8 puntos, report patterns |
+| client-onboarding | Sonnet | 🟣 purple | Setup marca nueva: notas, ASINs, tiers, naming convention, target cascade |
+
+### Cuándo usar cada uno
+- **Crear/modificar módulo** → ppc-module-builder
+- **Review después de cambios** → code-reviewer
+- **Export Excel nuevo** → excel-export-builder
+- **Rules Atom11** → atom11-specialist
+- **Actualizar notas cliente** → client-notes-updater
+- **Diseño UI nueva sección** → ui-designer
+- **Documentar en SOP/CLAUDE.md** → sop-writer
+- **Testear módulos** → testing-agent
+- **Onboardear marca nueva** → client-onboarding
+
+### Cambios v2.0 vs v1.0
+- code-reviewer: Haiku → Sonnet (detecta bugs de lógica PPC)
+- ppc-module-builder: +kpi_card, +empty states, +headers v2, +bug prevention
+- Template de memoria reducido ~70% en todos los agentes (contenido > boilerplate)
+- 4 agentes nuevos: ui-designer, sop-writer, testing-agent, client-onboarding
+- Todos los MEMORY.md empiezan vacíos — se llenan con uso
+
+---
+
 ## 📂 Nueva estructura de notas (2026-03-23)
 
 ```
