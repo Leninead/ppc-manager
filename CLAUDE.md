@@ -1386,3 +1386,123 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - [ ] PPC Insights — testing con STR + SQP + BR + Campaign CSV
 - [ ] Actualizar PPC-SOP-Manager.md con los 8 módulos nuevos
 
+---
+
+## 📅 Sesión 2026-04-02 — Lo que hicimos
+
+### Proyecto 1 — STR Upgrade (features del STR Analyzer externo)
+
+Un compañero de PPC creó un STR Analyzer standalone (HTML/JS, 1183 líneas). Lo pasamos por el agente code-reviewer para analizar qué features aportan valor nuevo. De 10 features, 3 eran genuinamente nuevas, 6 parciales, 1 ya cubierta.
+
+**Decisión: NO crear módulo nuevo. Integrar lo mejor como upgrade al search_term_report.py existente.**
+
+#### Cambios implementados en search_term_report.py (489 → ~1,000 líneas):
+
+- **Filtro portfolio transversal** — st.multiselect arriba de todas las tabs, detecta columna Portfolio Name del STR, filtra df antes de pasar a cualquier tab
+- **Tab1 enriquecida:**
+  - 12 KPIs con kpi_card (antes 4 st.metric): Spend, Sales, ACoS con delta, ROAS, Impressions, Clicks, CTR, CVR, CPC, Orders, % Waste, % Con Ventas
+  - Input brand terms → clasificación _term_type: Brand/Generic/Long-tail
+  - Filtros interactivos: campaña, match type, ACoS max, spend min
+  - Vistas rápidas: Todos / Winners (2+ orders) / Sin ventas / Top Sales / Top Spend
+  - Columna _estado automática: Escalar (3+ orders, ACoS < 50% target) / OK / Reducir / Revisar / Negativa?
+  - Scatter chart Spend vs Sales (plotly) con colores por term type
+  - Funnel de conversión horizontal: Impressions → Clicks → Orders con % de paso
+  - Tabla distribución term type con % Spend
+  - Excel multi-sheet: STR Analizado + Resumen KPIs + Por Estado + Por Tipo Término
+- **Tab5 nueva "📊 Por Campaña":**
+  - Groupby por campaign: Impressions, Clicks, Spend, Sales, Orders, ACoS, ROAS, CTR, CVR, CPC
+  - Clasificación Brand/No Brand automática por nombre de campaña
+  - 4 KPIs + tabla con color coding + download Excel
+- **Thresholds alineados al SOP:**
+  - Escalar: 3+ orders (antes cualquier orden)
+  - Winners: 2+ orders (antes 1 sola orden)
+- **Fix bug Excel:** "At least one sheet must be visible" — extraída función _build_str_excel() fuera de render() para aislar del runtime de Streamlit
+- **Tabs 2/3/4 sin cambios** — solo reciben df filtrado por portfolio
+
+#### Lo que NO se copió del HTML:
+- Lógica de negatives (threshold fijo clicks>=3 — nuestros tiers dinámicos por CVR son superiores)
+- Clasificación brand naive (busca "brand" literal — nuestra detección por SQP + input manual es mejor)
+- Proyección 30 días (números inventados — nuestro PPC Forecast hace cálculo real)
+- Insights locales (templates fijos — nuestra tab IA con Claude API es superior)
+
+---
+
+### Proyecto 2 — PPC Audit Pro (features del sistema de auditoría del PPC leader)
+
+El PPC leader creó un sistema de auditoría PPC: prompt para Claude + HTML estático + specs de diseño. Lo pasamos por code-reviewer. De 20 features, 10 eran genuinamente nuevas — todas desbloqueadas por UN cambio: soporte del Bulk File XLSX multi-hoja.
+
+**Decisión: REEMPLAZAR ppc_audit.py completo con nuevo módulo que trabaja con Bulk File.**
+
+#### PPC Audit Pro — ppc_audit.py reescrito (839 → 1,077 líneas):
+
+**Input nuevo:** Bulk File XLSX (Campaign Manager → Bulk Operations) + Business Report opcional
+
+**Parser _parse_bulk():**
+- Parsea 5 hojas: SP Campaigns, SB Campaigns, SD Campaigns, SP Search Term Report, SB Search Term Report
+- Subcategoriza SP por Entity: Campaign, Ad Group, Keyword, Product Targeting, Bidding Adjustment, Negative Keyword
+- Numericiza todas las métricas (Spend, Sales, Clicks, Impressions, Orders, ACOS, CPC, ROAS)
+- @st.cache_data
+
+**Tab 1 — KPIs Overview:**
+- ACoS Overall con breakdown real SP/SB/SD (desde hojas del Bulk, no heurística)
+- Impressions con % por tipo
+- PPC Spend + Sales con breakdown
+- Clicks, Orders, CTR, CVR
+- Si hay BR: Revenue Total, Ventas Orgánicas, TACoS
+
+**Tab 2 — Auditoría de Estructura (3 cards):**
+- Match Types Mixtos: agrupa keywords por Campaign ID, detecta >1 match type por campaña. Badge OK/REVISAR
+- Target WAS: SP keywords + PT + SD targets donde Spend>0 AND Sales=0. Monto y % por tipo
+- Search Term WAS: SP STR + SB STR waste. Top 5 terms sin ventas. Alert CRÍTICO si >40%
+
+**Tab 3 — Performance por Segmento:**
+- SP: 10 segmentos — KW Exact/Phrase/Broad + PT ASIN/Category + AUTO Close/Loose/Substitutes/Complements + TOTAL SP
+- SB: KW Exact/Phrase/Broad + TOTAL SB
+- SD: Retargeting/Audiences/Product Targeting + TOTAL SD
+- Headers coloreados: SP azul #1d4b8f, SB violeta #6b2d8f, SD verde #2a6e4e
+- ACoS coloreado: verde ≤30%, amarillo 31-55%, rojo >55%
+- AUTO targets detectados cruzando Campaign ID con campañas Targeting Type = "Auto"
+
+**Tab 4 — Deep Checks (5 checks):**
+1. Top 5 Campañas SP por Spend con Targeting Type, Sales, ACoS, Orders
+2. Clasificación de Targets: own_brand/own_asin/competitor_asin/generic (requiere brand terms input)
+3. Duplicación de Targets: keywords en 2+ campañas, top 10 por spend combinado
+4. Bid Adjustments por Placement: distribución de ajustes Top/Product Page/Rest of Search + Bidding Strategy
+5. SKAG vs Bolsa: ratio targets/campaña (1=SKAG, 2-10=Normal, 11+=Bolsa)
+
+**Tab 5 — Export:**
+- Excel 6 hojas: Resumen KPIs, Performance Segmento, Auditoría, Top Campañas, Clasificación Targets, Duplicación Targets
+- Función _build_audit_excel() fuera de render() (patrón anti-bug openpyxl)
+
+#### Lo que se mantiene aparte:
+- Prompt de insights narrativos del PPC leader → sigue como herramienta independiente (Claude en contexto libre supera botón de IA)
+
+#### Elementos visuales adoptados del HTML del PPC leader:
+- Badges OK/REVISAR/CRÍTICO con colores verde/amarillo/rojo
+- Headers coloreados por tipo SP/SB/SD
+
+---
+
+### Archivos modificados 2026-04-02
+- `modules/pages/search_term_report.py` — REESCRITO: 489 → ~1,000 líneas (5 tabs, 12 KPIs, filtros, charts, Excel multi-sheet)
+- `modules/pages/ppc_audit.py` — REESCRITO: 839 → 1,077 líneas (5 tabs, parser Bulk multi-hoja, 10 segmentos, 5 deep checks)
+
+### Proceso de integración de herramientas externas (nuevo SOP)
+1. Compañero comparte herramienta → Lenin la sube al chat
+2. Claude (chat) analiza features y solapamiento con módulos existentes
+3. Code-reviewer (agente) hace análisis formal: mapa 🔴/🟡/✅ + recomendaciones INTEGRAR/SKIP/MANTENER APARTE
+4. Claude (chat) genera mensaje para PPC leader con análisis + plan de integración
+5. Claude (chat) genera prompt para ppc-module-builder
+6. Implementación + testing con datos reales
+
+### ⚠️ Pendiente próxima sesión
+- [ ] Testing PPC Audit Pro con Business Report (para TACoS y Revenue)
+- [ ] Testing PPC Audit Pro con Bulk de otros clientes (LTD, M&B, Setex)
+- [ ] Escribir brand terms para 360 Essentials y verificar clasificación de targets
+- [ ] Formatear números en Tab3 Performance (muchos decimales — redondear a 2)
+- [ ] SKAG vs Bolsa vacío — revisar lógica de conteo de targets por campaña
+- [ ] Actualizar PPC-SOP-Manager.md con nuevos features
+- [ ] Actualizar inicio.py con módulos actualizados
+- [ ] Reconectar los 9 módulos que faltan en app.py (Research + Knowledge + Rules Builder)
+- [ ] Subir archivos actualizados al proyecto de Claude
+
