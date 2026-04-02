@@ -129,6 +129,119 @@ def _acos(spend, sales):
     return (spend / sales * 100) if sales > 0 else 0
 
 
+def _seg_row(label, df):
+    """Build a segment metrics row dict from a DataFrame."""
+    if df is None or len(df) == 0:
+        return {
+            "Segmento": label, "# Targets": 0, "Spend": 0, "Sales": 0,
+            "ACoS": 0, "Clicks": 0, "Orders": 0, "Impressions": 0,
+            "CTR": 0, "CVR": 0, "CPC": 0, "% Spend": 0,
+        }
+    s = df["Spend"].sum() if "Spend" in df.columns else 0
+    sa = df["Sales"].sum() if "Sales" in df.columns else 0
+    cl = df["Clicks"].sum() if "Clicks" in df.columns else 0
+    im = df["Impressions"].sum() if "Impressions" in df.columns else 0
+    od = df["Orders"].sum() if "Orders" in df.columns else 0
+    return {
+        "Segmento": label,
+        "# Targets": len(df),
+        "Spend": round(s, 2),
+        "Sales": round(sa, 2),
+        "ACoS": round(_acos(s, sa), 1),
+        "Clicks": int(cl),
+        "Orders": int(od),
+        "Impressions": int(im),
+        "CTR": round((cl / im * 100) if im > 0 else 0, 2),
+        "CVR": round((od / cl * 100) if cl > 0 else 0, 2),
+        "CPC": round((s / cl) if cl > 0 else 0, 2),
+        "% Spend": 0,  # filled after
+    }
+
+
+def _color_acos(val):
+    """Style callback for ACoS column."""
+    try:
+        v = float(val)
+    except (ValueError, TypeError):
+        return ""
+    if v <= 0:
+        return "color:#999"
+    if v <= 30:
+        return "background:#e6f4ed;color:#2a6e4e"
+    if v <= 55:
+        return "background:#fdf3e3;color:#c07a1a"
+    return "background:#fbeae7;color:#c8402a"
+
+
+def _build_segment_table(rows, total_spend):
+    """Convert list of seg_row dicts to a styled DataFrame."""
+    for r in rows:
+        r["% Spend"] = round((r["Spend"] / total_spend * 100) if total_spend > 0 else 0, 1)
+    df = pd.DataFrame(rows)
+    col_order = [
+        "Segmento", "# Targets", "Spend", "Sales", "ACoS",
+        "Clicks", "Orders", "CTR", "CVR", "CPC", "% Spend",
+    ]
+    df = df[[c for c in col_order if c in df.columns]]
+    return df
+
+
+def _build_audit_excel(
+    kpi_dict, seg_sp_df, seg_sb_df, seg_sd_df,
+    top5_camps_df, classif_df, dupes_df,
+    audit_mixed, audit_target_was, audit_st_was,
+):
+    """Generate multi-sheet audit Excel. Returns bytes."""
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        # Sheet 1 — Resumen KPIs
+        kpi_rows = [[k, v] for k, v in kpi_dict.items()]
+        pd.DataFrame(kpi_rows, columns=["Metrica", "Valor"]).to_excel(
+            writer, sheet_name="Resumen KPIs", index=False,
+        )
+
+        # Sheet 2 — Performance Segmento
+        parts = []
+        if seg_sp_df is not None and len(seg_sp_df) > 0:
+            parts.append(seg_sp_df)
+        if seg_sb_df is not None and len(seg_sb_df) > 0:
+            sep = pd.DataFrame([{"Segmento": ""}])
+            parts.append(sep)
+            parts.append(seg_sb_df)
+        if seg_sd_df is not None and len(seg_sd_df) > 0:
+            sep = pd.DataFrame([{"Segmento": ""}])
+            parts.append(sep)
+            parts.append(seg_sd_df)
+        if parts:
+            pd.concat(parts, ignore_index=True).to_excel(
+                writer, sheet_name="Performance Segmento", index=False,
+            )
+
+        # Sheet 3 — Auditoría
+        audit_rows = []
+        audit_rows.append(["Check", "Resultado", "Detalle"])
+        audit_rows.append(["Match Types Mixtos", audit_mixed[0], audit_mixed[1]])
+        audit_rows.append(["Target WAS", audit_target_was[0], audit_target_was[1]])
+        audit_rows.append(["Search Term WAS", audit_st_was[0], audit_st_was[1]])
+        pd.DataFrame(audit_rows[1:], columns=audit_rows[0]).to_excel(
+            writer, sheet_name="Auditoria", index=False,
+        )
+
+        # Sheet 4 — Top Campañas
+        if top5_camps_df is not None and len(top5_camps_df) > 0:
+            top5_camps_df.to_excel(writer, sheet_name="Top Campanas", index=False)
+
+        # Sheet 5 — Clasificación Targets
+        if classif_df is not None and len(classif_df) > 0:
+            classif_df.to_excel(writer, sheet_name="Clasificacion Targets", index=False)
+
+        # Sheet 6 — Duplicación Targets
+        if dupes_df is not None and len(dupes_df) > 0:
+            dupes_df.to_excel(writer, sheet_name="Duplicacion Targets", index=False)
+
+    return buf.getvalue()
+
+
 # ── Render ──────────────────────────────────────────────────────────────────
 
 def render():
@@ -543,19 +656,422 @@ def render():
                         )
 
     # ════════════════════════════════════════════════════════════
-    # TAB 3 — Performance Segmento (placeholder)
+    # TAB 3 — Performance por Segmento
     # ════════════════════════════════════════════════════════════
     with tab3:
-        st.info("🎯 Performance por Segmento — Próximamente")
+        sp_total_spend = sp_camps["Spend"].sum() if len(sp_camps) > 0 and "Spend" in sp_camps.columns else 0
+
+        # ── SP Segments ─────────────────────────────────────────
+        st.markdown(
+            "<div style='background:#1d4b8f;color:white;padding:6px 14px;"
+            "border-radius:8px;font-weight:600;margin-bottom:0.5rem;'>"
+            "Sponsored Products</div>",
+            unsafe_allow_html=True,
+        )
+
+        sp_seg_rows = []
+        has_mt = "Match Type" in sp_kws.columns if len(sp_kws) > 0 else False
+        if has_mt:
+            sp_seg_rows.append(_seg_row("KW Exact", sp_kws[sp_kws["Match Type"] == "Exact"]))
+            sp_seg_rows.append(_seg_row("KW Phrase", sp_kws[sp_kws["Match Type"] == "Phrase"]))
+            sp_seg_rows.append(_seg_row("KW Broad", sp_kws[sp_kws["Match Type"] == "Broad"]))
+
+        has_pte = "Product Targeting Expression" in sp_pts.columns if len(sp_pts) > 0 else False
+        if has_pte:
+            sp_seg_rows.append(_seg_row(
+                "PT ASIN Targeting",
+                sp_pts[sp_pts["Product Targeting Expression"].astype(str).str.contains("asin", case=False, na=False)],
+            ))
+            sp_seg_rows.append(_seg_row(
+                "PT Category Targeting",
+                sp_pts[sp_pts["Product Targeting Expression"].astype(str).str.contains("category", case=False, na=False)],
+            ))
+
+        # AUTO segments from SP STR
+        auto_camp_ids = set()
+        if len(sp_camps) > 0 and "Targeting Type" in sp_camps.columns and "Campaign ID" in sp_camps.columns:
+            auto_camp_ids = set(
+                sp_camps[sp_camps["Targeting Type"].astype(str).str.lower() == "auto"]["Campaign ID"].dropna()
+            )
+        elif len(sp_camps) > 0 and "Targeting Type" in sp_camps.columns and "Campaign Name" in sp_camps.columns:
+            auto_camp_ids = set(
+                sp_camps[sp_camps["Targeting Type"].astype(str).str.lower() == "auto"]["Campaign Name"].dropna()
+            )
+
+        if len(sp_str_df) > 0 and "Product Targeting Expression" in sp_str_df.columns:
+            # Determine join key
+            join_col = None
+            if "Campaign ID" in sp_str_df.columns and len(auto_camp_ids) > 0:
+                join_col = "Campaign ID"
+            elif "Campaign Name" in sp_str_df.columns and len(auto_camp_ids) > 0:
+                join_col = "Campaign Name"
+
+            if join_col and auto_camp_ids:
+                auto_str = sp_str_df[sp_str_df[join_col].isin(auto_camp_ids)]
+            else:
+                # Fallback: use PTE to detect auto terms
+                auto_str = sp_str_df[sp_str_df["Product Targeting Expression"].astype(str).str.strip() != ""]
+
+            pte = auto_str["Product Targeting Expression"].astype(str).str.lower().str.strip()
+            sp_seg_rows.append(_seg_row("AUTO Close Match", auto_str[pte == "close-match"]))
+            sp_seg_rows.append(_seg_row("AUTO Loose Match", auto_str[pte == "loose-match"]))
+            sp_seg_rows.append(_seg_row("AUTO Substitutes", auto_str[pte.str.contains("substitutes", na=False)]))
+            sp_seg_rows.append(_seg_row("AUTO Complements", auto_str[pte.str.contains("complements", na=False)]))
+
+        # TOTAL SP row
+        sp_seg_rows.append(_seg_row("TOTAL SP", sp_camps))
+
+        seg_sp_df = _build_segment_table(sp_seg_rows, sp_total_spend)
+
+        if len(seg_sp_df) > 0:
+            styled_sp = seg_sp_df.style.map(_color_acos, subset=["ACoS"])
+            st.dataframe(styled_sp, use_container_width=True, hide_index=True, height=min(38 + 35 * len(seg_sp_df), 500))
+        else:
+            st.caption("Sin datos SP")
+
+        # ── SB Segments ─────────────────────────────────────────
+        seg_sb_df = pd.DataFrame()
+        if n_sb > 0:
+            st.markdown("")
+            st.markdown(
+                "<div style='background:#6b2d8f;color:white;padding:6px 14px;"
+                "border-radius:8px;font-weight:600;margin-bottom:0.5rem;'>"
+                "Sponsored Brands</div>",
+                unsafe_allow_html=True,
+            )
+
+            sb_seg_rows = []
+            has_sb_mt = "Match Type" in sb_kws.columns if len(sb_kws) > 0 else False
+            if has_sb_mt:
+                sb_seg_rows.append(_seg_row("KW Exact", sb_kws[sb_kws["Match Type"] == "Exact"]))
+                sb_seg_rows.append(_seg_row("KW Phrase", sb_kws[sb_kws["Match Type"] == "Phrase"]))
+                sb_seg_rows.append(_seg_row("KW Broad", sb_kws[sb_kws["Match Type"] == "Broad"]))
+
+            sb_total_spend = sb_camps["Spend"].sum() if len(sb_camps) > 0 and "Spend" in sb_camps.columns else 0
+            sb_seg_rows.append(_seg_row("TOTAL SB", sb_camps))
+            seg_sb_df = _build_segment_table(sb_seg_rows, sb_total_spend)
+
+            styled_sb = seg_sb_df.style.map(_color_acos, subset=["ACoS"])
+            st.dataframe(styled_sb, use_container_width=True, hide_index=True, height=min(38 + 35 * len(seg_sb_df), 300))
+        else:
+            st.caption("Sin datos de SB en este Bulk File")
+
+        # ── SD Segments ─────────────────────────────────────────
+        seg_sd_df = pd.DataFrame()
+        if n_sd > 0:
+            st.markdown("")
+            st.markdown(
+                "<div style='background:#2a6e4e;color:white;padding:6px 14px;"
+                "border-radius:8px;font-weight:600;margin-bottom:0.5rem;'>"
+                "Sponsored Display</div>",
+                unsafe_allow_html=True,
+            )
+
+            sd_seg_rows = []
+            if len(sd_df) > 0 and "Entity" in sd_df.columns and "Campaign Name" in sd_df.columns:
+                # Classify by campaign name patterns
+                sd_camp_entities = sd_df[sd_df["Entity"] == "Campaign"].copy()
+                cn = sd_camp_entities["Campaign Name"].astype(str).str.lower()
+
+                retarget_mask = cn.str.contains("retarget|remarketing", na=False)
+                audience_mask = cn.str.contains("audience", na=False) & ~retarget_mask
+                product_mask = ~retarget_mask & ~audience_mask
+
+                sd_seg_rows.append(_seg_row("SD Retargeting", sd_camp_entities[retarget_mask]))
+                sd_seg_rows.append(_seg_row("SD Audiences", sd_camp_entities[audience_mask]))
+                sd_seg_rows.append(_seg_row("SD Product Targeting", sd_camp_entities[product_mask]))
+
+            sd_total_spend = sd_camps["Spend"].sum() if len(sd_camps) > 0 and "Spend" in sd_camps.columns else 0
+            sd_seg_rows.append(_seg_row("TOTAL SD", sd_camps))
+            seg_sd_df = _build_segment_table(sd_seg_rows, sd_total_spend)
+
+            styled_sd = seg_sd_df.style.map(_color_acos, subset=["ACoS"])
+            st.dataframe(styled_sd, use_container_width=True, hide_index=True, height=min(38 + 35 * len(seg_sd_df), 300))
+        else:
+            st.caption("Sin datos de SD en este Bulk File")
 
     # ════════════════════════════════════════════════════════════
-    # TAB 4 — Deep Checks (placeholder)
+    # TAB 4 — Deep Checks
     # ════════════════════════════════════════════════════════════
     with tab4:
-        st.info("🔍 Deep Checks — Próximamente")
+
+        # ── Check 1: Top 5 Campañas por Spend ──────────────────
+        st.markdown("**Top 5 Campañas SP por Spend**")
+        top5_camps_df = pd.DataFrame()
+        if len(sp_camps) > 0 and "Spend" in sp_camps.columns:
+            top5_cols_want = ["Campaign Name", "Targeting Type", "Spend", "Sales", "ACOS", "Orders"]
+            top5_cols_avail = [c for c in top5_cols_want if c in sp_camps.columns]
+            top5_camps_df = sp_camps.sort_values("Spend", ascending=False).head(5)[top5_cols_avail].copy()
+            if len(top5_camps_df) > 0:
+                st.dataframe(top5_camps_df, use_container_width=True, hide_index=True)
+            else:
+                st.caption("Sin campañas SP con spend")
+        else:
+            st.caption("Sin datos de campañas SP")
+
+        st.markdown("---")
+
+        # ── Check 2: Clasificación de Targets ──────────────────
+        st.markdown("**Clasificación de Targets**")
+        classif_df = pd.DataFrame()
+        if not brand_terms:
+            st.info("Ingresá brand terms arriba para clasificar targets por tipo (own brand, competitor, generic)")
+        else:
+            # Gather all targets
+            all_targets = []
+
+            # Keywords
+            if len(sp_kws) > 0 and "Keyword Text" in sp_kws.columns:
+                kw_df = sp_kws[["Keyword Text", "Spend", "Sales", "Clicks", "Orders"]].copy()
+                kw_df.columns = ["Target", "Spend", "Sales", "Clicks", "Orders"]
+                kw_text_lower = kw_df["Target"].astype(str).str.lower()
+                kw_df["Tipo"] = "generic"
+                kw_df.loc[kw_text_lower.apply(lambda t: any(bt in t for bt in brand_terms)), "Tipo"] = "own_brand"
+                all_targets.append(kw_df)
+
+            # Product Targeting
+            if len(sp_pts) > 0 and "Product Targeting Expression" in sp_pts.columns:
+                pt_df = sp_pts[["Product Targeting Expression", "Spend", "Sales", "Clicks", "Orders"]].copy()
+                pt_df.columns = ["Target", "Spend", "Sales", "Clicks", "Orders"]
+                pte_lower = pt_df["Target"].astype(str).str.lower()
+
+                # Detect own ASINs from BR
+                own_asins = set()
+                if br_df is not None and len(br_df) > 0:
+                    for c in br_df.columns:
+                        if "asin" in c.lower():
+                            own_asins.update(br_df[c].dropna().astype(str).str.strip().str.upper())
+                            break
+
+                pt_df["Tipo"] = "generic"
+                for idx, row in pt_df.iterrows():
+                    expr = str(row["Target"]).lower()
+                    if "asin" in expr:
+                        # Extract ASIN
+                        import re
+                        asin_match = re.search(r"[A-Z0-9]{10}", str(row["Target"]).upper())
+                        if asin_match:
+                            asin_val = asin_match.group()
+                            if asin_val in own_asins:
+                                pt_df.at[idx, "Tipo"] = "own_asin"
+                            else:
+                                pt_df.at[idx, "Tipo"] = "competitor_asin"
+                all_targets.append(pt_df)
+
+            if all_targets:
+                combined = pd.concat(all_targets, ignore_index=True)
+                for col in ["Spend", "Sales", "Clicks", "Orders"]:
+                    combined[col] = pd.to_numeric(combined[col], errors="coerce").fillna(0)
+
+                classif_df = combined.groupby("Tipo").agg(
+                    Targets=("Tipo", "count"),
+                    Spend=("Spend", "sum"),
+                    Sales=("Sales", "sum"),
+                ).reset_index().rename(columns={"Tipo": "Tipo"})
+                classif_df["ACoS"] = classif_df.apply(
+                    lambda r: round(_acos(r["Spend"], r["Sales"]), 1), axis=1,
+                )
+                total_classif_spend = classif_df["Spend"].sum()
+                classif_df["% Spend"] = classif_df["Spend"].apply(
+                    lambda s: round((s / total_classif_spend * 100) if total_classif_spend > 0 else 0, 1),
+                )
+                classif_df = classif_df.sort_values("Spend", ascending=False)
+                st.dataframe(
+                    classif_df.style.map(_color_acos, subset=["ACoS"]),
+                    use_container_width=True, hide_index=True,
+                )
+            else:
+                st.caption("Sin keywords ni PT para clasificar")
+
+        st.markdown("---")
+
+        # ── Check 3: Duplicación de Targets ────────────────────
+        st.markdown("**Duplicación de Targets (Keywords en 2+ campañas)**")
+        dupes_df = pd.DataFrame()
+        if len(sp_kws) > 0 and "Keyword Text" in sp_kws.columns and "Campaign Name" in sp_kws.columns and "Match Type" in sp_kws.columns:
+            kw_dedup = sp_kws.copy()
+            kw_dedup["_kw_lower"] = kw_dedup["Keyword Text"].astype(str).str.lower().str.strip()
+            kw_dedup["_mt"] = kw_dedup["Match Type"].astype(str).str.strip()
+
+            grouped = kw_dedup.groupby(["_kw_lower", "_mt"]).agg(
+                n_camps=("Campaign Name", "nunique"),
+                Spend_Total=("Spend", "sum"),
+                Sales_Total=("Sales", "sum"),
+            ).reset_index()
+            dupes = grouped[grouped["n_camps"] >= 2].sort_values("Spend_Total", ascending=False).head(10)
+
+            if len(dupes) > 0:
+                dupes_df = dupes.rename(columns={
+                    "_kw_lower": "Keyword", "_mt": "Match Type",
+                    "n_camps": "# Campañas",
+                }).copy()
+                dupes_df["Spend_Total"] = dupes_df["Spend_Total"].round(2)
+                dupes_df["Sales_Total"] = dupes_df["Sales_Total"].round(2)
+                st.dataframe(dupes_df, use_container_width=True, hide_index=True)
+            else:
+                st.caption("No se detectaron keywords duplicadas entre campañas")
+        else:
+            st.caption("Sin datos suficientes de keywords SP")
+
+        st.markdown("---")
+
+        # ── Check 4: Bid Adjustments por Placement ─────────────
+        st.markdown("**Bid Adjustments por Placement**")
+        sp_bid_adj = bulk.get("sp_bid_adj", pd.DataFrame())
+        if len(sp_bid_adj) > 0 and "Placement" in sp_bid_adj.columns and "Percentage" in sp_bid_adj.columns:
+            sp_bid_adj["Percentage"] = pd.to_numeric(sp_bid_adj["Percentage"], errors="coerce").fillna(0)
+
+            placement_agg = sp_bid_adj.groupby("Placement").agg(
+                Campañas=("Placement", "count"),
+                Promedio=("Percentage", "mean"),
+                Min=("Percentage", "min"),
+                Max=("Percentage", "max"),
+            ).reset_index()
+            placement_agg["Promedio"] = placement_agg["Promedio"].round(1)
+            # Filter only rows with adjustments > 0
+            placement_with_adj = sp_bid_adj[sp_bid_adj["Percentage"] > 0]
+            if len(placement_with_adj) > 0:
+                placement_active = placement_with_adj.groupby("Placement").agg(
+                    Con_Ajuste=("Placement", "count"),
+                ).reset_index()
+                placement_agg = placement_agg.merge(placement_active, on="Placement", how="left")
+                placement_agg["Con_Ajuste"] = placement_agg["Con_Ajuste"].fillna(0).astype(int)
+
+            st.dataframe(placement_agg, use_container_width=True, hide_index=True)
+
+            # Bidding Strategy distribution
+            if "Bidding Strategy" in sp_bid_adj.columns:
+                st.caption("Distribución Bidding Strategy:")
+                bs_dist = sp_bid_adj["Bidding Strategy"].dropna().value_counts().reset_index()
+                bs_dist.columns = ["Bidding Strategy", "Count"]
+                st.dataframe(bs_dist, use_container_width=True, hide_index=True)
+        else:
+            st.caption("Sin datos de Bid Adjustments")
+
+        st.markdown("---")
+
+        # ── Check 5: SKAG vs Bolsa ─────────────────────────────
+        st.markdown("**SKAG vs Bolsa (targets por campaña manual)**")
+        if len(sp_kws) > 0 and "Campaign Name" in sp_kws.columns:
+            # Combine KW + PT for manual campaigns
+            manual_targets = pd.concat([sp_kws, sp_pts], ignore_index=True)
+            if "Spend" in manual_targets.columns:
+                active_targets = manual_targets[manual_targets["Spend"] > 0].copy()
+            else:
+                active_targets = manual_targets.copy()
+
+            if len(active_targets) > 0 and "Campaign Name" in active_targets.columns:
+                targets_per_camp = active_targets.groupby("Campaign Name").agg(
+                    n_targets=("Campaign Name", "count"),
+                    Spend=("Spend", "sum") if "Spend" in active_targets.columns else ("Campaign Name", "count"),
+                ).reset_index()
+
+                def _classify_skag(n):
+                    if n == 1:
+                        return "SKAG (1 target)"
+                    if n <= 10:
+                        return "Normal (2-10)"
+                    return "Bolsa (11+)"
+
+                targets_per_camp["Tipo"] = targets_per_camp["n_targets"].apply(_classify_skag)
+                skag_summary = targets_per_camp.groupby("Tipo").agg(
+                    Campañas=("Tipo", "count"),
+                    Spend_Total=("Spend", "sum"),
+                ).reset_index()
+                total_skag_spend = skag_summary["Spend_Total"].sum()
+                skag_summary["% Spend"] = skag_summary["Spend_Total"].apply(
+                    lambda s: round((s / total_skag_spend * 100) if total_skag_spend > 0 else 0, 1),
+                )
+                skag_summary["Spend_Total"] = skag_summary["Spend_Total"].round(2)
+                st.dataframe(skag_summary, use_container_width=True, hide_index=True)
+            else:
+                st.caption("Sin targets activos con spend")
+        else:
+            st.caption("Sin datos de keywords SP")
 
     # ════════════════════════════════════════════════════════════
-    # TAB 5 — Export (placeholder)
+    # TAB 5 — Export
     # ════════════════════════════════════════════════════════════
     with tab5:
-        st.info("📥 Export — Próximamente")
+        from datetime import date
+        _today = date.today().isoformat()
+
+        # Build KPI dict for export
+        kpi_dict = {
+            "Total PPC Spend": f"${total_spend:,.2f}",
+            "Total PPC Sales": f"${total_sales:,.2f}",
+            "ACoS Overall": f"{acos_overall:.1f}%",
+            "Impressions": f"{total_imps:,.0f}",
+            "Clicks": f"{total_clicks:,.0f}",
+            "Orders": f"{total_orders:,.0f}",
+            "SP Campañas": str(n_sp),
+            "SB Campañas": str(n_sb),
+            "SD Campañas": str(n_sd),
+            "Fecha": _today,
+        }
+        if has_br and revenue_total > 0:
+            kpi_dict["Revenue Total"] = f"${revenue_total:,.2f}"
+            kpi_dict["TACoS"] = f"{tacos:.1f}%"
+            kpi_dict["Ventas Orgánicas"] = f"${organic_sales:,.2f}"
+
+        # Audit summary tuples for export
+        audit_mixed = (
+            f"{len(mixed_camps)} campañas mixtas",
+            ", ".join(mixed_camps[:5]) + ("..." if len(mixed_camps) > 5 else "") if mixed_camps else "Ninguna",
+        )
+        audit_target_was = (
+            f"${total_was:,.2f} ({was_pct:.1f}%)",
+            f"SP: ${sp_manual_was:,.2f} | SB: ${sb_was:,.2f} | SD: ${sd_was:,.2f}",
+        )
+        audit_st_was = (
+            f"${total_st_was:,.2f} ({st_was_pct:.1f}%)",
+            f"SP: ${sp_st_was:,.2f} ({sp_st_was_count} terms) | SB: ${sb_st_was:,.2f} ({sb_st_was_count} terms)",
+        )
+
+        # Reuse seg DataFrames from tab3 scope — rebuild if needed
+        # (they were computed in tab3 but Streamlit executes all tabs)
+        try:
+            _seg_sp = seg_sp_df
+        except NameError:
+            _seg_sp = pd.DataFrame()
+        try:
+            _seg_sb = seg_sb_df
+        except NameError:
+            _seg_sb = pd.DataFrame()
+        try:
+            _seg_sd = seg_sd_df
+        except NameError:
+            _seg_sd = pd.DataFrame()
+        try:
+            _top5 = top5_camps_df
+        except NameError:
+            _top5 = pd.DataFrame()
+        try:
+            _classif = classif_df
+        except NameError:
+            _classif = pd.DataFrame()
+        try:
+            _dupes = dupes_df
+        except NameError:
+            _dupes = pd.DataFrame()
+
+        try:
+            excel_bytes = _build_audit_excel(
+                kpi_dict, _seg_sp, _seg_sb, _seg_sd,
+                _top5, _classif, _dupes,
+                audit_mixed, audit_target_was, audit_st_was,
+            )
+        except Exception as e:
+            st.warning(f"Error generando Excel: {e}")
+            buf_fallback = io.BytesIO()
+            pd.DataFrame({"Error": [str(e)]}).to_excel(buf_fallback, index=False)
+            excel_bytes = buf_fallback.getvalue()
+
+        st.download_button(
+            "\u2b07\ufe0f Descargar Auditoría Completa (Excel)",
+            data=excel_bytes,
+            file_name=f"PPC_Audit_{_today}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="audit_dl",
+        )
