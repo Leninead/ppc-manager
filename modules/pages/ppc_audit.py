@@ -1,839 +1,561 @@
 import io
-import re
-import datetime
 
 import streamlit as st
 import pandas as pd
+
 from core.helpers import kpi_card
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
-def _clean_num(val):
-    try:
-        return float(str(val).replace("$", "").replace("%", "").replace(",", "").strip())
-    except Exception:
-        return 0.0
+def _to_num(series):
+    """Coerce a series to numeric, stripping $, %, commas."""
+    return pd.to_numeric(
+        series.astype(str).str.replace(r"[\$%,]", "", regex=True),
+        errors="coerce",
+    ).fillna(0)
 
 
-def _find_col(df, keyword):
-    for c in df.columns:
-        if keyword.lower() in c.lower() and "b2b" not in c.lower():
-            return c
-    return None
-
-
-# ── Parsers ──────────────────────────────────────────────────────────────────
-
-def _parse_str(file):
-    fname = file.name if hasattr(file, "name") else ""
-    try:
-        df = pd.read_excel(file) if fname.endswith(".xlsx") else pd.read_csv(file)
-        df.columns = df.columns.str.strip()
-        return df
-    except Exception as e:
-        st.error(f"Error al leer STR: {e}")
-        return None
-
-
-def _parse_campaigns(file):
-    try:
-        df = pd.read_csv(file)
-        df.columns = df.columns.str.strip()
-        state_col = _find_col(df, "State")
-        if state_col:
-            df = df[df[state_col].astype(str).str.lower().isin(["enabled", "active"])]
-        return df
-    except Exception as e:
-        st.error(f"Error al leer Campaign CSV: {e}")
-        return None
-
-
-def _parse_br(file):
-    fname = file.name if hasattr(file, "name") else ""
-    try:
-        df = pd.read_excel(file) if fname.endswith(".xlsx") else pd.read_csv(file)
-        df.columns = df.columns.str.strip()
-        return df
-    except Exception as e:
-        st.error(f"Error al leer BR: {e}")
-        return None
-
-
-# ── Analysis functions ───────────────────────────────────────────────────────
-
-def _analyze_structure(camp_df):
-    name_col = _find_col(camp_df, "Campaign Name") or _find_col(camp_df, "Campaign")
-    type_col = _find_col(camp_df, "Campaign Type") or _find_col(camp_df, "Type")
-
-    total_campaigns = len(camp_df)
-
-    type_counts = {}
-    if type_col:
-        for _, row in camp_df.iterrows():
-            t = str(row[type_col]).upper()
-            if "SP" in t or "PRODUCT" in t:
-                key = "SP"
-            elif "SB" in t or "BRAND" in t:
-                key = "SB"
-            elif "SD" in t or "DISPLAY" in t:
-                key = "SD"
-            else:
-                key = "Otro"
-            type_counts[key] = type_counts.get(key, 0) + 1
-
-    match_counts = {"Exact": 0, "Broad": 0, "Phrase": 0, "Auto": 0, "PAT": 0}
-    if name_col:
-        for name in camp_df[name_col].astype(str):
-            n = name.lower()
-            if "exact" in n:
-                match_counts["Exact"] += 1
-            elif "broad" in n:
-                match_counts["Broad"] += 1
-            elif "phrase" in n:
-                match_counts["Phrase"] += 1
-            elif "auto" in n:
-                match_counts["Auto"] += 1
-            elif "pat" in n or ("asin" in n and "camp" in n):
-                match_counts["PAT"] += 1
-
-    port_col = _find_col(camp_df, "Portfolio")
-    portfolios = {}
-    if port_col:
-        for p in camp_df[port_col].astype(str):
-            if p and p.lower() not in ["nan", ""]:
-                portfolios[p] = portfolios.get(p, 0) + 1
-
-    return {
-        "total": total_campaigns,
-        "by_type": type_counts,
-        "by_match": match_counts,
-        "portfolios": portfolios,
+def _badge(text, level="ok"):
+    """HTML badge. level: ok | warn | crit."""
+    styles = {
+        "ok":   "background:#e6f4ed;color:#2a6e4e;",
+        "warn": "background:#fdf3e3;color:#c07a1a;",
+        "crit": "background:#fbeae7;color:#c8402a;",
     }
-
-
-def _check_naming(camp_df, brand):
-    name_col = _find_col(camp_df, "Campaign Name") or _find_col(camp_df, "Campaign")
-    if not name_col:
-        return 0, 0, [], 0.0
-
-    total = len(camp_df)
-    good = 0
-    bad_names = []
-
-    for name in camp_df[name_col].astype(str):
-        n = name.strip()
-        has_pipes = "|" in n
-        has_brand = brand.lower() in n.lower() if brand else True
-        has_type = any(t in n.upper() for t in ["SP-", "SB-", "SD-", "SP ", "SBV"])
-
-        if has_pipes and has_brand and has_type:
-            good += 1
-        else:
-            bad_names.append(n)
-
-    pct = round(good / total * 100, 1) if total > 0 else 0.0
-    return good, total, bad_names[:20], pct
-
-
-def _analyze_efficiency(camp_df, target_acos):
-    name_col = _find_col(camp_df, "Campaign Name") or _find_col(camp_df, "Campaign")
-    spend_col = (
-        _find_col(camp_df, "Spend")
-        or _find_col(camp_df, "Total cost")
-        or _find_col(camp_df, "Cost")
+    s = styles.get(level, styles["ok"])
+    return (
+        f"<span style='{s}padding:3px 10px;border-radius:6px;"
+        f"font-weight:600;font-size:0.82rem;'>{text}</span>"
     )
-    sales_col = _find_col(camp_df, "Sales") or _find_col(camp_df, "Total Sales")
-    imp_col = _find_col(camp_df, "Impressions")
-    orders_col = _find_col(camp_df, "Orders") or _find_col(camp_df, "Purchases")
 
-    result = {
-        "total_spend": 0.0,
-        "total_sales": 0.0,
-        "avg_acos": 0.0,
-        "top_spend": [],
-        "top_sales": [],
-        "ghost_count": 0,
-        "wasted_spend": 0.0,
-        "wasted_campaigns": 0,
-    }
 
-    df = camp_df.copy()
+# ── Parser ──────────────────────────────────────────────────────────────────
 
-    if spend_col:
-        df["_spend"] = df[spend_col].apply(_clean_num)
-        result["total_spend"] = df["_spend"].sum()
-    else:
-        df["_spend"] = 0.0
+_METRIC_INT = ["Impressions", "Clicks", "Spend", "Sales", "Orders", "Units"]
+_METRIC_PCT = ["ACOS", "Click-through Rate", "Conversion Rate", "CPC", "ROAS"]
 
-    if sales_col:
-        df["_sales"] = df[sales_col].apply(_clean_num)
-        result["total_sales"] = df["_sales"].sum()
-    else:
-        df["_sales"] = 0.0
 
-    if imp_col:
-        df["_imps"] = df[imp_col].apply(_clean_num)
-        result["ghost_count"] = int(len(df[df["_imps"] == 0]))
+def _numericize(df):
+    """Numericize known metric columns in-place and return df."""
+    for col in _METRIC_INT:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    for col in _METRIC_PCT:
+        if col in df.columns:
+            df[col] = _to_num(df[col])
+    return df
 
-    if orders_col:
-        df["_orders"] = df[orders_col].apply(_clean_num)
-    else:
-        df["_orders"] = 0.0
 
-    if result["total_sales"] > 0:
-        result["avg_acos"] = round(result["total_spend"] / result["total_sales"] * 100, 1)
+@st.cache_data
+def _parse_bulk(data, name):
+    """Parse Bulk File XLSX multi-sheet. Returns dict of DataFrames."""
+    buf = io.BytesIO(data)
+    xls = pd.ExcelFile(buf)
+    result = {}
 
-    if spend_col and name_col:
-        top = df.nlargest(5, "_spend")
-        result["top_spend"] = [
-            (str(r[name_col])[:50], round(r["_spend"], 2)) for _, r in top.iterrows()
-        ]
+    # ── SP ──
+    if "Sponsored Products Campaigns" in xls.sheet_names:
+        df = pd.read_excel(xls, sheet_name="Sponsored Products Campaigns")
+        df.columns = df.columns.str.strip()
+        _numericize(df)
+        result["sp"] = df
+        if "Entity" in df.columns:
+            result["sp_campaigns"] = df[df["Entity"] == "Campaign"].copy()
+            result["sp_adgroups"] = df[df["Entity"] == "Ad Group"].copy()
+            result["sp_keywords"] = df[df["Entity"] == "Keyword"].copy()
+            result["sp_pt"] = df[df["Entity"] == "Product Targeting"].copy()
+            result["sp_bid_adj"] = df[df["Entity"] == "Bidding Adjustment"].copy()
+            result["sp_neg_kw"] = df[df["Entity"] == "Negative Keyword"].copy()
+            result["sp_neg_pt"] = df[df["Entity"] == "Negative Product Targeting"].copy()
 
-    if sales_col and name_col:
-        top = df.nlargest(5, "_sales")
-        result["top_sales"] = [
-            (str(r[name_col])[:50], round(r["_sales"], 2)) for _, r in top.iterrows()
-        ]
+    # ── SB ──
+    if "Sponsored Brands Campaigns" in xls.sheet_names:
+        df = pd.read_excel(xls, sheet_name="Sponsored Brands Campaigns")
+        df.columns = df.columns.str.strip()
+        _numericize(df)
+        result["sb"] = df
+        if "Entity" in df.columns and len(df) > 0:
+            result["sb_campaigns"] = df[df["Entity"] == "Campaign"].copy()
+            result["sb_keywords"] = df[df["Entity"] == "Keyword"].copy()
+        else:
+            result["sb_campaigns"] = pd.DataFrame()
+            result["sb_keywords"] = pd.DataFrame()
 
-    if "_spend" in df.columns and "_orders" in df.columns:
-        wasted = df[(df["_spend"] > 0) & (df["_orders"] == 0)]
-        result["wasted_spend"] = round(wasted["_spend"].sum(), 2)
-        result["wasted_campaigns"] = int(len(wasted))
+    # ── SD ──
+    if "Sponsored Display Campaigns" in xls.sheet_names:
+        df = pd.read_excel(xls, sheet_name="Sponsored Display Campaigns")
+        df.columns = df.columns.str.strip()
+        _numericize(df)
+        result["sd"] = df
+        if "Entity" in df.columns and len(df) > 0:
+            result["sd_campaigns"] = df[df["Entity"] == "Campaign"].copy()
+        else:
+            result["sd_campaigns"] = pd.DataFrame()
+
+    # ── SP Search Term Report ──
+    if "SP Search Term Report" in xls.sheet_names:
+        df = pd.read_excel(xls, sheet_name="SP Search Term Report")
+        df.columns = df.columns.str.strip()
+        _numericize(df)
+        result["sp_str"] = df
+
+    # ── SB Search Term Report ──
+    if "SB Search Term Report" in xls.sheet_names:
+        df = pd.read_excel(xls, sheet_name="SB Search Term Report")
+        df.columns = df.columns.str.strip()
+        _numericize(df)
+        result["sb_str"] = df
 
     return result
 
 
-def _analyze_coverage(camp_df):
-    name_col = _find_col(camp_df, "Campaign Name") or _find_col(camp_df, "Campaign")
-    if not name_col:
-        return {}
+# ── Metric aggregation helpers ──────────────────────────────────────────────
 
-    asin_pattern = re.compile(r'B0[A-Z0-9]{8,}')
-    asin_coverage = {}
-
-    for name in camp_df[name_col].astype(str):
-        asins = asin_pattern.findall(name.upper())
-        n = name.lower()
-        match_type = None
-        if "exact" in n:
-            match_type = "Exact"
-        elif "broad" in n:
-            match_type = "Broad"
-        elif "phrase" in n:
-            match_type = "Phrase"
-        elif "auto" in n:
-            match_type = "Auto"
-        elif "pat" in n or "asin" in n:
-            match_type = "PAT"
-
-        for asin in asins:
-            if asin not in asin_coverage:
-                asin_coverage[asin] = set()
-            if match_type:
-                asin_coverage[asin].add(match_type)
-
-    return asin_coverage
-
-
-def _analyze_buybox(br_df):
-    asin_col = _find_col(br_df, "ASIN") or _find_col(br_df, "(Child) ASIN")
-    bb_col = _find_col(br_df, "Featured Offer") or _find_col(br_df, "Buy Box")
-    if not (asin_col and bb_col):
-        return []
-
-    df = br_df.copy()
-    df["_bb"] = df[bb_col].apply(_clean_num)
-    issues = df[df["_bb"] < 90].copy()
-    issues = issues.sort_values("_bb")
-
-    result = []
-    for _, row in issues.head(20).iterrows():
-        result.append({
-            "ASIN": str(row[asin_col]),
-            "BuyBox %": round(row["_bb"], 1),
-        })
-    return result
-
-
-def _calc_account_score(structure, naming_pct, efficiency, coverage, target_acos):
-    score = 0
-
-    # Structure (20 pts)
-    match_types_used = sum(1 for v in structure["by_match"].values() if v > 0)
-    score += min(20, match_types_used * 4)
-
-    # Naming (15 pts)
-    score += round(naming_pct / 100 * 15)
-
-    # Efficiency (25 pts)
-    acos = efficiency["avg_acos"]
-    if acos > 0:
-        ratio = acos / target_acos if target_acos > 0 else 2.0
-        if ratio <= 1.0:
-            score += 25
-        elif ratio <= 1.5:
-            score += 18
-        elif ratio <= 2.0:
-            score += 10
-        else:
-            score += max(0, round(25 - ratio * 6))
-    else:
-        score += 12
-
-    # Waste (20 pts)
-    if efficiency["total_spend"] > 0:
-        waste_pct = efficiency["wasted_spend"] / efficiency["total_spend"] * 100
-        if waste_pct < 5:
-            score += 20
-        elif waste_pct < 15:
-            score += 14
-        elif waste_pct < 30:
-            score += 8
-        else:
-            score += 2
-    else:
-        score += 10
-
-    # Coverage (20 pts)
-    if coverage:
-        avg_types = sum(len(v) for v in coverage.values()) / len(coverage)
-        score += min(20, round(avg_types * 5))
-    else:
-        score += 10
-
-    return min(100, score)
-
-
-# ── Excel export ─────────────────────────────────────────────────────────────
-
-def _hdr_style():
-    fill = PatternFill("solid", fgColor="E84000")
-    font = Font(bold=True, color="FFFFFF", size=10)
-    align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    return fill, font, align
-
-
-def _thin_border():
-    side = Side(style="thin", color="DDDDDD")
-    return Border(left=side, right=side, top=side, bottom=side)
-
-
-def _set_header_row(ws, headers):
-    fill, font, align = _hdr_style()
-    border = _thin_border()
-    for col_idx, h in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col_idx, value=h)
-        cell.fill = fill
-        cell.font = font
-        cell.alignment = align
-        cell.border = border
-
-
-def _auto_width(ws):
-    for col in ws.columns:
-        max_len = 0
-        col_letter = col[0].column_letter
-        for cell in col:
-            try:
-                max_len = max(max_len, len(str(cell.value or "")))
-            except Exception:
-                pass
-        ws.column_dimensions[col_letter].width = min(max_len + 4, 55)
-
-
-def _build_audit_excel(
-    score, structure, naming_pct, bad_names, efficiency, coverage,
-    buybox_issues, brand, target_acos
-):
-    wb = Workbook()
-
-    # ── Sheet 1: Portada ────────────────────────────────────────────────────
-    ws_portada = wb.active
-    ws_portada.title = "Portada"
-
-    header_fill = PatternFill("solid", fgColor="E84000")
-    dark_fill = PatternFill("solid", fgColor="1F1F1F")
-    white_bold = Font(bold=True, color="FFFFFF", size=14)
-    orange_big = Font(bold=True, color="E84000", size=36)
-    grey_font = Font(color="888888", size=10)
-
-    ws_portada.merge_cells("A1:D1")
-    c = ws_portada["A1"]
-    c.value = "CAPYBARAS AGENCY — PPC AUDIT"
-    c.font = Font(bold=True, color="FFFFFF", size=16)
-    c.fill = header_fill
-    c.alignment = Alignment(horizontal="center", vertical="center")
-    ws_portada.row_dimensions[1].height = 36
-
-    ws_portada.merge_cells("A2:D2")
-    c2 = ws_portada["A2"]
-    c2.value = f"Marca: {brand or '—'}   |   Target ACoS: {target_acos}%   |   Fecha: {datetime.date.today().strftime('%d/%m/%Y')}"
-    c2.font = Font(color="AAAAAA", size=10)
-    c2.fill = dark_fill
-    c2.alignment = Alignment(horizontal="center")
-    ws_portada.row_dimensions[2].height = 22
-
-    ws_portada.merge_cells("A4:D4")
-    score_cell = ws_portada["A4"]
-    score_cell.value = score
-    score_cell.font = orange_big
-    score_cell.alignment = Alignment(horizontal="center")
-    ws_portada.row_dimensions[4].height = 60
-
-    ws_portada.merge_cells("A5:D5")
-    label_map = {
-        (80, 101): "EXCELENTE",
-        (60, 80): "BUENO",
-        (40, 60): "MEJORABLE",
-        (0, 40): "CRITICO",
+def _sum_metrics(df):
+    """Return dict with Spend, Sales, Impressions, Clicks, Orders from df."""
+    if df is None or len(df) == 0:
+        return {"Spend": 0, "Sales": 0, "Impressions": 0, "Clicks": 0, "Orders": 0}
+    return {
+        "Spend": df["Spend"].sum() if "Spend" in df.columns else 0,
+        "Sales": df["Sales"].sum() if "Sales" in df.columns else 0,
+        "Impressions": df["Impressions"].sum() if "Impressions" in df.columns else 0,
+        "Clicks": df["Clicks"].sum() if "Clicks" in df.columns else 0,
+        "Orders": df["Orders"].sum() if "Orders" in df.columns else 0,
     }
-    label = next((v for (lo, hi), v in label_map.items() if lo <= score < hi), "—")
-    ws_portada["A5"].value = f"Score de cuenta — {label}"
-    ws_portada["A5"].font = Font(bold=True, color="E84000", size=13)
-    ws_portada["A5"].alignment = Alignment(horizontal="center")
-
-    summaries = [
-        ("Campañas totales", str(structure["total"])),
-        ("Tipos de match activos", str(sum(1 for v in structure["by_match"].values() if v > 0))),
-        ("Naming convention", f"{naming_pct}%"),
-        ("ACoS promedio", f"{efficiency['avg_acos']:.1f}%"),
-        ("Spend total", f"${efficiency['total_spend']:,.2f}"),
-        ("Sales total", f"${efficiency['total_sales']:,.2f}"),
-        ("Spend sin ventas", f"${efficiency['wasted_spend']:,.2f}"),
-        ("Campañas fantasma", str(efficiency.get("ghost_count", 0))),
-        ("ASINs con funnel", str(len(coverage))),
-    ]
-    row = 7
-    for label_txt, val_txt in summaries:
-        ws_portada.cell(row=row, column=1, value=label_txt).font = Font(color="555555", size=10)
-        cell_v = ws_portada.cell(row=row, column=2, value=val_txt)
-        cell_v.font = Font(bold=True, color="1F1F1F", size=10)
-        row += 1
-
-    _auto_width(ws_portada)
-
-    # ── Sheet 2: Estructura ─────────────────────────────────────────────────
-    ws_est = wb.create_sheet("Estructura")
-    _set_header_row(ws_est, ["Dimensión", "Categoría", "Cantidad"])
-    row = 2
-    alt = PatternFill("solid", fgColor="FFF3E0")
-    for k, v in structure["by_type"].items():
-        ws_est.cell(row=row, column=1, value="Tipo de Ad")
-        ws_est.cell(row=row, column=2, value=k)
-        ws_est.cell(row=row, column=3, value=v)
-        if row % 2 == 0:
-            for col in range(1, 4):
-                ws_est.cell(row=row, column=col).fill = alt
-        row += 1
-    for k, v in structure["by_match"].items():
-        if v > 0:
-            ws_est.cell(row=row, column=1, value="Match Type")
-            ws_est.cell(row=row, column=2, value=k)
-            ws_est.cell(row=row, column=3, value=v)
-            if row % 2 == 0:
-                for col in range(1, 4):
-                    ws_est.cell(row=row, column=col).fill = alt
-            row += 1
-    for k, v in structure["portfolios"].items():
-        ws_est.cell(row=row, column=1, value="Portfolio")
-        ws_est.cell(row=row, column=2, value=k)
-        ws_est.cell(row=row, column=3, value=v)
-        if row % 2 == 0:
-            for col in range(1, 4):
-                ws_est.cell(row=row, column=col).fill = alt
-        row += 1
-    ws_est.freeze_panes = "A2"
-    _auto_width(ws_est)
-
-    # ── Sheet 3: Eficiencia ─────────────────────────────────────────────────
-    ws_eff = wb.create_sheet("Eficiencia")
-    _set_header_row(ws_eff, ["Métrica", "Valor"])
-    kpi_rows = [
-        ("Spend Total", f"${efficiency['total_spend']:,.2f}"),
-        ("Sales Total", f"${efficiency['total_sales']:,.2f}"),
-        ("ACoS Promedio", f"{efficiency['avg_acos']:.1f}%"),
-        ("Target ACoS", f"{target_acos}%"),
-        ("vs Target (pp)", f"{efficiency['avg_acos'] - target_acos:+.1f}"),
-        ("Spend sin ventas (WAS)", f"${efficiency['wasted_spend']:,.2f}"),
-        ("Campañas sin ventas", str(efficiency.get("wasted_campaigns", 0))),
-        ("Campañas fantasma (0 imps)", str(efficiency.get("ghost_count", 0))),
-    ]
-    for i, (label_txt, val_txt) in enumerate(kpi_rows, 2):
-        ws_eff.cell(row=i, column=1, value=label_txt)
-        ws_eff.cell(row=i, column=2, value=val_txt)
-        if i % 2 == 0:
-            for col in range(1, 3):
-                ws_eff.cell(row=i, column=col).fill = alt
-
-    row = len(kpi_rows) + 3
-    ws_eff.cell(row=row, column=1, value="Top 5 por Spend").font = Font(bold=True, color="E84000")
-    row += 1
-    _set_header_row_at(ws_eff, row, ["Campaña", "Spend ($)"])
-    row += 1
-    for name, val in efficiency["top_spend"]:
-        ws_eff.cell(row=row, column=1, value=name)
-        ws_eff.cell(row=row, column=2, value=val)
-        ws_eff.cell(row=row, column=2).number_format = "$#,##0.00"
-        row += 1
-
-    row += 1
-    ws_eff.cell(row=row, column=1, value="Top 5 por Sales").font = Font(bold=True, color="E84000")
-    row += 1
-    _set_header_row_at(ws_eff, row, ["Campaña", "Sales ($)"])
-    row += 1
-    for name, val in efficiency["top_sales"]:
-        ws_eff.cell(row=row, column=1, value=name)
-        ws_eff.cell(row=row, column=2, value=val)
-        ws_eff.cell(row=row, column=2).number_format = "$#,##0.00"
-        row += 1
-
-    ws_eff.freeze_panes = "A2"
-    _auto_width(ws_eff)
-
-    # ── Sheet 4: Cobertura ──────────────────────────────────────────────────
-    ws_cov = wb.create_sheet("Cobertura")
-    _set_header_row(ws_cov, ["ASIN", "Auto", "Broad", "Phrase", "Exact", "PAT", "Tipos", "Completo"])
-    green_fill = PatternFill("solid", fgColor="E8F5E9")
-    red_fill = PatternFill("solid", fgColor="FFEBEE")
-    for i, (asin, types) in enumerate(sorted(coverage.items()), 2):
-        ws_cov.cell(row=i, column=1, value=asin)
-        ws_cov.cell(row=i, column=2, value="Si" if "Auto" in types else "No")
-        ws_cov.cell(row=i, column=3, value="Si" if "Broad" in types else "No")
-        ws_cov.cell(row=i, column=4, value="Si" if "Phrase" in types else "No")
-        ws_cov.cell(row=i, column=5, value="Si" if "Exact" in types else "No")
-        ws_cov.cell(row=i, column=6, value="Si" if "PAT" in types else "No")
-        ws_cov.cell(row=i, column=7, value=len(types))
-        complete = len(types) >= 3
-        ws_cov.cell(row=i, column=8, value="Completo" if complete else "Incompleto")
-        row_fill = green_fill if complete else red_fill
-        for col in range(1, 9):
-            ws_cov.cell(row=i, column=col).fill = row_fill
-    ws_cov.freeze_panes = "A2"
-    _auto_width(ws_cov)
-
-    # ── Sheet 5: Naming Issues ──────────────────────────────────────────────
-    ws_nam = wb.create_sheet("Naming")
-    _set_header_row(ws_nam, ["Campanas sin naming convention correcto"])
-    for i, name in enumerate(bad_names, 2):
-        ws_nam.cell(row=i, column=1, value=name)
-        if i % 2 == 0:
-            ws_nam.cell(row=i, column=1).fill = alt
-    ws_nam.freeze_panes = "A2"
-    _auto_width(ws_nam)
-
-    # ── Sheet 6: BuyBox (optional) ──────────────────────────────────────────
-    if buybox_issues:
-        ws_bb = wb.create_sheet("BuyBox")
-        headers_bb = list(buybox_issues[0].keys()) if buybox_issues else ["ASIN", "BuyBox %"]
-        _set_header_row(ws_bb, headers_bb)
-        for i, row_data in enumerate(buybox_issues, 2):
-            for col_idx, key in enumerate(headers_bb, 1):
-                ws_bb.cell(row=i, column=col_idx, value=row_data.get(key, ""))
-            if i % 2 == 0:
-                for col in range(1, len(headers_bb) + 1):
-                    ws_bb.cell(row=i, column=col).fill = alt
-        ws_bb.freeze_panes = "A2"
-        _auto_width(ws_bb)
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
 
 
-def _set_header_row_at(ws, row_idx, headers):
-    fill = PatternFill("solid", fgColor="2D3748")
-    font = Font(bold=True, color="FFFFFF", size=9)
-    for col_idx, h in enumerate(headers, 1):
-        cell = ws.cell(row=row_idx, column=col_idx, value=h)
-        cell.fill = fill
-        cell.font = font
-        cell.alignment = Alignment(horizontal="center")
+def _acos(spend, sales):
+    return (spend / sales * 100) if sales > 0 else 0
 
 
-# ── Render ───────────────────────────────────────────────────────────────────
+# ── Render ──────────────────────────────────────────────────────────────────
 
 def render():
     st.markdown(
         "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
         "<span style='font-size:2rem;'>🛡️</span>"
-        "<div>"
-        "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>PPC Audit</div>"
-        "<div style='font-size:0.82rem;color:#888;'>Auditoría integral de cuenta — estructura, eficiencia, desperdicio, cobertura y naming.</div>"
-        "</div>"
-        "</div>",
+        "<div><div style='font-size:1.3rem;font-weight:700;'>PPC Audit Pro</div>"
+        "<div style='font-size:0.82rem;color:#888;'>"
+        "Auditoría profunda desde Bulk File de Amazon Advertising</div>"
+        "</div></div>",
         unsafe_allow_html=True,
     )
     st.divider()
 
-    # ── Inputs ───────────────────────────────────────────────────────────────
-    c1, c2 = st.columns(2)
-    with c1:
-        target_acos = st.slider(
-            "Target ACoS (%)",
-            min_value=5, max_value=80, value=25, step=1,
-            key="audit_target",
+    # ── Uploads ─────────────────────────────────────────────────
+    col_u1, col_u2 = st.columns(2)
+    with col_u1:
+        bulk_file = st.file_uploader(
+            "📦 Bulk File (.xlsx)", type=["xlsx"], key="audit_bulk",
         )
-    with c2:
-        brand = st.text_input(
-            "Marca (para verificar naming convention)",
-            placeholder="Ej: Dermaglos",
-            key="audit_brand",
+    with col_u2:
+        br_file = st.file_uploader(
+            "💰 Business Report (.xlsx/.csv) — opcional",
+            type=["xlsx", "csv"], key="audit_br",
         )
 
-    st.markdown("---")
-
-    col_l, col_r = st.columns(2)
-    with col_l:
-        file_str = st.file_uploader(
-            "Search Term Report (.xlsx o .csv) — REQUERIDO",
-            type=["csv", "xlsx"],
-            key="audit_str",
-        )
-        file_camp = st.file_uploader(
-            "Campaign CSV (.csv) — REQUERIDO",
-            type=["csv"],
-            key="audit_camp",
-        )
-    with col_r:
-        file_br = st.file_uploader(
-            "BR by ASIN (.csv o .xlsx) — opcional (BuyBox)",
-            type=["csv", "xlsx"],
-            key="audit_br",
-        )
-
-    ready = file_str is not None and file_camp is not None
-
-    if not ready:
+    if not bulk_file:
         st.markdown(
-            "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
-            "border-radius:12px;margin:1rem 0;'>"
-            "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
-            "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Sube el STR y el Campaign CSV para ejecutar la auditoría.</div>"
-            "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
-            "Arrastrá o hacé click en los uploaders de arriba</div>"
+            "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:2rem;"
+            "text-align:center;background:#FFF3E0;margin-top:1rem;'>"
+            "<div style='font-size:1.5rem;'>📦</div>"
+            "<div style='font-weight:600;margin-top:0.5rem;'>Subí el Bulk File</div>"
+            "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
+            "Amazon Advertising → Campaign Manager → Bulk Operations "
+            "→ Create spreadsheet for download</div>"
             "</div>",
             unsafe_allow_html=True,
         )
         return
 
-    if st.button("Ejecutar Auditoria", type="primary"):
-        with st.spinner("Analizando cuenta..."):
-            # Parse
-            str_df = _parse_str(file_str)
-            camp_df = _parse_campaigns(file_camp)
-            br_df = _parse_br(file_br) if file_br else None
+    # ── Parse bulk ──────────────────────────────────────────────
+    bulk = _parse_bulk(bulk_file.getvalue(), bulk_file.name)
 
-            if str_df is None or camp_df is None:
-                st.error("No se pudieron procesar los archivos. Revisa el formato.")
-                return
+    # ── Brand terms ─────────────────────────────────────────────
+    brand_input = st.text_input(
+        "Brand terms (separados por coma)",
+        placeholder="ej: 360 essentials, escape plus, freedom plus",
+        key="audit_brand_terms",
+    )
+    brand_terms = (
+        [t.strip().lower() for t in brand_input.split(",") if t.strip()]
+        if brand_input else []
+    )
 
-            # Analysis
-            structure = _analyze_structure(camp_df)
-            good, total_names, bad_names, naming_pct = _check_naming(camp_df, brand)
-            efficiency = _analyze_efficiency(camp_df, target_acos)
-            coverage = _analyze_coverage(camp_df)
-            buybox_issues = _analyze_buybox(br_df) if br_df is not None else []
-
-            score = _calc_account_score(structure, naming_pct, efficiency, coverage, target_acos)
-
-        # ── Score display ─────────────────────────────────────────────────
-        if score >= 80:
-            score_color, score_label = "#1B6B2F", "EXCELENTE"
-        elif score >= 60:
-            score_color, score_label = "#E65100", "BUENO"
-        elif score >= 40:
-            score_color, score_label = "#E84000", "MEJORABLE"
-        else:
-            score_color, score_label = "#B71C1C", "CRITICO"
-
-        st.markdown(
-            f"""
-            <div style='text-align:center;padding:2rem;background:#1A1A1A;
-                        border-radius:12px;margin-bottom:1.5rem;'>
-                <div style='font-size:5rem;font-weight:900;color:{score_color};
-                            line-height:1;'>{score}</div>
-                <div style='font-size:1.3rem;color:{score_color};
-                            font-weight:700;margin-top:0.5rem;'>{score_label}</div>
-                <div style='font-size:0.85rem;color:#888;margin-top:0.4rem;'>
-                    Score de cuenta / 100</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+    # ── Parse BR ────────────────────────────────────────────────
+    br_df = None
+    if br_file:
+        buf_br = io.BytesIO(br_file.getvalue())
+        br_df = (
+            pd.read_excel(buf_br)
+            if br_file.name.endswith(".xlsx")
+            else pd.read_csv(buf_br)
         )
+        br_df.columns = br_df.columns.str.strip()
 
-        # ── Score breakdown pills ─────────────────────────────────────────
-        match_types_used = sum(1 for v in structure["by_match"].values() if v > 0)
-        pts_structure = min(20, match_types_used * 4)
-        pts_naming = round(naming_pct / 100 * 15)
-        acos = efficiency["avg_acos"]
-        if acos > 0:
-            ratio = acos / target_acos if target_acos > 0 else 2.0
-            if ratio <= 1.0: pts_eff = 25
-            elif ratio <= 1.5: pts_eff = 18
-            elif ratio <= 2.0: pts_eff = 10
-            else: pts_eff = max(0, round(25 - ratio * 6))
-        else:
-            pts_eff = 12
-        if efficiency["total_spend"] > 0:
-            waste_pct_val = efficiency["wasted_spend"] / efficiency["total_spend"] * 100
-            if waste_pct_val < 5: pts_waste = 20
-            elif waste_pct_val < 15: pts_waste = 14
-            elif waste_pct_val < 30: pts_waste = 8
-            else: pts_waste = 2
-        else:
-            pts_waste = 10
-        if coverage:
-            avg_t = sum(len(v) for v in coverage.values()) / len(coverage)
-            pts_cov = min(20, round(avg_t * 5))
-        else:
-            pts_cov = 10
+    # ── Reference DataFrames ────────────────────────────────────
+    sp_camps = bulk.get("sp_campaigns", pd.DataFrame())
+    sp_kws = bulk.get("sp_keywords", pd.DataFrame())
+    sp_pts = bulk.get("sp_pt", pd.DataFrame())
+    sp_neg_kw = bulk.get("sp_neg_kw", pd.DataFrame())
+    sp_str_df = bulk.get("sp_str", pd.DataFrame())
 
-        bp1, bp2, bp3, bp4, bp5 = st.columns(5)
-        with bp1:
-            st.markdown(kpi_card("Estructura", f"{pts_structure}/20"), unsafe_allow_html=True)
-        with bp2:
-            st.markdown(kpi_card("Naming", f"{pts_naming}/15"), unsafe_allow_html=True)
-        with bp3:
-            st.markdown(kpi_card("Eficiencia", f"{pts_eff}/25"), unsafe_allow_html=True)
-        with bp4:
-            st.markdown(kpi_card("Desperdicio", f"{pts_waste}/20"), unsafe_allow_html=True)
-        with bp5:
-            st.markdown(kpi_card("Cobertura", f"{pts_cov}/20"), unsafe_allow_html=True)
+    sb_df = bulk.get("sb", pd.DataFrame())
+    sb_camps = bulk.get("sb_campaigns", pd.DataFrame())
+    sb_kws = bulk.get("sb_keywords", pd.DataFrame())
+    sb_str_df = bulk.get("sb_str", pd.DataFrame())
 
-        st.divider()
+    sd_df = bulk.get("sd", pd.DataFrame())
+    sd_camps = bulk.get("sd_campaigns", pd.DataFrame())
 
-        # ── Expanders ────────────────────────────────────────────────────
+    n_sp = len(sp_camps)
+    n_sb = len(sb_camps)
+    n_sd = len(sd_camps)
 
-        with st.expander("Estructura de campanas", expanded=True):
-            ec1, ec2, ec3 = st.columns(3)
-            with ec1:
-                st.markdown("**Por tipo de ad**")
-                if structure["by_type"]:
-                    for k, v in structure["by_type"].items():
-                        st.markdown(f"- {k}: **{v}** campanas")
+    st.success(
+        f"✅ Bulk cargado — SP: {n_sp} campañas, {len(sp_kws)} keywords, "
+        f"{len(sp_pts)} PT | SB: {n_sb} campañas | SD: {n_sd} campañas | "
+        f"SP STR: {len(sp_str_df)} terms"
+    )
+
+    # ── Tabs ────────────────────────────────────────────────────
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 KPIs Overview",
+        "🛠️ Auditoría Estructura",
+        "🎯 Performance Segmento",
+        "🔍 Deep Checks",
+        "📥 Export",
+    ])
+
+    # ════════════════════════════════════════════════════════════
+    # TAB 1 — KPIs Overview
+    # ════════════════════════════════════════════════════════════
+    with tab1:
+        sp_m = _sum_metrics(sp_camps)
+        sb_m = _sum_metrics(sb_camps)
+        sd_m = _sum_metrics(sd_camps)
+
+        total_spend = sp_m["Spend"] + sb_m["Spend"] + sd_m["Spend"]
+        total_sales = sp_m["Sales"] + sb_m["Sales"] + sd_m["Sales"]
+        total_imps = sp_m["Impressions"] + sb_m["Impressions"] + sd_m["Impressions"]
+        total_clicks = sp_m["Clicks"] + sb_m["Clicks"] + sd_m["Clicks"]
+        total_orders = sp_m["Orders"] + sb_m["Orders"] + sd_m["Orders"]
+        acos_overall = _acos(total_spend, total_sales)
+
+        # BR-derived metrics
+        revenue_total = 0
+        has_br = br_df is not None and len(br_df) > 0
+        if has_br:
+            rev_col = None
+            for candidate in [
+                "Ordered Product Sales",
+                "Ordered Product Sales Amount",
+                "ordered product sales",
+            ]:
+                if candidate in br_df.columns:
+                    rev_col = candidate
+                    break
+            if rev_col is None:
+                for c in br_df.columns:
+                    if "ordered" in c.lower() and "sales" in c.lower():
+                        rev_col = c
+                        break
+            if rev_col:
+                revenue_total = _to_num(br_df[rev_col]).sum()
+
+        tacos = (total_spend / revenue_total * 100) if revenue_total > 0 else 0
+        organic_sales = max(0, revenue_total - total_sales) if has_br else 0
+        organic_pct = (organic_sales / revenue_total * 100) if revenue_total > 0 else 0
+
+        if has_br and revenue_total > 0:
+            # 6 cards
+            r1 = st.columns(3)
+            with r1[0]:
+                st.markdown(
+                    kpi_card("Revenue Total", f"${revenue_total:,.2f}"),
+                    unsafe_allow_html=True,
+                )
+            with r1[1]:
+                st.markdown(
+                    kpi_card(
+                        "Ventas Orgánicas",
+                        f"${organic_sales:,.2f}",
+                        delta=organic_pct,
+                    ),
+                    unsafe_allow_html=True,
+                )
+                st.caption(f"{organic_pct:.1f}% del revenue")
+            with r1[2]:
+                tacos_delta = tacos - 15  # benchmark 15%
+                st.markdown(
+                    kpi_card("TACoS", f"{tacos:.1f}%", delta=tacos_delta, delta_good=False),
+                    unsafe_allow_html=True,
+                )
+                if tacos < 10:
+                    st.markdown(_badge("Excelente", "ok"), unsafe_allow_html=True)
+                elif tacos < 20:
+                    st.markdown(_badge("Saludable", "ok"), unsafe_allow_html=True)
+                elif tacos < 35:
+                    st.markdown(_badge("Alto", "warn"), unsafe_allow_html=True)
                 else:
-                    st.caption("No se detectaron tipos (sin columna Campaign Type).")
-            with ec2:
-                st.markdown("**Por match type (desde nombre)**")
-                for k, v in structure["by_match"].items():
-                    if v > 0:
-                        st.markdown(f"- {k}: **{v}** campanas")
-            with ec3:
-                st.markdown("**Portfolios**")
-                if structure["portfolios"]:
-                    for k, v in structure["portfolios"].items():
-                        st.markdown(f"- {k}: **{v}**")
-                else:
-                    st.caption("Sin portfolios detectados.")
+                    st.markdown(_badge("Crítico", "crit"), unsafe_allow_html=True)
 
-        with st.expander("Naming Convention"):
-            st.metric(
-                "Cumplimiento naming",
-                f"{naming_pct}%",
-                delta=f"{good} de {total_names} campanas correctas",
-                delta_color="normal" if naming_pct >= 70 else "inverse",
+            r2 = st.columns(3)
+        else:
+            st.info(
+                "💡 Subí el Business Report para ver TACoS, Revenue y Ventas Orgánicas."
             )
-            if not brand:
-                st.info("Ingresa el nombre de la marca para mejorar la deteccion de naming.")
-            if bad_names:
-                st.warning(f"{len(bad_names)} campanas no siguen la naming convention (mostrando hasta 20).")
-                st.dataframe(
-                    pd.DataFrame({"Campana": bad_names}),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            else:
-                st.success("Todas las campanas siguen la naming convention.")
+            r2 = st.columns(3)
 
-        with st.expander("Eficiencia"):
-            e1, e2, e3, e4 = st.columns(4)
-            e1.metric("Spend Total", f"${efficiency['total_spend']:,.2f}")
-            e2.metric("Sales Total", f"${efficiency['total_sales']:,.2f}")
-            e3.metric("ACoS Promedio", f"{efficiency['avg_acos']:.1f}%")
-            delta_pp = efficiency["avg_acos"] - target_acos
-            e4.metric(
-                "vs Target",
-                f"{delta_pp:+.1f} pp",
-                delta_color="inverse" if delta_pp > 0 else "normal",
+        # ACoS / Impressions / Spend+Sales — always shown
+        with r2[0]:
+            st.markdown(
+                kpi_card("ACoS Overall", f"{acos_overall:.1f}%"),
+                unsafe_allow_html=True,
+            )
+            breakdown = []
+            if sp_m["Sales"] > 0:
+                breakdown.append(f"SP {_acos(sp_m['Spend'], sp_m['Sales']):.1f}%")
+            if sb_m["Sales"] > 0:
+                breakdown.append(f"SB {_acos(sb_m['Spend'], sb_m['Sales']):.1f}%")
+            if sd_m["Sales"] > 0:
+                breakdown.append(f"SD {_acos(sd_m['Spend'], sd_m['Sales']):.1f}%")
+            if breakdown:
+                st.caption(" | ".join(breakdown))
+
+        with r2[1]:
+            st.markdown(
+                kpi_card("Impressions", f"{total_imps:,.0f}"),
+                unsafe_allow_html=True,
+            )
+            parts = []
+            if sp_m["Impressions"] > 0:
+                parts.append(
+                    f"SP {sp_m['Impressions'] / total_imps * 100:.0f}%"
+                    if total_imps > 0 else "SP —"
+                )
+            if sb_m["Impressions"] > 0:
+                parts.append(
+                    f"SB {sb_m['Impressions'] / total_imps * 100:.0f}%"
+                    if total_imps > 0 else "SB —"
+                )
+            if sd_m["Impressions"] > 0:
+                parts.append(
+                    f"SD {sd_m['Impressions'] / total_imps * 100:.0f}%"
+                    if total_imps > 0 else "SD —"
+                )
+            if parts:
+                st.caption(" | ".join(parts))
+
+        with r2[2]:
+            st.markdown(
+                kpi_card("PPC Spend", f"${total_spend:,.2f}"),
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                f"Sales: ${total_sales:,.2f} | "
+                f"SP ${sp_m['Spend']:,.0f} / SB ${sb_m['Spend']:,.0f} / SD ${sd_m['Spend']:,.0f}"
             )
 
-            if efficiency["top_spend"]:
-                st.markdown("**Top 5 por Spend**")
-                st.dataframe(
-                    pd.DataFrame(efficiency["top_spend"], columns=["Campana", "Spend ($)"]),
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={"Spend ($)": st.column_config.NumberColumn(format="$%.2f")},
+        # Extra row: Clicks, Orders, CTR/CVR
+        st.markdown("")
+        r3 = st.columns(4)
+        with r3[0]:
+            st.markdown(
+                kpi_card("Clicks", f"{total_clicks:,.0f}"), unsafe_allow_html=True,
+            )
+        with r3[1]:
+            st.markdown(
+                kpi_card("Orders", f"{total_orders:,.0f}"), unsafe_allow_html=True,
+            )
+        with r3[2]:
+            ctr_val = (total_clicks / total_imps * 100) if total_imps > 0 else 0
+            st.markdown(
+                kpi_card("CTR", f"{ctr_val:.2f}%"), unsafe_allow_html=True,
+            )
+        with r3[3]:
+            cvr_val = (total_orders / total_clicks * 100) if total_clicks > 0 else 0
+            st.markdown(
+                kpi_card("CVR", f"{cvr_val:.2f}%"), unsafe_allow_html=True,
+            )
+
+    # ════════════════════════════════════════════════════════════
+    # TAB 2 — Auditoría de Estructura
+    # ════════════════════════════════════════════════════════════
+    with tab2:
+        c1, c2, c3 = st.columns(3)
+
+        # ── Card 1: Match Types Mixtos ──────────────────────────
+        with c1:
+            st.markdown("**Match Types Mixtos**")
+
+            mixed_camps = []
+            if len(sp_kws) > 0 and "Campaign Name" in sp_kws.columns and "Match Type" in sp_kws.columns:
+                mt_per_camp = (
+                    sp_kws.groupby("Campaign Name")["Match Type"]
+                    .nunique()
+                    .reset_index()
+                    .rename(columns={"Match Type": "n_match"})
                 )
+                mixed_camps = mt_per_camp[mt_per_camp["n_match"] > 1]["Campaign Name"].tolist()
 
-            if efficiency["top_sales"]:
-                st.markdown("**Top 5 por Sales**")
-                st.dataframe(
-                    pd.DataFrame(efficiency["top_sales"], columns=["Campana", "Sales ($)"]),
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={"Sales ($)": st.column_config.NumberColumn(format="$%.2f")},
-                )
-
-        with st.expander("Desperdicio"):
-            d1, d2, d3 = st.columns(3)
-            d1.metric("Spend sin ventas (WAS)", f"${efficiency['wasted_spend']:,.2f}")
-            d2.metric("Campanas sin ventas", str(efficiency.get("wasted_campaigns", 0)))
-            d3.metric("Campanas fantasma (0 imps)", str(efficiency.get("ghost_count", 0)))
-            if efficiency["total_spend"] > 0:
-                waste_ratio = efficiency["wasted_spend"] / efficiency["total_spend"] * 100
-                if waste_ratio > 30:
-                    st.error(f"Desperdicio critico: {waste_ratio:.1f}% del spend sin retorno.")
-                elif waste_ratio > 15:
-                    st.warning(f"Desperdicio elevado: {waste_ratio:.1f}% del spend sin retorno.")
-                else:
-                    st.success(f"Desperdicio bajo: {waste_ratio:.1f}% del spend sin retorno.")
-
-        with st.expander("Cobertura de Funnel por ASIN"):
-            if coverage:
-                rows = []
-                for asin, types in sorted(coverage.items()):
-                    rows.append({
-                        "ASIN": asin,
-                        "Auto": "Si" if "Auto" in types else "No",
-                        "Broad": "Si" if "Broad" in types else "No",
-                        "Phrase": "Si" if "Phrase" in types else "No",
-                        "Exact": "Si" if "Exact" in types else "No",
-                        "PAT": "Si" if "PAT" in types else "No",
-                        "Tipos activos": len(types),
-                        "Funnel completo": "Si" if len(types) >= 3 else "No",
-                    })
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            n_mixed = len(mixed_camps)
+            if n_mixed == 0:
+                st.markdown(_badge("OK — 0 campañas mixtas", "ok"), unsafe_allow_html=True)
             else:
-                st.info("No se detectaron ASINs en los nombres de campana (patron B0XXXXXXXXX).")
+                st.markdown(
+                    _badge(f"REVISAR — {n_mixed} campañas mixtas", "warn"),
+                    unsafe_allow_html=True,
+                )
+                with st.expander(f"Ver {n_mixed} campañas mixtas"):
+                    for camp_name in mixed_camps[:20]:
+                        st.caption(f"• {camp_name}")
 
-        if br_df is not None:
-            with st.expander("BuyBox"):
-                if buybox_issues:
-                    st.warning(f"{len(buybox_issues)} ASINs con BuyBox < 90%")
-                    st.dataframe(
-                        pd.DataFrame(buybox_issues),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-                else:
-                    st.success("Todos los ASINs con BuyBox >= 90%.")
+            # Match type distribution
+            st.markdown("")
+            st.caption("Distribución SP Keywords:")
+            if len(sp_kws) > 0 and "Match Type" in sp_kws.columns:
+                mt_dist = sp_kws["Match Type"].value_counts()
+                for mt, cnt in mt_dist.items():
+                    st.caption(f"  {mt}: {cnt}")
+            else:
+                st.caption("  Sin datos")
 
-        # ── Excel download ────────────────────────────────────────────────
-        st.divider()
-        excel_buf = _build_audit_excel(
-            score, structure, naming_pct, bad_names, efficiency,
-            coverage, buybox_issues, brand or "", target_acos,
-        )
-        filename = f"PPC_Audit_{brand or 'cuenta'}_{datetime.date.today().strftime('%Y%m%d')}.xlsx"
-        st.download_button(
-            label="Descargar Reporte de Auditoria (.xlsx)",
-            data=excel_buf,
-            file_name=filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="audit_dl",
-        )
+            # SB match types
+            if len(sb_kws) > 0 and "Match Type" in sb_kws.columns:
+                st.caption("Distribución SB Keywords:")
+                mt_dist_sb = sb_kws["Match Type"].value_counts()
+                for mt, cnt in mt_dist_sb.items():
+                    st.caption(f"  {mt}: {cnt}")
+
+        # ── Card 2: Target WAS ──────────────────────────────────
+        with c2:
+            st.markdown("**Target WAS (Wasted Ad Spend)**")
+
+            # SP Manual: keywords + product targeting with spend > 0 and sales == 0
+            sp_manual_targets = pd.concat([sp_kws, sp_pts], ignore_index=True)
+            sp_manual_was = 0
+            sp_manual_spend = 0
+            sp_was_count = 0
+            if len(sp_manual_targets) > 0 and "Spend" in sp_manual_targets.columns and "Sales" in sp_manual_targets.columns:
+                sp_manual_spend = sp_manual_targets["Spend"].sum()
+                mask = (sp_manual_targets["Spend"] > 0) & (sp_manual_targets["Sales"] == 0)
+                sp_manual_was = sp_manual_targets.loc[mask, "Spend"].sum()
+                sp_was_count = mask.sum()
+
+            # SB keywords
+            sb_was = 0
+            sb_was_count = 0
+            if len(sb_kws) > 0 and "Spend" in sb_kws.columns and "Sales" in sb_kws.columns:
+                mask_sb = (sb_kws["Spend"] > 0) & (sb_kws["Sales"] == 0)
+                sb_was = sb_kws.loc[mask_sb, "Spend"].sum()
+                sb_was_count = mask_sb.sum()
+
+            # SD: ad groups + audience targeting
+            sd_was = 0
+            sd_was_count = 0
+            if len(sd_df) > 0 and "Entity" in sd_df.columns and "Spend" in sd_df.columns and "Sales" in sd_df.columns:
+                sd_targets = sd_df[sd_df["Entity"].isin(["Ad Group", "Audience Targeting"])]
+                if len(sd_targets) > 0:
+                    mask_sd = (sd_targets["Spend"] > 0) & (sd_targets["Sales"] == 0)
+                    sd_was = sd_targets.loc[mask_sd, "Spend"].sum()
+                    sd_was_count = mask_sd.sum()
+
+            total_was = sp_manual_was + sb_was + sd_was
+            total_target_spend = sp_manual_spend + (
+                sb_kws["Spend"].sum() if len(sb_kws) > 0 and "Spend" in sb_kws.columns else 0
+            )
+            was_pct = (total_was / total_target_spend * 100) if total_target_spend > 0 else 0
+
+            if was_pct < 20:
+                st.markdown(_badge(f"OK — {was_pct:.1f}% waste", "ok"), unsafe_allow_html=True)
+            elif was_pct < 40:
+                st.markdown(_badge(f"REVISAR — {was_pct:.1f}% waste", "warn"), unsafe_allow_html=True)
+            else:
+                st.markdown(_badge(f"CRÍTICO — {was_pct:.1f}% waste", "crit"), unsafe_allow_html=True)
+
+            st.markdown(f"**${total_was:,.2f}** desperdicio en targets")
+            st.caption(f"SP: ${sp_manual_was:,.2f} ({sp_was_count} targets)")
+            st.caption(f"SB: ${sb_was:,.2f} ({sb_was_count} targets)")
+            st.caption(f"SD: ${sd_was:,.2f} ({sd_was_count} targets)")
+
+        # ── Card 3: Search Term WAS ─────────────────────────────
+        with c3:
+            st.markdown("**Search Term WAS**")
+
+            # SP STR
+            sp_st_was = 0
+            sp_st_was_count = 0
+            sp_st_spend_total = 0
+            if len(sp_str_df) > 0 and "Spend" in sp_str_df.columns and "Sales" in sp_str_df.columns:
+                sp_st_spend_total = sp_str_df["Spend"].sum()
+                mask_sp_st = (sp_str_df["Spend"] > 0) & (sp_str_df["Sales"] == 0)
+                sp_st_was = sp_str_df.loc[mask_sp_st, "Spend"].sum()
+                sp_st_was_count = mask_sp_st.sum()
+
+            # SB STR
+            sb_st_was = 0
+            sb_st_was_count = 0
+            if len(sb_str_df) > 0 and "Spend" in sb_str_df.columns and "Sales" in sb_str_df.columns:
+                mask_sb_st = (sb_str_df["Spend"] > 0) & (sb_str_df["Sales"] == 0)
+                sb_st_was = sb_str_df.loc[mask_sb_st, "Spend"].sum()
+                sb_st_was_count = mask_sb_st.sum()
+
+            total_st_was = sp_st_was + sb_st_was
+            st_was_pct = (sp_st_was / sp_st_spend_total * 100) if sp_st_spend_total > 0 else 0
+
+            if st_was_pct < 25:
+                st.markdown(_badge(f"OK — {st_was_pct:.1f}% SP ST waste", "ok"), unsafe_allow_html=True)
+            elif st_was_pct < 40:
+                st.markdown(_badge(f"REVISAR — {st_was_pct:.1f}% SP ST waste", "warn"), unsafe_allow_html=True)
+            else:
+                st.markdown(_badge(f"CRÍTICO — {st_was_pct:.1f}% SP ST waste", "crit"), unsafe_allow_html=True)
+
+            st.markdown(f"**${total_st_was:,.2f}** desperdicio en search terms")
+            st.caption(f"SP: ${sp_st_was:,.2f} ({sp_st_was_count} terms)")
+            st.caption(f"SB: ${sb_st_was:,.2f} ({sb_st_was_count} terms)")
+
+            # Top 5 search terms sin ventas
+            if sp_st_was_count > 0:
+                st.markdown("")
+                st.caption("Top 5 SP search terms sin ventas:")
+                top5_cols = ["Customer Search Term", "Spend", "Clicks", "Impressions"]
+                available = [c for c in top5_cols if c in sp_str_df.columns]
+                if "Customer Search Term" not in sp_str_df.columns:
+                    for c in sp_str_df.columns:
+                        if "search" in c.lower() and "term" in c.lower():
+                            available = [c] + [x for x in available if x != "Customer Search Term"]
+                            break
+                top5 = (
+                    sp_str_df[(sp_str_df["Spend"] > 0) & (sp_str_df["Sales"] == 0)]
+                    .sort_values("Spend", ascending=False)
+                    .head(5)
+                )
+                if len(available) > 0 and len(top5) > 0:
+                    display_cols = [c for c in available if c in top5.columns]
+                    if display_cols:
+                        st.dataframe(
+                            top5[display_cols],
+                            use_container_width=True,
+                            hide_index=True,
+                            height=min(38 + 35 * len(top5), 220),
+                        )
+
+    # ════════════════════════════════════════════════════════════
+    # TAB 3 — Performance Segmento (placeholder)
+    # ════════════════════════════════════════════════════════════
+    with tab3:
+        st.info("🎯 Performance por Segmento — Próximamente")
+
+    # ════════════════════════════════════════════════════════════
+    # TAB 4 — Deep Checks (placeholder)
+    # ════════════════════════════════════════════════════════════
+    with tab4:
+        st.info("🔍 Deep Checks — Próximamente")
+
+    # ════════════════════════════════════════════════════════════
+    # TAB 5 — Export (placeholder)
+    # ════════════════════════════════════════════════════════════
+    with tab5:
+        st.info("📥 Export — Próximamente")
