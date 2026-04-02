@@ -66,7 +66,7 @@ def _classify_status(row, target_acos):
     clicks = row["_clicks"]
     acos = (spend / sales * 100) if sales > 0 else 0
 
-    if sales > 0 and acos > 0 and acos < target_acos * 0.5:
+    if orders >= 3 and acos > 0 and acos < target_acos * 0.5:
         return "Escalar"
     if sales > 0 and acos <= target_acos:
         return "OK"
@@ -83,6 +83,60 @@ def _is_brand_campaign(name):
     """Detect if a campaign name suggests brand/defensive."""
     n = str(name).lower()
     return any(kw in n for kw in ["branded", "brand", "defense", "defensive"])
+
+
+def _build_str_excel(df_f, df_original, kpi_dict, brand_terms):
+    """Genera Excel multi-sheet con STR analizado. Retorna bytes."""
+    buf = io.BytesIO()
+
+    # Preparar hoja 1
+    df_exp = df_f.copy() if len(df_f) > 0 else df_original.head(0).copy()
+    rename_map = {}
+    if "_term_type" in df_exp.columns:
+        rename_map["_term_type"] = "Tipo Termino"
+    if "_estado" in df_exp.columns:
+        rename_map["_estado"] = "Estado"
+    if rename_map:
+        df_exp = df_exp.rename(columns=rename_map)
+    drop_cols = [c for c in df_exp.columns if c.startswith("_")]
+    df_exp = df_exp.drop(columns=drop_cols, errors="ignore")
+
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        # Hoja 1 — siempre
+        df_exp.to_excel(writer, sheet_name="STR Analizado", index=False)
+
+        # Hoja 2 — KPIs
+        kpi_rows = [[k, v] for k, v in kpi_dict.items()]
+        pd.DataFrame(kpi_rows, columns=["Metrica", "Valor"]).to_excel(
+            writer, sheet_name="Resumen KPIs", index=False
+        )
+
+        # Hoja 3 — Por Estado
+        if len(df_f) > 0 and "_estado" in df_f.columns:
+            est = df_f.groupby("_estado").agg(
+                Terminos=("_estado", "count"),
+                Spend=("_spend", "sum"),
+                Sales=("_sales", "sum"),
+            ).reset_index().rename(columns={"_estado": "Estado"})
+            est["ACoS"] = (est["Spend"] / est["Sales"].replace(0, float("nan")) * 100).fillna(0).round(1)
+            est.sort_values("Spend", ascending=False).to_excel(
+                writer, sheet_name="Por Estado", index=False
+            )
+
+        # Hoja 4 — Por Tipo Término
+        if len(df_f) > 0 and "_term_type" in df_f.columns and brand_terms:
+            tt = df_f.groupby("_term_type").agg(
+                Terminos=("_term_type", "count"),
+                Spend=("_spend", "sum"),
+                Sales=("_sales", "sum"),
+                Orders=("_orders", "sum"),
+            ).reset_index().rename(columns={"_term_type": "Tipo"})
+            tt["ACoS"] = (tt["Spend"] / tt["Sales"].replace(0, float("nan")) * 100).fillna(0).round(1)
+            tt["% Spend"] = (tt["Spend"] / tt["Spend"].sum() * 100).round(1)
+            if not tt.empty:
+                tt.to_excel(writer, sheet_name="Por Tipo Termino", index=False)
+
+    return buf.getvalue()
 
 
 def render():
@@ -259,7 +313,7 @@ def render():
 
         # Vista rápida
         if vista == "Winners":
-            df_f = df_f[(df_f["_sales"] > 0) & (df_f["_acos"] > 0) & (df_f["_acos"] < target_acos)]
+            df_f = df_f[(df_f["_orders"] >= 2) & (df_f["_acos"] > 0) & (df_f["_acos"] < target_acos)]
             df_f = df_f.sort_values("_acos", ascending=True)
         elif vista == "Sin ventas":
             df_f = df_f[(df_f["_spend"] > 0) & (df_f["_sales"] == 0)]
@@ -379,14 +433,40 @@ def render():
             tt_group["Sales"] = tt_group["Sales"].apply(lambda x: f"${x:,.2f}")
             st.dataframe(tt_group, use_container_width=True, hide_index=True)
 
-        # ── Download button ────────────────────────────────────
+        # ── Download Excel multi-sheet ─────────────────────────
         st.markdown("---")
-        buf_str = io.BytesIO()
-        df.to_excel(buf_str, index=False)
+        from datetime import date
+        _today = date.today().isoformat()
+
+        kpi_dict = {
+            "Total Spend": f"${total_spend:,.2f}",
+            "Total Sales": f"${total_sales:,.2f}",
+            "ACoS": f"{acos_val:.1f}%",
+            "ROAS": f"{roas_val:.2f}x",
+            "Impressions": f"{total_imps:,.0f}",
+            "Clicks": f"{total_clicks:,.0f}",
+            "CTR": f"{ctr_val:.2f}%",
+            "CVR": f"{cvr_val:.2f}%",
+            "CPC": f"${cpc_val:.2f}",
+            "Orders": f"{total_orders:,.0f}",
+            "% Waste": f"{pct_waste:.1f}%",
+            "% Con Ventas": f"{pct_conv:.1f}%",
+            "Target ACoS": f"{target_acos}%",
+            "Fecha": _today,
+        }
+
+        try:
+            excel_bytes = _build_str_excel(df_f, df, kpi_dict, brand_terms)
+        except Exception as e:
+            st.warning(f"Error generando Excel: {e}")
+            buf_fallback = io.BytesIO()
+            df_f.to_excel(buf_fallback, index=False)
+            excel_bytes = buf_fallback.getvalue()
+
         st.download_button(
-            "Descargar STR completo (Excel)",
-            data=buf_str.getvalue(),
-            file_name="search_term_report.xlsx",
+            "\u2b07\ufe0f Descargar STR Analizado (Excel)",
+            data=excel_bytes,
+            file_name=f"STR_analizado_{_today}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True, key="str_dl",
         )
@@ -919,12 +999,14 @@ def render():
 
             # ── Download ──────────────────────────────────────
             st.markdown("---")
+            from datetime import date as _date
+            camp_today = _date.today().strftime("%Y-%m-%d")
             buf_camp = io.BytesIO()
             df_camp.to_excel(buf_camp, index=False)
             st.download_button(
                 "Descargar Performance por Campana (Excel)",
                 data=buf_camp.getvalue(),
-                file_name="str_por_campana.xlsx",
+                file_name=f"STR_por_campana_{camp_today}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True, key="str_camp_dl",
             )
