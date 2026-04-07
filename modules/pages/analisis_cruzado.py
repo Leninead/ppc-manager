@@ -37,7 +37,7 @@ def render():
             st.success(f"Marca detectada: **{brand_name.title()}**")
             brand_terms = [t.strip() for t in brand_name.split(",")]
             df_sqp["Tipo"] = df_sqp[sqp_col].str.lower().str.strip().apply(
-                lambda q: "Marca" if any(t in q for t in brand_terms) else "Genérica"
+                lambda q: "Marca" if isinstance(q, str) and any(t in q for t in brand_terms) else "Genérica"
             )
         else:
             marca_manual = st.text_input(
