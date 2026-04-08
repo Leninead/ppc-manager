@@ -1,5 +1,6 @@
 import io
 import re
+from datetime import datetime
 
 import numpy as np
 import streamlit as st
@@ -539,6 +540,82 @@ def render():
                     df_rr["PPC Activo"] = df_rr[ppc_available].fillna(0).sum(axis=1).apply(
                         lambda x: "✅ Sí" if x > 0 else "❌ No"
                     )
+
+                # ── Historial de ranking entre cargas ────────────────────
+                _RANK_HISTORY_KEY = "dd_rank_history"
+                if _RANK_HISTORY_KEY not in st.session_state:
+                    st.session_state[_RANK_HISTORY_KEY] = []
+
+                rr_kw_col = "Search Term" if "Search Term" in df_rr.columns else (
+                    "Keyword Phrase" if "Keyword Phrase" in df_rr.columns else None
+                )
+                rr_rank_cols = [c for c in df_rr.columns if "Rank" in c and "Actual" in c]
+                if not rr_rank_cols and "Median Rank" in df_rr.columns:
+                    rr_rank_cols = ["Median Rank"]
+
+                if rr_kw_col and rr_rank_cols:
+                    rr_rank_col = rr_rank_cols[0]
+                    existing_names = [s["filename"] for s in st.session_state[_RANK_HISTORY_KEY]]
+                    if file_rr.name not in existing_names:
+                        st.session_state[_RANK_HISTORY_KEY].append({
+                            "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            "filename": file_rr.name,
+                            "data": df_rr[[rr_kw_col, rr_rank_col]].copy().rename(
+                                columns={rr_rank_col: "Rank"}
+                            ),
+                        })
+                        if len(st.session_state[_RANK_HISTORY_KEY]) > 5:
+                            st.session_state[_RANK_HISTORY_KEY].pop(0)
+
+                    history = st.session_state[_RANK_HISTORY_KEY]
+                    if len(history) >= 2:
+                        st.markdown("---")
+                        st.markdown("#### 📊 Evolución de ranking entre cargas")
+                        prev_snap = history[-2]["data"]
+                        curr_snap = history[-1]["data"]
+
+                        df_delta = pd.merge(
+                            prev_snap, curr_snap,
+                            on=rr_kw_col, how="outer", suffixes=("_prev", "_curr"),
+                        )
+                        df_delta["Delta"] = df_delta["Rank_prev"] - df_delta["Rank_curr"]
+
+                        def _trend_label(d):
+                            if pd.isna(d):
+                                return "🆕 Nuevo"
+                            if d > 0:
+                                return "🟢 Subió"
+                            if d < 0:
+                                return "🔴 Bajó"
+                            return "→ Igual"
+
+                        df_delta["Cambio"] = df_delta["Delta"].apply(_trend_label)
+
+                        n_subio = (df_delta["Delta"] > 0).sum()
+                        n_bajo = (df_delta["Delta"] < 0).sum()
+                        avg_delta = df_delta["Delta"].mean()
+
+                        rk1, rk2, rk3 = st.columns(3)
+                        with rk1:
+                            st.markdown(kpi_card("Subieron", str(n_subio)), unsafe_allow_html=True)
+                        with rk2:
+                            st.markdown(kpi_card("Bajaron", str(n_bajo)), unsafe_allow_html=True)
+                        with rk3:
+                            delta_str = f"{avg_delta:+.1f} pos" if pd.notna(avg_delta) else "—"
+                            st.markdown(kpi_card("Delta promedio", delta_str), unsafe_allow_html=True)
+
+                        st.caption(
+                            f"Comparando: {history[-2]['filename']} vs {history[-1]['filename']}"
+                        )
+                        st.dataframe(
+                            df_delta.sort_values("Delta", ascending=False, na_position="last"),
+                            use_container_width=True, height=400,
+                        )
+                        st.info(
+                            f"📚 {len(history)} snapshots guardados en esta sesión. "
+                            "Subí otro archivo Rank Radar para ver la evolución."
+                        )
+                        st.markdown("---")
 
                 k1, k2, k3, k4 = st.columns(4)
                 with k1:
