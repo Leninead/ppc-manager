@@ -292,3 +292,299 @@ Generar rules de automatización para Atom11. Multi-marca configurable.
 ### Anti-patterns
 - NUNCA hardcodear thresholds — siempre como % del target del objetivo
 - SCAVENGER nunca tiene rules automáticas
+
+---
+
+## M12 — Reportes Atom 11
+**Archivo:** modules/pages/atom11.py
+**Sección sidebar:** Account
+**Session state prefix:** atom_
+
+### Propósito
+Analizar performance con reportes de Atom 11 (WoW, MoM, DateRange). Comparación entre períodos.
+
+### Arquitectura
+Upload 1-2 archivos Atom11 → detección automática de tipo (ASIN/Portfolio/Keyword) → KPIs comparativos → Excel con branding
+
+### Reglas de negocio
+- _parse_atom11() detecta formato automáticamente
+- _kpis(): Impressions, Clicks, Spend, Sales, Orders, ACoS, ROAS, CTR, CVR, CPC
+- Delta% coloreado: verde si mejora, rojo si empeora
+- Parent Evolution opcional si hay Parent-Child map cargado
+- Toggle ES/EN → _I18N dict
+
+### Inputs
+- 1 o 2 archivos Atom11 (.xlsx)
+- Parent-Child map (automático desde data/business_report/)
+
+### Anti-patterns
+- No confundir formato ASIN vs Portfolio vs Keyword — el parser los detecta automáticamente
+
+---
+
+## M13 — Reportes MerchanSpring
+**Archivo:** modules/pages/merchanspring.py
+**Sección sidebar:** Account
+**Session state prefix:** ms_
+
+### Propósito
+Procesar reportes de MerchanSpring (.xlsx o .pdf) en Excel estructurado.
+
+### Arquitectura
+5 tabs: Summary | Advertising | Inventory & Health | WoW Comparison | Details
+
+### Reglas de negocio
+- Parser PDF defensivo (try/except en cada sección)
+- Parser XLSX maneja estructura variable entre clientes
+- Helpers de estilo: _s_acos, _s_margin, _s_delta, _s_eff, _s_stock
+
+### Inputs
+- MerchanSpring (.xlsx o .pdf)
+
+### Anti-patterns
+- IndexError con formatos distintos entre clientes — siempre manejar con try/except
+
+---
+
+## M14 — Weekly Client Report
+**Archivo:** modules/pages/weekly_client_report.py
+**Sección sidebar:** Account
+**Session state prefix:** wcr_
+
+### Propósito
+Generar reporte semanal para el cliente con comparación WoW automática.
+
+### Arquitectura
+Upload BR (PW+TW) + BR by Child + Atom11 + Campaign CSV → Excel 3 hojas (WoW + Advertising + Ejecutivo) + changelog
+
+### Reglas de negocio
+- Split automático PW/TW de BR daily
+- BuyBox_TW = None si BR no tiene columna (ej: M&B)
+- Detecta Unit Session Percentage o Order Item Session Percentage
+- Toggle ES/EN para reporte ejecutivo
+- Changelog: st.text_area → hoja adicional en Excel
+
+### Inputs
+- BR Daily (.csv/.xlsx) — PW y TW
+- BR by Child (.csv/.xlsx)
+- Atom11 ASIN (.xlsx) — PW y TW
+- Campaign CSV (.csv)
+
+### Anti-patterns
+- BuyBox con 0 sesiones → ignorar (evita falsos positivos)
+
+---
+
+## M15 — DataDive Analyzer
+**Archivo:** modules/pages/datadive_analyzer.py
+**Sección sidebar:** Research
+**Session state prefix:** dd_
+
+### Propósito
+Procesar reportes DataDive: MKL keywords, competitors matrix, rank radar tracking y ranking volatility.
+
+### Arquitectura
+4 tabs: MKL Keywords (SV, Organic Rank, IQ Score, flags oportunidad) | Competitors (comparación vs Niche Median) | Rank Radar (ranking orgánico diario, tendencia) | Ranking Volatility (std dev + PPC IS cruzado con SQP)
+
+### Reglas de negocio
+- Flags: Oportunidad PPC (organic sin ads) / Depende de Ads (ads sin organic)
+- Volatilidad: ESTABLE (std < 3) / VOLÁTIL (3-8) / MUY VOLÁTIL (> 8)
+- Tab 4 cruza con SQP para PPC Impression Share
+- Volátil sin PPC = RIESGO | Estable top 10 con PPC = oportunidad reducir spend
+
+### Inputs
+- DataDive MKL (.xlsx) — Tab 1
+- DataDive Competitors (.xlsx) — Tab 2
+- DataDive Rank Radar (.xlsx) — Tab 3
+- SQP (.xlsx) — opcional para Tab 4
+
+### Anti-patterns
+- Parsers son específicos por tipo de export DataDive — no intercambiar
+
+---
+
+## M16 — Helium 10 Analyzer
+**Archivo:** modules/pages/helium10_analyzer.py
+**Sección sidebar:** Research
+**Session state prefix:** h10_
+
+### Propósito
+Procesar Cerebro (reverse ASIN) para KW research, competitor gap y oportunidades PPC.
+
+### Arquitectura
+3 tabs: Cerebro Reverse ASIN (filtros + flags) | KW Research Launch Pack (multi-competidor, Launch Priority Score) | Competitor Gap (tu ASIN vs competidores)
+
+### Reglas de negocio
+- _parse_cerebro(): maneja "-" como NaN, detecta ASIN del filename
+- Launch Priority Score = SV × (comps ranking / total) × (1 / avg rank)
+- Clustering automático por root word
+- Competitor Gap acciones: ATACAR (SV≥500, rank≤15) / MONITOREAR / IGNORAR
+
+### Inputs
+- Helium 10 Cerebro (.xlsx) — 1 archivo para Tab 1, 1-3 para Tab 2, 2-3 para Tab 3
+
+### Anti-patterns
+- No confundir Cerebro con Magnet — son exports distintos
+
+---
+
+## M17 — SBH Target Recommendation
+**Archivo:** modules/pages/sbh_recommendation.py
+**Sección sidebar:** Research
+**Session state prefix:** sbh_
+
+### Propósito
+Recomendar keywords target para Sponsored Brand Headline cruzando MKL + SQP + Campaign CSV.
+
+### Arquitectura
+Upload MKL + SQP + Campaign CSV → priorización → clustering → headlines sugeridos
+
+### Reglas de negocio
+- Prioridad ALTA: SV ≥1000, IS <10%, mercado comprando, no en SP
+- Prioridad MEDIA: SV ≥500, IS <20%
+- Prioridad BAJA: SV ≥300
+- Clustering por root words + headline sugerido por cluster
+
+### Inputs
+- DataDive MKL (.xlsx) — requerido
+- SQP (.xlsx/.csv) — requerido
+- Campaign CSV (.csv) — opcional
+
+### Anti-patterns
+- No incluir brand keywords en SBH targets — son para Defensive SP
+
+---
+
+## M18 — PPC Insights Engine
+**Archivo:** modules/pages/ppc_insights.py (~530 líneas)
+**Sección sidebar:** Research
+**Session state prefix:** insights_
+
+### Propósito
+Health score 0-100 por ASIN cruzando todos los reportes. Identifica ASINs problemáticos y wasted spend.
+
+### Arquitectura
+Cards por ASIN con expanders (STR, SQP, BR, Campañas) + botón IA opcional + Excel multi-sheet (hasta 10 hojas por ASIN)
+
+### Reglas de negocio
+- Health Score = CVR (25 pts) + BuyBox (20 pts) + ACoS vs target (25 pts) + Funnel completo (15 pts) + Impression Share (15 pts)
+- Top keywords por ventas + bleeders (gasto sin conversión)
+- Score emoji: ≥80 🟢 | 60-79 🟡 | <60 🔴
+
+### Inputs
+- STR (.xlsx/.csv) — requerido
+- SQP (.xlsx/.csv) — opcional
+- BR by ASIN (.csv/.xlsx) — opcional
+- Campaign CSV (.csv) — opcional
+
+### Anti-patterns
+- No calcular health score con solo STR — mínimo 2 fuentes para score confiable
+
+---
+
+## M19 — PPC Forecast
+**Archivo:** modules/pages/ppc_forecast.py (~450 líneas)
+**Sección sidebar:** Research
+**Session state prefix:** forecast_
+
+### Propósito
+Proyección de ventas con tendencia lineal + estacionalidad. Budget recommendation.
+
+### Arquitectura
+Upload BR diario → tendencia (numpy polyfit) → ajuste estacionalidad finde/laboral → proyección 7/14/30d → gráfico + Excel
+
+### Reglas de negocio
+- Mínimo 14 días de data, ideal 30+
+- Tendencia: numpy polyfit grado 1
+- Estacionalidad: ratio finde vs laboral
+- 3 escenarios: conservador / base / optimista
+
+### Inputs
+- Business Report diario (.xlsx/.csv) — mínimo 14 días
+
+### Anti-patterns
+- No proyectar con menos de 14 días — resultados no confiables
+- No usar para predicción > 30 días — pierde precisión
+
+---
+
+## M20 — PPC Audit Pro
+**Archivo:** modules/pages/ppc_audit.py (~1,077 líneas)
+**Sección sidebar:** Research
+**Session state prefix:** audit_
+
+### Propósito
+Auditoría profunda desde Bulk File multi-hoja. Breakdown real SP/SB/SD, 10 segmentos, 5 deep checks.
+
+### Arquitectura
+5 tabs: KPIs Overview (breakdown SP/SB/SD) | Auditoría Estructura (3 cards badges) | Performance por Segmento (10 SP + SB + SD) | Deep Checks (5 análisis) | Export Excel (6 hojas)
+
+### Reglas de negocio
+- Parser _parse_bulk(): 5 hojas (SP Campaigns, SB Campaigns, SD Campaigns, SP STR, SB STR)
+- Tab 2: Match Types Mixtos (>1 match por campaign) / Target WAS (Spend>0, Sales=0) / Search Term WAS
+- Tab 3: 10 segmentos SP (KW Exact/Phrase/Broad + PT ASIN/Category + AUTO Close/Loose/Substitutes/Complements)
+- Tab 4: Top 5 campañas / Clasificación targets (own_brand/own_asin/competitor/generic) / Duplicación targets / Bid Adjustments / SKAG vs Bolsa
+- ACoS semáforo: verde ≤30%, amarillo 31-55%, rojo >55%
+- Headers coloreados: SP azul #1d4b8f, SB violeta #6b2d8f, SD verde #2a6e4e
+
+### Inputs
+- Bulk File (.xlsx) — requerido (Campaign Manager → Bulk Operations)
+- Business Report (.xlsx/.csv) — opcional (para TACoS y Revenue)
+- Brand terms — input texto (para clasificación de targets)
+
+### Anti-patterns
+- NO confundir Bulk File con Campaign CSV — son formatos distintos
+- _build_audit_excel() DEBE estar fuera de render()
+
+---
+
+## M21 — Account Pulse
+**Archivo:** modules/pages/account_pulse.py (~430 líneas)
+**Sección sidebar:** Research
+**Session state prefix:** pulse_
+
+### Propósito
+Monitor de salud diaria: ventas, units, sessions, CVR, ACoS con deltas WoW. Festivos MX.
+
+### Arquitectura
+Upload BR diario + BR by Child + Campaign CSV → split PW/TW automático → Excel 4 hojas
+
+### Reglas de negocio
+- Festivos MX: Año Nuevo, Constitución, Juárez, Trabajo, Independencia, Muertos, Revolución, Navidad
+- Anomalía: caída >30% del promedio
+- BuyBox ordenado por impacto económico (ventas perdidas estimadas)
+- Campañas: NUEVA (verde) vs HEREDADA (azul)
+- Portada naranja con KPIs + diagnóstico + mensaje Slack
+
+### Inputs
+- BR Daily (.csv/.xlsx) — mínimo 14 días
+- BR by Child (.csv/.xlsx) — opcional
+- Campaign CSV (.csv) — opcional
+
+### Anti-patterns
+- BuyBox con 0 sesiones → ignorar
+
+---
+
+## M22 — Knowledge Base
+**Archivo:** modules/pages/knowledge_base.py (~180 líneas)
+**Sección sidebar:** Knowledge
+**Session state prefix:** kb_
+
+### Propósito
+Repositorio de notas y documentación del equipo. Buscar, filtrar y crear notas .md.
+
+### Arquitectura
+2 tabs: Explorar notas (upload + búsqueda texto + filtro tags/categorías) | Agregar nota (formulario + preview + descarga .md)
+
+### Reglas de negocio
+- Categorías: ppc, amazon, ai, strategy, client
+- Parsea headers/tags/categorías/fecha del filename
+- Búsqueda full-text case-insensitive
+- Badges de categoría estilo naranja
+
+### Inputs
+- Archivos .md o .txt
+
+### Anti-patterns
+- No procesar archivos que no sean texto plano (.md, .txt)
