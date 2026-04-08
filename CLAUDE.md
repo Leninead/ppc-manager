@@ -1506,3 +1506,104 @@ El PPC leader creó un sistema de auditoría PPC: prompt para Claude + HTML est�
 - [ ] Reconectar los 9 módulos que faltan en app.py (Research + Knowledge + Rules Builder)
 - [ ] Subir archivos actualizados al proyecto de Claude
 
+---
+
+## 📅 Sesión 2026-04-08 — Lo que hicimos
+
+### Bloque A — 3 Skills core creados (.claude/skills/)
+- **ppc-reporting-standard.md** — paleta Capybaras, kpi_card, semáforos ACoS, Excel branding, fórmulas PPC, benchmarks, formato numérico, terminología ES/EN
+- **module-architecture-standard.md** — patrón render(), header, empty states, tabs (sin return adentro), parsers @st.cache_data, _build_*_excel() fuera de render(), checklist pre-commit
+- **client-communication-tone.md** — tono Capybaras, estructura reporte ejecutivo, changelog técnico, formato Slack, reglas por mercado MX/US, toggle ES/EN, alarmas por severidad
+
+### Bloque B — 9 agentes upgradeados a v3 (.claude/agents/)
+Todos los agentes ahora tienen: frontmatter completo (name, description, tools, model, color, skills), secciones Rol/Activación/Tools/Proceso/Output obligatorio/Reglas, y principio de mínimo privilegio en tools.
+
+| Agente | Modelo | Tools | Skills asignados |
+|--------|--------|-------|------------------|
+| ppc-module-builder | Sonnet | All | ppc-reporting-standard, module-architecture-standard |
+| excel-export-builder | Sonnet | All | ppc-reporting-standard |
+| ui-designer | Sonnet | All | ppc-reporting-standard, module-architecture-standard |
+| code-reviewer | Sonnet | Read-only (Glob, Grep, Read) | module-architecture-standard, ppc-reporting-standard |
+| testing-agent | Sonnet | All + Bash | module-architecture-standard |
+| atom11-specialist | Sonnet | All | ppc-reporting-standard |
+| sop-writer | Haiku | Glob, Grep, Read, Write (.md only) | client-communication-tone |
+| client-notes-updater | Haiku | Glob, Grep, Read, Write (.md only) | client-communication-tone |
+| client-onboarding | Sonnet | All | ppc-reporting-standard, client-communication-tone |
+
+### Bloque C — CLAUDE.md por módulo
+- Creado `modules/pages/CLAUDE.md` con 22 secciones (M1–M22)
+- Cada sección: Propósito, Arquitectura, Reglas de negocio, Inputs, Anti-patterns
+- Los agentes ahora leen este archivo cuando trabajan en un módulo específico
+
+### Bloque 1 — Campaign Builder SB/SBV/SD
+- `campaign_builder.py` — selector de tipo (SP/SB/SD) con radio button
+- SP: lógica existente sin cambios
+- SB: inputs extra (headline 50 chars, brand name, creative ASINs ×3, landing page type/URL), naming [Marca]-[ASIN]-SB-KW-[Match]-[Cluster], bulk formato SB Amazon
+- SD: inputs extra (Product Targeting o Audience, bid optimization, ASINs competidores), naming [Marca]-[ASIN]-SD-[PT/AUD]-[SubTipo], bulk formato SD Amazon
+- ⚠️ Pendiente: validar columnas exactas del bulk SB/SD contra formato real de Amazon
+
+### Bloque 2 — Target Graduation + Pausado Inteligente
+- `ppc_audit.py` — Tab 6 nueva "🎯 Target Graduation"
+- Analiza targets con 0 impresiones en campañas que SÍ tienen tráfico
+- Clasificación: 🔼 SUBIR BID (tuvo ventas, bid bajo) / 🔴 PAUSAR (gastó sin convertir) / 🟡 GRADUAR A SKAG (mover a campaña propia) / 🛡️ MANTENER (keyword de marca)
+- 4 kpi_cards + tabla con color coding + filtro por recomendación
+- Hoja "Target Graduation" agregada al Excel de export
+
+### Bloque 3 — Competitor Gap → Campaign Builder Pipeline
+- `helium10_analyzer.py` — botón "Exportar como Plan de Acción" en Tab 3 Competitor Gap
+- Convierte keywords con acción ATACAR al formato Plan de Acción compatible con Campaign Builder
+- Pipeline completo: H10 Cerebro → Competitor Gap → Plan de Acción → Campaign Builder → bulk Amazon
+
+### Bloque 4 — Competitor Intelligence Unificado
+- `datadive_analyzer.py` — Tab 5 nueva "🏆 Competitor Intel"
+- Upload tu MKL + MKL competidor → merge outer por keyword
+- Clasificación: 🤝 Ambos rankean / ✅ Solo yo / 🔴 Solo competidor / ⚫ Ninguno
+- 4 kpi_cards + filtro por gap type + tabla + export Excel
+- Opcionalmente acepta Cerebro H10 del competidor
+
+### Bloque 5 — Comunicación Técnica (Slack)
+- `weekly_client_report.py` — botón "📋 Copiar Changelog para Slack"
+- Genera formato: emoji + marca + fecha + cambios + nota de adjunto
+- Renderizado en st.code con botón copiar nativo de Streamlit
+
+### Bloque 6 — Ranking Tracking Mejorado
+- `datadive_analyzer.py` Tab 3 Rank Radar — historial de ranking en session_state
+- Guarda hasta 5 snapshots por sesión
+- Cuando hay 2+ snapshots: muestra delta de posiciones, tendencia (🟢 Subió / 🔴 Bajó), kpi_cards con subieron/bajaron/delta promedio
+- Comparación entre archivos cargados en la misma sesión
+
+### Cobertura PPC
+- Antes: 75% (14 completas + 5 parciales + 3 sin cobertura)
+- Después: ~95% (22/22 funciones cubiertas)
+- Pendiente 5%: envío automático Slack/email (API) + tracking persistente entre sesiones (DB) → Etapa 11
+
+### Archivos creados hoy
+- `.claude/skills/ppc-reporting-standard.md` — NUEVO
+- `.claude/skills/module-architecture-standard.md` — NUEVO
+- `.claude/skills/client-communication-tone.md` — NUEVO
+- `modules/pages/CLAUDE.md` — NUEVO (22 secciones)
+
+### Archivos modificados hoy
+- `.claude/agents/` — 9 archivos reescritos (v3 con frontmatter + skills)
+- `modules/pages/campaign_builder.py` — + soporte SB y SD
+- `modules/pages/ppc_audit.py` — + Tab 6 Target Graduation
+- `modules/pages/helium10_analyzer.py` — + export Plan de Acción en Competitor Gap
+- `modules/pages/datadive_analyzer.py` — + Tab 5 Competitor Intel + ranking tracking en Tab 3
+- `modules/pages/weekly_client_report.py` — + botón Slack changelog
+
+### Metodología implementada (claude-methodology.md)
+- 3 Skills core cubriendo: formato reportes, arquitectura módulos, tono comunicación
+- 9 agentes con frontmatter, skills asignados, mínimo privilegio
+- CLAUDE.md por módulo (22 secciones) para contexto enfocado por agente
+- Flujo: agente lee CLAUDE.md raíz + Skills + CLAUDE.md módulo automáticamente
+
+### ⚠️ Pendiente próxima sesión
+- [ ] Validar columnas bulk SB/SD contra formato real de Amazon Ads
+- [ ] Testing Campaign Builder SB con datos reales
+- [ ] Testing Campaign Builder SD con datos reales
+- [ ] Testing Target Graduation con Bulk File real
+- [ ] Testing Competitor Intel con 2 MKL reales
+- [ ] Testing Rank Radar tracking con 2 archivos distintos
+- [ ] Actualizar inicio.py con features nuevas
+- [ ] Subir archivos actualizados al proyecto de Claude
+
