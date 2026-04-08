@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import re
+from datetime import datetime
 import openpyxl
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -853,6 +854,18 @@ def render():
         key="wcr_changelog",
         height=100,
     )
+
+    if changelog_input:
+        st.markdown("---")
+        st.markdown("#### 📋 Formato para Slack")
+        fecha_hoy = datetime.now().strftime("%d/%m/%Y")
+        slack_msg = (
+            f"🦫 {client_w or 'Cliente'} — Update {fecha_hoy}\n\n"
+            f"📋 Cambios realizados:\n{changelog_input}\n\n"
+            f"📎 Reporte semanal adjunto en Excel."
+        )
+        st.code(slack_msg, language=None)
+        st.caption("👆 Hacé click en el ícono de copiar arriba a la derecha del bloque para copiarlo.")
 
     if br_daily_file or br_child_file or atom_file or camp_file:
         st.divider()
