@@ -286,11 +286,12 @@ def render():
     )
     st.divider()
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📖 MKL Keywords",
         "⚔️ Competitors",
         "📡 Rank Radar",
         "📊 Ranking + PPC IS",
+        "🏆 Competitor Intel",
     ])
 
     # ══════════════════════════════════════════════════════════════════
@@ -826,3 +827,169 @@ def render():
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             key="dd_vol_dl",
                         )
+
+    # ══════════════════════════════════════════════════════════════════
+    # TAB 5 — Competitor Intelligence
+    # ══════════════════════════════════════════════════════════════════
+    with tab5:
+        st.subheader("🏆 Competitor Intelligence — Vista Unificada")
+        st.caption(
+            "Subí tu MKL + el de un competidor para comparación directa. "
+            "Opcionalmente agregá Cerebro de H10."
+        )
+
+        col_u1, col_u2 = st.columns(2)
+        with col_u1:
+            my_mkl = st.file_uploader("Tu MKL Keywords (.xlsx)", type=["xlsx"], key="dd_ci_my_mkl")
+        with col_u2:
+            comp_mkl = st.file_uploader("MKL Competidor (.xlsx)", type=["xlsx"], key="dd_ci_comp_mkl")
+
+        h10_file = st.file_uploader(
+            "Cerebro H10 del competidor (opcional)", type=["xlsx"], key="dd_ci_h10",
+        )
+
+        if not my_mkl or not comp_mkl:
+            st.markdown(
+                "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:2rem;"
+                "text-align:center;background:#FFF3E0;margin-top:1rem;'>"
+                "<div style='font-size:1.5rem;'>🏆</div>"
+                "<div style='font-weight:600;margin-top:0.5rem;'>Subí ambos MKL para comparar</div>"
+                "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
+                "DataDive → Niche → Keywords → Export para tu ASIN y el competidor</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            # Parse both MKL files
+            df_my = _parse_mkl(my_mkl.getvalue(), my_mkl.name)
+            df_comp = _parse_mkl(comp_mkl.getvalue(), comp_mkl.name)
+
+            if df_my.empty or df_comp.empty:
+                st.error("❌ No se pudo parsear uno de los MKL. Verificá el formato.")
+            else:
+                # Detect keyword column
+                kw_col = "Search Term"
+                if kw_col not in df_my.columns:
+                    for c in df_my.columns:
+                        if "keyword" in c.lower() or "search" in c.lower() or "term" in c.lower():
+                            kw_col = c
+                            break
+
+                # Merge outer
+                df_merged = pd.merge(
+                    df_my, df_comp,
+                    on=kw_col, how="outer",
+                    suffixes=("_mine", "_comp"),
+                )
+
+                # Detect rank columns
+                rank_cols_mine = [c for c in df_merged.columns if "rank" in c.lower() and "_mine" in c.lower()]
+                rank_cols_comp = [c for c in df_merged.columns if "rank" in c.lower() and "_comp" in c.lower()]
+                rank_mine = rank_cols_mine[0] if rank_cols_mine else None
+                rank_comp = rank_cols_comp[0] if rank_cols_comp else None
+
+                # SV columns
+                sv_cols_mine = [c for c in df_merged.columns if "sv" in c.lower() and "_mine" in c.lower()]
+                sv_cols_comp = [c for c in df_merged.columns if "sv" in c.lower() and "_comp" in c.lower()]
+                sv_mine = sv_cols_mine[0] if sv_cols_mine else None
+                sv_comp = sv_cols_comp[0] if sv_cols_comp else None
+
+                # Classify gap
+                def _classify_gap(row):
+                    has_mine = pd.notna(row.get(rank_mine)) and row.get(rank_mine, 0) > 0 if rank_mine else False
+                    has_comp = pd.notna(row.get(rank_comp)) and row.get(rank_comp, 0) > 0 if rank_comp else False
+                    if has_mine and has_comp:
+                        return "🤝 Ambos rankean"
+                    elif has_mine and not has_comp:
+                        return "✅ Solo yo"
+                    elif not has_mine and has_comp:
+                        return "🔴 Solo competidor"
+                    return "⚫ Ninguno"
+
+                df_merged["Gap"] = df_merged.apply(_classify_gap, axis=1)
+
+                # If H10 Cerebro provided, add extra columns
+                if h10_file:
+                    try:
+                        df_h10 = pd.read_excel(io.BytesIO(h10_file.getvalue()))
+                        df_h10.columns = df_h10.columns.str.strip()
+                        h10_kw_col = None
+                        for c in df_h10.columns:
+                            if "keyword" in c.lower():
+                                h10_kw_col = c
+                                break
+                        if h10_kw_col:
+                            h10_cols_to_add = []
+                            for c in ["Search Volume", "Organic Rank", "Sponsored Rank"]:
+                                if c in df_h10.columns:
+                                    h10_cols_to_add.append(c)
+                            if h10_cols_to_add:
+                                df_h10_slim = df_h10[[h10_kw_col] + h10_cols_to_add].copy()
+                                df_h10_slim = df_h10_slim.rename(columns={
+                                    h10_kw_col: kw_col,
+                                    **{c: f"H10_{c}" for c in h10_cols_to_add},
+                                })
+                                df_merged = pd.merge(df_merged, df_h10_slim, on=kw_col, how="left")
+                                st.success(f"✅ Cerebro H10 integrado — {len(df_h10_slim)} keywords cruzadas")
+                    except Exception as e:
+                        st.warning(f"⚠️ Error procesando Cerebro H10: {e}")
+
+                # KPI cards
+                gap_counts = df_merged["Gap"].value_counts()
+                k1, k2, k3, k4 = st.columns(4)
+                with k1:
+                    st.markdown(
+                        kpi_card("Ambos rankean", str(gap_counts.get("🤝 Ambos rankean", 0))),
+                        unsafe_allow_html=True,
+                    )
+                with k2:
+                    st.markdown(
+                        kpi_card("Solo yo", str(gap_counts.get("✅ Solo yo", 0))),
+                        unsafe_allow_html=True,
+                    )
+                with k3:
+                    st.markdown(
+                        kpi_card("Solo competidor", str(gap_counts.get("🔴 Solo competidor", 0))),
+                        unsafe_allow_html=True,
+                    )
+                with k4:
+                    st.markdown(
+                        kpi_card("Total keywords", str(len(df_merged))),
+                        unsafe_allow_html=True,
+                    )
+
+                # Filter by gap type
+                gap_options = sorted(df_merged["Gap"].unique().tolist())
+                gap_filter = st.multiselect(
+                    "Filtrar por gap",
+                    options=gap_options,
+                    default=["🔴 Solo competidor"],
+                    key="dd_ci_gap_filter",
+                )
+
+                df_show = df_merged[df_merged["Gap"].isin(gap_filter)] if gap_filter else df_merged
+
+                # Color coding
+                def _color_gap(val):
+                    if "Solo competidor" in str(val):
+                        return "background:#FFEBEE;color:#B71C1C"
+                    if "Solo yo" in str(val):
+                        return "background:#E8F5E9;color:#1B5E20"
+                    if "Ambos" in str(val):
+                        return "background:#FFF8E1;color:#F57F17"
+                    return "background:#F5F5F5;color:#888"
+
+                styled_ci = df_show.reset_index(drop=True).style.map(_color_gap, subset=["Gap"])
+                st.dataframe(styled_ci, use_container_width=True, height=500)
+
+                # Export
+                st.markdown("---")
+                buf_ci = io.BytesIO()
+                df_merged.to_excel(buf_ci, index=False)
+                st.download_button(
+                    f"⬇️ Exportar Competitor Intel ({len(df_merged)} keywords)",
+                    data=buf_ci.getvalue(),
+                    file_name="competitor_intelligence.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dd_ci_dl",
+                )
