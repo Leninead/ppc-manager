@@ -1,6 +1,7 @@
 import io
 import re
 from collections import Counter
+from datetime import datetime
 
 import streamlit as st
 import pandas as pd
@@ -607,7 +608,7 @@ def render():
         styled_gap = df_gap_show.style.map(_color_action, subset=["Acción"])
         st.dataframe(styled_gap, use_container_width=True, height=min(38 + 35 * len(df_gap_show), 600))
 
-        # ── Export ───────────────────────────────────────────────────
+        # ── Export Gap ────────────────────────────────────────────────
         st.markdown("---")
         buf_gap = io.BytesIO()
         df_gap.to_excel(buf_gap, index=False)
@@ -618,3 +619,49 @@ def render():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="h10_gap_dl",
         )
+
+        # ── Export Plan de Acción ────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### 🚀 Exportar como Plan de Acción")
+        st.caption(
+            "Genera un archivo compatible con Campaign Builder. "
+            "Las keywords con acción ATACAR se convierten en keywords accionables."
+        )
+
+        n_atacar = df_gap["Acción"].str.contains("ATACAR", na=False).sum()
+        if n_atacar > 0:
+            df_plan = df_gap[df_gap["Acción"].str.contains("ATACAR", na=False)].copy()
+
+            # Rename to match Plan de Acción format
+            rename_map = {}
+            if "Keyword Phrase" in df_plan.columns:
+                rename_map["Keyword Phrase"] = "Keyword"
+            elif "Keyword" not in df_plan.columns:
+                # Try first text-like column
+                for col in df_plan.columns:
+                    if "keyword" in col.lower() or "query" in col.lower():
+                        rename_map[col] = "Keyword"
+                        break
+            if "Search Volume" in df_plan.columns:
+                rename_map["Search Volume"] = "Impressions mercado"
+            if rename_map:
+                df_plan = df_plan.rename(columns=rename_map)
+
+            df_plan["Acción sugerida"] = "➕ AGREGAR keyword"
+
+            if "Purchases mercado" not in df_plan.columns:
+                df_plan["Purchases mercado"] = 0
+            if "Brand Share %" not in df_plan.columns:
+                df_plan["Brand Share %"] = 0
+
+            buf_plan = io.BytesIO()
+            df_plan.to_excel(buf_plan, index=False)
+            st.download_button(
+                f"⬇️ Descargar Plan de Acción ({n_atacar} keywords para Campaign Builder)",
+                data=buf_plan.getvalue(),
+                file_name=f"plan_accion_competitor_gap_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="h10_gap_plan_dl",
+            )
+        else:
+            st.info("No hay keywords con acción ATACAR para exportar como Plan de Acción.")
