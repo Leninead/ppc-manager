@@ -186,10 +186,68 @@ def _build_segment_table(rows, total_spend):
     return df
 
 
+def _analyze_target_graduation(sp_kw_df, sp_camp_df, brand_terms=None):
+    """Analyze targets with 0 impressions in campaigns that DO have traffic."""
+    if sp_kw_df is None or len(sp_kw_df) == 0:
+        return pd.DataFrame()
+
+    required = ["Campaign ID", "Impressions"]
+    if not all(c in sp_kw_df.columns for c in required):
+        return pd.DataFrame()
+
+    # 1. Total impressions per campaign (across all entities in that campaign)
+    camp_imp = sp_kw_df.groupby("Campaign ID")["Impressions"].sum()
+
+    # 2. Targets with 0 impressions
+    zero_imp = sp_kw_df[sp_kw_df["Impressions"] == 0].copy()
+    if zero_imp.empty:
+        return pd.DataFrame()
+
+    # 3. Map campaign-level impressions
+    zero_imp["Campaign Impressions"] = zero_imp["Campaign ID"].map(camp_imp).fillna(0)
+
+    # 4. Only those in campaigns WITH traffic
+    orphans = zero_imp[zero_imp["Campaign Impressions"] > 0].copy()
+    if orphans.empty:
+        return pd.DataFrame()
+
+    # 5. Classify recommendation
+    bt = [t.lower() for t in brand_terms] if brand_terms else []
+
+    def _recommend(row):
+        state = str(row.get("State", "")).lower()
+        spend = float(row.get("Spend", 0) or 0)
+        sales = float(row.get("Sales", 0) or 0)
+        orders = float(row.get("Orders", 0) or 0)
+        kw_text = str(row.get("Keyword Text", "")).lower()
+
+        if state != "enabled":
+            return "⏸️ YA PAUSADO"
+
+        # Brand terms → always keep
+        if bt and any(t in kw_text for t in bt):
+            return "🛡️ MANTENER — keyword de marca"
+
+        # Had sales historically → bid too low
+        if sales > 0 or orders > 0:
+            return "🔼 SUBIR BID — tuvo ventas, bid probable bajo"
+
+        # Spent but never converted → pause
+        if spend > 0 and orders == 0:
+            return "🔴 PAUSAR — gastó sin convertir"
+
+        # Never had anything → graduate
+        return "🟡 GRADUAR A SKAG — mover a campaña propia con bid más alto"
+
+    orphans["Recomendación"] = orphans.apply(_recommend, axis=1)
+    return orphans
+
+
 def _build_audit_excel(
     kpi_dict, seg_sp_df, seg_sb_df, seg_sd_df,
     top5_camps_df, classif_df, dupes_df,
     audit_mixed, audit_target_was, audit_st_was,
+    graduation_df=None,
 ):
     """Generate multi-sheet audit Excel. Returns bytes."""
     buf = io.BytesIO()
@@ -238,6 +296,19 @@ def _build_audit_excel(
         # Sheet 6 — Duplicación Targets
         if dupes_df is not None and len(dupes_df) > 0:
             dupes_df.to_excel(writer, sheet_name="Duplicacion Targets", index=False)
+
+        # Sheet 7 — Target Graduation
+        if graduation_df is not None and len(graduation_df) > 0:
+            grad_cols = [
+                c for c in [
+                    "Campaign Name", "Ad Group Name", "Keyword Text", "Match Type",
+                    "Bid", "Spend", "Sales", "Orders", "Campaign Impressions",
+                    "Recomendación",
+                ] if c in graduation_df.columns
+            ]
+            graduation_df[grad_cols].to_excel(
+                writer, sheet_name="Target Graduation", index=False,
+            )
 
     return buf.getvalue()
 
@@ -333,12 +404,13 @@ def render():
     )
 
     # ── Tabs ────────────────────────────────────────────────────
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 KPIs Overview",
         "🛠️ Auditoría Estructura",
         "🎯 Performance Segmento",
         "🔍 Deep Checks",
         "📥 Export",
+        "🎯 Target Graduation",
     ])
 
     # ════════════════════════════════════════════════════════════
@@ -1055,11 +1127,15 @@ def render():
         except NameError:
             _dupes = pd.DataFrame()
 
+        # Compute graduation for Excel (also used in tab6)
+        _grad_df = _analyze_target_graduation(sp_kws, sp_camps, brand_terms)
+
         try:
             excel_bytes = _build_audit_excel(
                 kpi_dict, _seg_sp, _seg_sb, _seg_sd,
                 _top5, _classif, _dupes,
                 audit_mixed, audit_target_was, audit_st_was,
+                graduation_df=_grad_df,
             )
         except Exception as e:
             st.warning(f"Error generando Excel: {e}")
@@ -1075,3 +1151,90 @@ def render():
             use_container_width=True,
             key="audit_dl",
         )
+
+    # ════════════════════════════════════════════════════════════
+    # TAB 6 — Target Graduation
+    # ════════════════════════════════════════════════════════════
+    with tab6:
+        st.markdown("#### Targets con 0 impresiones en campañas activas")
+        st.caption(
+            "Identifica keywords/targets que no reciben tráfico aunque su campaña sí. "
+            "Posibles causas: bid muy bajo, keyword irrelevante o duplicada."
+        )
+
+        grad_df = _analyze_target_graduation(sp_kws, sp_camps, brand_terms)
+
+        if grad_df.empty:
+            st.markdown(
+                "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:2rem;"
+                "text-align:center;background:#FFF3E0;margin-top:1rem;'>"
+                "<div style='font-size:1.5rem;'>✅</div>"
+                "<div style='font-weight:600;margin-top:0.5rem;'>Sin targets huérfanos</div>"
+                "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
+                "Todos los targets en campañas activas tienen impresiones</div>"
+                "</div>", unsafe_allow_html=True,
+            )
+        else:
+            # KPI cards
+            total_orphans = len(grad_df)
+            n_subir = (grad_df["Recomendación"].str.contains("SUBIR BID", na=False)).sum()
+            n_pausar = (grad_df["Recomendación"].str.contains("PAUSAR", na=False)).sum()
+            n_graduar = (grad_df["Recomendación"].str.contains("GRADUAR", na=False)).sum()
+            n_mantener = (grad_df["Recomendación"].str.contains("MANTENER", na=False)).sum()
+
+            k1, k2, k3, k4 = st.columns(4)
+            with k1:
+                st.markdown(kpi_card("Targets sin impresiones", str(total_orphans)), unsafe_allow_html=True)
+            with k2:
+                st.markdown(kpi_card("Subir Bid", str(n_subir)), unsafe_allow_html=True)
+            with k3:
+                st.markdown(kpi_card("Pausar", str(n_pausar)), unsafe_allow_html=True)
+            with k4:
+                label_4 = "Mantener (marca)" if n_mantener > 0 else "Graduar a SKAG"
+                val_4 = str(n_mantener) if n_mantener > 0 else str(n_graduar)
+                st.markdown(kpi_card(label_4, val_4), unsafe_allow_html=True)
+
+            # Filter by recommendation
+            rec_options = sorted(grad_df["Recomendación"].unique().tolist())
+            selected_recs = st.multiselect(
+                "Filtrar por recomendación",
+                options=rec_options,
+                default=rec_options,
+                key="audit_grad_filter",
+            )
+
+            grad_filtered = grad_df[grad_df["Recomendación"].isin(selected_recs)].copy()
+
+            # Display columns
+            show_cols = [
+                c for c in [
+                    "Campaign Name", "Ad Group Name", "Keyword Text", "Match Type",
+                    "Bid", "Spend", "Sales", "Campaign Impressions", "Recomendación",
+                ] if c in grad_filtered.columns
+            ]
+
+            if show_cols:
+                # Color coding by recommendation
+                _GRAD_COLORS = {
+                    "SUBIR BID": "background:#E8F5E9;",
+                    "PAUSAR": "background:#FFEBEE;",
+                    "GRADUAR": "background:#FFF8E1;",
+                    "MANTENER": "background:#E3F2FD;",
+                    "YA PAUSADO": "background:#F5F5F5;",
+                }
+
+                def _style_grad(row):
+                    rec = str(row.get("Recomendación", ""))
+                    style = ""
+                    for key, css in _GRAD_COLORS.items():
+                        if key in rec:
+                            style = css
+                            break
+                    return [style] * len(row)
+
+                styled = grad_filtered[show_cols].reset_index(drop=True).style.apply(
+                    _style_grad, axis=1,
+                )
+                st.dataframe(styled, use_container_width=True, height=450)
+
+                st.caption(f"Mostrando {len(grad_filtered)} de {total_orphans} targets")
