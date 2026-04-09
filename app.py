@@ -30,6 +30,7 @@ from modules.pages.weekly_client_report import render as render_weekly
 from modules.pages.bid_optimizer import render as render_bid_optimizer
 from modules.pages.campaign_builder import render as render_campaign_builder
 from modules.pages.atom11_rules_builder import render as render_atom11_rules
+from modules.pages.listing_monitor import render as render_listing_monitor
 from modules.pages.account_pulse import render as render_account_pulse
 from modules.pages.ppc_forecast import render as render_ppc_forecast
 from modules.pages.ppc_insights import render as render_ppc_insights
@@ -199,6 +200,7 @@ with st.sidebar:
             "🔬 Reportes Atom 11",
             "🛡️ Reportes MerchanSpring",
             "📊 Weekly Client Report",
+            "👁️ Listing Monitor",
         ]:
             st.button(_pg, use_container_width=True, on_click=_nav,
                       args=(_pg,), key=f"nav_{_pg}")
@@ -270,6 +272,9 @@ if selected == "🚀 Campaign Builder":
 
 if selected == "⚙️ Atom11 Rules Builder":
     render_atom11_rules()
+
+if selected == "👁️ Listing Monitor":
+    render_listing_monitor()
 
 if selected == "🧲 DataDive Analyzer":
     render_datadive()
