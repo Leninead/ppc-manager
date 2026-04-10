@@ -10,8 +10,9 @@ import json
 import os
 import re
 import time
-from datetime import datetime, date
-from typing import Optional
+from datetime import datetime
+
+from core.helpers import kpi_card
 
 # ── Deps opcionales ──────────────────────────────────────────────────
 try:
@@ -95,6 +96,7 @@ def _scrape_asin(asin: str, base_url: str) -> dict:
         "asin": asin.strip().upper(),
         "url": url,
         "scraped_at": datetime.now().isoformat(),
+        "titulo": None,
         "precio": None,
         "reviews_count": None,
         "rating": None,
@@ -132,6 +134,11 @@ def _scrape_asin(asin: str, base_url: str) -> dict:
                 precio = el.get_text(strip=True)
                 break
         result["precio"] = precio
+
+        # ── Título ──────────────────────────────────────────────────
+        titulo_el = soup.select_one("#productTitle, #title")
+        if titulo_el:
+            result["titulo"] = titulo_el.get_text(strip=True)[:80]
 
         # ── Reviews y rating ────────────────────────────────────────
         rating_el = soup.select_one("#acrPopover, [data-hook='rating-out-of-text']")
@@ -425,7 +432,7 @@ def render() -> None:
 
             # ── Guardar en session_state para Tab 2 ─────────────────
             st.session_state["lm_resultados"] = resultados
-            st.session_state["lm_marketplace"] = marketplace_label
+            st.session_state["lm_marketplace_result"] = marketplace_label
 
             # ── Resumen del escaneo ──────────────────────────────────
             n_ok  = sum(1 for r in resultados if not r["data"]["error"])
@@ -433,9 +440,12 @@ def render() -> None:
             n_con_cambios = sum(1 for r in resultados if r["cambios"])
 
             cols = st.columns(3)
-            cols[0].metric("✅ Escaneados OK", n_ok)
-            cols[1].metric("⚠️ Con cambios", n_con_cambios)
-            cols[2].metric("❌ Errores", n_err)
+            with cols[0]:
+                st.markdown(kpi_card("Escaneados OK", str(n_ok)), unsafe_allow_html=True)
+            with cols[1]:
+                st.markdown(kpi_card("Con cambios", str(n_con_cambios)), unsafe_allow_html=True)
+            with cols[2]:
+                st.markdown(kpi_card("Errores", str(n_err)), unsafe_allow_html=True)
 
             if n_err:
                 with st.expander("Ver errores"):
@@ -458,7 +468,7 @@ def render() -> None:
         if not resultados:
             st.info("Todavía no escaneaste ningún ASIN. Andá a **🔍 Escanear ASINs** primero.")
         else:
-            mkt = st.session_state.get("lm_marketplace", "")
+            mkt = st.session_state.get("lm_marketplace_result", "")
             st.markdown(
                 f"<div style='font-size:0.8rem;color:#666;margin-bottom:1rem;'>"
                 f"Último escaneo: <b>{len(resultados)} ASINs</b> — {mkt}</div>",
@@ -484,9 +494,13 @@ def render() -> None:
                 if filtro == "Solo alertas 🔴" and not any(c["tipo"] == "alerta" for c in cambios):
                     continue
 
+                # Build expander label with titulo if available
+                _titulo = data.get("titulo") or ""
+                _asin_label = f"{asin} — {_titulo[:50]}" if _titulo else asin
+
                 with st.expander(
                     f"{'❌' if data['error'] else ('🔴' if any(c['tipo']=='alerta' for c in cambios) else ('🟡' if cambios else '🟢'))} "
-                    f"**{asin}** — {_resumen_alertas(cambios) if not data['error'] else '❌ Error de scraping'}",
+                    f"**{_asin_label}** — {_resumen_alertas(cambios) if not data['error'] else '❌ Error de scraping'}",
                     expanded=any(c["tipo"] == "alerta" for c in cambios),
                 ):
                     if data["error"]:
@@ -495,11 +509,17 @@ def render() -> None:
 
                     # ── Datos actuales ───────────────────────────────
                     d1, d2, d3, d4, d5 = st.columns(5)
-                    d1.metric("💲 Precio",   data.get("precio")        or "—")
-                    d2.metric("⭐ Rating",   data.get("rating")        or "—")
-                    d3.metric("💬 Reseñas",  f"{data.get('reviews_count', 0):,}" if data.get("reviews_count") else "—")
-                    d4.metric("🏅 Badge",    data.get("badge")         or "—")
-                    d5.metric("📦 Stock",    data.get("stock_status")  or "—")
+                    with d1:
+                        st.markdown(kpi_card("Precio", data.get("precio") or "—"), unsafe_allow_html=True)
+                    with d2:
+                        st.markdown(kpi_card("Rating", data.get("rating") or "—"), unsafe_allow_html=True)
+                    with d3:
+                        rv = f"{data.get('reviews_count', 0):,}" if data.get("reviews_count") else "—"
+                        st.markdown(kpi_card("Reseñas", rv), unsafe_allow_html=True)
+                    with d4:
+                        st.markdown(kpi_card("Badge", data.get("badge") or "—"), unsafe_allow_html=True)
+                    with d5:
+                        st.markdown(kpi_card("Stock", data.get("stock_status") or "—"), unsafe_allow_html=True)
 
                     # ── Tabla de cambios ─────────────────────────────
                     if cambios:
@@ -566,6 +586,7 @@ def render() -> None:
                 rows.append({
                     "Clave": k,
                     "ASIN": v.get("asin", "—"),
+                    "Producto": (v.get("titulo") or "—")[:40],
                     "Precio": v.get("precio") or "—",
                     "Rating": v.get("rating") or "—",
                     "Reseñas": v.get("reviews_count") or "—",
