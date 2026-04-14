@@ -906,6 +906,7 @@ def render():
 
             if br_child_data or atom_data:
                 preview = []
+                _dash = "\u2014"
                 for asin, d in list(br_child_data.items())[:20]:
                     at = atom_data.get(asin, {})
                     preview.append({
@@ -914,7 +915,7 @@ def render():
                         "Sales TW": f"MX${d.get('Sales',0):,.0f}",
                         "Sessions": int(d.get("Sessions",0)),
                         "CVR%": f"{d.get('CVR',0):.2f}%",
-                        "BuyBox%": f"{d.get('BuyBox','\u2014')}%" if d.get("BuyBox") else "\u2014",
+                        "BuyBox%": "{}%".format(d.get("BuyBox", "—")) if d.get("BuyBox") else "—",
                         "AdSpend TW": f"MX${at.get('Spend_TW',0):,.2f}" if at else "\u2014",
                         "ACoS": f"{at.get('Spend_TW',0)/at.get('Sales_TW',1)*100:.1f}%"
                                 if at and at.get("Sales_TW",0) > 0 else "\u2014",
