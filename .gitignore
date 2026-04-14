@@ -7,3 +7,6 @@ notes/
 !notes/knowledge/
 !notes/knowledge/**
 .env
+
+# ── Agregado por setup_deploy.py ──────────────────
+.streamlit/secrets.toml
