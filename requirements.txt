@@ -6,3 +6,6 @@ streamlit-authenticator==0.3.3
 bcrypt==4.2.1
 anthropic
 python-dotenv
+
+anthropic
+python-dotenv
