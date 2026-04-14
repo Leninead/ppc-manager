@@ -42,6 +42,7 @@ No hay build step, test suite ni linter configurado.
 | 20 | 📊 Weekly Client Report | Account | ✅ completo |
 | 21 | ⚙️ Atom11 Rules Builder | PPC | ✅ nuevo 2026-03-23 |
 | 22 | 📚 Knowledge Base | Knowledge | ✅ conectado 2026-03-27 (explorar + agregar notas .md) |
+| 23 | 👁️ Listing Monitor | Account Manager | ✅ nuevo 2026-04-09 |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.
 Sidebar colapsable con `st.expander` por sección: PPC (expanded) | Research | Account | Knowledge.
@@ -86,6 +87,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/helium10_analyzer.py` — render() ✅ conectado 2026-03-27
 - `modules/pages/sbh_recommendation.py` — render() ✅ conectado 2026-03-27
 - `modules/pages/knowledge_base.py` — render() ✅ conectado 2026-03-27
+- `modules/pages/listing_monitor.py` — render() ✅ creado 2026-04-09
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -1606,4 +1608,61 @@ Todos los agentes ahora tienen: frontmatter completo (name, description, tools, 
 - [ ] Testing Rank Radar tracking con 2 archivos distintos
 - [ ] Actualizar inicio.py con features nuevas
 - [ ] Subir archivos actualizados al proyecto de Claude
+
+---
+
+## 📅 Sesión 2026-04-09 — Listing Monitor
+
+### Módulo nuevo: listing_monitor.py
+- **Archivo:** `modules/pages/listing_monitor.py` — 587 líneas
+- **Sección sidebar:** 👥 Account Manager
+- **Página:** `👁️ Listing Monitor`
+
+### Qué hace
+Monitorea ASINs de Amazon y alerta cuando algo cambia vs el snapshot anterior.
+Scrapea Amazon directamente con requests + BeautifulSoup (sin API key).
+
+### Campos monitoreados por ASIN
+precio - rating - cantidad de reseñas - badge (Best Seller / Amazon's Choice) - bullets - stock - título del producto
+
+### Arquitectura
+- **Tab 1 — Escanear ASINs:** input de ASINs, selector marketplace (MX/COM/ES/BR/CA), delay configurable, guardado automático de snapshot
+- **Tab 2 — Ver Alertas:** comparación vs snapshot anterior, color coding (🔴 alerta / 🟡 info / 🟢 ok), filtro rápido
+- **Tab 3 — Historial:** tabla de todos los snapshots con columna Producto
+
+### Storage
+Snapshots guardados como JSON local en `data/listing_snapshots/snapshots.json`
+Clave: `{ASIN}_{MARKETPLACE}` (ej: `B0C5JWKLZG_COM`)
+
+### Dependencias nuevas
+```bash
+pip install requests beautifulsoup4
+```
+
+### Mejoras aplicadas en la misma sesión
+1. Fix SessionState — `lm_marketplace` → `lm_marketplace_result` para evitar conflicto con widget key
+2. `kpi_card()` en vez de `st.metric` — 8 reemplazos
+3. Imports sin usar eliminados (`date`, `Optional`)
+4. Título del producto extraído en scraper (`#productTitle`) y mostrado en expanders e historial
+
+### Review de 3 agentes — Pendientes P1/P2
+| # | Mejora | Prioridad |
+|---|--------|-----------|
+| 1 | Export Excel del historial (Tab 3) | P1 |
+| 2 | Header estándar flex + st.divider() | P2 |
+| 3 | Empty states con patrón visual dashed #FFD9B3 | P2 |
+| 4 | Asociación ASIN-Cliente/Marca (tag Propio/Competidor) | P3 |
+| 5 | Presets de ASINs por marca | P4 |
+| 6 | Comparación de precio numérica con delta % | P4 |
+| 7 | Banner de stock crítico en Tab 2 | P4 |
+| 8 | Historial multi-fecha (hoy sobreescribe el último) | P4 |
+
+### Contexto técnico
+- Amazon a veces retorna 503 (bloqueo). Workaround: aumentar delay a 8-10s
+- Para uso intensivo (20+ ASINs diarios) → migrar scraper a Firecrawl
+- HTML crudo en expander titles: bug visual menor pendiente de fix
+
+### Archivos modificados hoy
+- `app.py` — +import, +sidebar entry, +routing if
+- `modules/pages/listing_monitor.py` — NUEVO (587 líneas)
 
