@@ -16,6 +16,27 @@ def render():
     st.header("🔻 Análisis de Funnel")
     st.caption("Analizá cobertura de campañas activas, detectá brechas y generá sugerencias de harvesting.")
     st.divider()
+
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Detectar brechas en el funnel Auto → Broad → Phrase → Exact por ASIN y sugerir campañas faltantes.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("STR (.xlsx/.csv) + Bulk file de campañas (.xlsx).")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Bid Optimizer (M9) para recalcular bids de las nuevas campañas.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí STR y Bulk\n"
+            "2. Ingresá Target ACoS\n"
+            "3. Revisá mapa de funnel actual por ASIN\n"
+            "4. Revisá campañas sugeridas con naming Capybaras\n"
+            "5. Descargá bulk con nuevas campañas"
+        )
+
     st.info("Subí el Bulk de campañas y el STR para ver cobertura por campaña.")
 
     col_bulk_f, col_str_f = st.columns(2)

@@ -125,6 +125,27 @@ def render():
     st.header("🔍 Search Query Performance")
     st.caption("Datos de rendimiento de búsqueda orgánica exportados desde Amazon Brand Analytics.")
     st.divider()
+
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Medir market share, detectar gaps y oportunidades orgánicas contra el mercado de Brand Analytics.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("SQP → Brand Analytics → Search Query Performance (.xlsx semanal).")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Análisis Cruzado STR vs SQP (M4) para generar Plan de Acción.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí el SQP\n"
+            "2. Confirmá o ingresá la marca detectada\n"
+            "3. Revisá Dashboard, Market Share (Dominando/Competitivo/Oportunidad)\n"
+            "4. En Gap Analysis detectá queries con alto volumen donde no aparecés\n"
+            "5. Descargá tabla de gaps"
+        )
+
     file_sqp = st.file_uploader("Sube tu SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="sqp")
     if not file_sqp:
         return

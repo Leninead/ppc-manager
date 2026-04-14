@@ -143,6 +143,27 @@ def render():
     st.header("Search Term Report")
     st.caption("Analisis de terminos de busqueda con metricas de ACoS, gasto y ventas totales.")
     st.divider()
+
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Analizar search terms de campañas SP para negativizar, harvestear y clasificar por estado.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("STR → Amazon Ads → Reports → Advertising Reports → SP Search Term (.xlsx o .csv, 30 días).")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Search Query Performance (M3) para validar contra datos del mercado.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí el STR\n"
+            "2. Ingresá precio promedio del producto + brand terms + Target ACoS\n"
+            "3. Revisá Tab 1 (12 KPIs), Tab 2 (Negatives), Tab 3 (Harvest con anti-canibalización)\n"
+            "4. Opcional: subí Campaign CSV en Tab 3 para cruzar con Exact activos\n"
+            "5. Descargá bulk de negativos y/o harvest"
+        )
+
     file_str = st.file_uploader("Sube tu STR (.xlsx o .csv)", type=["xlsx", "csv"], key="str")
     if not file_str:
         return

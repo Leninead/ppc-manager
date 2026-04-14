@@ -523,6 +523,26 @@ def render():
     )
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Generar bulk listo para subir a Amazon con campañas SP nuevas clusterizadas por intención.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("Plan de Acción bulk (output del Análisis Cruzado M4, .xlsx).")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Atom11 Rules Builder (M11) para automatizar las campañas nuevas.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí el Plan de Acción bulk\n"
+            "2. Completá datos del producto: marca, ASIN, SKU, precio, CVR, target ACoS, budget\n"
+            "3. Revisá preview de campañas clusterizadas (PAT / Spanish / Brand / Discovery)\n"
+            "4. Validá naming y max 5 KWs por campaña\n"
+            "5. Descargá bulk formato exacto Amazon"
+        )
+
     # ── Selector de tipo de campaña ──────────────────────────────────────────
     st.markdown("### Tipo de campaña")
     campaign_type = st.radio(

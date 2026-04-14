@@ -435,6 +435,26 @@ def render():
     st.caption("Clasifica campañas por objetivo y genera rules dinámicas listas para importar en Atom11.")
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Generar rules de automatización para Atom11 (274 rules) con thresholds dinámicos por tier y objetivo.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("Campaign CSV (.csv) + tabla de ASINs con precio (input manual).")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Reportes Atom 11 (M12) para medir resultados de las rules.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Tab Config: ingresá prefijo marca, brand terms, target ACoS cuenta y ASINs con precio\n"
+            "2. Tab Campaign Groups: subí Campaign CSV y revisá clasificación en 7 objetivos\n"
+            "3. Tab Rules Generator: preview de 274 rules con thresholds por tier\n"
+            "4. Editá thresholds si hace falta\n"
+            "5. Descargá Excel multi-sheet para importar a Atom11"
+        )
+
     with st.expander("📖 Cómo usar este módulo", expanded=False):
         st.markdown("""
 **Atom11 Rules Builder** genera la configuración completa de automatización para Atom11 en 3 pasos:

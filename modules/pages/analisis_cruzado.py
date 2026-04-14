@@ -17,6 +17,27 @@ def render():
     st.header("🔗 Análisis Cruzado STR vs SQP")
     st.caption("Detectá oportunidades cruzando términos de búsqueda pagos (STR) con orgánicos (SQP).")
     st.divider()
+
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Cruzar tus campañas (STR) contra el mercado (SQP) y generar un Plan de Acción accionable.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("STR (.xlsx) + SQP (.xlsx). Opcional: BR by ASIN (.csv) para Tab 3 PPC Insights.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Campaign Builder (M10) para ejecutar, o Tendencia Multi-Semana (M5) para contexto.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí STR y SQP\n"
+            "2. Ingresá brand terms + Target ACoS\n"
+            "3. Tab Cruce: revisá En ambos / Solo STR / Solo SQP\n"
+            "4. Tab Plan de Acción: revisá columna Acción (AGREGAR / HARVEST / BAJAR BID / ESCALAR / MONITOREAR)\n"
+            "5. Descargá Plan de Acción bulk"
+        )
+
     st.info("Subí ambos archivos para comparar qué términos aparecen en cada reporte y detectar oportunidades.")
 
     col_str, col_sqp = st.columns(2)

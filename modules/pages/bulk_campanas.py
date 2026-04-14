@@ -38,6 +38,27 @@ def render():
     st.header("📁 Bulk File de Campañas")
     st.caption("Archivo bulk exportado desde Amazon Ads con todas las campañas, grupos y keywords.")
     st.divider()
+
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Ver estructura de campañas y diagnosticar estado con semáforo automático (pausar/revisar/escalar/fantasmas).")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("Campaign CSV → Amazon Ads → Campaign Manager → Export con todas las métricas (.csv).")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Business Report (M7) para cruzar con salud del catálogo.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí el Campaign CSV\n"
+            "2. Ingresá Target ACoS + precio promedio\n"
+            "3. Tab Campaign Analyzer: revisá semáforo (PAUSAR, REVISAR, ESCALAR, FANTASMA)\n"
+            "4. Tab Auditoría: revisá naming convention y target graduation\n"
+            "5. Descargá el Excel y pausá manualmente en Campaign Manager las rojas"
+        )
+
     file_bulk = st.file_uploader("Sube tu Bulk o Campaign CSV (.xlsx o .csv)", type=["xlsx", "csv"], key="bulk")
     if file_bulk:
         df_bulk_raw = _load_bulk(file_bulk.getvalue(), file_bulk.name)

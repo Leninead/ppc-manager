@@ -11,6 +11,27 @@ def render():
     st.header("📈 Tendencia de Impresiones Multi-Semana")
     st.caption("Compará hasta 4 semanas de SQP para identificar keywords en alza, estables o en caída.")
     st.divider()
+
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Ver evolución de queries a lo largo de 2-4 semanas para detectar estacionalidades y cambios de demanda.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("2 a 4 archivos SQP de semanas distintas (.xlsx) — Brand Analytics → Search Query Performance.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Bulk Campañas (M6) para ver cómo responden las campañas a esas tendencias.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí entre 2 y 4 SQPs\n"
+            "2. Confirmá el orden cronológico\n"
+            "3. Revisá pivot por Search Query con tendencias ↑ → ↓\n"
+            "4. Filtrá por threshold de cambio (10% default)\n"
+            "5. Descargá el Excel con tendencias"
+        )
+
     st.info("Subí hasta 4 archivos SQP de distintas semanas para ver la tendencia por keyword.")
 
     sqp_files = []

@@ -58,6 +58,26 @@ def render():
     st.caption("Bids sugeridos por ASIN calculados desde STR. CVR y precio de ads — más preciso que el Business Report.")
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Calcular bid óptimo por keyword usando CVR real, precio y target ACoS. Fórmula: bid = CVR × precio × target_ACoS.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("STR (.xlsx/.csv). Opcional: Inventory Report (.txt) para precio exacto.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Campaign Builder (M10) para generar bulks con esos bids.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí STR y opcionalmente Inventory Report\n"
+            "2. Ingresá Target ACoS y precio default\n"
+            "3. Revisá semáforo: SUBIR / OK / BAJAR / PAUSAR\n"
+            "4. Tab Placements & Budget: referencia SOP por tipo de campaña\n"
+            "5. Descargá bulk con bids modificados"
+        )
+
     # ── Input global ──────────────────────────────────────────────────────
     target_acos = st.slider(
         "Target ACoS (%)",
