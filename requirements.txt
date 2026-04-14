@@ -9,3 +9,5 @@ python-dotenv
 
 anthropic
 python-dotenv
+
+plotly
