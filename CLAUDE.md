@@ -1666,3 +1666,15 @@ pip install requests beautifulsoup4
 - `app.py` — +import, +sidebar entry, +routing if
 - `modules/pages/listing_monitor.py` — NUEVO (587 líneas)
 
+
+---
+
+## 📅 Sesión 2026-04-14 — Deploy + UX
+
+- Deploy live: capybaras-os.streamlit.app (2026-04-14)
+- Login implementado con streamlit-authenticator (usuario: lenin)
+- requirements.txt actualizado: anthropic, python-dotenv, plotly agregados
+- runtime.txt: Python 3.11
+- Fix: f-string backslash Python 3.11 en weekly_client_report.py line 917
+- Expanders de ayuda agregados en 10 módulos PPC (search_term_report, search_query_performance, analisis_cruzado, tendencia_multisemana, bulk_campanas, business_report, analisis_funnel, bid_optimizer, campaign_builder, atom11_rules_builder)
+- SOP_Uso_AgencyOS.md creado (432 líneas) con flujo semanal + 22 módulos documentados
