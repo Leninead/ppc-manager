@@ -19,6 +19,25 @@ def render():
     st.caption("Subí 1 archivo para el resumen del periodo, o 2 archivos para comparación automática WoW / MoM.")
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Analizar performance de campañas con el formato de Atom 11 (WoW, MoM, DateRange) y generar informe ejecutivo con branding.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("Atom 11 → Reports → Export (.xlsx). 1 archivo para single period / 2 archivos para comparación cross-period.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Weekly Client Report (M14) para cruzar con BR y armar el reporte semanal al cliente.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Ingresá nombre del cliente y seleccioná idioma (ES/EN)\n"
+            "2. Subí 1 archivo (single period) o 2 archivos (comparación)\n"
+            "3. Revisá KPIs, top 3, diagnóstico y recomendaciones\n"
+            "4. Descargá el Excel con 3-4 hojas (Informe Cliente + KPIs + Datos + Parent Evolution)"
+        )
+
     _cfg_col1, _cfg_col2 = st.columns([3, 1])
     with _cfg_col1:
         client_name = st.text_input("Nombre del cliente (aparece en el Excel)", placeholder="Ej: Dermaglos Argentina", key="atom11_client")

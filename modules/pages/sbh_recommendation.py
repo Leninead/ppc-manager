@@ -43,6 +43,25 @@ def render():
     )
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Priorizar keywords target para campañas Sponsored Brand Headline. Clustering automático + headline sugerido por cluster.")
+        with col2:
+            st.markdown("**📂 Archivos necesarios**")
+            st.caption("DataDive MKL + SQP (requeridos). Campaign CSV opcional para excluir las que ya están en SP.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Campaign Builder (M10) con el SBH Target Pack para generar bulk de campañas SB.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí el MKL de DataDive + el SQP de la marca\n"
+            "2. Subí el Campaign CSV opcional para filtrar keywords ya cubiertas en SP\n"
+            "3. Revisá priorización: ALTA (SV≥1000, IS<10%) / MEDIA / BAJA\n"
+            "4. Descargá el SBH Target Pack con clusters y headlines sugeridos"
+        )
+
     # ── Inputs ────────────────────────────────────────────────────────
     ic1, ic2, ic3 = st.columns(3)
     with ic1:

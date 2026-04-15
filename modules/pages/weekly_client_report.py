@@ -827,6 +827,25 @@ def render():
                else "Daily BR + BR by Child + Atom 11 ASIN + Campaign CSV \u2192 3-sheet Excel")
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Generar el reporte semanal para el cliente con comparación WoW automática (CUENTA TOTAL + desglose por ASIN).")
+        with col2:
+            st.markdown("**📂 Archivos necesarios**")
+            st.caption("BR diario 14d (By Date) + BR by Child (By ASIN) + Atom 11 ASIN 14d + Campaign CSV. Todos con el mismo date range.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Enviar al cliente vía Slack/email. Usar el botón de changelog para comunicación técnica.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Seleccioná idioma (ES/EN) e ingresá nombre del cliente\n"
+            "2. Subí los 4 archivos (mismo date range de 14 días)\n"
+            "3. Agregá changelog técnico opcional (se suma como hoja extra)\n"
+            "4. Descargá el Excel con 3 hojas: WoW Comparison + Advertising + Reporte Ejecutivo"
+        )
+
     client_w = st.text_input("Nombre del cliente / Client name",
                               placeholder="Ej: Love To Dream MX", key="weekly_client")
 

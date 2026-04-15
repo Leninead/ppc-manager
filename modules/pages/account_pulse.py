@@ -614,6 +614,25 @@ def render():
     )
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Monitor de salud diaria con deltas WoW: ventas, units, sessions, CVR, ACoS. Detecta anomalías >30% y festivos MX.")
+        with col2:
+            st.markdown("**📂 Archivos necesarios**")
+            st.caption("BR diario 14d (By Date) requerido. BR by Child + Campaign CSV opcionales. Todos con mismo date range.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Weekly Client Report (M14) para reporte formal o copiar mensaje Slack para comunicación rápida.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Ingresá nombre del cliente + Target ACoS\n"
+            "2. Subí BR diario 14d (requerido) + BR by Child + Campaign CSV\n"
+            "3. Revisá portada naranja con KPIs + diagnóstico + mensaje Slack copiable\n"
+            "4. Descargá el Excel con 4 hojas (Resumen + Ventas Diarias + BuyBox + Campañas)"
+        )
+
     client_name = st.text_input("Nombre del cliente", placeholder="Ej: Love To Dream MX",
                                  key="ap_client")
     target_acos = st.slider("Target ACoS %", 5, 100, 30, key="ap_target_acos")

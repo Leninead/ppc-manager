@@ -235,6 +235,25 @@ def render():
     )
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Proyección de ventas con tendencia lineal (numpy polyfit) + ajuste de estacionalidad finde/laboral. Recomendación de budget.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("BR Diario (By Date → Sales and Traffic) mínimo 14 días, ideal 30+. Campaign CSV opcional para separar orgánico vs paid.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Ajustar budgets en Campaign Manager según escenario elegido y revisar Account Pulse (M21) semanalmente.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Configurá crecimiento objetivo + horizonte (7/14/30 días)\n"
+            "2. Subí el BR diario (mínimo 14 días)\n"
+            "3. Revisá gráfico histórico + proyección con 3 escenarios\n"
+            "4. Descargá el Excel con 2 hojas (proyección + escenarios)"
+        )
+
     # ── Inputs globales ──────────────────────────────────────────────────────
     col_a, col_b, col_c = st.columns(3)
     with col_a:

@@ -72,6 +72,25 @@ def render():
     )
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Reverse ASIN con Cerebro para KW research, oportunidades PPC (organic sin ads) y gap vs competidores.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("Helium 10 → Cerebro → Export (.xlsx). Formato: US_AMAZON_cerebro_[ASIN]_[fecha].xlsx. 1 para Tab 1, 2-3 para Tabs 2-3.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Campaign Builder (M10) con el KW Research Pack o Competitor Gap export como Plan de Acción.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Tab 1: subí tu Cerebro → detectá oportunidades PPC (organic ranked sin ads)\n"
+            "2. Tab 2: subí 1-3 Cerebros de competidores → Launch Priority Score + clustering\n"
+            "3. Tab 3: subí tu Cerebro + competidores → acciones ATACAR / MONITOREAR / IGNORAR\n"
+            "4. Exportá como Plan de Acción para feed al Campaign Builder"
+        )
+
     tab1, tab2, tab3 = st.tabs([
         "🔍 Cerebro Reverse ASIN",
         "🚀 KW Research",

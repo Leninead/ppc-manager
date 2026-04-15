@@ -287,6 +287,26 @@ def render():
     )
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Research de competidores: keywords de mercado, matriz comparativa, rank tracking y volatilidad cruzada con PPC IS.")
+        with col2:
+            st.markdown("**📂 Archivos necesarios**")
+            st.caption("DataDive → Export: MKL Keywords, Competitors, Rank Radar (.xlsx). SQP opcional para cruzar con PPC IS en Tab 4.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Helium 10 Analyzer (M16) o Campaign Builder (M10) con keywords detectadas.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Tab 1: subí MKL → detectá ASINs competidores y keyword gaps\n"
+            "2. Tab 2: subí Competitors → comparación tu ASIN vs Niche Median\n"
+            "3. Tab 3: subí Rank Radar → ranking orgánico diario y tendencias\n"
+            "4. Tab 4: cruzá Rank Radar + SQP → detectá volátiles sin PPC (RIESGO)\n"
+            "5. Tab 5: subí tu MKL + MKL competidor → gap analysis unificado"
+        )
+
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📖 MKL Keywords",
         "⚔️ Competitors",

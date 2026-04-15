@@ -39,6 +39,25 @@ def render():
     st.caption("Subí el reporte semanal de MerchanSpring (.xlsx o .pdf) para ver el dashboard y exportar el informe profesional.")
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Procesar reportes de MerchanSpring (P&L, inventory, advertising) y generar un Excel estructurado con WoW y color rules.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("MerchanSpring → Reports → Export (.xlsx o .pdf). El parser PDF extrae 20+ secciones con try/except defensivo.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Account Pulse (M21) para monitor de salud diaria o Weekly Client Report (M14).")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Ingresá nombre del cliente\n"
+            "2. Subí el archivo .xlsx o .pdf\n"
+            "3. Revisá las 5 tabs (Summary | Advertising | Inventory & Health | WoW | Details)\n"
+            "4. Descargá el Excel con 4 hojas y color rules aplicadas"
+        )
+
     ms_client = st.text_input(
         "Nombre del cliente (aparece en el Excel)",
         placeholder="Ej: Love To Dream",

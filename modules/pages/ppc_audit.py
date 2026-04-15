@@ -327,6 +327,25 @@ def render():
     )
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Auditoría completa de la estructura de campañas desde Bulk File multi-hoja. Breakdown real SP/SB/SD, 10 segmentos y 5 deep checks.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("Campaign Manager → Bulk Operations → Create Custom Spreadsheet (.xlsx). BR opcional para TACoS y Revenue total.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("PPC Insights (M18) para health score por ASIN o Bid Optimizer (M9) para ajustar bids.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Subí el Bulk File (.xlsx) con las 5 hojas (SP/SB/SD Campaigns + SP/SB STR)\n"
+            "2. Subí el BR opcional + ingresá brand terms para clasificar targets\n"
+            "3. Revisá Tab 1 KPIs → Tab 2 Estructura → Tab 3 Performance → Tab 4 Deep Checks → Tab 6 Target Graduation\n"
+            "4. Descargá el Excel con 6 hojas (KPIs + Segmentos + Auditoría + Top + Duplicados + Graduation)"
+        )
+
     # ── Uploads ─────────────────────────────────────────────────
     col_u1, col_u2 = st.columns(2)
     with col_u1:

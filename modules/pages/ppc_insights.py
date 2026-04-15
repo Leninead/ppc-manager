@@ -599,6 +599,26 @@ def render():
     )
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Health score 0-100 por ASIN cruzando STR + SQP + BR + Campañas. Detecta wasted spend y bleeders.")
+        with col2:
+            st.markdown("**📂 Archivos necesarios**")
+            st.caption("STR (requerido). SQP + BR by ASIN + Campaign CSV (opcionales — mínimo 2 fuentes para score confiable).")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("PPC Audit (M20) para auditoría estructural o Bid Optimizer (M9) para ajustar bids.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Configurá Target ACoS + precio promedio + nombre del cliente\n"
+            "2. Subí el STR (requerido) y todos los archivos opcionales que tengas\n"
+            "3. Revisá los cards por ASIN — score 🟢 ≥80 / 🟡 60-79 / 🔴 <60\n"
+            "4. Expandí cada ASIN para ver top keywords, bleeders y funnel\n"
+            "5. Descargá el Excel multi-sheet (hasta 10 hojas por ASIN)"
+        )
+
     # ── Global inputs ─────────────────────────────────────────────────────────
     col_a, col_b = st.columns(2)
     with col_a:
