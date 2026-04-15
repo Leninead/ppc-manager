@@ -14,13 +14,8 @@ from datetime import datetime
 
 from core.helpers import kpi_card
 
-# ── Deps opcionales ──────────────────────────────────────────────────
-try:
-    import requests
-    from bs4 import BeautifulSoup
-    _SCRAPE_OK = True
-except ImportError:
-    _SCRAPE_OK = False
+import requests
+from bs4 import BeautifulSoup
 
 # ── Paleta Capybaras ─────────────────────────────────────────────────
 _ORG   = "#E84000"
@@ -332,15 +327,6 @@ def render() -> None:
         f"con alertas de cambios semana a semana.</p>",
         unsafe_allow_html=True,
     )
-
-    # ── Check dependencias ───────────────────────────────────────────
-    if not _SCRAPE_OK:
-        st.error(
-            "**Faltan dependencias.** Corré en tu terminal:\n\n"
-            "```bash\npip install requests beautifulsoup4\n```\n\n"
-            "Después reiniciá Streamlit."
-        )
-        return
 
     st.divider()
 

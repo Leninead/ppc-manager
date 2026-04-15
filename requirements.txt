@@ -11,3 +11,5 @@ anthropic
 python-dotenv
 
 plotly
+requests
+beautifulsoup4

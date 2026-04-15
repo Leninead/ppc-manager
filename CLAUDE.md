@@ -1678,3 +1678,18 @@ pip install requests beautifulsoup4
 - Fix: f-string backslash Python 3.11 en weekly_client_report.py line 917
 - Expanders de ayuda agregados en 10 módulos PPC (search_term_report, search_query_performance, analisis_cruzado, tendencia_multisemana, bulk_campanas, business_report, analisis_funnel, bid_optimizer, campaign_builder, atom11_rules_builder)
 - SOP_Uso_AgencyOS.md creado (432 líneas) con flujo semanal + 22 módulos documentados
+
+---
+
+## 📅 Sesión 2026-04-15 — Onboarding equipo + cobertura expanders
+
+- Deploy live confirmado en capybaras-os.streamlit.app ✅
+- 21 usuarios del equipo agregados a `.streamlit/secrets.toml` (contraseña inicial: `Capybaras2026!`)
+- Expanders de ayuda implementados en 15/15 módulos restantes (cobertura 100%):
+  - Account/Research: atom11, merchanspring, weekly_client_report, datadive_analyzer, helium10_analyzer, sbh_recommendation, ppc_insights, ppc_forecast, ppc_audit, account_pulse
+  - Nuevos: knowledge_base, listing_monitor
+  - Ya tenían: bid_optimizer, campaign_builder, atom11_rules_builder
+  - Todos compilan sin errores (py_compile OK en los 15)
+- Fix requirements.txt: agregado `requests` y `beautifulsoup4` para que Listing Monitor funcione en Streamlit Cloud
+- Pendiente: verificar Listing Monitor en producción tras Reboot — si persiste el error, revisar logs de Streamlit Cloud
+- Pendiente: decidir si credenciales se comunican individualmente o con usuario compartido
