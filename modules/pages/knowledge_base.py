@@ -63,6 +63,24 @@ def render():
     )
     st.divider()
 
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Repositorio de notas y documentación del equipo. Buscar, filtrar y crear notas .md (SOPs, learnings, research).")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("Archivos .md o .txt. Parsea headers, tags, categorías y fecha del filename (YYYY-MM-DD-tema).")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Sincronizar con notes/knowledge/ en el repo para que el equipo las consulte.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Tab 1: subí archivos .md → buscá por texto, filtrá por tags y categorías\n"
+            "2. Tab 2: creá una nota nueva con preview en vivo\n"
+            "3. Descargá el .md generado y guardalo en notes/knowledge/"
+        )
+
     tab1, tab2 = st.tabs(["📖 Explorar notas", "✏️ Agregar nota"])
 
     # ══════════════════════════════════════════════════════════════════

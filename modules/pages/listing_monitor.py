@@ -342,6 +342,27 @@ def render() -> None:
         )
         return
 
+    st.divider()
+
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Monitorear ASINs de Amazon y alertar cambios en precio, rating, reseñas, badge, bullets, stock y título vs snapshot anterior.")
+        with col2:
+            st.markdown("**📂 Archivo necesario**")
+            st.caption("Ninguno — scrapea Amazon directo con requests + BeautifulSoup. Solo requiere lista de ASINs y marketplace (MX/COM/ES/BR/CA).")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Account Pulse (M21) o Weekly Client Report (M14) para complementar con métricas de cuenta.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Tab 1: ingresá ASINs + seleccioná marketplace + delay entre requests\n"
+            "2. Escaneá y guardá snapshot automáticamente\n"
+            "3. Tab 2: revisá alertas vs snapshot anterior (🔴 alerta / 🟡 info / 🟢 ok)\n"
+            "4. Tab 3: consultá historial completo de snapshots"
+        )
+
     snapshots = _load_snapshots()
 
     tab1, tab2, tab3 = st.tabs(["🔍 Escanear ASINs", "📊 Ver Alertas", "🗂️ Historial"])
