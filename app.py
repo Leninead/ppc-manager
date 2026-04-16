@@ -39,6 +39,7 @@ from modules.pages.datadive_analyzer import render as render_datadive
 from modules.pages.helium10_analyzer import render as render_helium10
 from modules.pages.sbh_recommendation import render as render_sbh
 from modules.pages.knowledge_base import render as render_knowledge
+import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
 
@@ -141,6 +142,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ── Autenticación ──────────────────────────────────────────────────
+_creds = st.secrets["credentials"].to_dict()
+_authenticator = stauth.Authenticate(
+    _creds,
+    st.secrets["cookie"]["name"],
+    st.secrets["cookie"]["key"],
+    int(st.secrets["cookie"]["expiry_days"]),
+)
+
+_name, _auth_status, _username = _authenticator.login(
+    fields={
+        "Form name": "🦫 Capybaras PPC Manager",
+        "Username": "Usuario",
+        "Password": "Contraseña",
+        "Login": "Ingresar",
+    }
+)
+
+if _auth_status is False:
+    st.error("❌ Usuario o contraseña incorrectos")
+    st.stop()
+elif _auth_status is None:
+    st.stop()
+# ── Fin auth ───────────────────────────────────────────────────────
+
 
 if "parent_child_map" not in st.session_state:
     _auto_load_business_report_map()
@@ -153,6 +179,9 @@ def _nav(page):
     st.session_state["selected_page"] = page
 
 with st.sidebar:
+    _authenticator.logout("↩ Cerrar sesión", "sidebar")
+    st.caption(f"👤 {_name}")
+    st.divider()
     st.markdown(
         "<div style='padding:0.75rem 0.5rem 0.25rem;'>"
         "<span style='font-size:1.4rem;'>🦫</span>"
