@@ -75,6 +75,26 @@ def _generar_nombre_campana_sd(marca: str, asin: str, targeting_type: str,
     return f"{marca} - {asin} - SD - {targeting_type} - {subtipo} {numero}"
 
 
+# ── Bulk Amazon 2026 — 31 columnas exactas en orden ──────────────────────────
+# Ref: AmazonBulkUploadGuide.md · Regla #2 · Última columna "Sites" agregada Q2 2026
+_BULK_COLUMNS_2026 = [
+    "Product", "Entity", "Operation", "Campaign ID", "Ad Group ID",
+    "Portfolio ID", "Ad ID", "Keyword ID", "Product Targeting ID",
+    "Campaign Name", "Ad Group Name", "Start Date", "End Date",
+    "Targeting Type", "State", "Daily Budget", "SKU",
+    "Ad Group Default Bid", "Bid", "Keyword Text",
+    "Native Language Keyword", "Native Language Locale", "Match Type",
+    "Bidding Strategy", "Placement", "Percentage",
+    "Product Targeting Expression", "Audience ID",
+    "Shopper Cohort Percentage", "Shopper Cohort Type", "Sites",
+]
+
+
+def _fila_vacia_bulk() -> dict:
+    """Retorna un dict con las 31 columnas del bulk Amazon, todas vacías."""
+    return {col: "" for col in _BULK_COLUMNS_2026}
+
+
 # ── SB Render ────────────────────────────────────────────────────────────────
 
 def _render_sb():
@@ -706,18 +726,6 @@ def render():
     MAX_KW_POR_CAMPANA = 5
     start_date = datetime.now().strftime("%Y%m%d")
 
-    # 8 columnas extra requeridas por Amazon
-    _EXTRA = {
-        "Native Language Keyword": "",
-        "Native Language Locale": "",
-        "Placement": "",
-        "Percentage": "",
-        "Product Targeting Expression": "",
-        "Audience ID": "",
-        "Shopper Cohort Percentage": "",
-        "Shopper Cohort Type": "",
-    }
-
     rows = []
     for cluster in df_kw["Cluster"].unique():
         df_cluster = df_kw[df_kw["Cluster"] == cluster].copy()
@@ -732,159 +740,89 @@ def render():
             camp_name = _generar_nombre_campana(marca, asin, cluster, "exact", num)
             ag_name   = _generar_nombre_adgroup(cluster, num)
 
-            # Fila Campaign
-            rows.append({
-                "Product":         "Sponsored Products",
-                "Entity":          "Campaign",
-                "Operation":       "create",
-                "Campaign ID":     camp_name,
-                "Ad Group ID":     "",
-                "Portfolio ID":    portfolio_id,
-                "Ad ID":           "",
-                "Keyword ID":      "",
-                "Product Targeting ID": "",
-                "Campaign Name":   camp_name,
-                "Ad Group Name":   "",
-                "Start Date":      start_date,
-                "End Date":        "",
-                "Targeting Type":  "MANUAL",
-                "State":           "enabled",
-                "Daily Budget":    budget,
-                "SKU":             "",
-                "Ad Group Default Bid": "",
-                "Bid":             "",
-                "Keyword Text":    "",
-                "Match Type":      "",
-                "Bidding Strategy": "Dynamic bids - down only",
-                **_EXTRA,
+            # Fila Campaign — Regla #3: Campaign ID = Campaign Name
+            fila_camp = _fila_vacia_bulk()
+            fila_camp.update({
+                "Product":          "Sponsored Products",
+                "Entity":           "Campaign",
+                "Operation":        "create",
+                "Campaign ID":      camp_name,
+                "Portfolio ID":     portfolio_id,
+                "Campaign Name":    camp_name,
+                "Start Date":       start_date,       # Regla #4: yyyyMMdd
+                "Targeting Type":   "MANUAL",         # Regla #8
+                "State":            "enabled",
+                "Daily Budget":     budget,
+                "Bidding Strategy": "Dynamic bids - down only",  # Regla #5
             })
+            rows.append(fila_camp)
 
-            # Fila Ad Group
-            rows.append({
-                "Product":         "Sponsored Products",
-                "Entity":          "Ad Group",
-                "Operation":       "create",
-                "Campaign ID":     camp_name,
-                "Ad Group ID":     ag_name,
-                "Portfolio ID":    "",
-                "Ad ID":           "",
-                "Keyword ID":      "",
-                "Product Targeting ID": "",
-                "Campaign Name":   camp_name,
-                "Ad Group Name":   ag_name,
-                "Start Date":      "",
-                "End Date":        "",
-                "Targeting Type":  "",
-                "State":           "enabled",
-                "Daily Budget":    "",
-                "SKU":             "",
+            # Fila Ad Group — Regla #3: Campaign ID y Ad Group ID = nombres
+            fila_ag = _fila_vacia_bulk()
+            fila_ag.update({
+                "Product":              "Sponsored Products",
+                "Entity":               "Ad Group",
+                "Operation":            "create",
+                "Campaign ID":          camp_name,
+                "Ad Group ID":          ag_name,
+                "Campaign Name":        camp_name,
+                "Ad Group Name":        ag_name,
+                "State":                "enabled",
                 "Ad Group Default Bid": bid_calculado,
-                "Bid":             "",
-                "Keyword Text":    "",
-                "Match Type":      "",
-                "Bidding Strategy": "",
-                **_EXTRA,
             })
+            rows.append(fila_ag)
 
-            # Fila Product Ad (SKU)
+            # Fila Product Ad (SKU) — Regla #3: Campaign ID y Ad Group ID = nombres
             if sku:
-                rows.append({
-                    "Product":         "Sponsored Products",
-                    "Entity":          "Product Ad",
-                    "Operation":       "create",
-                    "Campaign ID":     camp_name,
-                    "Ad Group ID":     ag_name,
-                    "Portfolio ID":    "",
-                    "Ad ID":           "",
-                    "Keyword ID":      "",
-                    "Product Targeting ID": "",
-                    "Campaign Name":   camp_name,
-                    "Ad Group Name":   ag_name,
-                    "Start Date":      "",
-                    "End Date":        "",
-                    "Targeting Type":  "",
-                    "State":           "enabled",
-                    "Daily Budget":    "",
-                    "SKU":             sku,
-                    "Ad Group Default Bid": "",
-                    "Bid":             "",
-                    "Keyword Text":    "",
-                    "Match Type":      "",
-                    "Bidding Strategy": "",
-                    **_EXTRA,
+                fila_ad = _fila_vacia_bulk()
+                fila_ad.update({
+                    "Product":       "Sponsored Products",
+                    "Entity":        "Product Ad",
+                    "Operation":     "create",
+                    "Campaign ID":   camp_name,
+                    "Ad Group ID":   ag_name,
+                    "Campaign Name": camp_name,
+                    "Ad Group Name": ag_name,
+                    "State":         "enabled",
+                    "SKU":           sku,
                 })
+                rows.append(fila_ad)
 
             # Filas de targets (Keywords o Product Targeting para PAT)
             for kw in grupo:
+                fila_target = _fila_vacia_bulk()
                 if is_pat:
-                    row = {
-                        "Product":         "Sponsored Products",
-                        "Entity":          "Product Targeting",
-                        "Operation":       "create",
-                        "Campaign ID":     camp_name,
-                        "Ad Group ID":     ag_name,
-                        "Portfolio ID":    "",
-                        "Ad ID":           "",
-                        "Keyword ID":      "",
-                        "Product Targeting ID": "",
-                        "Campaign Name":   camp_name,
-                        "Ad Group Name":   ag_name,
-                        "Start Date":      "",
-                        "End Date":        "",
-                        "Targeting Type":  "",
-                        "State":           "enabled",
-                        "Daily Budget":    "",
-                        "SKU":             "",
-                        "Ad Group Default Bid": "",
-                        "Bid":             bid_calculado,
-                        "Keyword Text":    "",
-                        "Match Type":      "",
-                        "Bidding Strategy": "",
-                        **_EXTRA,
+                    # Regla #6: usar Product Targeting Expression, NO Product Targeting ID
+                    fila_target.update({
+                        "Product":                      "Sponsored Products",
+                        "Entity":                       "Product Targeting",
+                        "Operation":                    "create",
+                        "Campaign ID":                  camp_name,
+                        "Ad Group ID":                  ag_name,
+                        "Campaign Name":                camp_name,
+                        "Ad Group Name":                ag_name,
+                        "State":                        "enabled",
+                        "Bid":                          bid_calculado,
                         "Product Targeting Expression": f'asin="{kw.upper()}"',
-                    }
+                    })
                 else:
-                    row = {
-                        "Product":         "Sponsored Products",
-                        "Entity":          "Keyword",
-                        "Operation":       "create",
-                        "Campaign ID":     camp_name,
-                        "Ad Group ID":     ag_name,
-                        "Portfolio ID":    "",
-                        "Ad ID":           "",
-                        "Keyword ID":      "",
-                        "Product Targeting ID": "",
-                        "Campaign Name":   camp_name,
-                        "Ad Group Name":   ag_name,
-                        "Start Date":      "",
-                        "End Date":        "",
-                        "Targeting Type":  "",
-                        "State":           "enabled",
-                        "Daily Budget":    "",
-                        "SKU":             "",
-                        "Ad Group Default Bid": "",
-                        "Bid":             bid_calculado,
-                        "Keyword Text":    kw,
-                        "Match Type":      "exact",
-                        "Bidding Strategy": "",
-                        **_EXTRA,
-                    }
-                rows.append(row)
+                    fila_target.update({
+                        "Product":       "Sponsored Products",
+                        "Entity":        "Keyword",
+                        "Operation":     "create",
+                        "Campaign ID":   camp_name,
+                        "Ad Group ID":   ag_name,
+                        "Campaign Name": camp_name,
+                        "Ad Group Name": ag_name,
+                        "State":         "enabled",
+                        "Bid":           bid_calculado,
+                        "Keyword Text":  kw,
+                        "Match Type":    "exact",
+                    })
+                rows.append(fila_target)
 
-    # Orden exacto de columnas Amazon (30 columnas)
-    _AMAZON_COLS = [
-        "Product", "Entity", "Operation", "Campaign ID", "Ad Group ID",
-        "Portfolio ID", "Ad ID", "Keyword ID", "Product Targeting ID",
-        "Campaign Name", "Ad Group Name", "Start Date", "End Date",
-        "Targeting Type", "State", "Daily Budget", "SKU",
-        "Ad Group Default Bid", "Bid", "Keyword Text",
-        "Native Language Keyword", "Native Language Locale",
-        "Match Type", "Bidding Strategy", "Placement", "Percentage",
-        "Product Targeting Expression", "Audience ID",
-        "Shopper Cohort Percentage", "Shopper Cohort Type",
-    ]
-
-    df_bulk = pd.DataFrame(rows, columns=_AMAZON_COLS)
+    # Orden exacto de columnas Amazon 2026 (31 columnas) — ver _BULK_COLUMNS_2026
+    df_bulk = pd.DataFrame(rows, columns=_BULK_COLUMNS_2026)
 
     # ── Preview tabla ─────────────────────────────────────────────────────────
     n_campanas = df_bulk[df_bulk["Entity"] == "Campaign"].shape[0]
@@ -909,7 +847,7 @@ def render():
 
     # ── Export en formato exacto Amazon ──────────────────────────────────────
     st.markdown("#### Export bulk — formato exacto Amazon")
-    st.caption("Listo para subir directo a Campaign Manager. 30 columnas en el orden exacto que Amazon requiere.")
+    st.caption("Listo para subir directo a Campaign Manager. 31 columnas (incluye 'Sites' Q2 2026) en el orden exacto que Amazon requiere.")
 
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:

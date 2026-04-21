@@ -1695,3 +1695,29 @@ pip install requests beautifulsoup4
 - Fix requirements.txt: agregado `requests` y `beautifulsoup4` para que Listing Monitor funcione en Streamlit Cloud
 - Pendiente: verificar Listing Monitor en producción tras Reboot — si persiste el error, revisar logs de Streamlit Cloud
 - Pendiente: decidir si credenciales se comunican individualmente o con usuario compartido
+
+---
+
+## 📅 Sesión 2026-04-21 — Campaign Builder bulk 2026 compliant
+
+### Fixes aplicados a `modules/pages/campaign_builder.py` (flujo SP)
+- Ahora es compliant con `AmazonBulkUploadGuide.md` (8 reglas) + columna **Sites** (update Q2 2026)
+- Helper `_BULK_COLUMNS_2026` (31 columnas, orden exacto) + `_fila_vacia_bulk()` agregados a nivel módulo — reusable desde cualquier otro módulo que necesite generar bulks SP
+- **Fix crítico (Regla #3):** Campaign ID / Ad Group ID en filas `create` siempre deben ser los nombres, nunca vacíos — sin esto Amazon falla con "Missing Parent ID"
+- **Regla #4:** Start Date ya estaba en `yyyyMMdd` (no requirió cambio — verificado)
+- **Regla #5:** Bidding Strategy ya estaba en `"Dynamic bids - down only"` (verificado)
+- **Regla #7:** No hay filas vacías separadoras (verificado)
+- Reescritas las 4 filas del loop SP con patrón `_fila_vacia_bulk() + .update()` — más legible, imposible olvidar una columna
+- DataFrame ahora usa `pd.DataFrame(rows, columns=_BULK_COLUMNS_2026)` para orden garantizado
+- Eliminado dict local `_EXTRA` (8 cols) — ahora cubierto por el helper
+
+### Validación post-fix
+Smoke test reproduce el loop con 3 keywords (Vitamin A + Spanish + PAT) → 12 filas, 31 cols, última "Sites":
+- Campaign ID == Campaign Name en todas las filas Campaign
+- Campaign ID == Campaign Name AND Ad Group ID == Ad Group Name en Ad Group/Product Ad/Keyword/PT
+- Start Date = `20260421` (string 8 dígitos)
+- Bidding Strategy = `Dynamic bids - down only`
+- PAT usa `Product Targeting Expression = asin="B0..."` con Keyword Text / Match Type / Product Targeting ID vacíos (Regla #6)
+
+### Fuera de scope de esta sesión
+- `_render_sb()` y `_render_sd()` siguen con su formato anterior (columnas propias, no las 31 de SP) — pendiente migrar cuando Amazon documente formato bulk exacto para SB/SD 2026
