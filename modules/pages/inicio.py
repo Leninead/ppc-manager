@@ -7,9 +7,10 @@ _GRIS_TXT = "#888888"
 
 _VERSION = "v3.0"
 _DATE    = "2026-03-27"
-_TOTAL_MODULOS = 22
+_TOTAL_MODULOS = 23
 
 _CHANGELOG = [
+    ("2026-04-16", "Listing Compliance — detector keywords weighted product (LTD MX)"),
     ("2026-03-27", "Knowledge Base — explorador de notas .md con búsqueda, tags y categorías"),
     ("2026-03-27", "SBH Target Recommendation — targets SBH cruzando MKL+SQP+Campaign CSV"),
     ("2026-03-27", "Ranking Volatility — tab 4 en DataDive con std dev + PPC IS del SQP"),

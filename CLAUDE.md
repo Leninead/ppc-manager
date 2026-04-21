@@ -43,6 +43,7 @@ No hay build step, test suite ni linter configurado.
 | 21 | ⚙️ Atom11 Rules Builder | PPC | ✅ nuevo 2026-03-23 |
 | 22 | 📚 Knowledge Base | Knowledge | ✅ conectado 2026-03-27 (explorar + agregar notas .md) |
 | 23 | 👁️ Listing Monitor | Account Manager | ✅ nuevo 2026-04-09 |
+| 24 | 🛡️ Listing Compliance | Account Manager | ✅ nuevo 2026-04-16 — detector keywords weighted product |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.
 Sidebar colapsable con `st.expander` por sección: PPC (expanded) | Research | Account | Knowledge.
@@ -88,6 +89,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/sbh_recommendation.py` — render() ✅ conectado 2026-03-27
 - `modules/pages/knowledge_base.py` — render() ✅ conectado 2026-03-27
 - `modules/pages/listing_monitor.py` — render() ✅ creado 2026-04-09
+- `modules/pages/listing_compliance.py` — render() ✅ creado 2026-04-16 — detector keywords weighted product, scanea exports Seller Central, severidad CRITICAL/HIGH/MEDIUM, Excel 3 hojas
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort

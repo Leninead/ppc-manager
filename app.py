@@ -30,6 +30,7 @@ from modules.pages.weekly_client_report import render as render_weekly
 from modules.pages.bid_optimizer import render as render_bid_optimizer
 from modules.pages.campaign_builder import render as render_campaign_builder
 from modules.pages.atom11_rules_builder import render as render_atom11_rules
+from modules.pages.listing_compliance import render as render_listing_compliance
 from modules.pages.listing_monitor import render as render_listing_monitor
 from modules.pages.account_pulse import render as render_account_pulse
 from modules.pages.ppc_forecast import render as render_ppc_forecast
@@ -230,6 +231,7 @@ with st.sidebar:
             "🛡️ Reportes MerchanSpring",
             "📊 Weekly Client Report",
             "👁️ Listing Monitor",
+            "🛡️ Listing Compliance",
         ]:
             st.button(_pg, use_container_width=True, on_click=_nav,
                       args=(_pg,), key=f"nav_{_pg}")
@@ -328,3 +330,6 @@ if selected == "📊 Account Pulse":
 
 if selected == "📚 Knowledge Base":
     render_knowledge()
+
+if selected == "🛡️ Listing Compliance":
+    render_listing_compliance()

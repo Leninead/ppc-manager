@@ -29,4 +29,5 @@ _PAGES = [
     "🧲 Helium 10 Analyzer",
     "📢 SBH Recommendation",
     "📚 Knowledge Base",
+    "🛡️ Listing Compliance",
 ]

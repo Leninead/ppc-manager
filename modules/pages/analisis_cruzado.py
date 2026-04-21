@@ -57,8 +57,8 @@ def render():
         if brand_name:
             st.success(f"Marca detectada: **{brand_name.title()}**")
             brand_terms = [t.strip() for t in brand_name.split(",")]
-            df_sqp["Tipo"] = df_sqp[sqp_col].str.lower().str.strip().apply(
-                lambda q: "Marca" if isinstance(q, str) and any(t in q for t in brand_terms) else "Genérica"
+            df_sqp["Tipo"] = df_sqp[sqp_col].fillna("").astype(str).str.lower().str.strip().apply(
+                lambda q: "Marca" if q and any(t in q for t in brand_terms) else "Genérica"
             )
         else:
             marca_manual = st.text_input(
@@ -69,8 +69,8 @@ def render():
             if marca_manual.strip():
                 brand_name = marca_manual.strip().lower()
                 brand_terms = [t.strip() for t in brand_name.split(",")]
-                df_sqp["Tipo"] = df_sqp[sqp_col].str.lower().str.strip().apply(
-                    lambda q: "Marca" if any(t in q for t in brand_terms) else "Genérica"
+                df_sqp["Tipo"] = df_sqp[sqp_col].fillna("").astype(str).str.lower().str.strip().apply(
+                    lambda q: "Marca" if q and any(t in q for t in brand_terms) else "Genérica"
                 )
                 st.success(f"Marca configurada manualmente: **{brand_name.title()}**")
             else:
