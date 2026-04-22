@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{CLIENT_NAME}} — Reporte Integral</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<style>
+:root{--orange:#FF3300;--light-orange:#E85B03;--dark:#000;--grey:#0E0E0E;--white:#FFF;--surface:#111;--surface2:#1a1a1a;--border:#2a2a2a;--text:#f0f0f0;--text-muted:#888;--green:#22c55e;--red:#ef4444}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--dark);color:var(--text);min-height:100vh}
+
+.hero{position:relative;padding:40px 48px 24px;background:linear-gradient(135deg,#0a0a0a 0%,#111 50%,var(--grey) 100%);border-bottom:1px solid var(--border);overflow:hidden}
+.hero::before{content:'';position:absolute;top:-100px;right:-60px;width:400px;height:400px;background:radial-gradient(circle,rgba(255,51,0,.08) 0%,transparent 70%);border-radius:50%}
+.hero-label{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--orange);margin-bottom:10px}
+.hero h1{font-family:'Playfair Display',serif;font-size:32px;font-weight:900;letter-spacing:-.5px;color:var(--white)}
+.hero h1 span{color:var(--orange)}
+.hero-meta{margin-top:10px;font-size:13px;color:var(--text-muted);display:flex;gap:24px;flex-wrap:wrap}
+.hero-meta strong{color:var(--text);font-weight:500}
+
+/* ═══ MAIN TABS ═══ */
+.main-tabs-bar{background:linear-gradient(180deg,#0a0a0a 0%,#000 100%);border-bottom:2px solid var(--orange);padding:0 48px}
+.main-tabs{display:flex;gap:2px;max-width:1440px;margin:0 auto}
+.main-tab{padding:16px 28px;border:none;background:transparent;color:var(--text-muted);font-size:13px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;cursor:pointer;font-family:inherit;transition:all .2s;position:relative;border-bottom:3px solid transparent;margin-bottom:-2px}
+.main-tab:hover{color:var(--white)}
+.main-tab.active{color:var(--white);border-bottom-color:var(--orange)}
+.main-tab.active::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--orange),transparent);opacity:.5}
+
+.panel{display:none}
+.panel.active{display:block}
+
+.container{max-width:1440px;margin:0 auto;padding:24px 32px 64px}
+
+.filters-bar{display:flex;flex-wrap:wrap;gap:12px;padding:20px 24px;margin-bottom:24px;background:var(--surface);border:1px solid var(--border);border-radius:12px;align-items:center}
+.filters-bar label{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px}
+.filters-bar select,.filters-bar input[type="text"]{padding:8px 14px;border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:8px;font-size:13px;font-family:inherit;outline:none;transition:border .2s}
+.filters-bar select:focus,.filters-bar input:focus{border-color:var(--orange)}
+.filter-group{display:flex;flex-direction:column;gap:4px}
+.search-input{min-width:200px}
+.btn-reset{padding:8px 18px;border:1px solid var(--orange);background:transparent;color:var(--orange);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit}
+.btn-reset:hover{background:var(--orange);color:var(--white)}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:24px}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 14px;text-align:center;transition:border-color .2s}
+.kpi-card:hover{border-color:var(--light-orange)}
+.kpi-card .kpi-label{font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.kpi-card .kpi-value{font-size:22px;font-weight:700;color:var(--white)}
+.kpi-card .kpi-sub{font-size:10px;color:var(--text-muted);margin-top:3px}
+.kpi-card .kpi-delta{font-size:11px;font-weight:600;margin-top:4px}
+.delta-pos{color:var(--green)}.delta-neg{color:var(--red)}.delta-neutral{color:var(--text-muted)}
+
+.funnel-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:24px}
+.funnel-title{font-size:16px;font-weight:700;margin-bottom:16px}
+.funnel-row{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.funnel-label{width:120px;font-size:12px;color:var(--text-muted);text-align:right}
+.funnel-bar-container{flex:1;height:28px;background:var(--surface2);border-radius:6px;overflow:hidden;position:relative}
+.funnel-bar{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--orange),var(--light-orange));transition:width .6s}
+.funnel-val{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:600;color:var(--white)}
+.funnel-brand{height:100%;border-radius:6px;position:absolute;top:0;left:0;background:rgba(255,255,255,.15);transition:width .6s}
+
+.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;margin-bottom:28px}
+.cat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;cursor:pointer;transition:all .25s}
+.cat-card:hover{border-color:var(--orange);transform:translateY(-2px)}
+.cat-card.active{border-color:var(--orange);box-shadow:0 0 20px rgba(255,51,0,.15)}
+.cat-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.cat-card-title{font-size:14px;font-weight:700;color:var(--white)}
+.cat-card-count{font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(255,51,0,.12);color:var(--orange);font-weight:600}
+.cat-metrics-table{width:100%;border-collapse:collapse}
+.cat-metrics-table th{font-size:8px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;padding:0 4px 6px;text-align:center;border-bottom:1px solid var(--border)}
+.cat-metrics-table th:first-child{text-align:left}
+.cat-metrics-table td{padding:5px 4px;text-align:center;font-size:12px;font-weight:600;color:var(--white)}
+.cat-metrics-table td:first-child{text-align:left;font-size:10px;color:var(--text-muted);font-weight:500}
+.cat-metrics-table tr+tr td{border-top:1px solid rgba(255,255,255,.03)}
+.delta-pp-pos{color:var(--green);font-size:10px;font-weight:600}
+.delta-pp-neg{color:var(--red);font-size:10px;font-weight:600}
+.delta-pp-neu{color:var(--text-muted);font-size:10px;font-weight:600}
+
+.month-tabs{display:flex;gap:3px;margin-bottom:16px;background:var(--surface);border-radius:10px;padding:3px;width:fit-content;border:1px solid var(--border);flex-wrap:wrap}
+.month-tab{padding:6px 14px;border-radius:8px;border:none;background:transparent;color:var(--text-muted);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
+.month-tab.active{background:var(--orange);color:var(--white)}
+.month-tab:hover:not(.active){color:var(--white);background:var(--surface2)}
+
+.table-wrapper{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
+.table-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:10px}
+.table-title{font-size:15px;font-weight:700;color:var(--white)}
+.table-info{font-size:11px;color:var(--text-muted)}
+.table-scroll{overflow-x:auto;max-height:600px;overflow-y:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead{position:sticky;top:0;z-index:2}
+thead th{background:var(--grey);color:var(--text-muted);padding:10px 14px;text-align:left;font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:10px;cursor:pointer;white-space:nowrap;border-bottom:1px solid var(--border);user-select:none;transition:color .2s}
+thead th:hover{color:var(--orange)}
+thead th.sorted{color:var(--orange)}
+thead th .sort-arrow{margin-left:4px;font-size:9px}
+tbody tr{border-bottom:1px solid rgba(255,255,255,.04);transition:background .15s}
+tbody tr:hover{background:rgba(255,51,0,.04)}
+tbody td{padding:10px 14px;white-space:nowrap;color:var(--text)}
+td.query-cell,td.title-cell{white-space:normal;max-width:280px;font-weight:500}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.pct{text-align:right}
+.badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(255,51,0,.1);color:var(--orange)}
+
+.btn-export{padding:7px 16px;border:1px solid var(--light-orange);background:transparent;color:var(--light-orange);border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
+.btn-export:hover{background:var(--light-orange);color:var(--white)}
+.section-label{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--orange);margin-bottom:12px;margin-top:32px}
+
+.chart-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0;margin-bottom:24px;overflow:hidden}
+.chart-section-header{display:flex;justify-content:space-between;align-items:flex-start;padding:20px 24px 12px;flex-wrap:wrap;gap:12px}
+.chart-section-title{font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--orange)}
+.chart-metric-tabs{display:flex;gap:3px;background:var(--surface2);border-radius:8px;padding:3px;border:1px solid var(--border);flex-wrap:wrap}
+.chart-metric-tab{padding:5px 12px;border-radius:6px;border:none;background:transparent;color:var(--text-muted);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;white-space:nowrap}
+.chart-metric-tab.active{background:var(--orange);color:var(--white)}
+.chart-metric-tab:hover:not(.active){color:var(--white)}
+.range-tabs{display:flex;gap:3px;background:var(--surface2);border-radius:8px;padding:3px;border:1px solid var(--border)}
+.range-tab{padding:5px 12px;border-radius:6px;border:none;background:transparent;color:var(--text-muted);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;white-space:nowrap}
+.range-tab.active{background:var(--orange);color:var(--white)}
+.range-tab:hover:not(.active){color:var(--white)}
+.chart-body{display:flex;min-height:440px}
+.chart-sidebar{width:220px;min-width:220px;border-right:1px solid var(--border);padding:12px;overflow-y:auto;max-height:440px}
+.chart-sidebar-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.chart-sidebar-head span{font-size:12px;font-weight:700;color:var(--white)}
+.sidebar-btns{display:flex;gap:6px}
+.sidebar-btn{font-size:10px;color:var(--orange);background:none;border:none;cursor:pointer;font-family:inherit;font-weight:600;text-decoration:underline;padding:0}
+.cat-check-item{display:flex;align-items:center;gap:7px;padding:4px 0;cursor:pointer;user-select:none}
+.cat-check-item input[type="checkbox"]{display:none}
+.cat-color-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;border:2px solid transparent;transition:all .15s}
+.cat-check-item input:not(:checked)~.cat-color-dot{opacity:.3;border-color:#555;background:#333!important}
+.cat-check-item input:not(:checked)~.cat-check-label{opacity:.4;text-decoration:line-through}
+.cat-check-label{font-size:11px;font-weight:500;color:var(--text)}
+.chart-canvas-wrap{flex:1;padding:16px 20px;position:relative;min-width:0}
+.chart-canvas-wrap canvas{width:100%!important;height:400px!important}
+.chart-legend{display:flex;flex-wrap:wrap;gap:10px;padding:10px 24px 14px;border-top:1px solid var(--border)}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-muted)}
+.legend-dot{width:9px;height:9px;border-radius:50%}
+
+.compare-note{font-size:10px;color:var(--text-muted);margin-bottom:14px;padding:8px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);display:inline-block}
+.compare-note strong{color:var(--orange)}
+
+/* Trend sparkline + modal */
+.spark-btn{background:none;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;transition:background .15s;display:flex;align-items:center;justify-content:center}
+.spark-btn:hover{background:rgba(255,51,0,.1)}
+.spark-btn svg{display:block}
+.delta-pill{display:inline-block;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap}
+.delta-pill-pos{background:rgba(34,197,94,.15);color:var(--green)}
+.delta-pill-neg{background:rgba(239,68,68,.15);color:var(--red)}
+.delta-pill-neu{color:var(--text-muted);font-size:10px}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+.modal-overlay.active{display:flex}
+.modal-content{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:1000px;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.7)}
+.modal-header{display:flex;justify-content:space-between;align-items:flex-start;padding:20px 24px;border-bottom:1px solid var(--border);gap:16px}
+.modal-header h3{font-size:16px;font-weight:700;color:var(--white);line-height:1.4;margin:0}
+.modal-header .modal-sku{font-size:11px;color:var(--orange);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.modal-close{background:none;border:none;color:var(--text-muted);font-size:28px;line-height:1;cursor:pointer;padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;transition:all .2s;flex-shrink:0}
+.modal-close:hover{background:var(--surface2);color:var(--orange)}
+.modal-body{padding:24px}
+.modal-metric-tabs{display:flex;gap:3px;background:var(--surface2);border-radius:8px;padding:3px;border:1px solid var(--border);flex-wrap:wrap;margin-bottom:16px;width:fit-content}
+.modal-metric-tab{padding:5px 12px;border-radius:6px;border:none;background:transparent;color:var(--text-muted);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
+.modal-metric-tab.active{background:var(--orange);color:var(--white)}
+.modal-metric-tab:hover:not(.active){color:var(--white)}
+.modal-canvas-wrap{position:relative;height:400px}
+.modal-canvas-wrap canvas{width:100%!important;height:400px!important}
+
+@media(max-width:768px){.hero{padding:24px 16px}.hero h1{font-size:22px}.main-tabs-bar{padding:0 16px;overflow-x:auto}.main-tab{padding:14px 18px;font-size:11px}.container{padding:16px}.filters-bar{flex-direction:column}.cat-grid{grid-template-columns:1fr}.kpi-grid{grid-template-columns:repeat(2,1fr)}.chart-body{flex-direction:column}.chart-sidebar{width:100%;min-width:100%;max-height:140px;border-right:none;border-bottom:1px solid var(--border)}}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:var(--surface)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--orange)}
+</style>
+</head>
+<body>
+<div class="hero">
+  <div class="hero-label">{{CLIENT_LABEL}}</div>
+  <h1>Reporte <span>Integral</span> — Amazon US</h1>
+  <div class="hero-meta">
+    <span>Mercado: <strong>{{MARKET}}</strong></span>
+    <span>Generado: <strong>{{GENERATED_DATE}}</strong></span>
+  </div>
+</div>
+
+<div class="main-tabs-bar">
+  <div class="main-tabs">
+    <button class="main-tab active" onclick="switchTab(this,'sqp')">SQP</button>
+    <button class="main-tab" onclick="switchTab(this,'wow')">WoW Category</button>
+  </div>
+</div>
+
+<!-- ═══ SQP PANEL ═══ -->
+<div class="panel active" id="panel-sqp">
+<div class="container">
+  <div class="filters-bar">
+    <div class="filter-group"><label>Categoría</label><select id="filterCat"><option value="">Todas</option></select></div>
+    <div class="filter-group"><label>Mes</label><select id="filterMonth"><option value="">Todos</option></select></div>
+    <div class="filter-group"><label>Buscar Query</label><input type="text" id="filterSearch" class="search-input" placeholder="Escribe para filtrar..."></div>
+    <div class="filter-group"><label>Min Brand Share %</label><input type="text" id="filterMinShare" style="width:80px" placeholder="0"></div>
+    <div class="filter-group" style="justify-content:flex-end"><label>&nbsp;</label><button class="btn-reset" onclick="resetFilters()">Reset</button></div>
+  </div>
+  <div class="kpi-grid" id="kpiGrid"></div>
+  <div class="funnel-section"><div class="funnel-title">Funnel de Conversión (Totales vs Brand)</div><div id="funnelChart"></div></div>
+  <div class="section-label">Performance por Categoría</div>
+  <div class="month-tabs" id="monthTabsBar" style="margin-bottom:12px"></div>
+  <div class="compare-note" id="compareNote"></div>
+  <div class="cat-grid" id="catGrid"></div>
+  <div class="section-label" style="margin-top:24px">Detalle de Search Queries</div>
+  <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <button class="btn-export" onclick="exportCSV()">Exportar CSV</button>
+  </div>
+  <div class="table-wrapper">
+    <div class="table-header"><div class="table-title" id="tableTitle">Todas las Queries</div><div class="table-info" id="tableInfo"></div></div>
+    <div class="table-scroll"><table><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table></div>
+  </div>
+  <div class="section-label" style="margin-top:40px">Category Trend Charts</div>
+  <div class="chart-section">
+    <div class="chart-section-header">
+      <div>
+        <div class="chart-section-title">Tendencias por Categoría</div>
+        <div class="range-tabs" style="margin-top:10px">
+          <button class="range-tab" onclick="setRange(this,3)">Last 3 Mo</button>
+          <button class="range-tab" onclick="setRange(this,6)">Last 6 Mo</button>
+          <button class="range-tab" onclick="setRange(this,12)">Last 12 Mo</button>
+          <button class="range-tab active" onclick="setRange(this,15)">All 15 Mo</button>
+        </div>
+      </div>
+      <div class="chart-metric-tabs">
+        <button class="chart-metric-tab active" onclick="setChartMetric(this,'impB')">Imp Brand</button>
+        <button class="chart-metric-tab" onclick="setChartMetric(this,'impBS')">Imp Brand %</button>
+        <button class="chart-metric-tab" onclick="setChartMetric(this,'clkB')">Clicks Brand</button>
+        <button class="chart-metric-tab" onclick="setChartMetric(this,'clkBS')">Click Brand %</button>
+        <button class="chart-metric-tab" onclick="setChartMetric(this,'purB')">Compras Brand</button>
+        <button class="chart-metric-tab" onclick="setChartMetric(this,'purBS')">Compras Brand %</button>
+        <button class="chart-metric-tab" onclick="setChartMetric(this,'vol')">Volumen</button>
+      </div>
+    </div>
+    <div class="chart-body">
+      <div class="chart-sidebar">
+        <div class="chart-sidebar-head"><span>Categorías</span><div class="sidebar-btns"><button class="sidebar-btn" onclick="chartSelectAll()">All</button><button class="sidebar-btn" onclick="chartClearAll()">None</button></div></div>
+        <div id="chartCatList"></div>
+      </div>
+      <div class="chart-canvas-wrap"><canvas id="trendCanvas"></canvas></div>
+    </div>
+    <div class="chart-legend" id="chartLegend"></div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ WoW CATEGORY PANEL ═══ -->
+<div class="panel" id="panel-wow">
+<div class="container">
+  <div class="section-label" style="margin-top:0">Week-over-Week Category Performance</div>
+  <div class="compare-note">Período: <strong>{{WOW_WEEK_COUNT}} Semanas</strong> ({{WOW_WEEK_RANGE}}) · Datos por semana con comparativo WoW y YoY</div>
+
+  <!-- Week selector -->
+  <div class="month-tabs" id="wowWeekTabs" style="margin-bottom:16px"></div>
+
+  <!-- KPI cards (current week) -->
+  <div class="kpi-grid" id="wowKpiGrid"></div>
+
+  <!-- Category summary cards -->
+  <div class="section-label">Category Summary Cards</div>
+  <div class="compare-note" id="wowCompareNote"></div>
+  <div class="cat-grid" id="wowCatGrid"></div>
+
+  <!-- Detail table -->
+  <div class="section-label" style="margin-top:24px">Category Detail Table</div>
+  <div class="filters-bar" style="margin-bottom:10px">
+    <div class="filter-group"><label>Categoría</label><select id="wowFilterCat"><option value="">Todas</option></select></div>
+    <div class="filter-group"><label>Buscar SKU/Title</label><input type="text" id="wowFilterSearch" class="search-input" placeholder="Escribe para filtrar..."></div>
+    <div class="filter-group" style="justify-content:flex-end"><label>&nbsp;</label><button class="btn-export" onclick="wowExportCSV()">Exportar CSV</button></div>
+  </div>
+  <div class="table-wrapper">
+    <div class="table-header"><div class="table-title" id="wowTableTitle">Todos los productos</div><div class="table-info" id="wowTableInfo"></div></div>
+    <div class="table-scroll"><table><thead id="wowTableHead"></thead><tbody id="wowTableBody"></tbody></table></div>
+  </div>
+
+  <!-- Trend Charts -->
+  <div class="section-label" style="margin-top:40px">Category Trend Charts</div>
+  <div class="chart-section">
+    <div class="chart-section-header">
+      <div>
+        <div class="chart-section-title">Tendencias Semanales por Categoría</div>
+        <div class="range-tabs" style="margin-top:10px">
+          <button class="range-tab" onclick="wowSetRange(this,4)">Last 4 Wk</button>
+          <button class="range-tab" onclick="wowSetRange(this,13)">Last 13 Wk</button>
+          <button class="range-tab" onclick="wowSetRange(this,26)">Last 26 Wk</button>
+          <button class="range-tab" onclick="wowSetRange(this,52)">Last 52 Wk</button>
+          <button class="range-tab active" onclick="wowSetRange(this,68)">All 68 Wk</button>
+        </div>
+      </div>
+      <div class="chart-metric-tabs">
+        <button class="chart-metric-tab active" onclick="wowSetMetric(this,'sales')">Sales</button>
+        <button class="chart-metric-tab" onclick="wowSetMetric(this,'sess')">Sessions</button>
+        <button class="chart-metric-tab" onclick="wowSetMetric(this,'units')">Units</button>
+        <button class="chart-metric-tab" onclick="wowSetMetric(this,'usp')">Unit Session %</button>
+        <button class="chart-metric-tab" onclick="wowSetMetric(this,'items')">Order Items</button>
+      </div>
+    </div>
+    <div class="chart-body">
+      <div class="chart-sidebar">
+        <div class="chart-sidebar-head"><span>Categorías</span><div class="sidebar-btns"><button class="sidebar-btn" onclick="wowSelectAll()">All</button><button class="sidebar-btn" onclick="wowClearAll()">None</button></div></div>
+        <div id="wowChartCatList"></div>
+      </div>
+      <div class="chart-canvas-wrap"><canvas id="wowTrendCanvas"></canvas></div>
+    </div>
+    <div class="chart-legend" id="wowChartLegend"></div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ TREND MODAL ═══ -->
+<div class="modal-overlay" id="trendModal" onclick="closeTrendModal(event)">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <div class="modal-sku" id="modalSku"></div>
+        <h3 id="modalTitle"></h3>
+      </div>
+      <button class="modal-close" onclick="closeTrendModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-metric-tabs" id="modalMetricTabs">
+        <button class="modal-metric-tab active" onclick="setModalMetric(this,'sales')">Sales</button>
+        <button class="modal-metric-tab" onclick="setModalMetric(this,'sess')">Sessions</button>
+        <button class="modal-metric-tab" onclick="setModalMetric(this,'units')">Units</button>
+        <button class="modal-metric-tab" onclick="setModalMetric(this,'usp')">Unit Session %</button>
+        <button class="modal-metric-tab" onclick="setModalMetric(this,'items')">Order Items</button>
+      </div>
+      <div class="modal-canvas-wrap">
+        <canvas id="modalCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═════════════════════════════════════════
+// GLOBAL DATA
+// ═════════════════════════════════════════
+const RAW={{RAW_JSON}};
+const WOW={{WOW_JSON}};
+// Tab switching
+function switchTab(el, tab){
+  document.querySelectorAll('.main-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-'+tab).classList.add('active');
+  if(tab==='wow'){setTimeout(()=>wowDrawChart(),50)}
+  else if(tab==='sqp'){setTimeout(()=>drawChart(),50)}
+}
+
+// ═════════════════════════════════════════
+// SQP TAB (existing)
+// ═════════════════════════════════════════
+const ALL_MONTHS={{ALL_MONTHS_JSON}};
+const MONTH_LABELS={{MONTH_LABELS_JSON}};
+const MONTH_NAMES={{MONTH_NAMES_JSON}};
+const CAT_COLORS=['#FF3300','#E85B03','#ff6b6b','#ffd93d','#4ecdc4','#6c8cff','#a78bfa','#f472b6','#34d399','#fb923c','#38bdf8','#c084fc','#f87171','#facc15','#2dd4bf','#818cf8','#e879f9','#22d3ee','#a3e635','#fbbf24','#94a3b8','#d946ef','#0ea5e9','#84cc16'];
+
+let state={cat:'',month:'',search:'',minShare:0,sortCol:'vol',sortAsc:false,activeCat:''};
+let chartMetric='impB',chartRange=15,chartVisibleCats=new Set();
+const allCats=[...new Set(RAW.map(r=>r.cat))];
+const catPurB={};allCats.forEach(c=>{catPurB[c]=RAW.filter(r=>r.cat===c).reduce((s,r)=>s+r.purB,0)});
+allCats.sort((a,b)=>catPurB[b]-catPurB[a]);
+allCats.slice(0,8).forEach(c=>chartVisibleCats.add(c));
+const catColorMap={};allCats.forEach((c,i)=>{catColorMap[c]=CAT_COLORS[i%CAT_COLORS.length]});
+
+const catMonthly={};
+allCats.forEach(cat=>{catMonthly[cat]={};ALL_MONTHS.forEach(m=>{
+  const rows=RAW.filter(r=>r.cat===cat&&r.mk===m);
+  const impT=rows.reduce((s,r)=>s+r.impT,0),impB=rows.reduce((s,r)=>s+r.impB,0);
+  const clkT=rows.reduce((s,r)=>s+r.clkT,0),clkB=rows.reduce((s,r)=>s+r.clkB,0);
+  const cartT=rows.reduce((s,r)=>s+r.cartT,0),cartB=rows.reduce((s,r)=>s+r.cartB,0);
+  const purT=rows.reduce((s,r)=>s+r.purT,0),purB=rows.reduce((s,r)=>s+r.purB,0);
+  const vol=rows.reduce((s,r)=>s+r.vol,0);
+  catMonthly[cat][m]={impT,impB,impBS:impT>0?+(impB/impT*100).toFixed(2):0,clkT,clkB,clkBS:clkT>0?+(clkB/clkT*100).toFixed(2):0,cartT,cartB,cartBS:cartT>0?+(cartB/cartT*100).toFixed(2):0,purT,purB,purBS:purT>0?+(purB/purT*100).toFixed(2):0,vol,count:rows.length};
+})});
+
+function getPrevMonth(mk){const idx=ALL_MONTHS.indexOf(mk);return idx>0?ALL_MONTHS[idx-1]:null}
+function getYoYMonth(mk){const[y,m]=mk.split('-');const py=String(+y-1);const ym=py+'-'+m;return ALL_MONTHS.includes(ym)?ym:null}
+function fmtDelta(curr,prev){if(prev===null||prev===undefined)return '<span class="delta-pp-neu">—</span>';if(prev===0&&curr===0)return '<span class="delta-pp-neu">0%</span>';if(prev===0)return '<span class="delta-pp-pos">+∞</span>';const pct=((curr-prev)/Math.abs(prev)*100).toFixed(1);const num=+pct;if(num>0)return `<span class="delta-pp-pos">▲ +${pct}%</span>`;if(num<0)return `<span class="delta-pp-neg">▼ ${pct}%</span>`;return '<span class="delta-pp-neu">0%</span>'}
+function fmtDeltaPP(curr,prev){if(prev===null||prev===undefined)return '<span class="delta-pp-neu">—</span>';const diff=(curr-prev).toFixed(2);const num=+diff;if(num>0)return `<span class="delta-pp-pos">▲ +${diff}pp</span>`;if(num<0)return `<span class="delta-pp-neg">▼ ${diff}pp</span>`;return '<span class="delta-pp-neu">0pp</span>'}
+
+function getActiveMonth(){return state.month||ALL_MONTHS[ALL_MONTHS.length-1]}
+function renderCatCards(data){
+  const activeMk=getActiveMonth(),prevMk=getPrevMonth(activeMk),yoyMk=getYoYMonth(activeMk);
+  document.getElementById('compareNote').innerHTML=`Mes actual: <strong>${MONTH_LABELS[activeMk]}</strong> · MoM vs <strong>${prevMk?MONTH_LABELS[prevMk]:'N/A'}</strong> · YoY vs <strong>${yoyMk?MONTH_LABELS[yoyMk]:'N/A'}</strong>`;
+  const catsInData={};data.forEach(r=>{catsInData[r.cat]=true});
+  const sorted=allCats.filter(c=>catsInData[c]);
+  document.getElementById('catGrid').innerHTML=sorted.map(cat=>{
+    const curr=catMonthly[cat][activeMk]||{vol:0,impBS:0,clkBS:0,purB:0,count:0};
+    const prev=prevMk?catMonthly[cat][prevMk]:null,yoy=yoyMk?catMonthly[cat][yoyMk]:null;
+    const volFmt=curr.vol>=1e6?(curr.vol/1e6).toFixed(1)+'M':curr.vol>=1e3?(curr.vol/1e3).toFixed(0)+'K':curr.vol.toLocaleString();
+    const momVol=prev?fmtDelta(curr.vol,prev.vol):'<span class="delta-pp-neu">—</span>';
+    const momImpBS=prev?fmtDeltaPP(curr.impBS,prev.impBS):'<span class="delta-pp-neu">—</span>';
+    const momClkBS=prev?fmtDeltaPP(curr.clkBS,prev.clkBS):'<span class="delta-pp-neu">—</span>';
+    const yoyVol=yoy?fmtDelta(curr.vol,yoy.vol):'<span class="delta-pp-neu">—</span>';
+    const yoyImpBS=yoy?fmtDeltaPP(curr.impBS,yoy.impBS):'<span class="delta-pp-neu">—</span>';
+    const yoyClkBS=yoy?fmtDeltaPP(curr.clkBS,yoy.clkBS):'<span class="delta-pp-neu">—</span>';
+    const ac=state.activeCat===cat?'active':'';
+    return `<div class="cat-card ${ac}" onclick="toggleCat('${cat.replace(/'/g,"\\'")}')"><div class="cat-card-header"><div class="cat-card-title">${cat}</div><div class="cat-card-count">${curr.count} queries · ${curr.purB} compras</div></div><table class="cat-metrics-table"><thead><tr><th></th><th>Actual</th><th>MoM</th><th>YoY</th></tr></thead><tbody><tr><td>Volumen</td><td>${volFmt}</td><td>${momVol}</td><td>${yoyVol}</td></tr><tr><td>Imp Share %</td><td>${curr.impBS.toFixed(2)}%</td><td>${momImpBS}</td><td>${yoyImpBS}</td></tr><tr><td>Click Share %</td><td>${curr.clkBS.toFixed(2)}%</td><td>${momClkBS}</td><td>${yoyClkBS}</td></tr></tbody></table></div>`;
+  }).join('');
+}
+
+function getVisibleMonths(){return ALL_MONTHS.slice(ALL_MONTHS.length-chartRange)}
+function drawChart(){
+  const canvas=document.getElementById('trendCanvas');const wrap=canvas.parentElement;
+  const dpr=window.devicePixelRatio||1;const w=wrap.clientWidth,h=400;
+  canvas.width=w*dpr;canvas.height=h*dpr;canvas.style.width=w+'px';canvas.style.height=h+'px';
+  const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  const pl=70,pr=30,pt=20,pb=50,cw=w-pl-pr,ch=h-pt-pb;ctx.clearRect(0,0,w,h);
+  const months=getVisibleMonths();const visibleCats=allCats.filter(c=>chartVisibleCats.has(c));
+  let maxVal=0;visibleCats.forEach(cat=>{months.forEach(m=>{const d=catMonthly[cat][m];const v=d?d[chartMetric]:0;if(v>maxVal)maxVal=v})});
+  if(maxVal===0)maxVal=1;maxVal*=1.12;
+  const gridN=5;ctx.strokeStyle='#1e1e1e';ctx.lineWidth=1;ctx.fillStyle='#555';ctx.font='11px DM Sans,sans-serif';ctx.textAlign='right';
+  for(let i=0;i<=gridN;i++){const y=pt+(ch-ch*i/gridN);const val=maxVal*i/gridN;ctx.beginPath();ctx.moveTo(pl,y);ctx.lineTo(pl+cw,y);ctx.stroke();
+    let label;if(chartMetric.endsWith('BS'))label=val.toFixed(1)+'%';else if(val>=1e6)label=(val/1e6).toFixed(1)+'M';else if(val>=1e3)label=(val/1e3).toFixed(0)+'K';else label=Math.round(val).toString();ctx.fillText(label,pl-10,y+4)}
+  ctx.textAlign='center';ctx.fillStyle='#777';ctx.font='10px DM Sans,sans-serif';
+  const xStep=months.length>1?cw/(months.length-1):0;
+  months.forEach((m,i)=>{const x=pl+i*xStep;if(months.length<=6||i%Math.ceil(months.length/12)===0||i===months.length-1)ctx.fillText(MONTH_LABELS[m],x,h-12);ctx.strokeStyle='#151515';ctx.beginPath();ctx.moveTo(x,pt);ctx.lineTo(x,pt+ch);ctx.stroke()});
+  canvas._chartPoints=[];
+  visibleCats.forEach(cat=>{const color=catColorMap[cat];
+    const points=months.map((m,i)=>{const d=catMonthly[cat][m];const v=d?d[chartMetric]:0;return{x:pl+i*xStep,y:pt+ch-(v/maxVal)*ch,v}});
+    ctx.strokeStyle=color;ctx.lineWidth=2.5;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();points.forEach((p,i)=>{i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.stroke();
+    ctx.globalAlpha=0.15;ctx.lineWidth=6;ctx.beginPath();points.forEach((p,i)=>{i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.stroke();ctx.globalAlpha=1;ctx.lineWidth=2.5;
+    points.forEach((p,i)=>{ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);ctx.fillStyle='#0e0e0e';ctx.fill();ctx.strokeStyle=color;ctx.lineWidth=2;ctx.stroke();
+      canvas._chartPoints.push({x:p.x,y:p.y,cat,month:MONTH_LABELS[months[i]],value:p.v,color})});
+  });
+  document.getElementById('chartLegend').innerHTML=visibleCats.map(c=>`<div class="legend-item"><div class="legend-dot" style="background:${catColorMap[c]}"></div>${c}</div>`).join('');
+}
+
+let tooltip=null;
+function initTooltip(){tooltip=document.createElement('div');tooltip.style.cssText='position:fixed;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px 12px;font-size:11px;color:#fff;pointer-events:none;z-index:999;display:none;font-family:DM Sans,sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.5)';document.body.appendChild(tooltip);
+  const canvas=document.getElementById('trendCanvas');
+  canvas.addEventListener('mousemove',e=>{const rect=canvas.getBoundingClientRect();const mx=e.clientX-rect.left,my=e.clientY-rect.top;const pts=canvas._chartPoints||[];let closest=null,minD=25;pts.forEach(p=>{const d=Math.sqrt((p.x-mx)**2+(p.y-my)**2);if(d<minD){minD=d;closest=p}});
+    if(closest){const fmtVal=chartMetric.endsWith('BS')?closest.value.toFixed(2)+'%':closest.value.toLocaleString();tooltip.innerHTML=`<div style="color:${closest.color};font-weight:700;margin-bottom:2px">${closest.cat}</div><div>${closest.month}: <strong>${fmtVal}</strong></div>`;tooltip.style.display='block';tooltip.style.left=(e.clientX+14)+'px';tooltip.style.top=(e.clientY-10)+'px'}else tooltip.style.display='none'});
+  canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none'})}
+
+function renderChartSidebar(){document.getElementById('chartCatList').innerHTML=allCats.map(cat=>{const color=catColorMap[cat];const ch=chartVisibleCats.has(cat)?'checked':'';return `<label class="cat-check-item"><input type="checkbox" ${ch} onchange="toggleChartCat('${cat.replace(/'/g,"\\'")}')" /><div class="cat-color-dot" style="background:${color}"></div><span class="cat-check-label">${cat}</span></label>`}).join('')}
+function toggleChartCat(c){if(chartVisibleCats.has(c))chartVisibleCats.delete(c);else chartVisibleCats.add(c);drawChart()}
+function chartSelectAll(){allCats.forEach(c=>chartVisibleCats.add(c));renderChartSidebar();drawChart()}
+function chartClearAll(){chartVisibleCats.clear();renderChartSidebar();drawChart()}
+function setChartMetric(el,m){chartMetric=m;document.querySelectorAll('#panel-sqp .chart-metric-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');drawChart()}
+function setRange(el,n){chartRange=n;document.querySelectorAll('#panel-sqp .range-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');drawChart()}
+
+const COLUMNS=[{key:'q',label:'Search Query',cls:'query-cell'},{key:'cat',label:'Categoría',cls:'cat-cell'},{key:'mk',label:'Mes',cls:''},{key:'vol',label:'Volumen',cls:'num'},{key:'impT',label:'Imp Total',cls:'num'},{key:'impBS',label:'Imp Share %',cls:'pct'},{key:'clkT',label:'Clicks Total',cls:'num'},{key:'clkBS',label:'Click Share Brand %',cls:'pct'}];
+function getFiltered(){let f=[...RAW];if(state.cat)f=f.filter(r=>r.cat===state.cat);if(state.month)f=f.filter(r=>r.mk===state.month);if(state.search){const s=state.search.toLowerCase();f=f.filter(r=>r.q.toLowerCase().includes(s))}if(state.minShare>0)f=f.filter(r=>r.impBS>=state.minShare);f.sort((a,b)=>{let va=a[state.sortCol],vb=b[state.sortCol];if(typeof va==='string'){va=va.toLowerCase();vb=(vb||'').toLowerCase()}if(va<vb)return state.sortAsc?-1:1;if(va>vb)return state.sortAsc?1:-1;return 0});return f}
+function renderKPIs(data){
+  const ti=data.reduce((s,r)=>s+r.impT,0),bi=data.reduce((s,r)=>s+r.impB,0);const tc=data.reduce((s,r)=>s+r.clkT,0),bc=data.reduce((s,r)=>s+r.clkB,0);const ta=data.reduce((s,r)=>s+r.cartT,0),ba=data.reduce((s,r)=>s+r.cartB,0);const tp=data.reduce((s,r)=>s+r.purT,0),bp=data.reduce((s,r)=>s+r.purB,0);
+  const kpis=[{l:'Queries',v:data.length.toLocaleString(),s:'resultados'},{l:'Imp Brand %',v:(ti>0?(bi/ti*100).toFixed(2):0)+'%',s:bi.toLocaleString()+' / '+ti.toLocaleString()},{l:'Click Brand %',v:(tc>0?(bc/tc*100).toFixed(2):0)+'%',s:bc.toLocaleString()+' / '+tc.toLocaleString()},{l:'Cart Brand %',v:(ta>0?(ba/ta*100).toFixed(2):0)+'%',s:ba.toLocaleString()+' / '+ta.toLocaleString()},{l:'Purchase Brand %',v:(tp>0?(bp/tp*100).toFixed(2):0)+'%',s:bp.toLocaleString()+' / '+tp.toLocaleString()},{l:'Compras Brand',v:bp.toLocaleString(),s:'unidades'}];
+  document.getElementById('kpiGrid').innerHTML=kpis.map(k=>`<div class="kpi-card"><div class="kpi-label">${k.l}</div><div class="kpi-value">${k.v}</div><div class="kpi-sub">${k.s}</div></div>`).join('')}
+function renderFunnel(data){
+  const ti=data.reduce((s,r)=>s+r.impT,0),bi=data.reduce((s,r)=>s+r.impB,0);const tc=data.reduce((s,r)=>s+r.clkT,0),bc=data.reduce((s,r)=>s+r.clkB,0);const ta=data.reduce((s,r)=>s+r.cartT,0),ba=data.reduce((s,r)=>s+r.cartB,0);const tp=data.reduce((s,r)=>s+r.purT,0),bp=data.reduce((s,r)=>s+r.purB,0);const mx=ti||1;
+  const steps=[{l:'Impressions',t:ti,b:bi},{l:'Clicks',t:tc,b:bc},{l:'Cart Adds',t:ta,b:ba},{l:'Purchases',t:tp,b:bp}];
+  document.getElementById('funnelChart').innerHTML=steps.map(s=>{const pt=(s.t/mx*100).toFixed(1),pb2=(s.b/mx*100).toFixed(1),sh=s.t>0?(s.b/s.t*100).toFixed(1)+'%':'0%';return `<div class="funnel-row"><div class="funnel-label">${s.l}</div><div class="funnel-bar-container"><div class="funnel-bar" style="width:${pt}%"></div><div class="funnel-brand" style="width:${pb2}%"></div><div class="funnel-val">${s.t.toLocaleString()} (Brand: ${s.b.toLocaleString()} — ${sh})</div></div></div>`}).join('')}
+function renderTable(data){
+  document.getElementById('tableHead').innerHTML='<tr>'+COLUMNS.map(c=>{const is=state.sortCol===c.key;const ar=is?(state.sortAsc?'▲':'▼'):'';return `<th class="${is?'sorted':''}" onclick="sortBy('${c.key}')">${c.label}<span class="sort-arrow">${ar}</span></th>`}).join('')+'</tr>';
+  const shown=data.slice(0,500);
+  document.getElementById('tableBody').innerHTML=shown.map(r=>'<tr>'+COLUMNS.map(c=>{let v=r[c.key];if(c.cls==='num')v=typeof v==='number'?v.toLocaleString():v;else if(c.cls==='pct')v=typeof v==='number'?v.toFixed(2)+'%':v;else if(c.key==='cat')v=`<span class="badge">${v}</span>`;else if(c.key==='mk')v=MONTH_LABELS[v]||v;return `<td class="${c.cls}">${v}</td>`}).join('')+'</tr>').join('');
+  document.getElementById('tableInfo').textContent=`Mostrando ${shown.length} de ${data.length}`;document.getElementById('tableTitle').textContent=state.activeCat||state.cat||'Todas las Queries'}
+
+function render(){const d=getFiltered();renderKPIs(d);renderFunnel(d);renderCatCards(d);renderTable(d)}
+function toggleCat(c){if(state.activeCat===c){state.activeCat='';state.cat=document.getElementById('filterCat').value}else{state.activeCat=c;state.cat=c}render()}
+function sortBy(c){if(state.sortCol===c)state.sortAsc=!state.sortAsc;else{state.sortCol=c;state.sortAsc=false}render()}
+function setMonthTab(el,m){document.querySelectorAll('#monthTabsBar .month-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');state.month=m;document.getElementById('filterMonth').value=m;render()}
+function resetFilters(){state={cat:'',month:'',search:'',minShare:0,sortCol:'vol',sortAsc:false,activeCat:''};document.getElementById('filterCat').value='';document.getElementById('filterMonth').value='';document.getElementById('filterSearch').value='';document.getElementById('filterMinShare').value='';document.querySelectorAll('#monthTabsBar .month-tab').forEach(t=>t.classList.remove('active'));const allBtn=document.querySelector('#monthTabsBar .month-tab[data-month=""]');if(allBtn)allBtn.classList.add('active');render()}
+function exportCSV(){const d=getFiltered();const h=COLUMNS.map(c=>c.label);const rows=d.map(r=>COLUMNS.map(c=>{let v=r[c.key];if(typeof v==='string'&&v.includes(','))return'"'+v+'"';return v}));const csv=[h.join(','),...rows.map(r=>r.join(','))].join('\n');const blob=new Blob([csv],{type:'text/csv'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='sqp_gamboa.csv';a.click()}
+
+// ═════════════════════════════════════════
+// WoW CATEGORY TAB
+// ═════════════════════════════════════════
+const WOW_ROWS=WOW.rows;
+const WOW_WEEKS=['Wk1-25','Wk2-25','Wk3-25','Wk4-25','Wk5-25','Wk6-25','Wk7-25','Wk8-25','Wk9-25','Wk10-25','Wk11-25','Wk12-25','Wk13-25','Wk14-25','Wk15-25','Wk16-25','Wk17-25','Wk18-25','Wk19-25','Wk20-25','Wk21-25','Wk22-25','Wk23-25','Wk24-25','Wk25-25','Wk26-25','Wk27-25','Wk28-25','Wk29-25','Wk30-25','Wk31-25','Wk32-25','Wk33-25','Wk34-25','Wk35-25','Wk36-25','Wk37-25','Wk38-25','Wk39-25','Wk40-25','Wk41-25','Wk42-25','Wk43-25','Wk44-25','Wk45-25','Wk46-25','Wk47-25','Wk48-25','Wk49-25','Wk50-25','Wk51-25','Wk52-25','Wk1-26','Wk2-26','Wk3-26','Wk4-26','Wk5-26','Wk6-26','Wk7-26','Wk8-26','Wk9-26','Wk10-26','Wk11-26','Wk12-26','Wk13-26','Wk14-26','Wk15-26','Wk16-26'];
+const WOW_WEEK_DATES=WOW.week_dates;
+
+let wowState={week:'{{DEFAULT_ACTIVE_WEEK}}',catFilter:'',search:'',sortCol:'sales',sortAsc:false};
+let wowMetric='sales',wowRange=68,wowVisibleCats=new Set();
+
+const wowAllCats=[...new Set(WOW_ROWS.map(r=>r.cat))];
+const wowCatSales={};wowAllCats.forEach(c=>{wowCatSales[c]=WOW_ROWS.filter(r=>r.cat===c).reduce((s,r)=>s+r.sales,0)});
+wowAllCats.sort((a,b)=>wowCatSales[b]-wowCatSales[a]);
+wowAllCats.slice(0,10).forEach(c=>wowVisibleCats.add(c));
+const wowCatColorMap={};wowAllCats.forEach((c,i)=>{wowCatColorMap[c]=CAT_COLORS[i%CAT_COLORS.length]});
+
+// Pre-compute weekly aggregates per category
+const wowCatWeekly={};
+wowAllCats.forEach(cat=>{wowCatWeekly[cat]={};WOW_WEEKS.forEach(wk=>{
+  const rows=WOW_ROWS.filter(r=>r.cat===cat&&r.wk===wk);
+  const sales=rows.reduce((s,r)=>s+r.sales,0);
+  const sess=rows.reduce((s,r)=>s+r.sess,0);
+  const units=rows.reduce((s,r)=>s+r.units,0);
+  const items=rows.reduce((s,r)=>s+r.items,0);
+  const pv=rows.reduce((s,r)=>s+r.pv,0);
+  wowCatWeekly[cat][wk]={sales,sess,units,items,pv,usp:sess>0?+(units/sess*100).toFixed(2):0,count:rows.length};
+})});
+
+// Weekly totals (all categories)
+const wowTotals={};
+WOW_WEEKS.forEach(wk=>{
+  const rows=WOW_ROWS.filter(r=>r.wk===wk);
+  wowTotals[wk]={
+    sales:rows.reduce((s,r)=>s+r.sales,0),
+    sess:rows.reduce((s,r)=>s+r.sess,0),
+    units:rows.reduce((s,r)=>s+r.units,0),
+    items:rows.reduce((s,r)=>s+r.items,0),
+    pv:rows.reduce((s,r)=>s+r.pv,0),
+    skus:rows.length,
+  };
+  wowTotals[wk].usp=wowTotals[wk].sess>0?+(wowTotals[wk].units/wowTotals[wk].sess*100).toFixed(2):0;
+});
+
+function wowFmtDelta(curr,prev,isPct){
+  if(prev===null||prev===undefined)return '<span class="delta-pp-neu">—</span>';
+  if(isPct){const diff=(curr-prev).toFixed(2);const n=+diff;if(n>0)return `<span class="delta-pp-pos">▲ +${diff}pp</span>`;if(n<0)return `<span class="delta-pp-neg">▼ ${diff}pp</span>`;return '<span class="delta-pp-neu">0pp</span>'}
+  if(prev===0&&curr===0)return '<span class="delta-pp-neu">0%</span>';
+  if(prev===0)return '<span class="delta-pp-pos">+∞</span>';
+  const pct=((curr-prev)/Math.abs(prev)*100).toFixed(1);const n=+pct;
+  if(n>0)return `<span class="delta-pp-pos">▲ +${pct}%</span>`;if(n<0)return `<span class="delta-pp-neg">▼ ${pct}%</span>`;return '<span class="delta-pp-neu">0%</span>';
+}
+function wowPrevWeek(wk){const idx=WOW_WEEKS.indexOf(wk);return idx>0?WOW_WEEKS[idx-1]:null}
+function fmtMoney(n){return '$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fmtNum(n){return n.toLocaleString()}
+
+function wowRenderWeekTabs(){
+  // Group weeks by year for cleaner display
+  const groups={};
+  WOW_WEEKS.forEach(wk=>{
+    const [w,yr]=wk.split('-');
+    const year='20'+yr;
+    if(!groups[year])groups[year]=[];
+    groups[year].push(wk);
+  });
+  let h='';
+  Object.keys(groups).sort().forEach((yr,yi)=>{
+    if(yi>0)h+='<div style="width:1px;background:var(--border);margin:3px 4px"></div>';
+    h+=`<span style="font-size:10px;color:var(--text-muted);padding:6px 6px 6px 10px;align-self:center;font-weight:700;letter-spacing:1px">${yr}</span>`;
+    groups[yr].forEach(wk=>{
+      const active=wk===wowState.week?'active':'';
+      // Display: just W36, W1 etc (year shown in label)
+      const disp=wk.split('-')[0];
+      h+=`<button class="month-tab ${active}" onclick="wowSetWeek(this,'${wk}')">${disp}</button>`;
+    });
+  });
+  document.getElementById('wowWeekTabs').innerHTML=h;
+}
+function wowSetWeek(el,wk){document.querySelectorAll('#wowWeekTabs .month-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');wowState.week=wk;wowRender();wowDrawChart()}
+
+function wowRenderKPIs(){
+  const wk=wowState.week,prev=wowPrevWeek(wk),yoy=wowYoYWeek(wk);
+  const curr=wowTotals[wk],p=prev?wowTotals[prev]:null,y=yoy?wowTotals[yoy]:null;
+  const mkKpi=(l,v,wowDelta,yoyDelta,sub)=>{
+    const deltas=[];
+    if(wowDelta)deltas.push(`<span style="font-size:9px;color:var(--text-muted);margin-right:4px">WoW</span>${wowDelta}`);
+    if(yoyDelta)deltas.push(`<span style="font-size:9px;color:var(--text-muted);margin:0 4px">YoY</span>${yoyDelta}`);
+    return `<div class="kpi-card"><div class="kpi-label">${l}</div><div class="kpi-value">${v}</div>${deltas.length?`<div class="kpi-delta" style="font-size:10px">${deltas.join(' · ')}</div>`:''}<div class="kpi-sub">${sub}</div></div>`;
+  };
+  const kpis=[
+    mkKpi('Sales',fmtMoney(curr.sales),p?wowFmtDelta(curr.sales,p.sales):'',y?wowFmtDelta(curr.sales,y.sales):'','ventas totales'),
+    mkKpi('Sessions',fmtNum(curr.sess),p?wowFmtDelta(curr.sess,p.sess):'',y?wowFmtDelta(curr.sess,y.sess):'','tráfico total'),
+    mkKpi('Units Ordered',fmtNum(curr.units),p?wowFmtDelta(curr.units,p.units):'',y?wowFmtDelta(curr.units,y.units):'','unidades vendidas'),
+    mkKpi('Unit Session %',curr.usp.toFixed(2)+'%',p?wowFmtDelta(curr.usp,p.usp,true):'',y?wowFmtDelta(curr.usp,y.usp,true):'','conversion rate'),
+    mkKpi('Total Order Items',fmtNum(curr.items),p?wowFmtDelta(curr.items,p.items):'',y?wowFmtDelta(curr.items,y.items):'','items en pedidos'),
+    mkKpi('SKUs Activos',fmtNum(curr.skus),p?wowFmtDelta(curr.skus,p.skus):'',y?wowFmtDelta(curr.skus,y.skus):'','con ventas/sesiones'),
+  ];
+  document.getElementById('wowKpiGrid').innerHTML=kpis.join('');
+}
+
+function wowYoYWeek(wk){
+  const m=wk.match(/^Wk(\d+)-(\d{2})$/);
+  if(!m)return null;
+  const key=`Wk${+m[1]}-${String(+m[2]-1).padStart(2,'0')}`;
+  return WOW_WEEKS.indexOf(key)>=0?key:null;
+}
+function wowRenderCatCards(){
+  const wk=wowState.week,prev=wowPrevWeek(wk),yoy=wowYoYWeek(wk);
+  const dateStr=WOW_WEEK_DATES[wk]?'('+WOW_WEEK_DATES[wk]+')':'';
+  document.getElementById('wowCompareNote').innerHTML=`Semana actual: <strong>${wk}</strong> ${dateStr} · WoW vs <strong>${prev||'N/A'}</strong> · YoY vs <strong>${yoy||'N/A'}</strong>`;
+  const sorted=wowAllCats.filter(c=>wowCatWeekly[c][wk]&&(wowCatWeekly[c][wk].count>0||(prev&&wowCatWeekly[c][prev]&&wowCatWeekly[c][prev].count>0))).sort((a,b)=>(wowCatWeekly[b][wk]?wowCatWeekly[b][wk].sales:0)-(wowCatWeekly[a][wk]?wowCatWeekly[a][wk].sales:0));
+  document.getElementById('wowCatGrid').innerHTML=sorted.map(cat=>{
+    const c=wowCatWeekly[cat][wk]||{sales:0,sess:0,units:0,usp:0,count:0};
+    const p=prev?wowCatWeekly[cat][prev]:null;
+    const y=yoy?wowCatWeekly[cat][yoy]:null;
+    const row=(label,curVal,fmt)=>{
+      const pVal=p?(label==='Sales'?p.sales:label==='Sessions'?p.sess:label==='Units'?p.units:p.usp):null;
+      const yVal=y?(label==='Sales'?y.sales:label==='Sessions'?y.sess:label==='Units'?y.units:y.usp):null;
+      const wowCell=p?wowFmtDelta(curVal,pVal,label==='Unit Sess %'):'—';
+      const yoyCell=y?wowFmtDelta(curVal,yVal,label==='Unit Sess %'):'—';
+      return `<tr><td>${label}</td><td>${fmt(curVal)}</td><td>${wowCell}</td><td>${yoyCell}</td></tr>`;
+    };
+    return `<div class="cat-card"><div class="cat-card-header"><div class="cat-card-title">${cat}</div><div class="cat-card-count">${c.count} SKUs · ${c.units} units</div></div><table class="cat-metrics-table"><thead><tr><th></th><th>Actual</th><th>WoW</th><th>YoY</th></tr></thead><tbody>${row('Sales',c.sales,fmtMoney)}${row('Sessions',c.sess,fmtNum)}${row('Units',c.units,fmtNum)}${row('Unit Sess %',c.usp,v=>v.toFixed(2)+'%')}</tbody></table></div>`;
+  }).join('');
+}
+
+const WOW_COLUMNS=[
+  {key:'cat',label:'Categoría',cls:'cat-cell'},
+  {key:'sku',label:'SKU',cls:''},
+  {key:'title',label:'Title',cls:'title-cell'},
+  {key:'sales',label:'Sales',cls:'num',fmt:'money'},
+  {key:'sess',label:'Sessions',cls:'num'},
+  {key:'usp',label:'Unit Sess %',cls:'pct'},
+  {key:'items',label:'Order Items',cls:'num'},
+  {key:'units',label:'Units',cls:'num'},
+  {key:'wowDelta',label:'WoW',cls:'num',fmt:'delta'},
+  {key:'yoyDelta',label:'YoY',cls:'num',fmt:'delta'},
+  {key:'trend',label:'Trend',cls:'num',fmt:'trend',nosort:true},
+];
+
+// Precompute per-SKU weekly map for deltas and trends
+const skuWkMap={};
+WOW_ROWS.forEach(r=>{if(!skuWkMap[r.sku])skuWkMap[r.sku]={};skuWkMap[r.sku][r.wk]=r});
+
+// Compute wowDelta and yoyDelta per row (based on sales as primary metric)
+WOW_ROWS.forEach(r=>{
+  const wkIdx=WOW_WEEKS.indexOf(r.wk);
+  const prevWk=wkIdx>0?WOW_WEEKS[wkIdx-1]:null;
+  const prevRow=prevWk&&skuWkMap[r.sku]?skuWkMap[r.sku][prevWk]:null;
+  if(prevRow&&prevRow.sales>0)r.wowDelta=+((r.sales-prevRow.sales)/prevRow.sales*100).toFixed(1);
+  else if(prevRow&&prevRow.sales===0&&r.sales>0)r.wowDelta=999;
+  else r.wowDelta=null;
+  // YoY: compare same week number in previous year
+  const m=r.wk.match(/^Wk(\d+)-(\d{2})$/);
+  if(m){
+    const wkNum=+m[1],yr=+m[2];
+    const prevYrKey=`Wk${wkNum}-${String(yr-1).padStart(2,'0')}`;
+    const prevYrRow=skuWkMap[r.sku]?skuWkMap[r.sku][prevYrKey]:null;
+    if(prevYrRow&&prevYrRow.sales>0)r.yoyDelta=+((r.sales-prevYrRow.sales)/prevYrRow.sales*100).toFixed(1);
+    else if(prevYrRow&&prevYrRow.sales===0&&r.sales>0)r.yoyDelta=999;
+    else r.yoyDelta=null;
+  }else{r.yoyDelta=null}
+});
+
+function wowGetFiltered(){
+  let rows=WOW_ROWS.filter(r=>r.wk===wowState.week);
+  if(wowState.catFilter)rows=rows.filter(r=>r.cat===wowState.catFilter);
+  if(wowState.search){const s=wowState.search.toLowerCase();rows=rows.filter(r=>(r.sku||'').toLowerCase().includes(s)||(r.title||'').toLowerCase().includes(s))}
+  rows.sort((a,b)=>{
+    let va=a[wowState.sortCol],vb=b[wowState.sortCol];
+    // Handle null — sort nulls to bottom
+    if(va===null||va===undefined)va=wowState.sortAsc?Infinity:-Infinity;
+    if(vb===null||vb===undefined)vb=wowState.sortAsc?Infinity:-Infinity;
+    if(typeof va==='string'){va=va.toLowerCase();vb=(vb||'').toLowerCase()}
+    if(va<vb)return wowState.sortAsc?-1:1;
+    if(va>vb)return wowState.sortAsc?1:-1;
+    return 0;
+  });
+  return rows;
+}
+
+function wowRenderTable(){
+  document.getElementById('wowTableHead').innerHTML='<tr>'+WOW_COLUMNS.map(c=>{const is=wowState.sortCol===c.key;const ar=is?(wowState.sortAsc?'▲':'▼'):'';const onclick=c.nosort?'':`onclick="wowSortBy('${c.key}')"`;return `<th class="${is?'sorted':''}" ${onclick}>${c.label}<span class="sort-arrow">${ar}</span></th>`}).join('')+'</tr>';
+  const data=wowGetFiltered();const shown=data.slice(0,500);
+  document.getElementById('wowTableBody').innerHTML=shown.map(r=>'<tr>'+WOW_COLUMNS.map(c=>{
+    let v=r[c.key];
+    if(c.fmt==='money')v=fmtMoney(v);
+    else if(c.fmt==='delta'){
+      if(v===null||v===undefined)v='<span class="delta-pill-neu">—</span>';
+      else if(v===999)v='<span class="delta-pill delta-pill-pos">+∞</span>';
+      else if(v>0)v=`<span class="delta-pill delta-pill-pos">▲ ${v.toFixed(0)}%</span>`;
+      else if(v<0)v=`<span class="delta-pill delta-pill-neg">▼ ${Math.abs(v).toFixed(0)}%</span>`;
+      else v='<span class="delta-pill-neu">0%</span>';
+    }
+    else if(c.fmt==='trend')v=renderSparkline(r.sku);
+    else if(c.cls==='num')v=typeof v==='number'?v.toLocaleString():v;
+    else if(c.cls==='pct')v=typeof v==='number'?v.toFixed(2)+'%':v;
+    else if(c.key==='cat')v=`<span class="badge">${v}</span>`;
+    return `<td class="${c.cls}">${v}</td>`;
+  }).join('')+'</tr>').join('');
+  document.getElementById('wowTableInfo').textContent=`Mostrando ${shown.length} de ${data.length} en ${wowState.week}`;
+  document.getElementById('wowTableTitle').textContent=wowState.catFilter||'Todos los productos';
+}
+
+// ─── Sparkline for SKU trend ───
+function renderSparkline(sku){
+  const values=WOW_WEEKS.map(wk=>skuWkMap[sku]&&skuWkMap[sku][wk]?skuWkMap[sku][wk].sales:0);
+  const mx=Math.max(...values);
+  const mn=Math.min(...values);
+  const range=mx-mn||1;
+  const w=90,h=28,pad=2;
+  const points=values.map((v,i)=>{
+    const x=pad+(i/(values.length-1))*(w-pad*2);
+    const y=h-pad-((v-mn)/range)*(h-pad*2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const last=values[values.length-1],first=values[0];
+  const color=last>first?'#22c55e':last<first?'#ef4444':'#FF3300';
+  const skuEsc=sku.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  return `<button class="spark-btn" onclick="showTrendModal('${skuEsc}')" title="Ver tendencia completa"><svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" points="${points}"/></svg></button>`;
+}
+
+// ─── Trend Modal ───
+let modalCurrentSku=null;
+let modalMetric='sales';
+
+function showTrendModal(sku){
+  modalCurrentSku=sku;
+  modalMetric='sales';
+  document.querySelectorAll('#modalMetricTabs .modal-metric-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector('#modalMetricTabs .modal-metric-tab').classList.add('active');
+  // Find title from any row
+  const row=WOW_ROWS.find(r=>r.sku===sku);
+  document.getElementById('modalSku').textContent='SKU: '+sku;
+  document.getElementById('modalTitle').textContent=row?row.title:sku;
+  document.getElementById('trendModal').classList.add('active');
+  setTimeout(()=>drawModalChart(),50);
+}
+function closeTrendModal(e){
+  if(e&&e.target!==e.currentTarget)return;
+  document.getElementById('trendModal').classList.remove('active');
+  modalCurrentSku=null;
+}
+function setModalMetric(el,m){
+  modalMetric=m;
+  document.querySelectorAll('#modalMetricTabs .modal-metric-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  drawModalChart();
+}
+
+function drawModalChart(){
+  if(!modalCurrentSku)return;
+  const canvas=document.getElementById('modalCanvas');
+  const wrap=canvas.parentElement;
+  const dpr=window.devicePixelRatio||1;
+  const w=wrap.clientWidth,h=400;
+  canvas.width=w*dpr;canvas.height=h*dpr;canvas.style.width=w+'px';canvas.style.height=h+'px';
+  const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  const pl=80,pr=30,pt=30,pb=50,cw=w-pl-pr,ch=h-pt-pb;
+  ctx.clearRect(0,0,w,h);
+  const values=WOW_WEEKS.map(wk=>skuWkMap[modalCurrentSku]&&skuWkMap[modalCurrentSku][wk]?skuWkMap[modalCurrentSku][wk][modalMetric]:0);
+  const maxVal=Math.max(...values)*1.15||1;
+  const minVal=0;
+  // Grid
+  const gridN=5;
+  ctx.strokeStyle='#1e1e1e';ctx.lineWidth=1;ctx.fillStyle='#666';ctx.font='11px DM Sans,sans-serif';ctx.textAlign='right';
+  for(let i=0;i<=gridN;i++){
+    const y=pt+(ch-ch*i/gridN);
+    const val=maxVal*i/gridN;
+    ctx.beginPath();ctx.moveTo(pl,y);ctx.lineTo(pl+cw,y);ctx.stroke();
+    let label;
+    if(modalMetric==='usp')label=val.toFixed(1)+'%';
+    else if(modalMetric==='sales')label='$'+(val>=1000?(val/1000).toFixed(1)+'K':val.toFixed(0));
+    else if(val>=1000)label=(val/1000).toFixed(1)+'K';
+    else label=Math.round(val).toString();
+    ctx.fillText(label,pl-10,y+4);
+  }
+  // X labels
+  ctx.textAlign='center';ctx.fillStyle='#aaa';ctx.font='12px DM Sans,sans-serif';
+  const xStep=WOW_WEEKS.length>1?cw/(WOW_WEEKS.length-1):0;
+  WOW_WEEKS.forEach((wk,i)=>{
+    const x=pl+i*xStep;
+    ctx.fillText(wk,x,h-15);
+    ctx.strokeStyle='#151515';ctx.beginPath();ctx.moveTo(x,pt);ctx.lineTo(x,pt+ch);ctx.stroke();
+  });
+  // Area fill gradient
+  const gradient=ctx.createLinearGradient(0,pt,0,pt+ch);
+  gradient.addColorStop(0,'rgba(78, 205, 196, 0.3)');
+  gradient.addColorStop(1,'rgba(78, 205, 196, 0)');
+  const points=values.map((v,i)=>({x:pl+i*xStep,y:pt+ch-(v/maxVal)*ch,v}));
+  ctx.fillStyle=gradient;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x,pt+ch);
+  points.forEach(p=>ctx.lineTo(p.x,p.y));
+  ctx.lineTo(points[points.length-1].x,pt+ch);
+  ctx.closePath();
+  ctx.fill();
+  // Line
+  ctx.strokeStyle='#4ecdc4';ctx.lineWidth=3;ctx.lineJoin='round';ctx.lineCap='round';
+  ctx.beginPath();points.forEach((p,i)=>{i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.stroke();
+  // Dots + value labels above
+  ctx.font='bold 12px DM Sans,sans-serif';ctx.textAlign='center';
+  points.forEach(p=>{
+    ctx.beginPath();ctx.arc(p.x,p.y,6,0,Math.PI*2);ctx.fillStyle='#0e0e0e';ctx.fill();
+    ctx.strokeStyle='#4ecdc4';ctx.lineWidth=3;ctx.stroke();
+    // Value label
+    let label;
+    if(modalMetric==='usp')label=p.v.toFixed(1)+'%';
+    else if(modalMetric==='sales'){
+      if(p.v>=1000)label='$'+(p.v/1000).toFixed(1)+'K';
+      else label='$'+p.v.toFixed(0);
+    }
+    else label=p.v.toLocaleString();
+    ctx.fillStyle='#fff';
+    ctx.fillText(label,p.x,p.y-14);
+  });
+}
+
+function wowSortBy(c){if(wowState.sortCol===c)wowState.sortAsc=!wowState.sortAsc;else{wowState.sortCol=c;wowState.sortAsc=false}wowRenderTable()}
+
+function wowExportCSV(){
+  const d=wowGetFiltered();
+  const cols=WOW_COLUMNS.filter(c=>c.fmt!=='trend');
+  const h=cols.map(c=>c.label);
+  const rows=d.map(r=>cols.map(c=>{
+    let v=r[c.key];
+    if(v===null||v===undefined)return '';
+    if(c.fmt==='delta')return v===999?'+Inf':v+'%';
+    if(typeof v==='string'&&v.includes(','))return '"'+v.replace(/"/g,'""')+'"';
+    return v;
+  }));
+  const csv=[h.join(','),...rows.map(r=>r.join(','))].join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=`wow_gamboa_${wowState.week}.csv`;a.click();
+}
+
+// ESC to close modal
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){document.getElementById('trendModal').classList.remove('active');modalCurrentSku=null}});
+// Redraw modal on resize
+window.addEventListener('resize',()=>{if(modalCurrentSku)drawModalChart()});
+
+// WoW Chart
+function wowGetVisibleWeeks(){return WOW_WEEKS.slice(WOW_WEEKS.length-wowRange)}
+function wowDrawChart(){
+  const canvas=document.getElementById('wowTrendCanvas');if(!canvas)return;
+  const wrap=canvas.parentElement;
+  const dpr=window.devicePixelRatio||1;const w=wrap.clientWidth,h=400;
+  canvas.width=w*dpr;canvas.height=h*dpr;canvas.style.width=w+'px';canvas.style.height=h+'px';
+  const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  const pl=80,pr=30,pt=20,pb=50,cw=w-pl-pr,ch=h-pt-pb;ctx.clearRect(0,0,w,h);
+  const weeks=wowGetVisibleWeeks();const visibleCats=wowAllCats.filter(c=>wowVisibleCats.has(c));
+  let maxVal=0;visibleCats.forEach(cat=>{weeks.forEach(wk=>{const d=wowCatWeekly[cat][wk];const v=d?d[wowMetric]:0;if(v>maxVal)maxVal=v})});
+  if(maxVal===0)maxVal=1;maxVal*=1.12;
+  const gridN=5;ctx.strokeStyle='#1e1e1e';ctx.lineWidth=1;ctx.fillStyle='#555';ctx.font='11px DM Sans,sans-serif';ctx.textAlign='right';
+  for(let i=0;i<=gridN;i++){const y=pt+(ch-ch*i/gridN);const val=maxVal*i/gridN;ctx.beginPath();ctx.moveTo(pl,y);ctx.lineTo(pl+cw,y);ctx.stroke();
+    let label;if(wowMetric==='usp')label=val.toFixed(1)+'%';else if(wowMetric==='sales')label='$'+(val>=1000?(val/1000).toFixed(1)+'K':val.toFixed(0));else if(val>=1000)label=(val/1000).toFixed(1)+'K';else label=Math.round(val).toString();ctx.fillText(label,pl-10,y+4)}
+  ctx.textAlign='center';ctx.fillStyle='#777';ctx.font='10px DM Sans,sans-serif';
+  const xStep=weeks.length>1?cw/(weeks.length-1):0;
+  weeks.forEach((wk,i)=>{const x=pl+i*xStep;ctx.fillText(wk,x,h-12);ctx.strokeStyle='#151515';ctx.beginPath();ctx.moveTo(x,pt);ctx.lineTo(x,pt+ch);ctx.stroke()});
+  canvas._chartPoints=[];
+  visibleCats.forEach(cat=>{const color=wowCatColorMap[cat];
+    const points=weeks.map((wk,i)=>{const d=wowCatWeekly[cat][wk];const v=d?d[wowMetric]:0;return{x:pl+i*xStep,y:pt+ch-(v/maxVal)*ch,v}});
+    ctx.strokeStyle=color;ctx.lineWidth=2.5;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();points.forEach((p,i)=>{i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.stroke();
+    ctx.globalAlpha=0.15;ctx.lineWidth=6;ctx.beginPath();points.forEach((p,i)=>{i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.stroke();ctx.globalAlpha=1;ctx.lineWidth=2.5;
+    points.forEach((p,i)=>{ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);ctx.fillStyle='#0e0e0e';ctx.fill();ctx.strokeStyle=color;ctx.lineWidth=2;ctx.stroke();
+      canvas._chartPoints.push({x:p.x,y:p.y,cat,week:weeks[i],value:p.v,color})});
+  });
+  document.getElementById('wowChartLegend').innerHTML=visibleCats.map(c=>`<div class="legend-item"><div class="legend-dot" style="background:${wowCatColorMap[c]}"></div>${c}</div>`).join('');
+}
+
+let wowTooltip=null;
+function wowInitTooltip(){wowTooltip=document.createElement('div');wowTooltip.style.cssText='position:fixed;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px 12px;font-size:11px;color:#fff;pointer-events:none;z-index:999;display:none;font-family:DM Sans,sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.5)';document.body.appendChild(wowTooltip);
+  const canvas=document.getElementById('wowTrendCanvas');
+  canvas.addEventListener('mousemove',e=>{const rect=canvas.getBoundingClientRect();const mx=e.clientX-rect.left,my=e.clientY-rect.top;const pts=canvas._chartPoints||[];let closest=null,minD=25;pts.forEach(p=>{const d=Math.sqrt((p.x-mx)**2+(p.y-my)**2);if(d<minD){minD=d;closest=p}});
+    if(closest){let fmtVal;if(wowMetric==='usp')fmtVal=closest.value.toFixed(2)+'%';else if(wowMetric==='sales')fmtVal=fmtMoney(closest.value);else fmtVal=closest.value.toLocaleString();wowTooltip.innerHTML=`<div style="color:${closest.color};font-weight:700;margin-bottom:2px">${closest.cat}</div><div>${closest.week}: <strong>${fmtVal}</strong></div>`;wowTooltip.style.display='block';wowTooltip.style.left=(e.clientX+14)+'px';wowTooltip.style.top=(e.clientY-10)+'px'}else wowTooltip.style.display='none'});
+  canvas.addEventListener('mouseleave',()=>{wowTooltip.style.display='none'})}
+
+function wowRenderSidebar(){document.getElementById('wowChartCatList').innerHTML=wowAllCats.map(cat=>{const color=wowCatColorMap[cat];const ch=wowVisibleCats.has(cat)?'checked':'';return `<label class="cat-check-item"><input type="checkbox" ${ch} onchange="wowToggleChartCat('${cat.replace(/'/g,"\\'")}')" /><div class="cat-color-dot" style="background:${color}"></div><span class="cat-check-label">${cat}</span></label>`}).join('')}
+function wowToggleChartCat(c){if(wowVisibleCats.has(c))wowVisibleCats.delete(c);else wowVisibleCats.add(c);wowDrawChart()}
+function wowSelectAll(){wowAllCats.forEach(c=>wowVisibleCats.add(c));wowRenderSidebar();wowDrawChart()}
+function wowClearAll(){wowVisibleCats.clear();wowRenderSidebar();wowDrawChart()}
+function wowSetMetric(el,m){wowMetric=m;document.querySelectorAll('#panel-wow .chart-metric-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');wowDrawChart()}
+function wowSetRange(el,n){wowRange=n;document.querySelectorAll('#panel-wow .range-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');wowDrawChart()}
+
+function wowRender(){wowRenderKPIs();wowRenderCatCards();wowRenderTable()}
+
+// ═════════════════════════════════════════
+// INIT
+// ═════════════════════════════════════════
+function init(){
+  // SQP init
+  const cats=[...new Set(RAW.map(r=>r.cat))].sort();const sel=document.getElementById('filterCat');cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o)});
+  const mSel=document.getElementById('filterMonth');ALL_MONTHS.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=MONTH_NAMES[m];mSel.appendChild(o)});
+  let tabsHTML='<button class="month-tab active" data-month="" onclick="setMonthTab(this,\'\')">Todos</button>';ALL_MONTHS.forEach(m=>{tabsHTML+=`<button class="month-tab" data-month="${m}" onclick="setMonthTab(this,'${m}')">${MONTH_LABELS[m]}</button>`});document.getElementById('monthTabsBar').innerHTML=tabsHTML;
+  document.getElementById('filterCat').addEventListener('change',e=>{state.cat=e.target.value;state.activeCat='';render()});
+  document.getElementById('filterMonth').addEventListener('change',e=>{state.month=e.target.value;document.querySelectorAll('#monthTabsBar .month-tab').forEach(t=>{t.classList.toggle('active',t.dataset.month===e.target.value)});render()});
+  document.getElementById('filterSearch').addEventListener('input',e=>{state.search=e.target.value;render()});
+  document.getElementById('filterMinShare').addEventListener('input',e=>{state.minShare=parseFloat(e.target.value)||0;render()});
+  renderChartSidebar();drawChart();initTooltip();render();
+
+  // WoW init
+  wowRenderWeekTabs();
+  const wowCatSel=document.getElementById('wowFilterCat');wowAllCats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;wowCatSel.appendChild(o)});
+  document.getElementById('wowFilterCat').addEventListener('change',e=>{wowState.catFilter=e.target.value;wowRenderTable()});
+  document.getElementById('wowFilterSearch').addEventListener('input',e=>{wowState.search=e.target.value;wowRenderTable()});
+  wowRenderSidebar();wowInitTooltip();wowRender();wowDrawChart();
+
+  window.addEventListener('resize',()=>{drawChart();wowDrawChart()});
+}
+init();
+</script>
+</body>
+</html>
