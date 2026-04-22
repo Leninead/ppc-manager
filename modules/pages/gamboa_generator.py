@@ -45,6 +45,52 @@ def _header():
     st.divider()
 
 
+def _how_to_use():
+    """Expander de ayuda — patrón Capybaras (🎯 Para qué sirve / 📁 Archivo necesario / ➡️ Siguiente paso + Pasos)."""
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("🎯 **Para qué sirve**")
+            st.markdown(
+                "<div style='font-size:0.88rem;color:#555;'>"
+                "Generar un reporte integral HTML estilo dashboard interactivo con "
+                "performance de SQP mensual + BR semanal, listo para compartir con el cliente."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+        with c2:
+            st.markdown("📁 **Archivos necesarios**")
+            st.markdown(
+                "<div style='font-size:0.88rem;color:#555;'>"
+                "SQP mensual (Brand Analytics) + BR semanal by ASIN + Inventory (opcional) "
+                "+ mapeo ASIN→Categoría (persistente en <code>notes/brands/</code>)."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+        with c3:
+            st.markdown("➡️ **Siguiente paso**")
+            st.markdown(
+                "<div style='font-size:0.88rem;color:#555;'>"
+                "Subir HTML a Hostinger (ver <code>SOPReportesHostinger.md</code>) "
+                "o enviar al cliente por email / WhatsApp."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("")
+        st.markdown("▶️ **Pasos:**")
+        st.markdown(
+            """
+1. Ingresá **Cliente/Marca**, **Mercado** y **Etiqueta fecha** (aparece en el hero del reporte)
+2. Subí uno o varios **SQP mensuales** (Brand Analytics → Search Query Performance) — el mes se auto-detecta por nombre de archivo o columna `Reporting Range`
+3. Subí uno o varios **BR semanales** (Business Reports → By ASIN → Child Item) — un archivo por semana, la semana ISO se auto-detecta por nombre o fecha interna
+4. _Opcional:_ subí **Inventory Report** para que el reporte muestre SKUs reales en vez de ASINs
+5. _Primera vez con un cliente:_ descargá la plantilla de categorías → completá la columna `category` en Excel → subila de vuelta (se guarda en `notes/brands/{cliente}/gamboa_categories.csv` y no hay que repetirlo)
+6. Click **🎨 Generar HTML** → descargar → compartir
+            """
+        )
+
+
 def _empty_state():
     st.markdown(
         "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:2rem;"
@@ -74,6 +120,7 @@ def _info_box(title: str, body: str, color: str = "#E7F3FE"):
 
 def render():
     _header()
+    _how_to_use()
 
     # ── Cliente y configuración básica ────────────────────────────────────────
     cfg_col1, cfg_col2, cfg_col3 = st.columns([2, 1, 1])
