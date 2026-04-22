@@ -44,6 +44,7 @@ No hay build step, test suite ni linter configurado.
 | 22 | 📚 Knowledge Base | Knowledge | ✅ conectado 2026-03-27 (explorar + agregar notas .md) |
 | 23 | 👁️ Listing Monitor | Account Manager | ✅ nuevo 2026-04-09 |
 | 24 | 🛡️ Listing Compliance | Account Manager | ✅ nuevo 2026-04-16 — detector keywords weighted product |
+| 25 | 📊 Gamboa Generator | Account | ✅ nuevo 2026-04-22 (SQP mensual + BR semanal → HTML integral) |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.
 Sidebar colapsable con `st.expander` por sección: PPC (expanded) | Research | Account | Knowledge.
@@ -90,6 +91,11 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/knowledge_base.py` — render() ✅ conectado 2026-03-27
 - `modules/pages/listing_monitor.py` — render() ✅ creado 2026-04-09
 - `modules/pages/listing_compliance.py` — render() ✅ creado 2026-04-16 — detector keywords weighted product, scanea exports Seller Central, severidad CRITICAL/HIGH/MEDIUM, Excel 3 hojas
+- `modules/gamboa/__init__.py` — package marker
+- `modules/gamboa/parsers.py` — parse_sqp_multi, parse_br_multi, parse_inventory, load/save_categories
+- `modules/gamboa/generator.py` — enrich_sqp, enrich_br, build_raw_json, build_wow_json, generate_html
+- `modules/gamboa/template.html` — template HTML limpio con 12 placeholders (64KB)
+- `modules/pages/gamboa_generator.py` — render() ✅ creado 2026-04-22
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -1721,3 +1727,40 @@ Smoke test reproduce el loop con 3 keywords (Vitamin A + Spanish + PAT) → 12 f
 
 ### Fuera de scope de esta sesión
 - `_render_sb()` y `_render_sd()` siguen con su formato anterior (columnas propias, no las 31 de SP) — pendiente migrar cuando Amazon documente formato bulk exacto para SB/SD 2026
+
+---
+
+## 📅 Sesión 2026-04-22 — Gamboa Generator integrado
+
+### Módulo nuevo en sección Account (#25)
+- **📊 Gamboa Generator** — generador de reportes HTML integrales (SQP mensual + BR semanal) estilo dashboard interactivo
+- Recibido como paquete pre-diseñado (5 archivos, ~1,900 líneas total) con decisiones técnicas ya tomadas — integración quirúrgica, sin modificar archivos del módulo
+
+### Archivos agregados
+- `modules/gamboa/__init__.py` — package marker
+- `modules/gamboa/parsers.py` (421 líneas) — `parse_sqp_multi`, `parse_br_multi`, `parse_inventory`, `load_categories` / `save_categories`
+- `modules/gamboa/generator.py` (278 líneas) — `enrich_sqp`, `enrich_br`, `build_raw_json`, `build_wow_json`, `generate_html`
+- `modules/gamboa/template.html` (874 líneas / 64KB) — template HTML con 12 placeholders `{{...}}` (RAW, WOW, ALL_MONTHS, MONTH_LABELS, MONTH_NAMES + metadata). JS del template hace la agregación runtime (filtros/funnel/tendencias SQP + WoW Category con deltas/sparklines)
+- `modules/pages/gamboa_generator.py` (336 líneas) — `render()` UI Streamlit
+
+### Integración en app.py (3 edits quirúrgicos)
+- Import: `from modules.pages.gamboa_generator import render as render_gamboa_generator` (junto a los demás imports de páginas)
+- Sidebar: agregado `"📊 Gamboa Generator"` a la lista dentro del `st.expander("👥 ACCOUNT", expanded=False)` — sigue el patrón `for _pg in [...]:` del expander (no botones individuales con type primary/secondary)
+- Router: nuevo bloque `if selected == "📊 Gamboa Generator": render_gamboa_generator()`
+
+### Integración en core/constants.py
+- Agregado `"📊 Gamboa Generator"` al final de `_PAGES`
+
+### Decisiones técnicas registradas (del diseño pre-existente)
+- Categorías persistentes en `notes/brands/{cliente-slug}/gamboa_categories.csv` — reutiliza arquitectura existente, evita re-trabajo entre sesiones
+- SKU opcional con fallback a ASIN — robustez, funciona sin Inventory Report
+- Template HTML separado de la lógica Python — 64KB template + ~1000 líneas Python mantenibles por separado
+- Score SQP lee columna "Search Query Score" con fallback 0 — defensivo ante cuentas sin Brand Analytics
+- SQP multi-upload con auto-detección de mes (filename o columna "Reporting Range") — Amazon BA baja archivo por mes o por rango, ambos casos soportados
+
+### Validación
+- `py_compile` verde en los 6 archivos relevantes (app.py, gamboa_generator.py, parsers.py, generator.py, __init__.py, constants.py)
+- Archivos del módulo nuevo NO modificados (prohibido por instrucción)
+
+### Observación menor (no bloqueante)
+- `_PAGES` en `core/constants.py` no incluye `"👁️ Listing Monitor"` (alta del 2026-04-09) — probablemente el módulo no usa `_PAGES` y por eso nadie lo notó. Queda fuera de scope de esta sesión.

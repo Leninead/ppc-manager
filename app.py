@@ -40,6 +40,7 @@ from modules.pages.datadive_analyzer import render as render_datadive
 from modules.pages.helium10_analyzer import render as render_helium10
 from modules.pages.sbh_recommendation import render as render_sbh
 from modules.pages.knowledge_base import render as render_knowledge
+from modules.pages.gamboa_generator import render as render_gamboa_generator
 import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
@@ -232,6 +233,7 @@ with st.sidebar:
             "📊 Weekly Client Report",
             "👁️ Listing Monitor",
             "🛡️ Listing Compliance",
+            "📊 Gamboa Generator",
         ]:
             st.button(_pg, use_container_width=True, on_click=_nav,
                       args=(_pg,), key=f"nav_{_pg}")
@@ -333,3 +335,6 @@ if selected == "📚 Knowledge Base":
 
 if selected == "🛡️ Listing Compliance":
     render_listing_compliance()
+
+if selected == "📊 Gamboa Generator":
+    render_gamboa_generator()

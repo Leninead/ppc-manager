@@ -30,4 +30,5 @@ _PAGES = [
     "📢 SBH Recommendation",
     "📚 Knowledge Base",
     "🛡️ Listing Compliance",
+    "📊 Gamboa Generator",
 ]
