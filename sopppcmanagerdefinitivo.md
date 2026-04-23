@@ -1,10 +1,10 @@
 # 🦫 SOP DEFINITIVO — Capybaras Agency OS — PPC Manager
 ## Manual de uso completo · Módulo por módulo
 
-**Versión:** Abril 2026 — v3.0
+**Versión:** Abril 2026 — v3.1
 **Dev:** Lenin Acosta
 **Stack:** Python + Streamlit + Pandas + OpenPyXL
-**Módulos activos:** 22 módulos en 4 secciones
+**Módulos activos:** 25 módulos en 5 secciones
 **Ruta local:** `C:\proyectos\ppc-manager`
 **Comando:** `python -m streamlit run app.py`
 
@@ -16,7 +16,7 @@
 |---|--------|---------|
 | 0 | Antes de arrancar — Setup y archivos necesarios | Setup |
 | 1 | Inicio — Dashboard de estado | — |
-| 2 | Search Term Report (STR) — 4 tabs | PPC |
+| 2 | Search Term Report (STR) — 5 tabs | PPC |
 | 3 | Search Query Performance (SQP) — 4 tabs | PPC |
 | 4 | Análisis Cruzado STR vs SQP — Plan de Acción | PPC |
 | 5 | Tendencia Multi-Semana | PPC |
@@ -29,14 +29,16 @@
 | 12 | Reportes Atom 11 | Account |
 | 13 | Reportes MerchanSpring | Account |
 | 14 | Weekly Client Report | Account |
-| 15 | Account Pulse | Research |
-| 16 | PPC Insights | Research |
-| 17 | PPC Audit | Research |
-| 18 | PPC Forecast | Research |
-| 19 | DataDive Analyzer | Research |
-| 20 | Helium 10 Analyzer | Research |
-| 21 | SBH Recommendation | Research |
-| 22 | Knowledge Base | Research |
+| 15 | Listing Monitor | Account |
+| 16 | Gamboa Generator | Account |
+| 17 | Account Pulse | Intelligence |
+| 18 | PPC Insights | Intelligence |
+| 19 | PPC Audit | Intelligence |
+| 20 | PPC Forecast | Intelligence |
+| 21 | DataDive Analyzer | Research |
+| 22 | Helium 10 Analyzer | Research |
+| 23 | SBH Recommendation | Research |
+| 24 | Knowledge Base | Knowledge |
 | A | Flujo de trabajo semanal recomendado | Apéndice |
 | B | Reglas críticas de operación | Apéndice |
 | C | Thresholds SOP Capybaras 2026 | Apéndice |
@@ -55,7 +57,7 @@ cd C:\proyectos\ppc-manager
 python -m streamlit run app.py
 ```
 
-La app abre en `http://localhost:8501`. Sidebar izquierdo oscuro con 4 secciones: PPC, Account, Research y Ejecución.
+La app abre en `http://localhost:8501`. Sidebar izquierdo oscuro con 5 secciones: PPC, Intelligence, Research, Account y Knowledge.
 
 ### Archivos que necesitás según la tarea
 
@@ -148,6 +150,10 @@ Muestra el STR completo con métricas totales (spend, sales, ACoS). Descarga el 
 **Input adicional:** Nombre del cliente + Target ACoS + precio promedio.
 
 Genera análisis ejecutivo con Claude basado en los candidatos detectados. Útil para preparar el comentario de optimización del reporte semanal.
+
+### Tab 5 — 📊 Por Campaña
+
+Groupby por campaign: Impressions, Clicks, Spend, Sales, Orders, ACoS, ROAS, CTR, CVR, CPC. Clasificación Brand/No Brand automática. 4 KPIs + tabla con color coding + download Excel.
 
 ---
 
@@ -364,6 +370,12 @@ Descargar bulk Amazon → subir a Campaign Manager → Bulk Operations → Uploa
 | Phrase Discovery | Dynamic Down-Only | ToS +10% |
 | Auto | Fixed Bid | Sin modifier |
 
+### Soporte para 3 tipos de campaña (NUEVO 2026-04-08)
+
+- **SP (Sponsored Products)** — lógica existente
+- **SB (Sponsored Brands)** — headline, 3 ASINs creativos, landing page
+- **SD (Sponsored Display)** — Product Targeting o Audience Targeting
+
 > ⚠️ **ANTES DE DESCARGAR — verificar siempre:**
 > 1. Cruzar keywords con campañas activas (ver regla crítica en STR Tab 3)
 > 2. Confirmar SKUs — tienen que ser los SKUs reales de Seller Central, no los ASINs
@@ -532,11 +544,12 @@ _build_merchanspring_excel(data, name)  # → BytesIO 4 hojas con color rules
 | Atom 11 ASIN | Atom 11 → ASIN → DateRange 14d | Ad Spend/Sales split 7+7 |
 | Campaign CSV | Campaign Manager → mismo date range | Impressions / CTR / DPV / NTB |
 
-### Output Excel (3 hojas)
+### Output Excel (4 hojas)
 
 - **📈 WoW Comparison** — fila azul CUENTA TOTAL + desglose por ASIN
 - **📣 Advertising** — PW vs TW + top 10 campañas + alarmas ACoS>60% + portfolios
 - **📋 Reporte Ejecutivo** — análisis redactado con toggle ES/EN
+- **📝 Changelog** — notas del AM sobre cambios de la semana
 
 ### Funciones internas
 
@@ -557,7 +570,53 @@ _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name, lang, br_daily)
 
 ---
 
-## 15. 📅 Account Pulse
+## 15. 👁️ Listing Monitor
+
+**Para qué sirve:** Monitorear ASINs de Amazon y alertar cuando algo cambia vs el snapshot anterior.
+
+**Campos monitoreados:** precio, rating, reviews count, badges (Best Seller/Amazon's Choice), bullets, stock, título.
+
+**Arquitectura:**
+- **Tab 1 — Escanear ASINs:** input ASINs, selector marketplace (MX/COM/ES/BR/CA), delay configurable, guardado automático de snapshot
+- **Tab 2 — Ver Alertas:** comparación vs snapshot anterior, color coding (🔴 alerta / 🟡 info / 🟢 ok)
+- **Tab 3 — Historial:** tabla de todos los snapshots con columna Producto
+
+**Storage:** Snapshots en `data/listing_snapshots/snapshots.json` con clave `{ASIN}_{MARKETPLACE}`
+
+---
+
+---
+
+## 16. 📊 Gamboa Generator
+
+**Para qué sirve:** Generar reportes HTML integrales tipo dashboard interactivo con SQP mensual + BR semanal. Listo para publicar en Hostinger o enviar al cliente.
+
+### Inputs
+
+- **SQP multi-archivo** (Brand Analytics → Search Query Performance) — auto-detecta mes por filename o columna "Reporting Range"
+- **BR semanal by ASIN** (Business Reports → By ASIN → Child Item) — un archivo por semana, auto-detecta ISO week
+- **Inventory Report (opcional)** — mapeo SKU ↔ ASIN. Sin esto usa ASIN como identificador
+- **CSV de categorías (auto-generado)** — plantilla descargable, persistente en `notes/brands/{cliente-slug}/gamboa_categories.csv`
+
+### Output
+
+HTML standalone (~5-10 MB) con 2 paneles interactivos:
+- **Panel SQP mensual:** 15 meses de queries, filtros, funnel conversión, cards por categoría, tabla filtrable, 7 charts de tendencia (SV, Impressions, Clicks, Cart Adds, Purchases, CTR, Conversion Rate)
+- **Panel WoW Category (semanal):** 68 semanas de KPIs WoW/YoY, category cards, tabla con sparklines, modal de tendencia por SKU
+
+### Decisiones técnicas
+
+- SKU opcional con fallback a ASIN — robustez, funciona sin Inventory Report
+- Score SQP defensivo (fallback 0 si no existe columna "Search Query Score")
+- SQP multi-upload con auto-detección de mes — Amazon BA baja archivo por mes o por rango, ambos casos soportados
+- Categorías persistentes en CSV — reutiliza arquitectura existente, evita re-trabajo entre sesiones
+- Template HTML separado de lógica Python — 64KB template mantenible por separado
+
+---
+
+---
+
+## 17. 📅 Account Pulse
 
 **Para qué sirve:** Monitor de salud diaria de la cuenta.
 
@@ -593,7 +652,7 @@ _FESTIVOS_MX = {
 
 ---
 
-## 16. 📊 PPC Insights
+## 18. 📊 PPC Insights
 
 **Para qué sirve:** Análisis profundo de performance PPC con múltiples dimensiones: por campaña, por keyword, por match type, por placement. Genera insights automáticos sobre tendencias y anomalías.
 
@@ -609,27 +668,24 @@ _FESTIVOS_MX = {
 
 ---
 
-## 17. 🔍 PPC Audit
+## 19. 🔍 PPC Audit
 
-**Para qué sirve:** Auditoría completa de la estructura de campañas.
+**Para qué sirve:** Auditoría completa de la estructura de campañas desde Bulk File multi-hoja.
 
-**Inputs:** Campaign CSV + Bulk file.
+**Inputs:**
+- Bulk File (.xlsx) — requerido (Campaign Manager → Bulk Operations)
+- Business Report (.csv o .xlsx) — opcional (para TACoS y Revenue)
+- Brand terms — input texto (para clasificación de targets)
 
-**Lo que detecta:**
-- Campañas sin ningún negativo
-- Ad groups con > 20 keywords activas
-- Keywords en Broad sin par en Exact
-- Canibalización: misma keyword en Broad + Phrase + Exact
-- Campañas activas con $0 spend en 30 días
-- Score 0-100 de salud por cuenta
+**Output:** 6 hojas Excel con KPIs, auditoría, performance por segmento, deep checks, target graduation.
 
-**Output:** Reporte de auditoría con score de salud y acciones recomendadas por prioridad.
+**Score 0-100** desglosado. Headers coloreados: SP azul, SB violeta, SD verde.
 
 ---
 
 ---
 
-## 18. 📈 PPC Forecast
+## 20. 📈 PPC Forecast
 
 **Para qué sirve:** Proyecciones de spend, sales y ACoS basadas en data histórica.
 
@@ -645,55 +701,53 @@ _FESTIVOS_MX = {
 
 ---
 
-## 19. 🔬 DataDive Analyzer
+## 21. 🔬 DataDive Analyzer
 
 **Para qué sirve:** Procesador de reportes DataDive (herramienta de research de competidores en Amazon).
 
 **Input:** Reporte DataDive exportado.
 
-**Lo que extrae:**
-- Keywords de competidores con revenue estimado
-- Ranking orgánico por keyword
-- Oportunidades de keywords no cubiertas
-- Revenue estimado por keyword capturada vs no capturada
-- Cruce con STR propio para priorizar
+**4 tabs:**
+- MKL Keywords con SV, Relevance, Launch Score
+- Competitors con matriz comparativa
+- Rank Radar con tracking orgánico diario
+- Ranking Volatility + PPC IS cruzado
 
 ---
 
 ---
 
-## 20. 🔎 Helium 10 Analyzer
+## 22. 🔎 Helium 10 Analyzer
 
 **Para qué sirve:** Procesador de reportes Helium 10 (Cerebro, Magnet, X-Ray).
 
 **Input:** Reporte Cerebro / Magnet exportado.
 
-**Lo que genera:**
-- Keywords de competidores con volumen de búsqueda
-- Relevancia y oportunidad por keyword
-- Cruce con STR propio para detectar gaps
-- Priorización de keywords por volumen × relevancia × oportunidad
+**3 tabs:**
+- Cerebro Reverse ASIN con oportunidades PPC
+- KW Research multi-competidor
+- Competitor Gap Analysis con acciones sugeridas
 
 ---
 
 ---
 
-## 21. 📋 SBH Recommendation
+## 23. 📢 SBH Recommendation
 
 **Para qué sirve:** Generador de recomendaciones de Sponsored Brand Headlines (SBH).
 
-**Input:** Campaign CSV con campañas SB.
+**Inputs:** DataDive MKL + SQP + Campaign CSV (opcional).
 
 **Lo que genera:**
-- Análisis de performance de headlines existentes
-- Sugerencias de nuevas variantes optimizadas
-- A/B test recommendations
+- Targets prioritarios por SV e Impression Share
+- Clustering automático de keywords
+- Headlines sugeridos por cluster
 
 ---
 
 ---
 
-## 22. 📚 Knowledge Base
+## 24. 📚 Knowledge Base
 
 **Para qué sirve:** Base de conocimiento interna de la agencia.
 
@@ -746,6 +800,10 @@ MENSUAL
   9. Atom11 Rules Builder → revisar y actualizar rules si cambiaron precios/objetivos
   10. PPC Audit → health score de la cuenta
   11. PPC Forecast → proyección siguiente trimestre
+
+OCASIONAL (cada 2-4 semanas)
+  12. Listing Monitor → revisar snapshots de ASINs clave
+  13. Gamboa Generator → generar HTML integral para cliente (SQP + BR mensual)
 ```
 
 ---
@@ -858,46 +916,6 @@ MENSUAL
 
 ---
 
-## Estado de conexión de módulos (Abril 2026)
-
-### ✅ Conectados en app.py (13 módulos en sidebar)
-
-| # | Módulo | Archivo .py |
-|---|--------|-------------|
-| 1 | Inicio | `inicio.py` |
-| 2 | Search Term Report | `search_term_report.py` |
-| 3 | Search Query Performance | `search_query_performance.py` |
-| 4 | Análisis Cruzado | `analisis_cruzado.py` |
-| 5 | Tendencia Multi-Semana | `tendencia_multisemana.py` |
-| 6 | Bulk Campañas | `bulk_campanas.py` |
-| 7 | Business Report | `business_report.py` |
-| 8 | Análisis de Funnel | `analisis_funnel.py` |
-| 9 | Bid Optimizer | `bid_optimizer.py` |
-| 10 | Campaign Builder | `campaign_builder.py` |
-| 11 | Reportes Atom 11 | `atom11.py` |
-| 12 | Reportes MerchanSpring | `merchanspring.py` |
-| 13 | Weekly Client Report | `weekly_client_report.py` |
-
-### ⚠️ Existen como .py pero NO conectados al router (9 módulos pendientes)
-
-| # | Módulo | Archivo .py | Tamaño | Acción pendiente |
-|---|--------|-------------|--------|------------------|
-| 14 | Atom11 Rules Builder | `modules/pages/atom11_rules_builder.py` | — | Agregar import + sidebar + routing en app.py |
-| 15 | Account Pulse | `account_pulse.py` | 32K | Agregar import + sidebar + routing en app.py |
-| 16 | PPC Insights | `ppc_insights.py` | 35K | Agregar import + sidebar + routing en app.py |
-| 17 | PPC Audit | `ppc_audit.py` | 49K | Agregar import + sidebar + routing en app.py |
-| 18 | PPC Forecast | `ppc_forecast.py` | 19K | Agregar import + sidebar + routing en app.py |
-| 19 | DataDive Analyzer | `datadive_analyzer.py` | 43K | Agregar import + sidebar + routing en app.py |
-| 20 | Helium 10 Analyzer | `helium10_analyzer.py` | 30K | Agregar import + sidebar + routing en app.py |
-| 21 | SBH Recommendation | `sbh_recommendation.py` | 15K | Agregar import + sidebar + routing en app.py |
-| 22 | Knowledge Base | `knowledge_base.py` | 10K | Agregar import + sidebar + routing en app.py |
-
-> Para conectar estos módulos, agregar el import en `app.py`, el botón en el sidebar y la condición en el router. Seguir el patrón existente de los módulos ya conectados.
-
----
-
----
-
 ## Señales de alarma — Cuándo actuar inmediatamente
 
 | Señal | Umbral | Acción inmediata |
@@ -914,5 +932,5 @@ MENSUAL
 
 ---
 
-**Capybaras Agency — Agency OS v3.0 — Confidencial — Abril 2026**
+**Capybaras Agency — Agency OS v3.1 — Confidencial — Abril 2026**
 **Desarrollado por Lenin Acosta**

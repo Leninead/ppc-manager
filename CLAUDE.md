@@ -91,11 +91,11 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/pages/knowledge_base.py` — render() ✅ conectado 2026-03-27
 - `modules/pages/listing_monitor.py` — render() ✅ creado 2026-04-09
 - `modules/pages/listing_compliance.py` — render() ✅ creado 2026-04-16 — detector keywords weighted product, scanea exports Seller Central, severidad CRITICAL/HIGH/MEDIUM, Excel 3 hojas
-- `modules/gamboa/__init__.py` — package marker
-- `modules/gamboa/parsers.py` — parse_sqp_multi, parse_br_multi, parse_inventory, load/save_categories
-- `modules/gamboa/generator.py` — enrich_sqp, enrich_br, build_raw_json, build_wow_json, generate_html
-- `modules/gamboa/template.html` — template HTML limpio con 12 placeholders (64KB)
-- `modules/pages/gamboa_generator.py` — render() ✅ creado 2026-04-22
+- `modules/gamboa/__init__.py` — package marker ✅ creado 2026-04-22
+- `modules/gamboa/parsers.py` (421 líneas) — `parse_sqp_multi`, `parse_br_multi`, `parse_inventory`, `load_categories` / `save_categories` ✅ creado 2026-04-22
+- `modules/gamboa/generator.py` (278 líneas) — `enrich_sqp`, `enrich_br`, `build_raw_json`, `build_wow_json`, `generate_html` ✅ creado 2026-04-22
+- `modules/gamboa/template.html` (874 líneas / 64KB) ✅ creado 2026-04-22
+- `modules/pages/gamboa_generator.py` (383 líneas) — render() ✅ creado 2026-04-22
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -1144,11 +1144,6 @@ Seleccionar opción **1 — Claude account with subscription** → browser → i
 - 6 CONQUEST SP Bid (target 60%)
 - 4 Harvest (DISCOVERY + RANKING)
 
-# INSTRUCCIONES PARA CLAUDE CODE
-# Agregar esta sección al final del CLAUDE.md existente en C:\proyectos\ppc-manager\CLAUDE.md
-# (justo después de la sección "Sesión 2026-03-23 — Lo que hicimos" existente)
-# NO borrar nada existente — solo AGREGAR al final.
-
 ---
 
 ## 📅 Sesión 2026-03-23b — Lo que hicimos (continuación tarde)
@@ -1555,7 +1550,7 @@ Todos los agentes ahora tienen: frontmatter completo (name, description, tools, 
 ### Bloque 2 — Target Graduation + Pausado Inteligente
 - `ppc_audit.py` — Tab 6 nueva "🎯 Target Graduation"
 - Analiza targets con 0 impresiones en campañas que SÍ tienen tráfico
-- Clasificación: 🔼 SUBIR BID (tuvo ventas, bid bajo) / 🔴 PAUSAR (gastó sin convertir) / 🟡 GRADUAR A SKAG (mover a campaña propia) / 🛡️ MANTENER (keyword de marca)
+- Clasificación: 🔼 SUBIR BID (tuvo ventas, bid bajo) / 🔴 PAUSAR (gastó sin convertir) / 🟡 GRADUAR A SKAG (mover a campaña propia con bid más alto) / 🛡️ MANTENER (keyword de marca)
 - 4 kpi_cards + tabla con color coding + filtro por recomendación
 - Hoja "Target Graduation" agregada al Excel de export
 
@@ -1704,32 +1699,6 @@ pip install requests beautifulsoup4
 
 ---
 
-## 📅 Sesión 2026-04-21 — Campaign Builder bulk 2026 compliant
-
-### Fixes aplicados a `modules/pages/campaign_builder.py` (flujo SP)
-- Ahora es compliant con `AmazonBulkUploadGuide.md` (8 reglas) + columna **Sites** (update Q2 2026)
-- Helper `_BULK_COLUMNS_2026` (31 columnas, orden exacto) + `_fila_vacia_bulk()` agregados a nivel módulo — reusable desde cualquier otro módulo que necesite generar bulks SP
-- **Fix crítico (Regla #3):** Campaign ID / Ad Group ID en filas `create` siempre deben ser los nombres, nunca vacíos — sin esto Amazon falla con "Missing Parent ID"
-- **Regla #4:** Start Date ya estaba en `yyyyMMdd` (no requirió cambio — verificado)
-- **Regla #5:** Bidding Strategy ya estaba en `"Dynamic bids - down only"` (verificado)
-- **Regla #7:** No hay filas vacías separadoras (verificado)
-- Reescritas las 4 filas del loop SP con patrón `_fila_vacia_bulk() + .update()` — más legible, imposible olvidar una columna
-- DataFrame ahora usa `pd.DataFrame(rows, columns=_BULK_COLUMNS_2026)` para orden garantizado
-- Eliminado dict local `_EXTRA` (8 cols) — ahora cubierto por el helper
-
-### Validación post-fix
-Smoke test reproduce el loop con 3 keywords (Vitamin A + Spanish + PAT) → 12 filas, 31 cols, última "Sites":
-- Campaign ID == Campaign Name en todas las filas Campaign
-- Campaign ID == Campaign Name AND Ad Group ID == Ad Group Name en Ad Group/Product Ad/Keyword/PT
-- Start Date = `20260421` (string 8 dígitos)
-- Bidding Strategy = `Dynamic bids - down only`
-- PAT usa `Product Targeting Expression = asin="B0..."` con Keyword Text / Match Type / Product Targeting ID vacíos (Regla #6)
-
-### Fuera de scope de esta sesión
-- `_render_sb()` y `_render_sd()` siguen con su formato anterior (columnas propias, no las 31 de SP) — pendiente migrar cuando Amazon documente formato bulk exacto para SB/SD 2026
-
----
-
 ## 📅 Sesión 2026-04-22 — Gamboa Generator integrado
 
 ### Módulo nuevo en sección Account (#25)
@@ -1741,7 +1710,7 @@ Smoke test reproduce el loop con 3 keywords (Vitamin A + Spanish + PAT) → 12 f
 - `modules/gamboa/parsers.py` (421 líneas) — `parse_sqp_multi`, `parse_br_multi`, `parse_inventory`, `load_categories` / `save_categories`
 - `modules/gamboa/generator.py` (278 líneas) — `enrich_sqp`, `enrich_br`, `build_raw_json`, `build_wow_json`, `generate_html`
 - `modules/gamboa/template.html` (874 líneas / 64KB) — template HTML con 12 placeholders `{{...}}` (RAW, WOW, ALL_MONTHS, MONTH_LABELS, MONTH_NAMES + metadata). JS del template hace la agregación runtime (filtros/funnel/tendencias SQP + WoW Category con deltas/sparklines)
-- `modules/pages/gamboa_generator.py` (336 líneas) — `render()` UI Streamlit
+- `modules/pages/gamboa_generator.py` (383 líneas) — `render()` UI Streamlit con expander `_how_to_use()` + `_header()` + `_empty_state()` + `_info_box()`
 
 ### Integración en app.py (3 edits quirúrgicos)
 - Import: `from modules.pages.gamboa_generator import render as render_gamboa_generator` (junto a los demás imports de páginas)
@@ -1761,6 +1730,21 @@ Smoke test reproduce el loop con 3 keywords (Vitamin A + Spanish + PAT) → 12 f
 ### Validación
 - `py_compile` verde en los 6 archivos relevantes (app.py, gamboa_generator.py, parsers.py, generator.py, __init__.py, constants.py)
 - Archivos del módulo nuevo NO modificados (prohibido por instrucción)
+
+### Commits pusheados a origin/main
+- `8795a72` — checkpoint: antes de integrar Gamboa Generator
+- `2e65e7f` — feat: Gamboa Generator — módulo Account para reportes integrales
+- `13d016c` — improve: Gamboa Generator — expander de ayuda al inicio
+- `48e8dda` — chore: trigger Streamlit Cloud redeploy
+
+### Estado en producción
+App live en `https://capybaras-os.streamlit.app/` → Account → 📊 Gamboa Generator. Validado funcionando post-reboot de Streamlit Cloud (2026-04-22).
+
+### Pendientes condicionales (YAGNI — NO tocar hasta feedback del AM con data real)
+- **SI** el AM reporta >20% queries en "Sin Categorizar" → evaluar refactor usando "Top Clicked ASIN" del SQP crudo
+- **SI** hay problemas con mapeo de categorías → evaluar agregar columna `sqp_keywords` al CSV
+
+Criterio YAGNI: no anticipar problemas teóricos sin feedback real.
 
 ### Observación menor (no bloqueante)
 - `_PAGES` en `core/constants.py` no incluye `"👁️ Listing Monitor"` (alta del 2026-04-09) — probablemente el módulo no usa `_PAGES` y por eso nadie lo notó. Queda fuera de scope de esta sesión.
