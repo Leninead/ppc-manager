@@ -98,21 +98,61 @@ def _fila_vacia_bulk() -> dict:
 # ── SB Render ────────────────────────────────────────────────────────────────
 
 def _render_sb():
-    """Genera bulk de campañas Sponsored Brands."""
+    """
+    Genera bulk SB (Sponsored Brands) con soporte SBV + SBH + Brand Entity ID (2026).
+    Consume los helpers _build_sb_bulk_rows y _SB_COLS_2026.
+    """
 
-    # ── Paso 1 — Keywords ────────────────────────────────────────────────────
+    # ── Paso 0 — Selector SBV vs SBH ─────────────────────────────────────────
+    st.markdown("### Tipo de Sponsored Brand")
+    sb_type_label = st.radio(
+        "¿Qué formato de SB querés generar?",
+        options=[
+            "📹 SBV — Sponsored Brand Video",
+            "🖼️ SBH — Sponsored Brand Headlines",
+        ],
+        horizontal=True,
+        key="cb_sb_v2_type",
+        help=(
+            "SBV: video ad en resultados de búsqueda. Requiere Video Asset ID. "
+            "SBH: banner con imagen, headline y productos arriba de los resultados. "
+            "Requiere Brand Logo Asset ID."
+        ),
+    )
+    sb_type = "SBV" if "SBV" in sb_type_label else "SBH"
+
+    # Descripción visual del tipo elegido
+    if sb_type == "SBV":
+        st.caption(
+            "📹 **Sponsored Brand Video** — ad de video que aparece en la primera página de resultados. "
+            "Requiere un Video Asset ID generado en Amazon Ads Console."
+        )
+    else:
+        st.caption(
+            "🖼️ **Sponsored Brand Headlines** — banner con logo, headline custom y 3+ productos que aparece arriba "
+            "de los resultados orgánicos. Requiere Brand Logo Asset ID y headline corto."
+        )
+
+    st.markdown("---")
+
+    # ── Paso 1 — Keywords (flujo idéntico al anterior) ───────────────────────
     st.markdown("### Paso 1 — Keywords para SB")
     st.caption("Subí el Plan de Acción o ingresá keywords manualmente.")
 
     input_mode = st.radio(
         "Fuente de keywords",
         ["📄 Plan de Acción bulk", "✏️ Input manual"],
-        horizontal=True, key="cb_sb_input_mode",
+        horizontal=True,
+        key="cb_sb_v2_input_mode",
     )
 
     keywords_list = []
     if input_mode == "📄 Plan de Acción bulk":
-        file_plan = st.file_uploader("Plan de Acción (.xlsx)", type=["xlsx"], key="cb_plan_sb")
+        file_plan = st.file_uploader(
+            "Plan de Acción (.xlsx)",
+            type=["xlsx"],
+            key="cb_sb_v2_plan",
+        )
         if not file_plan:
             st.markdown(
                 "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:2rem;"
@@ -121,7 +161,8 @@ def _render_sb():
                 "<div style='font-weight:600;margin-top:0.5rem;'>Subí el Plan de Acción bulk</div>"
                 "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
                 "Generalo en: Análisis Cruzado → Plan de Acción → Descargar bulk</div>"
-                "</div>", unsafe_allow_html=True,
+                "</div>",
+                unsafe_allow_html=True,
             )
             return
         df_plan = pd.read_excel(file_plan)
@@ -132,7 +173,9 @@ def _render_sb():
         st.success(f"✅ {len(keywords_list)} keywords cargadas")
     else:
         kw_text = st.text_area(
-            "Keywords (una por línea)", height=150, key="cb_sb_kw_manual",
+            "Keywords (una por línea)",
+            height=150,
+            key="cb_sb_v2_kw_manual",
             placeholder="vitamin a cream\ncrema hidratante\ndermaglos lotion",
         )
         if kw_text.strip():
@@ -144,181 +187,261 @@ def _render_sb():
 
     st.markdown("---")
 
-    # ── Paso 2 — Datos del producto + campos SB ──────────────────────────────
-    st.markdown("### Paso 2 — Datos del producto y creatividad SB")
+    # ── Paso 2 — Datos del producto + Brand Entity ID + TOS% ────────────────
+    st.markdown("### Paso 2 — Datos del producto y configuración")
 
     p1, p2, p3 = st.columns(3)
-    marca    = p1.text_input("Nombre de marca", key="cb_sb_marca")
-    asin     = p2.text_input("ASIN principal", key="cb_sb_asin")
-    sku      = p3.text_input("SKU principal", key="cb_sb_sku")
+    marca = p1.text_input("Nombre de marca", key="cb_sb_v2_marca")
+    asin = p2.text_input("ASIN principal", key="cb_sb_v2_asin")
+    sku = p3.text_input("SKU principal", key="cb_sb_v2_sku")
 
     p4, p5, p6 = st.columns(3)
-    precio      = p4.number_input("Precio ($)", min_value=1.0, value=9.99, step=0.50, key="cb_sb_precio")
-    cvr         = p5.number_input("CVR estimado (%)", min_value=1.0, value=10.0, step=0.5, key="cb_sb_cvr")
-    target_acos = p6.number_input("Target ACoS (%)", min_value=1.0, value=20.0, step=1.0, key="cb_sb_tacos")
+    precio = p4.number_input(
+        "Precio ($)", min_value=1.0, value=9.99, step=0.50, key="cb_sb_v2_precio"
+    )
+    cvr = p5.number_input(
+        "CVR estimado (%)", min_value=1.0, value=10.0, step=0.5, key="cb_sb_v2_cvr"
+    )
+    target_acos = p6.number_input(
+        "Target ACoS (%)", min_value=1.0, value=20.0, step=1.0, key="cb_sb_v2_tacos"
+    )
 
-    p7, p8 = st.columns(2)
-    portfolio_id = p7.text_input("Portfolio ID (opcional)", key="cb_sb_portfolio")
-    budget       = p8.number_input("Budget diario ($)", min_value=1.0, value=15.0, step=1.0, key="cb_sb_budget")
+    p7, p8, p9 = st.columns(3)
+    portfolio_id = p7.text_input(
+        "Portfolio ID (opcional)",
+        key="cb_sb_v2_portfolio",
+        help="ID numérico del portfolio Amazon Ads. Dejar vacío si no usás portfolios.",
+    )
+    budget = p8.number_input(
+        "Budget diario ($)",
+        min_value=1.0,
+        value=15.0,
+        step=1.0,
+        key="cb_sb_v2_budget",
+    )
+    tos_pct = p9.number_input(
+        "TOS % (Placement Top of Search)",
+        min_value=0.0,
+        max_value=900.0,
+        value=50.0,
+        step=5.0,
+        key="cb_sb_v2_tos",
+        help="Bid boost % para Top of Search placement. Default 50% es el recomendado.",
+    )
+
+    # Brand Entity ID — NUEVO campo obligatorio Amazon 2026
+    brand_entity_id = st.text_input(
+        "🔑 Brand Entity ID (obligatorio — Amazon Ads 2026)",
+        key="cb_sb_v2_brand_entity_id",
+        help=(
+            "ID único de la marca en Amazon Ads. Obtenelo en: Amazon Ads Console → "
+            "Account settings → Brand Entity. Sin este campo, Amazon rechaza los bulks SB en 2026."
+        ),
+        placeholder="ENTITY1ABC2DEF3",
+    )
 
     bid_calculado = round((cvr / 100) * precio * (target_acos / 100), 2)
-    st.info(f"💡 Bid calculado: **${bid_calculado}**")
-
-    st.markdown("#### Creatividad SB")
-    brand_name = st.text_input("Brand Name (como aparece en Amazon)", key="cb_sb_brand_name")
-    headline = st.text_input("Headline (máx 50 caracteres)", max_chars=50, key="cb_sb_headline")
-    if headline:
-        st.caption(f"{len(headline)}/50 caracteres")
-
-    landing_page_type = st.selectbox(
-        "Tipo de Landing Page",
-        ["Product Collection", "Store Spotlight", "Custom URL"],
-        key="cb_sb_landing_type",
+    st.info(
+        f"💡 **Bid calculado: \\${bid_calculado}** "
+        f"(CVR {cvr}% × precio \\${precio} × target ACoS {target_acos}%)"
     )
-    landing_page_url = ""
-    if landing_page_type == "Custom URL":
-        landing_page_url = st.text_input("URL de la landing page", key="cb_sb_landing_url")
 
-    creative_asins_input = st.text_input(
-        "ASINs creativos (mín 3, separados por coma)",
-        key="cb_sb_creative_asins",
-        placeholder="B0CYLMJJJC, B0CYLM4L23, B0CYLDSQ5L",
-        help="Sponsored Brands requiere mínimo 3 productos en la creatividad.",
-    )
-    creative_asins = [a.strip() for a in creative_asins_input.split(",") if a.strip()]
-    if creative_asins and len(creative_asins) < 3:
-        st.warning("⚠️ SB requiere mínimo 3 ASINs creativos.")
+    if not marca or not asin:
+        st.warning("Completá marca y ASIN para continuar.")
+        return
 
-    if not brand_name or not headline:
-        st.warning("Completá Brand Name y Headline para continuar.")
+    if not brand_entity_id:
+        st.warning("⚠️ Brand Entity ID es obligatorio en bulks SB 2026.")
         return
 
     st.markdown("---")
 
-    # ── Paso 3 — Clustering + naming ─────────────────────────────────────────
-    st.markdown("### Paso 3 — Preview de campañas SB")
+    # ── Paso 3 — Creatividad (campos específicos SBV o SBH) ──────────────────
+    st.markdown(f"### Paso 3 — Creatividad {sb_type}")
 
-    brand_terms = [t.strip().lower() for t in marca.split(",")]
-    df_kw = pd.DataFrame({"Keyword": keywords_list})
-    df_kw["Cluster"] = df_kw["Keyword"].apply(lambda k: _detectar_cluster(str(k), brand_terms))
+    # Campos compartidos SBV + SBH
+    brand_name = st.text_input(
+        "Brand Name (como aparece en Amazon)",
+        key="cb_sb_v2_brand_name",
+        help="Nombre exacto de la marca registrada en Amazon. Case-sensitive.",
+    )
 
-    cluster_counts = df_kw["Cluster"].value_counts()
-    st.markdown("#### Distribución por cluster")
-    cols_cl = st.columns(min(len(cluster_counts), 5))
-    for i, (cluster, count) in enumerate(cluster_counts.items()):
-        with cols_cl[i % len(cols_cl)]:
-            st.markdown(kpi_card(cluster, str(count)), unsafe_allow_html=True)
+    creative_headline = st.text_input(
+        f"Creative Headline (máx 50 caracteres)",
+        max_chars=50,
+        key="cb_sb_v2_creative_headline",
+        help="Texto que aparece en el ad. Máximo 50 caracteres. No usar mayúsculas gratuitas ni promociones agresivas.",
+    )
+    if creative_headline:
+        st.caption(f"{len(creative_headline)}/50 caracteres")
+
+    landing_page_type = st.selectbox(
+        "Landing Page Type",
+        options=["Product Collection", "Store Spotlight", "Custom URL"],
+        key="cb_sb_v2_landing_type",
+    )
+    landing_page_url = ""
+    if landing_page_type == "Custom URL":
+        landing_page_url = st.text_input(
+            "Landing Page URL",
+            key="cb_sb_v2_landing_url",
+            placeholder="https://www.amazon.com/stores/page/...",
+        )
+
+    creative_asins_input = st.text_input(
+        "Creative ASINs (mín 3, separados por coma)",
+        key="cb_sb_v2_creative_asins",
+        placeholder="B0CYLMJJJC, B0CYLM4L23, B0CYLDSQ5L",
+        help="Sponsored Brands requiere mínimo 3 productos en la creatividad.",
+    )
+    creative_asins = [a.strip() for a in creative_asins_input.split(",") if a.strip()]
+
+    # Campos específicos según tipo
+    video_asset_id = ""
+    brand_logo_asset_id = ""
+    brand_logo_url = ""
+    brand_logo_crop = "Square"
+
+    if sb_type == "SBV":
+        st.markdown("#### 📹 Campos SBV (Sponsored Brand Video)")
+        video_asset_id = st.text_input(
+            "Video Asset ID (obligatorio)",
+            key="cb_sb_v2_video_asset_id",
+            placeholder="amzn1.assetlibrary.asset.xxxxxxxxxxxx",
+            help=(
+                "ID del video subido a Amazon Ads Console → Creative Assets → Video. "
+                "Sin esto, el bulk SBV se rechaza."
+            ),
+        )
+    else:  # SBH
+        st.markdown("#### 🖼️ Campos SBH (Sponsored Brand Headlines)")
+        sbh_c1, sbh_c2 = st.columns([2, 1])
+        brand_logo_asset_id = sbh_c1.text_input(
+            "Brand Logo Asset ID (obligatorio)",
+            key="cb_sb_v2_brand_logo_asset_id",
+            placeholder="amzn1.assetlibrary.asset.xxxxxxxxxxxx",
+            help=(
+                "ID del logo de la marca subido a Amazon Ads Console → Creative Assets → Image. "
+                "Sin esto, el bulk SBH se rechaza."
+            ),
+        )
+        brand_logo_crop = sbh_c2.selectbox(
+            "Logo Crop",
+            options=["Square", "Rectangle"],
+            key="cb_sb_v2_brand_logo_crop",
+            help="Forma del logo en el banner. Square = 1:1, Rectangle = horizontal.",
+        )
+        brand_logo_url = st.text_input(
+            "Brand Logo URL (opcional, informativo)",
+            key="cb_sb_v2_brand_logo_url",
+            help="URL del logo — campo informativo para referencia del AM, no lo usa Amazon.",
+            placeholder="https://...",
+        )
 
     st.markdown("---")
 
-    # ── Paso 4 — Generar bulk SB ─────────────────────────────────────────────
-    st.markdown("### Paso 4 — Generar bulk SB")
+    # ── Paso 4 — Preview + validación + descarga ─────────────────────────────
+    st.markdown("### Paso 4 — Preview y descarga")
 
-    MAX_KW = 5
+    # Validaciones estrictas ANTES de generar el bulk
+    errores = []
+    if not brand_name:
+        errores.append("Brand Name vacío")
+    if not creative_headline:
+        errores.append("Creative Headline vacío")
+    if len(creative_asins) < 3:
+        errores.append(f"Creative ASINs insuficientes ({len(creative_asins)}/3 mínimo)")
+    if sb_type == "SBV" and not video_asset_id:
+        errores.append("Video Asset ID vacío (obligatorio en SBV)")
+    if sb_type == "SBH" and not brand_logo_asset_id:
+        errores.append("Brand Logo Asset ID vacío (obligatorio en SBH)")
+    if landing_page_type == "Custom URL" and not landing_page_url:
+        errores.append("Landing Page URL vacío (requerido para Custom URL)")
+
+    if errores:
+        st.error(
+            "⚠️ Completá lo siguiente antes de descargar:\n\n"
+            + "\n".join(f"- {e}" for e in errores)
+        )
+        return
+
+    # Generar bulk — agrupar keywords en campañas de MAX 5 KWs (regla Capybaras)
+    MAX_KW_POR_CAMPANA = 5
     start_date = datetime.now().strftime("%Y%m%d")
-    creative_asin_1 = creative_asins[0] if len(creative_asins) > 0 else ""
-    creative_asin_2 = creative_asins[1] if len(creative_asins) > 1 else ""
-    creative_asin_3 = creative_asins[2] if len(creative_asins) > 2 else ""
 
-    rows = []
-    for cluster in df_kw["Cluster"].unique():
-        kws = df_kw[df_kw["Cluster"] == cluster]["Keyword"].tolist()
-        grupos = [kws[i:i+MAX_KW] for i in range(0, len(kws), MAX_KW)]
+    # Split keywords en grupos de 5
+    grupos = [
+        keywords_list[i:i + MAX_KW_POR_CAMPANA]
+        for i in range(0, len(keywords_list), MAX_KW_POR_CAMPANA)
+    ]
 
-        for num, grupo in enumerate(grupos, 1):
-            camp_name = _generar_nombre_campana_sb(marca, asin, cluster, "exact", num)
-            ag_name = f"AG - {cluster} {num}"
+    all_rows = []
+    for num, grupo in enumerate(grupos, start=1):
+        camp_name = _generar_nombre_campana_sb(marca, asin, "Brand", "exact", num)
+        ag_name = f"AG - Brand {num}"
 
-            # Campaign row
-            rows.append({
-                "Product": "Sponsored Brands", "Entity": "Campaign", "Operation": "create",
-                "Campaign ID": camp_name, "Ad Group ID": "", "Portfolio ID": portfolio_id,
-                "Campaign Name": camp_name, "Ad Group Name": "",
-                "Start Date": start_date, "End Date": "", "State": "enabled",
-                "Daily Budget": budget, "Bidding Strategy": "Dynamic bidding (down only)",
-                "Bid": "", "Keyword Text": "", "Match Type": "",
-                "Creative Type": "Product Collection", "Brand Name": brand_name,
-                "Headline": headline,
-                "Creative ASIN 1": creative_asin_1,
-                "Creative ASIN 2": creative_asin_2,
-                "Creative ASIN 3": creative_asin_3,
-                "Landing Page URL": landing_page_url if landing_page_type == "Custom URL" else "",
-                "Landing Page Type": landing_page_type,
-            })
+        rows = _build_sb_bulk_rows(
+            campaign_name=camp_name,
+            ag_name=ag_name,
+            keywords=grupo,
+            bid=bid_calculado,
+            budget=budget,
+            tos_pct=tos_pct,
+            sb_type=sb_type,
+            brand_entity_id=brand_entity_id,
+            portfolio_id=portfolio_id,
+            video_asset_id=video_asset_id,
+            brand_logo_asset_id=brand_logo_asset_id,
+            brand_logo_url=brand_logo_url,
+            brand_logo_crop=brand_logo_crop,
+            creative_headline=creative_headline,
+            creative_asins=creative_asins,
+            brand_name=brand_name,
+            landing_page_type=landing_page_type,
+            landing_page_url=landing_page_url,
+            start_date=start_date,
+        )
+        all_rows.extend(rows)
 
-            # Ad Group row
-            rows.append({
-                "Product": "Sponsored Brands", "Entity": "Ad Group", "Operation": "create",
-                "Campaign ID": camp_name, "Ad Group ID": ag_name, "Portfolio ID": "",
-                "Campaign Name": camp_name, "Ad Group Name": ag_name,
-                "Start Date": "", "End Date": "", "State": "enabled",
-                "Daily Budget": "", "Bidding Strategy": "",
-                "Bid": bid_calculado, "Keyword Text": "", "Match Type": "",
-                "Creative Type": "", "Brand Name": "", "Headline": "",
-                "Creative ASIN 1": "", "Creative ASIN 2": "", "Creative ASIN 3": "",
-                "Landing Page URL": "", "Landing Page Type": "",
-            })
+    df_bulk = pd.DataFrame(all_rows, columns=_SB_COLS_2026)
 
-            # Ad row
-            rows.append({
-                "Product": "Sponsored Brands", "Entity": "Ad", "Operation": "create",
-                "Campaign ID": camp_name, "Ad Group ID": ag_name, "Portfolio ID": "",
-                "Campaign Name": camp_name, "Ad Group Name": ag_name,
-                "Start Date": "", "End Date": "", "State": "enabled",
-                "Daily Budget": "", "Bidding Strategy": "",
-                "Bid": "", "Keyword Text": "", "Match Type": "",
-                "Creative Type": "Product Collection", "Brand Name": brand_name,
-                "Headline": headline,
-                "Creative ASIN 1": creative_asin_1,
-                "Creative ASIN 2": creative_asin_2,
-                "Creative ASIN 3": creative_asin_3,
-                "Landing Page URL": landing_page_url if landing_page_type == "Custom URL" else "",
-                "Landing Page Type": landing_page_type,
-            })
-
-            # Keyword rows
-            for kw in grupo:
-                rows.append({
-                    "Product": "Sponsored Brands", "Entity": "Keyword", "Operation": "create",
-                    "Campaign ID": camp_name, "Ad Group ID": ag_name, "Portfolio ID": "",
-                    "Campaign Name": camp_name, "Ad Group Name": ag_name,
-                    "Start Date": "", "End Date": "", "State": "enabled",
-                    "Daily Budget": "", "Bidding Strategy": "",
-                    "Bid": bid_calculado, "Keyword Text": kw, "Match Type": "exact",
-                    "Creative Type": "", "Brand Name": "", "Headline": "",
-                    "Creative ASIN 1": "", "Creative ASIN 2": "", "Creative ASIN 3": "",
-                    "Landing Page URL": "", "Landing Page Type": "",
-                })
-
-    df_bulk = pd.DataFrame(rows)
-
+    # KPI cards
     n_campanas = df_bulk[df_bulk["Entity"] == "Campaign"].shape[0]
     n_keywords = df_bulk[df_bulk["Entity"] == "Keyword"].shape[0]
+    n_ads = df_bulk[df_bulk["Entity"].isin(["Brand Video Ad", "Headline Ad"])].shape[0]
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(kpi_card("Campañas SB", str(n_campanas)), unsafe_allow_html=True)
+        st.markdown(kpi_card(f"Campañas {sb_type}", str(n_campanas)), unsafe_allow_html=True)
     with c2:
         st.markdown(kpi_card("Keywords", str(n_keywords)), unsafe_allow_html=True)
     with c3:
+        st.markdown(kpi_card("Ads", str(n_ads)), unsafe_allow_html=True)
+    with c4:
         st.markdown(kpi_card("Bid", f"${bid_calculado}"), unsafe_allow_html=True)
 
+    # Preview
     st.markdown("#### Preview del bulk SB")
-    df_preview = df_bulk[df_bulk["Entity"].isin(["Campaign", "Keyword"])][
-        ["Entity", "Campaign Name", "Keyword Text", "Match Type", "Bid", "Daily Budget"]
-    ].reset_index(drop=True)
+    cols_show = ["Entity", "Campaign Name", "Keyword Text", "Match Type", "Bid", "Budget"]
+    df_preview = df_bulk[cols_show].reset_index(drop=True)
     st.dataframe(df_preview, use_container_width=True, height=400)
 
+    # Descarga
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         df_bulk.to_excel(writer, sheet_name="Sponsored Brands Campaigns", index=False)
 
     st.download_button(
-        label=f"⬇️ Descargar bulk SB ({n_campanas} campañas, {n_keywords} keywords)",
+        label=f"⬇️ Descargar bulk {sb_type} ({n_campanas} campañas, {n_keywords} keywords)",
         data=buf.getvalue(),
-        file_name=f"campaign_bulk_SB_{marca}_{asin}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        file_name=f"campaign_bulk_{sb_type}_{marca}_{asin}_{datetime.now().strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="cb_dl_sb",
+        key="cb_sb_v2_dl",
+    )
+
+    st.success(
+        f"✅ Bulk {sb_type} listo: **{n_campanas} campañas** con **{n_keywords} keywords** "
+        f"(max {MAX_KW_POR_CAMPANA} KWs/campaña · naming Capybaras · 29 columnas Amazon 2026)."
     )
 
 
@@ -354,7 +477,7 @@ def _render_sd():
     budget       = p8.number_input("Budget diario ($)", min_value=1.0, value=10.0, step=1.0, key="cb_sd_budget")
 
     bid_calculado = round((cvr / 100) * precio * (target_acos / 100), 2)
-    st.info(f"💡 Bid calculado: **${bid_calculado}**")
+    st.info(f"💡 **Bid calculado: \\${bid_calculado}**")
 
     bid_optimization = st.selectbox(
         "Bid Optimization",
@@ -529,6 +652,143 @@ def _render_sd():
     )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# SB 2026 — Columnas y helpers para bulk Sponsored Brands (SBV + SBH)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ⚠️ "Ad Group ID" tiene un espacio delante — es un bug conocido de Amazon,
+# NO quitar el espacio, los bulks se rechazan sin él.
+_SB_COLS_2026 = [
+    "Product", "Entity", "Operation", "Campaign ID", "Portfolio ID", " Ad Group ID",
+    "Campaign Name", "Ad Group Name", "Ad Name", "Start Date", "End Date", "State",
+    "Brand Entity ID", "Budget Type", "Budget", "Bid Optimization", "Bid",
+    "Placement", "Percentage", "Keyword Text", "Match Type",
+    "Landing Page URL", "Landing Page Type", "Brand Name",
+    "Brand Logo Asset ID", "Brand Logo URL (Informational only)", "Brand Logo Crop",
+    "Creative Headline", "Creative ASINs", "Video Asset IDs",
+]
+
+
+def _sb_row_factory(**kwargs) -> dict:
+    """Genera una fila bulk SB con las 29 columnas Amazon 2026. kwargs sobrescriben valores específicos."""
+    row = {col: None for col in _SB_COLS_2026}
+    row.update(kwargs)
+    return row
+
+
+def _build_sb_bulk_rows(
+    campaign_name: str,
+    ag_name: str,
+    keywords: list,
+    bid: float,
+    budget: float,
+    tos_pct: float,
+    sb_type: str,  # "SBV" o "SBH"
+    brand_entity_id: str,
+    portfolio_id: str = "",
+    # SBV fields
+    video_asset_id: str = "",
+    # SBH fields
+    brand_logo_asset_id: str = "",
+    brand_logo_url: str = "",
+    brand_logo_crop: str = "Square",
+    # Shared creative
+    creative_headline: str = "",
+    creative_asins: list = None,
+    brand_name: str = "",
+    landing_page_type: str = "Product Collection",
+    landing_page_url: str = "",
+    start_date: str = "",
+) -> list:
+    """
+    Genera las filas bulk para una campaña SB (SBV o SBH).
+    Retorna lista de dicts con las 29 columnas SB 2026.
+
+    Estructura: Campaign → Bidding Adjustment → Ad Group → Ad(s) → Keyword(s)
+    """
+    creative_asins = creative_asins or []
+    creative_asins_str = ", ".join(creative_asins) if creative_asins else ""
+    ad_entity = "Brand Video Ad" if sb_type == "SBV" else "Headline Ad"
+    rows = []
+
+    # 1. Campaign
+    rows.append(_sb_row_factory(**{
+        "Product": "Sponsored Brands",
+        "Entity": "Campaign",
+        "Operation": "Create",
+        "Campaign ID": campaign_name,
+        "Portfolio ID": portfolio_id,
+        "Campaign Name": campaign_name,
+        "Start Date": start_date,
+        "State": "enabled",
+        "Brand Entity ID": brand_entity_id,
+        "Budget Type": "Daily",
+        "Budget": float(budget),
+        "Bid Optimization": False,
+    }))
+
+    # 2. Bidding Adjustment by Placement
+    rows.append(_sb_row_factory(**{
+        "Product": "Sponsored Brands",
+        "Entity": "Bidding Adjustment by Placement",
+        "Operation": "Create",
+        "Campaign ID": campaign_name,
+        "State": "enabled",
+        "Placement": "Top of Search",
+        "Percentage": float(tos_pct),
+    }))
+
+    # 3. Ad Group (1 por campaña)
+    rows.append(_sb_row_factory(**{
+        "Product": "Sponsored Brands",
+        "Entity": "Ad Group",
+        "Operation": "Create",
+        "Campaign ID": campaign_name,
+        " Ad Group ID": ag_name,
+        "Ad Group Name": ag_name,
+        "State": "enabled",
+    }))
+
+    # 4. Ad (1 por campaña — SBV o SBH según tipo)
+    ad_row = {
+        "Product": "Sponsored Brands",
+        "Entity": ad_entity,
+        "Operation": "Create",
+        "Campaign ID": campaign_name,
+        " Ad Group ID": ag_name,
+        "Ad Name": creative_headline or "[HEADLINE]",
+        "State": "enabled",
+        "Landing Page URL": landing_page_url,
+        "Landing Page Type": landing_page_type,
+        "Brand Name": brand_name,
+        "Creative Headline": creative_headline or "[HEADLINE]",
+        "Creative ASINs": creative_asins_str,
+    }
+    if sb_type == "SBV":
+        ad_row["Video Asset IDs"] = video_asset_id
+    else:  # SBH
+        ad_row["Brand Logo Asset ID"] = brand_logo_asset_id
+        ad_row["Brand Logo URL (Informational only)"] = brand_logo_url
+        ad_row["Brand Logo Crop"] = brand_logo_crop
+    rows.append(_sb_row_factory(**ad_row))
+
+    # 5. Keywords (1 fila por keyword)
+    for kw in keywords:
+        rows.append(_sb_row_factory(**{
+            "Product": "Sponsored Brands",
+            "Entity": "Keyword",
+            "Operation": "Create",
+            "Campaign ID": campaign_name,
+            " Ad Group ID": ag_name,
+            "State": "enabled",
+            "Bid": float(bid),
+            "Keyword Text": kw,
+            "Match Type": "Exact",
+        }))
+
+    return rows
+
+
 # ── Render principal ─────────────────────────────────────────────────────────
 
 def render():
@@ -632,7 +892,10 @@ def render():
     budget       = p8.number_input("Budget diario por campaña ($)", min_value=1.0, value=10.0, step=1.0, key="cb_budget")
 
     bid_calculado = round((cvr / 100) * precio * (target_acos / 100), 2)
-    st.info(f"💡 Bid calculado automáticamente: **${bid_calculado}** (CVR {cvr}% × precio ${precio} × target ACoS {target_acos}%)")
+    st.info(
+        f"💡 **Bid calculado automáticamente: \\${bid_calculado}** "
+        f"(CVR {cvr}% × precio \\${precio} × target ACoS {target_acos}%)"
+    )
 
     st.markdown("---")
 
