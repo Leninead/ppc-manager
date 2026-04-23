@@ -1748,3 +1748,43 @@ Criterio YAGNI: no anticipar problemas teóricos sin feedback real.
 
 ### Observación menor (no bloqueante)
 - `_PAGES` en `core/constants.py` no incluye `"👁️ Listing Monitor"` (alta del 2026-04-09) — probablemente el módulo no usa `_PAGES` y por eso nadie lo notó. Queda fuera de scope de esta sesión.
+
+---
+
+## 🐛 TODO técnico descubierto — .gitignore roto (2026-04-22)
+
+**Hallazgo**: El `.gitignore` tiene un bug que impide versionar archivos en `notes/knowledge/` a pesar de que las reglas negativas `!notes/knowledge/` y `!notes/knowledge/**` están presentes.
+
+**Causa raíz**: La regla L6 `notes/` (con trailing slash) excluye el directorio entero y git no puede re-incluir archivos dentro de un dir ignorado cuando el parent usa trailing slash.
+
+**Evidencia**: `git ls-files notes/knowledge/` devuelve vacío, aunque hay 7 archivos en esa carpeta desde marzo 2026.
+
+**Impacto**: los SOPs técnicos que vivían en `notes/knowledge/` (destinados a ser públicos según convención) nunca se pusharon a GitHub. No es un leak (al revés — archivos que debían estar versionados están solo en local).
+
+**Fix propuesto** (NO ejecutado aún — requiere sesión dedicada):
+
+```diff
+- notes/
++ notes/*
+  !notes/knowledge/
+  !notes/knowledge/**
+```
+
+**Por qué no se aplicó en esta sesión**:
+1. Scope creep — hallazgo fuera del alcance de Gamboa Generator
+2. Riesgo de leak — antes de arreglar hay que **auditar los 7 archivos de `notes/knowledge/`** para confirmar que ninguno tiene info sensible que nunca debía versionarse
+3. Afecta a múltiples paths — requiere plan de qué archivos agregar uno por uno con `git add` selectivo
+
+**Próxima sesión — plan sugerido**:
+1. Auditar contenido de los 7 archivos de `notes/knowledge/` — confirmar que ninguno tiene info de clientes, brand terms, thresholds específicos, ASINs, etc.
+2. Aplicar fix al `.gitignore`
+3. `git add` selectivo por archivo (no `git add notes/knowledge/` masivo)
+4. Commit + push
+5. Mover `notes/PPC-SOP-Manager.md` → `notes/knowledge/PPC-SOP-Manager.md` (ahora sí funciona el versionado)
+
+**Estado actual de documentación SOP oficial** (todo versionado, sin impacto del bug):
+- `sopppcmanagerdefinitivo.md` (raíz) — SOP completo con Gamboa documentado ✅
+- `SOP_Uso_AgencyOS.md` (raíz) — guía de uso con Gamboa en flujo ✅
+- `CLAUDE.md` (raíz) — contexto general + sesión 2026-04-22 ✅
+- `modules/pages/CLAUDE.md` — contexto por módulo, M25 Gamboa ✅
+- `notes/PPC-SOP-Manager.md` — duplicado local (gitignored, no impacto)
