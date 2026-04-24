@@ -110,6 +110,18 @@ Esto evita el bug "At least one sheet must be visible" de openpyxl dentro del ru
 | CVR | > 15% | 10-15% | 5-10% | < 5% |
 | BuyBox | > 95% | 90-95% | 80-90% | < 80% |
 
+## Gotchas conocidos
+
+### Streamlit + LaTeX: el signo $ rompe markdown
+Streamlit interpreta `$` como delimitador de LaTeX inline en todos los componentes que renderizan markdown (`st.info`, `st.markdown`, `st.error`, `st.warning`, `st.success`, `st.caption`, `st.write`). El patrón `**${variable}**` o `**$123.45**` hace que los asteriscos se muestren literales en vez de aplicar negrita.
+
+**Fix**:
+- Opción A — escapar con doble backslash: `**\\${variable}**`
+- Opción B — envolver negrita alrededor de la frase completa en vez de solo el número: `**Spend de ${variable}**` → `**Spend de $X**` (Streamlit no rompe si el `$` no está adyacente a `**`)
+- Opción C (preferida para KPIs) — usar el helper `kpi_card()` de `core/helpers.py`, que retorna HTML directo y no pasa por el renderer markdown.
+
+**Descubierto**: 2026-04-23 en `modules/pages/campaign_builder.py` (L245, L480, L896) — fix aplicado escapando con `\\$`.
+
 ## Qué NO hacer
 - Nunca usar st.metric para KPIs principales — siempre kpi_card
 - Nunca hardcodear colores inline — usar los tokens de la paleta
@@ -118,3 +130,4 @@ Esto evita el bug "At least one sheet must be visible" de openpyxl dentro del ru
 - Nunca mostrar delta sin flecha direccional (↑↓→)
 - Nunca redondear moneda a menos de 2 decimales
 - Nunca mostrar porcentajes con más de 1 decimal (excepto CTR que usa 2)
+- Nunca usar `**$variable**` en markdown de Streamlit sin escapar el `$`

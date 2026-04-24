@@ -130,6 +130,15 @@ Al crear un módulo nuevo, siempre agregar:
 - [ ] Sin return dentro de with tab
 - [ ] Conectado en app.py (import + sidebar + routing)
 
+## Anti-patterns
+
+### Confiar en el output de un sub-agent sin verificar tool calls
+Un sub-agent puede reportar éxito con detalles específicos (líneas modificadas, matches encontrados, conteos) pero tener `tool_uses: 0` en la metadata real — genera texto que parece un resumen de cambios pero nunca invocó `Edit`/`Write`. Síntoma típico: el agente escribe strings literales tipo `<tool_call>{"name":"Edit",...}</tool_call>` en el output como si fueran invocaciones reales.
+
+**Regla**: después de invocar cualquier sub-agent que debería modificar archivos, **SIEMPRE** validar con `git diff --stat` o `git status` antes de reportar éxito al usuario. Si el archivo está intacto pero el agente reportó cambios → FAIL silencioso, no éxito.
+
+**Reproducido**: 2026-04-23 en sub-agent `ppc-module-builder` (Sonnet) — 2 invocaciones consecutivas en la misma sesión con prompts distintos. **Mitigación: implementar verificación manual post-agente en todos los workflows que usen ppc-module-builder.**
+
 ## Qué NO hacer
 - Nunca poner return dentro de un bloque `with tab:` — rompe tabs posteriores
 - Nunca usar st.cache_resource para DataFrames — solo st.cache_data
@@ -137,3 +146,4 @@ Al crear un módulo nuevo, siempre agregar:
 - Nunca crear funciones Excel dentro de render() — bug openpyxl
 - Nunca hardcodear nombres de columnas sin fallback — Amazon cambia headers entre reportes
 - Nunca dejar un file_uploader sin key único — causa conflictos entre módulos
+- Nunca confiar en output de sub-agente sin verificar con `git diff --stat` primero

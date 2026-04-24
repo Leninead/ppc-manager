@@ -1,9 +1,20 @@
 # INTELLIGENCE-INDEX — Capybaras Agency
 ## Biblioteca de conocimiento estratégico · 2026
 
-**Última actualización:** 2026-03-21  
+**Última actualización:** 2026-04-24
 **Total de notas:** 1  
-**Próxima búsqueda sugerida:** 2026-03-25
+**Próxima búsqueda sugerida:** 2026-04-28
+
+---
+
+## Módulos relacionados
+
+| Módulo | Sección | Relación |
+|--------|---------|----------|
+| M25 — Gamboa Generator | Account | Reportes integrales SQP + BR |
+| M10 — Campaign Builder v2.0 | PPC | SBV/SBH 2026, naming convention |
+| M14 — PPC Insights | Research | Health score por ASIN |
+| M15 — PPC Forecast | Research | Proyección tendencias |
 
 ---
 
@@ -50,11 +61,12 @@ Escribí en el chat del proyecto cualquiera de estas frases:
 
 ## Notas pendientes de profundizar
 
-- [ ] SBV (Sponsored Brand Video) — estrategia 2026, cuándo es obligatorio, formatos
+- [ ] SBV (Sponsored Brand Video) 2026 — obligatorio, formatos, integración Campaign Builder
 - [ ] Amazon DSP vs Sponsored Ads — cuándo escalar a DSP, umbral de budget recomendado
 - [ ] Rufus AI — cómo leer el reporte de Prompts en Campaign Manager (guía práctica)
 - [ ] Atom 11 vs Perpetua vs Pacvue — comparativa real 2026 de herramientas de automatización
 - [ ] RAG para agencias — cómo construir una base de conocimiento queryable con embeddings
+- [ ] Flujo Bulk asíncrono 2026 — UUIDs, 3 estados (Uploading→Processing→Success/Failed), verificación visual obligatoria
 
 ---
 
@@ -62,7 +74,7 @@ Escribí en el chat del proyecto cualquiera de estas frases:
 
 `#amazon` `#ppc` `#rufus` `#ai` `#listing` `#sbv` `#automatización` `#bidding`  
 `#helium10` `#atom11` `#merchanspring` `#shopify` `#shopDirect`  
-`#capybaras` `#sop` `#2026` `#estrategia`
+`#capybaras` `#sop` `#2026` `#estrategia` `#gamboa` `#bulk-upload`
 
 ---
 
