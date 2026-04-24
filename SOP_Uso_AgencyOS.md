@@ -1,6 +1,6 @@
 # 🦫 SOP — Uso del Capybaras Agency OS
 
-**Versión:** v3.2 — Abril 2026
+**Versión:** v3.3 — Abril 2026
 **Dev:** Lenin Acosta
 **Módulos activos:** 25
 
@@ -196,16 +196,20 @@ El flujo está diseñado para que cada día consuma los outputs del anterior. Re
 
 ## M10 — 🚀 Campaign Builder
 
-- 🎯 **Para qué sirve:** Generar bulk listo para subir a Amazon con campañas SP/SB/SD nuevas clusterizadas por intención.
+- 🎯 **Para qué sirve:** Generar bulk listo para subir a Amazon con campañas SP/SB/SD nuevas clusterizadas por intención. SB reescrito en Sprint 1 (2026-04-23) con soporte SBV + SBH + Brand Entity ID.
 - 📂 **Archivo que necesitás:** Plan de Acción bulk (output del M4, .xlsx).
 - ▶️ **Pasos:**
   1. Subí el Plan de Acción bulk
-  2. Completá datos del producto: marca, ASIN, SKU, precio, CVR, target ACoS, budget
-  3. Seleccioná tipo: SP / SB / SD
-  4. Revisá preview de campañas clusterizadas
-  5. Descargá bulk formato exacto Amazon
+  2. Seleccioná tipo: SP / SB / SD (radio button)
+  3. **Para SB:** elegí SBV o SBH (Paso 0) → ingresá datos producto + Brand Entity ID (Paso 2) → creatividad (Paso 3: Video Asset ID para SBV, Brand Logo Asset ID + Crop para SBH)
+  4. Revisá preview de campañas clusterizadas con validación estricta
+  5. Descargá bulk formato exacto Amazon (29 columnas para SB)
 - 📤 **Output:** Bulk .xlsx listo para subir a Campaign Manager → Bulk Operations.
 - ➡️ **Siguiente paso:** Atom11 Rules Builder (M11) para automatizar las nuevas.
+
+> ⚠️ **SB — Campos obligatorios:** Brand Entity ID (sin él Amazon rechaza el bulk), Video Asset ID (SBV) o Brand Logo Asset ID + Logo Crop Square/Rectangle (SBH), Brand Name, Creative Headline, 3 ASINs creativos. El módulo muestra lista de errores bloqueante si falta alguno.
+
+> ⚠️ **El naming Capybaras está hardcoded** — NO modificar el formato. Es un contrato con Atom11 Rules Builder (M11) que parsea el Campaign Name para clasificar en DISCOVERY/RANKING/CONQUEST.
 
 ---
 
@@ -457,14 +461,12 @@ El flujo está diseñado para que cada día consuma los outputs del anterior. Re
 
 ---
 
-## 🔑 Reglas operativas
+## 🗺️ Roadmap Campaign Builder v2.0 — Sprints
 
-1. **Target ACoS es transversal:** ingresalo una vez por marca y reutilizalo en todos los módulos.
-2. **Brand terms son críticos:** si no los ingresás, varias clasificaciones (brand/generic, SBH targets) fallan.
-3. **Bulk antes de subir a Amazon:** SIEMPRE validar SKU (no ASIN) + revisar duplicados con Bulk File existente.
-4. **Parent-Child map:** guardá el BR en `data/business_report/` y se carga solo al iniciar la app.
-5. **Cierre de sesión:** git commit + git push + actualizar notas del cliente en `notes/brands/{marca}/`.
+| Sprint | Feature | Estado | Fecha |
+|--------|---------|--------|-------|
+| 1 | Rewrite `_render_sb()` — SBV + SBH + Brand Entity ID + 29 columnas Amazon Ads API 2026 | ✅ Completado | 2026-04-23 |
+| 2 | Modo B simplificado — XLSX custom + `st.data_editor` para input manual de keywords | Pendiente | — |
+| 3 | DaypartingApp — módulo nuevo en Account Manager para ajustes de bid por hora/día | Pendiente | — |
 
----
-
-**Fin del SOP** — v3.2, Abril 2026.
+> **Decisión arquitectónica registrada (2026-04-23):** Los bloques dinámicos de naming propuestos en el HTML del PPC compañero fueron descartados. El naming Capybaras hardcoded es un contrato con Atom11 Rules Builder (M11) que parsea el Campaign Name para clasificar en DISCOVERY/RANKING/CONQUEST/etc. Modificarlo rompe la automatización completa.

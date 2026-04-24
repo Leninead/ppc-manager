@@ -1,7 +1,7 @@
 # 🦫 SOP DEFINITIVO — Capybaras Agency OS — PPC Manager
 ## Manual de uso completo · Módulo por módulo
 
-**Versión:** Abril 2026 — v3.1
+**Versión:** Abril 2026 — v3.2
 **Dev:** Lenin Acosta
 **Stack:** Python + Streamlit + Pandas + OpenPyXL
 **Módulos activos:** 25 módulos en 5 secciones
@@ -337,7 +337,15 @@ Muestra métricas de ventas orgánicas + paid combinadas. Se usa principalmente 
 
 ## 10. 🚀 Campaign Builder
 
-**Para qué sirve:** Generar el archivo bulk listo para subir a Amazon con nuevas campañas, a partir del Plan de Acción del Análisis Cruzado.
+**Para qué sirve:** Generar el archivo bulk listo para subir a Amazon con nuevas campañas SP/SB/SD, a partir del Plan de Acción del Análisis Cruzado.
+
+### Versiones del módulo
+
+| Versión | Fecha | Cambio principal |
+|---------|-------|-----------------|
+| v1.0 | 2026-03-21 | SP clustering + export bulk |
+| v1.1 | 2026-04-08 | + soporte SB y SD (flujo básico) |
+| SB v2.0 | 2026-04-23 | Rewrite SB: selector SBV/SBH + Brand Entity ID + 29 columnas API 2026 + validaciones estrictas |
 
 ### Flujo completo (paso a paso)
 
@@ -346,14 +354,16 @@ Análisis Cruzado → Plan de Acción → Descargar bulk
         ↓
   Campaign Builder → subís ese bulk como input
         ↓
-Paso 2: ingresar datos del producto (marca, ASIN, SKU, precio, CVR, target ACoS, budget)
+Seleccioná tipo: SP / SB / SD
         ↓
-Paso 3: preview de campañas generadas (tabla editable)
+Completá datos del producto
+        ↓
+Preview de campañas generadas con validación
         ↓
 Descargar bulk Amazon → subir a Campaign Manager → Bulk Operations → Upload
 ```
 
-### Clustering automático de keywords
+### Clustering automático de keywords (SP)
 
 - **PAT** — si la keyword es un ASIN (B0...)
 - **Spanish** — si tiene palabras en español (crema, hidratante, para, piel...)
@@ -361,7 +371,7 @@ Descargar bulk Amazon → subir a Campaign Manager → Bulk Operations → Uploa
 - **Brand** — si menciona el nombre de la marca
 - **Discovery** — todo lo demás
 
-### Bidding Strategy por tipo
+### Bidding Strategy por tipo (SP)
 
 | Tipo | Bid Strategy | Placement |
 |------|-------------|-----------|
@@ -370,11 +380,53 @@ Descargar bulk Amazon → subir a Campaign Manager → Bulk Operations → Uploa
 | Phrase Discovery | Dynamic Down-Only | ToS +10% |
 | Auto | Fixed Bid | Sin modifier |
 
-### Soporte para 3 tipos de campaña (NUEVO 2026-04-08)
+### SB v2.0 — Sponsored Brands (NUEVO 2026-04-23)
 
-- **SP (Sponsored Products)** — lógica existente
-- **SB (Sponsored Brands)** — headline, 3 ASINs creativos, landing page
-- **SD (Sponsored Display)** — Product Targeting o Audience Targeting
+**Paso 0:** Selector SBV (Sponsored Brand Video) vs SBH (Sponsored Brand Headline)
+
+**Campos comunes SBV + SBH:**
+- Brand Entity ID — **obligatorio** (Amazon Ads API 2026, sin él el bulk es rechazado)
+- Brand Name
+- Creative Headline (máx 50 chars)
+- 3 ASINs creativos
+
+**Campos específicos SBV:**
+- Video Asset ID — obligatorio (formato: `BVIDEO_XXXXXXXXXX`)
+- Landing Page type + URL
+
+**Campos específicos SBH:**
+- Brand Logo Asset ID — obligatorio
+- Logo Crop — obligatorio: `Square` o `Rectangle`
+- Brand Logo URL — opcional
+- Landing Page type + URL
+
+**Bulk SB 2026 — 29 columnas:**
+```
+Campaign ID | Campaign Name | Ad Group Name | Ad Group ID | Ad ID |
+Keyword | Match Type | Start Date | End Date | Status |
+Daily Budget | Bid | Bidding Strategy | Brand Entity ID | Brand Name |
+Creative Headline | Creative ASINs | Video Asset ID | Logo Asset ID |
+Logo Crop | Logo URL | Landing Page URL | Landing Page Type |
+Portfolio ID | Impressions | Clicks | Spend | Sales | Orders
+```
+
+> ⚠️ La columna `" Ad Group ID"` tiene un espacio inicial — es un bug conocido de Amazon documentado. NO quitar el espacio.
+
+**Validaciones estrictas bloqueantes:** Si falta cualquier campo obligatorio, el módulo muestra lista de errores en lugar del botón de descarga.
+
+**Naming SB (hardcoded — NO modificar):**
+```
+[Marca] - [ASIN] - SB - KW - [Match] - [Cluster]
+Ejemplo: Dermaglos - B0CYLMJJJC - SB - KW - EXACT - Brand 1
+```
+
+> ⚠️ **El naming Capybaras está hardcoded por diseño.** Es un contrato con Atom11 Rules Builder (M11): el módulo parsea el Campaign Name para clasificar campañas en DISCOVERY/RANKING/CONQUEST/DEFENSIVE/etc. Modificar el naming rompe la automatización completa.
+
+### SD — Sponsored Display (preexistente)
+
+- **Product Targeting** — ASIN de competidores
+- **Audience** — retargeting de visitantes
+- Naming: `[Marca]-[ASIN]-SD-[PT/AUD]-[SubTipo]`
 
 > ⚠️ **ANTES DE DESCARGAR — verificar siempre:**
 > 1. Cruzar keywords con campañas activas (ver regla crítica en STR Tab 3)
@@ -915,22 +967,3 @@ OCASIONAL (cada 2-4 semanas)
 ---
 
 ---
-
-## Señales de alarma — Cuándo actuar inmediatamente
-
-| Señal | Umbral | Acción inmediata |
-|-------|--------|------------------|
-| ACoS campaña | > 100% por 7+ días | Revisar search terms, bajar bid 20%, verificar listing |
-| BuyBox perdido | < 80% con > 30 sesiones/semana | Revisar precio vs competidores ese mismo día |
-| CVR caída brusca | Baja > 30% semana a semana | Revisar listing, reviews negativas, competidor bajó precio |
-| Budget agotado | 100% consumido 7 días seguidos | Subir budget o reorganizar campañas |
-| Impresiones caen a cero | 0 en campaña activa | Revisar bid vs sugerido, verificar ASIN no suprimido |
-| TACoS > 30% | Semana 6+ con TACoS > 30% | Auditoría de estructura completa |
-| Keyword en warm-up | Campaña < 2 semanas con ACoS > 40% | NO optimizar — es warm-up normal. Esperar 14 días |
-
----
-
----
-
-**Capybaras Agency — Agency OS v3.1 — Confidencial — Abril 2026**
-**Desarrollado por Lenin Acosta**

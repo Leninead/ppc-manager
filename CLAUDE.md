@@ -1788,3 +1788,100 @@ Criterio YAGNI: no anticipar problemas teóricos sin feedback real.
 - `CLAUDE.md` (raíz) — contexto general + sesión 2026-04-22 ✅
 - `modules/pages/CLAUDE.md` — contexto por módulo, M25 Gamboa ✅
 - `notes/PPC-SOP-Manager.md` — duplicado local (gitignored, no impacto)
+
+---
+
+## 📅 Sesión 2026-04-23 — Sprint 1 Campaign Builder v2.0
+
+### Contexto — análisis previo con code-reviewer
+- Un compañero PPC compartió un HTML React standalone con 4 apps (BulkGenerator, HarvestApp, DaypartingApp, SponsoredBrandApp). Lógica validada con clientes reales.
+- Se invocó al agente `code-reviewer` para evaluar plan de integración híbrido. **Veredicto: MODIFICAR PLAN** (score 6/10 del original → 9/10 del modificado).
+- **Hallazgo crítico**: los "bloques dinámicos de naming" propuestos en el HTML rompían la clasificación automática de campañas en Atom11 Rules Builder (M11 parsea Campaign Name para clasificar DISCOVERY/RANKING/CONQUEST/etc). **El naming Capybaras hardcoded es feature, no bug.**
+- **Plan aprobado — 3 sprints en orden de impacto:**
+
+| Sprint | Feature | Estado | Esfuerzo |
+|---|---|---|---|
+| 1 | Rewrite `_render_sb()` con SBV + SBH + Brand Entity ID | ✅ COMPLETADO | ~3h |
+| 2 | Modo B simplificado con XLSX custom + `st.data_editor` | 🔜 Pendiente | ~4-5h |
+| 3 | DaypartingApp como módulo nuevo en Account Manager | 🔜 Pendiente | ~2h |
+
+- **Features del HTML SKIPEADAS** (no se implementan):
+  - Drag & drop de cluster builder (requiere `streamlit-sortables`, riesgo maintenance)
+  - Bloques dinámicos de naming (rompe contrato con M11)
+  - HarvestApp como módulo separado (se integrará selectivamente en STR Tab 3 más adelante)
+
+### Sprint 1 — implementación
+
+**Archivo modificado:** `modules/pages/campaign_builder.py` (864 → 1121 líneas, +257 netas).
+
+**Ejecución:** en 3 subprompts quirúrgicos con `Edit` directo desde Claude Code principal después de que el sub-agent `ppc-module-builder` alucinara 2 veces consecutivas (ver "Bugs conocidos" abajo).
+
+**Cambios técnicos:**
+
+1. **Constantes y helpers SB 2026** (L538-668):
+   - `_SB_COLS_2026` — 29 columnas bulk Amazon Ads API 2026, incluyendo `" Ad Group ID"` con espacio inicial (bug conocido de Amazon — NO quitar, bulks se rechazan sin él)
+   - `_sb_row_factory(**kwargs)` — builder de fila vacía con 29 columnas
+   - `_build_sb_bulk_rows(...)` — genera 5 filas por campaña (Campaign → Bidding Adjustment → Ad Group → Ad → Keywords) con bifurcación SBV/SBH
+
+2. **`_render_sb()` reescrito completo:**
+   - **Paso 0** — Selector SBV vs SBH (radio horizontal con help descriptivo)
+   - **Paso 1** — Keywords (Plan de Acción bulk o input manual)
+   - **Paso 2** — Datos producto + **Brand Entity ID obligatorio** + TOS % placement
+   - **Paso 3** — Creatividad compartida + campos específicos según tipo:
+     - SBV → Video Asset ID obligatorio
+     - SBH → Brand Logo Asset ID + Logo Crop (Square/Rectangle) + Brand Logo URL opcional
+   - **Paso 4** — Preview con 4 KPI cards + validación estricta bloqueante + download XLSX
+
+3. **Validaciones estrictas bloqueantes** — lista de errores que impide mostrar download button si falta: Brand Name, Creative Headline, <3 Creative ASINs, Video Asset ID (SBV), Brand Logo Asset ID (SBH), Landing Page URL cuando es Custom URL.
+
+4. **Keys `cb_sb_v2_*`** — no conflictan con código viejo ni con SP (`cb_*`).
+
+**Preservado intencionalmente (no se tocó):**
+- `_generar_nombre_campana_sb()` — naming Capybaras hardcoded (contrato con M11)
+- `_render_sd()` — Modo SD pre-existente
+- Flujo SP completo (Modo A)
+- Integración con Análisis Cruzado (Plan de Acción como input)
+- Max 5 keywords por campaña (regla Capybaras)
+
+### Bug fixes cosméticos (3 líneas)
+
+**Bug**: el símbolo `$` en strings markdown de Streamlit (`st.info`, `st.markdown`, etc.) se interpreta como delimitador LaTeX si está cerca de `**` para negrita. Patrón `**${variable}**` rompe el render mostrando asteriscos literales en lugar de negrita.
+
+**Fix aplicado en 3 líneas de `modules/pages/campaign_builder.py`:**
+- **L245** — `_render_sb()` Paso 2 (Sprint 1, nueva)
+- **L480** — `_render_sd()` Paso 3 (preexistente desde hace meses)
+- **L896** — `render()` flujo SP Paso 2 (preexistente desde hace meses)
+
+**Patrón del fix**: escapar `$` con `\\$` + envolver negrita alrededor de la frase completa en vez del número (más legible).
+
+### Testing realizado
+
+- **SBV end-to-end** con datos dummy: 12 keywords, 3 campañas generadas, 29 columnas verificadas en XLSX descargado.
+- **Validaciones bloqueantes** funcionando: error message en lugar de download button si falta Brand Entity ID, Video Asset ID, <3 ASINs, etc.
+- **Compat Modo A (SP)** intacto — flujo existente sin regresiones.
+- **Naming Capybaras preservado**: formato `Dermaglos - B0CYLMJJJC - SB - KW - EXACT - Brand 1`.
+
+### 🐛 Bugs conocidos — descubiertos esta sesión
+
+**1. Sub-agent `ppc-module-builder` alucina tool calls**
+- **Síntoma**: el agente reporta éxito con detalles específicos (líneas, matches, conteos) pero `tool_uses: 0` en metadata real.
+- **Manifestación**: genera XML-like `<tool_call>{"name":"Edit",...}</tool_call>` que son strings literal, no invocaciones reales.
+- **Reproducible**: 2 invocaciones consecutivas en la misma sesión, con prompts distintos (sprint completo + subprompt chico).
+- **Mitigación**: después de invocar al agente, **siempre** verificar con `git diff --stat`. Si el archivo está intacto y el agente reportó cambios → FAIL, no éxito. Si persiste, escalar a GitHub issues de Anthropic.
+- **NO afecta**: `code-reviewer` (Sonnet) ni `sop-writer` (Haiku) en esta sesión.
+
+**2. Streamlit Markdown LaTeX Gotcha**
+- **Síntoma**: texto `**${variable}**` en `st.info/markdown/error/warning/success/caption/write` rompe el render — los `$` se interpretan como delimitadores LaTeX.
+- **Fix**: escapar con `\\$` y/o envolver negrita alrededor de la frase (no del número).
+- **Afecta**: todos los componentes de Streamlit que renderizan markdown.
+- **Workaround permanente**: para mostrar valores monetarios formateados, preferir el helper `kpi_card()` (retorna HTML directo, no pasa por el renderer markdown).
+
+### Commits pendientes al cerrar sesión
+- Sprint 1 completo en `campaign_builder.py` (pendiente de commit al momento de documentar — testing manual en curso)
+- Actualización de SOPs + CLAUDE.md (esta entrada) — commit separado
+
+### Archivos de documentación actualizados en esta sesión
+- `CLAUDE.md` (raíz) — esta sección 📅 Sesión 2026-04-23 ✅
+- `sopppcmanagerdefinitivo.md` — sección Campaign Builder con tabla de versiones + subsección SB v2.0 completa ✅
+- `SOP_Uso_AgencyOS.md` — v3.3, flujo M10 con Paso 0 y campos SBV/SBH ✅
+- `modules/pages/CLAUDE.md` — M10 reescrito con helpers SB 2026 + contrato con M11 ✅

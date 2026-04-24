@@ -1,6 +1,6 @@
 # CLAUDE.md — Módulos del Agency OS
 ## Contexto por módulo para agentes especializados
-Última actualización: 2026-04-22
+Última actualización: 2026-04-23
 
 ---
 
@@ -66,21 +66,22 @@ Analizar search terms de campañas SP: negativizar, harvestear, clasificar por t
 **Session state prefix:** sqp_
 
 ### Propósito
-Analizar mercado total (no solo ads propias). Detecta marca automáticamente.
+Analizar el mercado total desde Brand Analytics: impression share, click share, purchase share por query.
 
 ### Arquitectura
-4 tabs: General (raw SQP) | Market Share (IS/CS/PS) | Gap Analysis (oportunidades) | Análisis IA
+4 tabs: Vista General | Market Share | Gap Analysis | Análisis IA
 
 ### Reglas de negocio
-- Impression Share = Brand Impressions / Total Impressions × 100
-- Clasificación: IS >30% (Dominando) | 10-30% (Competitivo) | <10% (Oportunidad)
-- Gap detection: Total Imp > 1000 AND Brand Imp = 0 → agregar keyword
+- read_sqp() con skiprows=1
+- Brand extraída con extract_sqp_brand() desde row 0
+- IS > 30% = Dominando | 10-30% = Competitivo | <10% = Oportunidad
+- Gap: Total Impressions > 1000 AND Brand Impressions = 0
 
 ### Inputs
-- SQP (.xlsx o .csv) — requerido
+- SQP .xlsx
 
 ### Anti-patterns
-- Confundir Purchase Share con Conversion Rate — son métricas del mercado, no propias
+- No usar skiprows=1 → headers mal detectados
 
 ---
 
@@ -90,47 +91,46 @@ Analizar mercado total (no solo ads propias). Detecta marca automáticamente.
 **Session state prefix:** cruzado_
 
 ### Propósito
-Cruzar STR + SQP para detectar gaps de cobertura y oportunidades de mercado.
+Cruzar STR (lo que capturan tus campañas) con SQP (lo que busca el mercado). Output: Plan de Acción bulk que es el input del Campaign Builder (M10).
 
 ### Arquitectura
-3 tabs: Cruce (venn), Plan de Acción (recommendations), PPC Insights por ASIN (opcional BR)
+3 tabs: Cruce (oportunidades) | Plan de Acción (ESCALAR/AGREGAR/HARVEST/BAJAR BID/MONITOREAR) | PPC Insights por ASIN (BR opcional)
 
 ### Reglas de negocio
-- En ambos = ya tenés cobertura
-- Solo SQP = oportunidad (agregar)
-- Solo STR = validar si es relevante (bajar bid vs negar)
-- Plan de Acción: AGREGAR / HARVEST / BAJAR BID / ESCALAR / MONITOREAR
+- Opportunity Score = min-max de impresiones + clicks + purchase rate
+- Acciones: ESCALAR (IS bajo + mercado comprando) | AGREGAR (solo en SQP) | HARVEST (en STR, buen ACoS) | BAJAR BID (ACoS > 2× target) | MONITOREAR
+- Export bulk: formato Plan de Acción compatible con Campaign Builder
 
 ### Inputs
-- STR + SQP simultáneamente
-- Opcional: BR by ASIN (Tab 3)
-- Filtros: impresiones min, SQS, purchases, tipo Marca/Genérica
+- STR (.xlsx, .csv) — requerido
+- SQP (.xlsx) — requerido
+- BR by ASIN (.csv, .xlsx) — opcional (Tab 3)
 
 ### Anti-patterns
-- No filtrar por mercado real — mantener todos para contexto completo
+- No detectar marca manualmente si SQP no la extrae automáticamente
 
 ---
 
 ## M5 — Tendencia Multi-Semana
 **Archivo:** modules/pages/tendencia_multisemana.py
 **Sección sidebar:** PPC
-**Session state prefix:** tendencia_
+**Session state prefix:** tend_
 
 ### Propósito
-Detectar estacionalidad y tendencias de queries a lo largo de semanas.
+Ver evolución de queries a lo largo de 2-4 semanas para detectar tendencias estacionales.
 
 ### Arquitectura
-Carga hasta 4 SQPs, pivotea por Query, marca tendencia con ↑↓→
+Upload hasta 4 SQPs → pivot por Search Query → clasificación ↑→↓
 
 ### Reglas de negocio
-- ↑ >10% | → estable | ↓ >10%
-- Auto-detección mes desde filename o columna "Reporting Range"
+- ↑ >10% creciendo | → estable | ↓ >10% cayendo
+- Bug histórico: KeyError al subir dos SQPs iguales — fix aplicado 2026-03-19
 
 ### Inputs
-- SQP (hasta 4 archivos)
+- 2-4 archivos SQP (.xlsx) — mismo formato, semanas distintas
 
 ### Anti-patterns
-- Cargar 2 SQPs iguales = KeyError (fixed en sesión anterior)
+- Subir el mismo archivo dos veces — KeyError en pivot
 
 ---
 
@@ -140,23 +140,24 @@ Carga hasta 4 SQPs, pivotea por Query, marca tendencia con ↑↓→
 **Session state prefix:** bulk_
 
 ### Propósito
-Diagnosticar salud de campañas activas. Campaign Analyzer es el principal.
+Visualizar el bulk de campañas y diagnosticar con semáforo automático (PAUSAR/REVISAR/ESCALAR/FANTASMA).
 
 ### Arquitectura
-3 tabs: General (raw), Campaign Analyzer (semáforo), Auditoría PPC (naming + graduation)
+2 tabs: Vista General (raw) | Campaign Analyzer (diagnóstico semáforo con naming check y target graduation)
 
 ### Reglas de negocio
-- Semáforo: 🔴 PAUSAR (spend > threshold, 0 orders) | 🟡 REVISAR (ACoS > target×2) | ✅ ESCALAR (ACoS < target×0.5) | ⚫ FANTASMAS (0 impresiones)
-- Spend recuperable = suma de campañas pausables
-- Naming convention check: detecta patrón [Marca]-[ASIN]-[Tipo]-...
+- Filtro por State == "ENABLED"
+- PAUSAR: spend > threshold AND orders = 0
+- REVISAR: ACoS > target × 2
+- ESCALAR: ACoS < target × 0.5 con órdenes
+- FANTASMAS: 0 impresiones activas
+- Las pausas se ejecutan MANUALMENTE en Campaign Manager — no desde este bulk
 
 ### Inputs
-- Campaign CSV (.csv) con performance metrics — requerido
-- Target ACoS + Precio — Tab 2
+- Campaign CSV con métricas (.csv) — requerido para Tab 2
 
 ### Anti-patterns
-- Subir bulk file (.xlsx) sin métricas — solo muestra General
-- Confundir Campaign ID (numérico) con Campaign Name (texto)
+- Confundir bulk .xlsx (sin métricas) con Campaign CSV (con métricas)
 
 ---
 
@@ -166,16 +167,20 @@ Diagnosticar salud de campañas activas. Campaign Analyzer es el principal.
 **Session state prefix:** br_
 
 ### Propósito
-Analizar ventas orgánicas + paid por ASIN. Fuente del Parent-Child map.
+Analizar ventas, sesiones, CVR y BuyBox por ASIN desde el Business Report de Seller Central.
 
 ### Arquitectura
-Raw dataframe display con cálculo automático de CVR, BuyBox, etc.
+Visualizador raw. Punto de entrada del Parent-Child map (data/business_report/).
+
+### Reglas de negocio
+- Columnas requeridas: (Parent) ASIN, (Child) ASIN
+- Auto-detect: Unit Session Percentage o Order Item Session Percentage
 
 ### Inputs
-- BR (.csv) By Date o By ASIN
+- BR by ASIN (.csv, .xlsx)
 
 ### Anti-patterns
-- No confundir columnas "Unit Session %" vs "Order Item Session %"
+- No precargar en data/business_report/ si no se quiere auto-load
 
 ---
 
@@ -185,20 +190,20 @@ Raw dataframe display con cálculo automático de CVR, BuyBox, etc.
 **Session state prefix:** funnel_
 
 ### Propósito
-Detectar brechas en el funnel Auto → Broad → Phrase → Exact por ASIN.
+Detectar brechas en el funnel Auto → Broad → Phrase → Exact por producto.
 
 ### Arquitectura
-Carga STR + Bulk, mapea keywords por match type, sugiere campañas faltantes
+Inputs STR + Bulk → mapeo funnel → campañas sugeridas con naming convention
 
 ### Reglas de negocio
-- Harvest: Auto→Phrase 2+ orders AND ACoS ≤ target×1.2 | Phrase→Exact 3+ orders AND ACoS ≤ target
-- Naming convention: [Marca]-[ASIN]-SP-KW-[MATCH]-[Descriptor]
+- Harvest a Phrase: 2+ órdenes AND ACoS ≤ target × 1.2
+- Harvest a Exact: 3+ órdenes AND ACoS ≤ target
 
 ### Inputs
-- STR + Bulk file
+- STR (.xlsx, .csv) + Bulk (.csv)
 
 ### Anti-patterns
-- Incluir campañas pausadas — filtrar por Status = ENABLED
+- Sin Bulk file → no puede detectar qué match types ya existen
 
 ---
 
@@ -208,51 +213,78 @@ Carga STR + Bulk, mapea keywords por match type, sugiere campañas faltantes
 **Session state prefix:** bid_
 
 ### Propósito
-Calcular bids óptimos por keyword basado en CVR real, precio y target ACoS.
+Calcular bid óptimo por keyword: bid = CVR × precio × target_ACoS. Export bulk con bids modificados.
 
 ### Arquitectura
-2 tabs: Bids (semáforo + export bulk) | Placements & Budget (referencia + estimado)
+2 tabs: Bid Calculator (semáforo SUBIR/OK/BAJAR/PAUSAR) | Placements & Budget (tabla referencia placements + budget)
 
 ### Reglas de negocio
-- Fórmula: bid = CVR × precio × target_ACoS
-- Clasificación: 🟢 SUBIR <0.7x | ⚫ OK 0.7-1.3x | 🔴 BAJAR >1.3x | ⛔ PAUSAR clicks>10 + 0 orders
-- Placement modifiers: Exact +50% ToS | Harvest +25% ToS | PAT +50% PDP
+- bid_sugerido = (CVR / 100) × precio × (target_ACoS / 100)
+- SUBIR: bid < sugerido × 0.7 | OK: 0.7-1.3× | BAJAR: > 1.3× | PAUSAR: clicks > 10 AND orders = 0
 
 ### Inputs
-- STR (.xlsx) — requerido
-- Inventory Report (.txt) — extraer precio exacto
-- Target ACoS (slider) + override manual
+- STR (.xlsx, .csv) — requerido
+- Inventory Report (.txt) — opcional (precio de lista exacto)
 
 ### Anti-patterns
-- Subir bid sin validar que ASIN es correcto en Inventory
-- Aplicar bids en warm-up < 14 días
+- Usar ACoS del STR sin filtrar por ENABLED — incluye términos de campañas pausadas
 
 ---
 
 ## M10 — Campaign Builder
-**Archivo:** modules/pages/campaign_builder.py (con soporte SP/SB/SD)
+**Archivo:** modules/pages/campaign_builder.py (864 → 1121 líneas tras Sprint 1 2026-04-23)
 **Sección sidebar:** PPC
-**Session state prefix:** campaign_
+**Session state prefix:** cb_ (SP) | cb_sb_v2_* (SB) | cb_sd_* (SD)
 
 ### Propósito
-Generar bulk de nuevas campañas (SP/SB/SD) a partir del Plan de Acción.
+Generar bulk de nuevas campañas (SP/SB/SD) a partir del Plan de Acción. El naming Capybaras hardcoded es un contrato con M11 Atom11 Rules Builder — NO modificar.
 
 ### Arquitectura
-Selector tipo (SP/SB/SD), clustering automático, preview editable, export bulk formato exacto Amazon
+Selector tipo (SP/SB/SD) con radio button → flujo en pasos (Paso 0-4 según tipo) → preview editable → validación estricta bloqueante → export bulk formato exacto Amazon
+
+### Helpers principales
+- `_generar_nombre_campana_sp()` — naming SP hardcoded (NO tocar — contrato con M11)
+- `_generar_nombre_campana_sb()` — naming SB hardcoded (NO tocar — contrato con M11)
+- `_SB_COLS_2026` — 29 columnas bulk Amazon Ads API 2026 (incluyendo `" Ad Group ID"` con espacio inicial — es correcto, es bug de Amazon documentado)
+- `_sb_row_factory(**kwargs)` — builder de fila vacía para bulk SB
+- `_build_sb_bulk_rows(...)` — genera 5 filas por campaña SB: Campaign → Bidding Adjustment → Ad Group → Ad → Keywords con bifurcación SBV/SBH
+- `_render_sb()` — flujo completo SBV/SBH reescrito en Sprint 1 (2026-04-23)
+- `_render_sd()` — flujo SD (preexistente)
 
 ### Reglas de negocio
 - SP clustering: PAT / Spanish (prioridad) / Brand / Vitamin A / Discovery
-- Max 5 keywords por campaña (regla Capybaras)
-- SB requiere: headline 50 chars, brand name, 3 ASINs creativos
+- Max 5 keywords por campaña (regla Capybaras — NO negociable)
+- SB Paso 0: selector SBV vs SBH (bifurca toda la lógica)
+- SBV requiere: Brand Entity ID (obligatorio) + Video Asset ID (obligatorio) + Brand Name + Creative Headline + 3 ASINs creativos
+- SBH requiere: Brand Entity ID (obligatorio) + Brand Logo Asset ID (obligatorio) + Logo Crop (Square/Rectangle) + Brand Name + Creative Headline + 3 ASINs creativos + Brand Logo URL (opcional)
+- Brand Entity ID: obligatorio en Amazon Ads API 2026 — sin él el bulk es rechazado
+- Validaciones estrictas bloqueantes: si falta cualquier campo requerido, muestra lista de errores en lugar del botón de descarga
+- Naming SB: `[Marca] - [ASIN] - SB - KW - [Match] - [Cluster]` (ejemplo: `Dermaglos - B0CYLMJJJC - SB - KW - EXACT - Brand 1`)
 - SD requiere: Product Targeting o Audience, bid optimization
 
+### Gotcha crítico — Streamlit Markdown + LaTeX
+- Patrón `**${variable}**` en st.info/st.markdown/st.error/st.warning rompe el render (Streamlit interpreta `$` como delimitador LaTeX)
+- Fix: escapar con `\\$` o envolver negrita alrededor de frase completa: `**Precio: \\$X**`
+- Afecta a cualquier string que combine `**` y `$` en el mismo bloque
+
 ### Inputs
-- Plan de Acción bulk (de Módulo 4)
-- Marca, ASIN, SKU, precio, CVR, target ACoS, budget
+- Plan de Acción bulk (de M4, .xlsx) — Paso 1
+- Marca, ASIN, SKU, precio, CVR, target ACoS, budget — Paso 2
+- Brand Entity ID — Paso 2 (requerido para SB)
+- Video Asset ID (SBV) o Brand Logo Asset ID + Crop (SBH) — Paso 3
 
 ### Anti-patterns
+- NO permitir bloques dinámicos de naming — rompen el contrato con M11 (Atom11 Rules Builder parsea Campaign Name para clasificar en DISCOVERY/RANKING/CONQUEST/etc)
+- NO usar `**${var}**` en markdown de Streamlit — colisión con LaTeX
 - No validar SKUs contra Inventory — Amazon rechaza ASIN en bulk SP
 - No cruzar contra Exact activas — canibalización
+
+### Sprint roadmap
+| Sprint | Feature | Estado |
+|--------|---------|--------|
+| 1 | Rewrite `_render_sb()` con SBV + SBH + Brand Entity ID + 29 columnas 2026 | ✅ Completado 2026-04-23 |
+| 2 | Modo B simplificado con XLSX custom + `st.data_editor` | Pendiente |
+| 3 | DaypartingApp como módulo nuevo en Account Manager | Pendiente |
 
 ---
 
@@ -273,6 +305,7 @@ Generar 274 rules automáticas para importar en Atom11.
 - 6 objetivos: DISCOVERY (120% target) | RANKING (100%) | CONQUEST (86%) | DEFENSIVE (71%) | PROFIT (50%) | REMARKETING (71%)
 - 274 rules = Bid Optimiser (126) + Placement (108) + Negate (18) + Hard-Stop (18) + Harvest (4)
 - Thresholds v2026.2: DEC HARD > 1.86× target → PAUSE TARGET
+- Parsea Campaign Name para clasificar objetivo — por eso el naming Capybaras en M10 es un contrato, NO un detalle cosmético
 
 ### Inputs
 - Prefijo marca + brand terms + ASINs con precio
