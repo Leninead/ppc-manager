@@ -17,6 +17,7 @@ notes/*
 !notes/personal/
 !notes/personal/**
 !notes/Biblioteca.md
+!notes/CLAUDE.md
 .env
 
 # ── Agregado por setup_deploy.py ──────────────────
