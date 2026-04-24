@@ -430,6 +430,127 @@ Spend SBV diario: $810 → $200. Ahorro ~$1,800 MXN en 3 días restantes de marz
 
 ---
 
+### 24/04/2026 — Héroes MX validados + SQP + STR + Campaign Analyzer + plan acción integrado
+
+**Archivos de referencia sesión:**
+- `STR_analizado_2026-04-24.xlsx` — STR 25/03-23/04 (1,747 terms, M2)
+- `sqp_market_share__4_.xlsx` — SQP market share (429 queries)
+- `sqp_gap_analysis__4_.xlsx` — SQP gaps (106 queries)
+- `oportunidades_sqp__9_.xlsx` — SQP oportunidades (175 queries, Opportunity Score)
+- `plan_accion_bulk__9_.xlsx` — Output M4 (28 acciones: 4 ESCALAR + 6 AGREGAR + 18 DEFENDER)
+- `campaign_analyzer__3_.xlsx` — Analyzer 111 camps
+- Manage All Inventory scrape (155 ASINs con stock, pricing, sales 30d)
+
+**Picks del AM confirmados** (los 3 están en top 10 revenue MX): B0F8P9GBZN (OAT S), B09MG1PM6L (OLV S), B0081GJ038 (GR SM Original).
+
+**Actualizaciones inventario (24/04):**
+- 🟢 B09MG1PM6L **RESTOCKEADO** — 02/04 era 1u, hoy 108u FBA + 1 reserved. Destraba escalado PPC.
+- 🔴 B09MG1J3LC **EMPEORÓ** — 02/04 era 5u, hoy 0u + 1 unfulfillable. Revenue 30d $3,487 perdido. No tocar en PPC hasta restock.
+- ⚠️ B005ULUZIQ sigue activo con venta — pendiente confirmar con Aaron estado del compliance flag del 16/04.
+
+**Héroes MX reales (top 10 revenue 30d):**
+
+| # | ASIN | Descripción | Revenue | Units | Stock |
+|---|------|-------------|---------|-------|-------|
+| 1 | B0F8P9GBZN | Swaddle UP OAT S (3.6-5.9 kg) | $19,994 | 28 | 191 |
+| 2 | B09MG1PM6L | Swaddle UP OLV S (24-27°C) | $13,254 | 18 | 108 |
+| 3 | B0CK2C1ZJ5 | Swaddle UP DOL M (5.9-8.6 kg) | $11,137 | 16 | 217 |
+| 4 | B0F8PCWD6J | Swaddle UP OAT NB (2.3-3.9 kg) | $11,107 | 15 | 90 |
+| 5 | B09MG3MW3H | Swaddle UP DPK S (rosa, 8-12 lbs) | $9,630 | 14 | 583 |
+| 6 | B0081GJ038 | Swaddle UP Original GR SM | $7,227 | 10 | 1,169 |
+| 7 | B00MJXHM48 | Swaddle UP GR NB | $5,967 | 8 | 582 |
+| 8 | B09MFZVWYH | Swaddle UP DPK M | $5,924 | 8 | 217 |
+| 9 | B0081GIZ52 | Transition Bag GR M 1.5 TOG | $5,529 | 6 | 277 |
+| 10 | B09MG28M9D | Swaddle UP DBL M | $5,225 | 8 | 174 |
+
+Top 10 = 64% del revenue MX. **Héroes adicionales propuestos al AM** (además de sus 3): B0CK2C1ZJ5, B0F8PCWD6J, B09MG3MW3H.
+
+**Patrón detectado:** Color OAT (Oatmeal) concentra ~$34K en 3 variantes (NB+S+M). No documentado antes. Es el color ganador del período.
+
+**Nueva línea en radar:** Sleep Suit manga larga 2.5 TOG (B0FLPL97WG, B0FLP81RZF, B0FLPLW9N9, B0FK4YSNVR, B0FK5323M6). Volumen bajo pero stock fresco. Categoría adyacente — radar para wave posterior.
+
+**STR analizado (25/03-23/04):**
+- Spend $20,138 · Sales $124,917 · **ACoS 16.1%** (↓13.9%) · ROAS 6.20x · 135 orders
+- 1,747 search terms · 69.2% waste · 4.4% con ventas · CTR 2.15% · CVR 3.40%
+- Por tipo: Brand ACoS 3.5% · Generic 18.5% · Long-tail 18.3%
+
+**Campaign Analyzer (111 camps):**
+- ✅ ESCALAR 14 · ⚪ OK 91 · 🟡 REVISAR 4 · 👻 FANTASMA 2
+- **108/111 (97%) sin naming estándar Capybaras** — deuda técnica, impacta clasificación Atom11 de camps futuras
+- **3 SBVs confirmados para pausar**: B09MG2CVCR (ACoS 80%, 689K impr, 9 orders) · B09MG1PM6L (ACoS 195.9%, 534K impr, 6 orders) · B09MG1J3LC (ACoS 79%, 385K impr, 20 orders, ASIN en 0u)
+
+**SQP resumen:**
+- 429 queries · 52 🟢 Dominando / 115 🟡 Competitivo / 262 🔴 Oportunidad (solo 75 relevantes)
+- **Brand protegido**: love to dream + variantes (IS 97-100%), 52 queries
+- **Conquest funcionando**: swadelini/swaddelini (IS 30-33%), snoo swaddle (37%), ollie swaddle (42%), momcozy swaddle (43%), swaddle me (25%), halo swaddle/sleepsack (24%/18%), burts bees (15%)
+- **Giants con gap**: `saco para dormir bebe` (46,836 impr, IS 10.1%) + `saco de dormir bebe` (27,692 impr, IS 10.4%) = **90% del tráfico categoría se lo lleva competencia**
+- **Queries en inglés convierten en MX**: `baby swaddle` (CS 40%), `sleep sack baby` (CS 9.3%)
+
+**Mapeo queries tallas/edad → héroes (para push mañana):**
+
+| Query | Impr | IS % | Hero target | Match type propuesto |
+|---|---|---|---|---|
+| swaddle para bebe 0-3 | 11,308 | 19.8% | B0F8P9GBZN + B09MG1PM6L | EXACT bid $3.50 |
+| saquito para dormir bebe 0-3 meses | 2,490 | 14.8% | B0F8P9GBZN + B09MG1PM6L | EXACT bid $3 |
+| saquito para dormir bebe 0-3 envolvente | 623 | 9.6% | B0F8P9GBZN + B09MG1PM6L | EXACT bid $2.50 |
+| saquito para dormir bebe 0-6 meses | 2,720 | 8.8% | B0F8PCWD6J + B00MJXHM48 | EXACT bid $3 |
+| saquito para dormir bebe 6-12 | 4,800 | 5.6% | B0CK2C1ZJ5 | EXACT bid $3 (gap grande) |
+| saco para dormir bebe de 6 a 12 meses | 2,222 | 3.5% | B0CK2C1ZJ5 | EXACT bid $3 |
+| saquitos para dormir bebe 6-12 | 886 | 4.4% | B0CK2C1ZJ5 | EXACT bid $2.50 |
+| saquito para dormir bebe 12-18 | 1,826 | 2.1% | B0081GIZ52 | EXACT bid $3 |
+| swaddle (solo) | 5,344 | 31.2% | familia S | EXACT bid $4 |
+
+**Bulk M4 (28 acciones a completar con Campaign/AdGroup/Bid):**
+- 4 ESCALAR: love to dream swaddle, swaddle para bebe 0-3, saco para dormir bebe, swaddle
+- 6 AGREGAR: love to dream newborn, love to dream 24, love to dream swaddle medium, saco para dormir bebe recién nacido, saquito dormir murcielago, cobija tipo costal para bebe
+- 18 DEFENDER: brand terms en BRAND DEFENSE ALL PRODUCTS NEW con bid $0.80-1.20
+
+### Plan de acción integrado para ejecutar mañana (25/04)
+
+**FASE 1 — Stop the bleeding (20 min)**
+1. Pausar 3 SBVs: SU-NB B09MG2CVCR, SU-S B09MG1PM6L, SU-M B09MG1J3LC
+2. Pausar/archivar 2 FANTASMAS: TR-FEAT tog 0.5 KWS, SU-CORE saco RN v2 (diagnosticar por qué nunca arrancó desde 02/04)
+3. Negativizar ASIN `b09mg1j3lc` como PT en Conquest TOP20 (stockout)
+4. Negativizar ASIN `b0bdgl9k2f` en SERP DIRECT v2 (reaplicar negativización del 02/04)
+5. Negativizar KW `saquitos para dormir bebe` EXACT en SU-NB RANK
+
+**FASE 2 — Negativizaciones secundarias (20 min)**
+Bulk con:
+- 10 ASINs competidores top drain Conquest TOP20: b098x8ws7y, b07qb7f36t, b0d54blchj, b0cyj8pr8t, b0dt756rvh, b0fc51khqj, b0dbvc18p2, b0b9wkjdyv, b09qrhy95g, b0dkhcwj5g
+- KWs raw canibalizando Exact: `saco de dormir bebe` (Conquest TOP20), `saco para dormir bebe` (SERP DIRECT v2)
+- Bajar bid a $0.50 en SU-36M RANK saco verano KWS y SU-36M RANK tog 1 KWS
+
+**FASE 3 — Escalar budget (30 min)**
+- SU-CORE PT CATEGORY DISCOVERY → +50% (la de más orders: 88 en 30d)
+- Scavenger AUTO → +30% (21 orders, ACoS 11.3%)
+- SU-S DEFENSIVE OWN → +50% (aloja hero B0081GJ038)
+- SU-M DEFENSIVE OWN → +30% (ACoS 3.07%)
+- LTD BRAND DEFENSE → mantener budget, agregar 18 KWs nuevas M4
+
+**FASE 4 — Push hard héroes (60-90 min)**
+Bulk EXACT consolidado con mapeo queries→héroes de la tabla arriba.
+Prioridades de creación:
+- Familia S (OAT + OLV): 5 EXACT nuevas
+- DOL M (B0CK2C1ZJ5): 3 EXACT nuevas (gap más grande, IS 2-6%)
+- OAT NB (B0F8PCWD6J): 1 EXACT + reparar saco RN v2 fantasma
+- GR M 1.5 TOG (B0081GIZ52): 1 EXACT nueva
+- DPK S (B09MG3MW3H): crear SU-S RANK DPK nueva desde cero (KWs rosa, bid $2.50)
+
+**FASE 5 — Brand Defense reforzado (10 min)**
+Agregar las 18 KWs marca del M4 a LTD BRAND DEFENSE ALL PRODUCTS NEW en EXACT con bid $0.80-1.20.
+
+**FASE 6 — Compliance & cliente (15 min)**
+- Alertar Aaron: estado flag B005ULUZIQ (weighted infant sleep product, 16/04)
+- Alertar cliente: B09MG1J3LC empeoró a 0u + impacto PPC pausado
+- Solicitar (de nuevo) lista definitiva productos héroes del cliente
+
+**Impacto estimado combinado:**
+- Ahorro drenaje: ~$1,900-2,400 MXN/30d (cortando drains confirmados)
+- Redistribución: ~$3,000-4,000 MXN/30d hacia héroes vía escalado
+- ACoS objetivo post-cambios: mantener ≤18% mientras crece volumen
+
+---
+
 ### 08/04/2026 — Atom11 Rules + Campanas v2 + Analisis cuenta
 
 **Atom11 Rules — Estado final: 38 rules activas**
