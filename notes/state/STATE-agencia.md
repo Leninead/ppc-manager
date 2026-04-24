@@ -71,3 +71,4 @@ Todos commiteados a `main`, pendientes de push.
 5. **Setex** — Listing optimization con STR+SQP keywords de mayor conversión para nose pads (B081GB8F89) y temple tips (B0B94KBY8H). Definir dueño del video SBV B08PZF22R1.
 6. **Pura Vida Moringa** — 16/04 próxima evaluación: re-evaluar campañas HARVEST sesiones 1-3 (14+ días data). Negativizar b0dqr3ldwn y b08bbdc9c7 nuevos en AUTO DISCOVERY. Bajar bid RANK moringa capsulas.
 7. **Repo** — decidir Sprint 2 (Campaign Builder Modo B, ~4-5h) vs Sprint 3 (DaypartingApp, ~2h) según prioridad. Actualizar [[INTELLIGENCE-INDEX]] stale (1 nota reportada, falta incluir 360 Essentials + PVM + corregir MB → US). Push de commits locales.
+8. **Flujo vault + Claude.ai Project GitHub integration** — probar [[prompts-arranque-sesion]] la próxima sesión con una marca real (Dermaglos o M&B). Evaluar 2026-05-01 si el patrón "daily automático al cierre" se sostiene. Decidir si el compañero de agencia también setea el mismo flujo.
