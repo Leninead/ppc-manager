@@ -3,9 +3,11 @@
 data/
 *.csv
 app_backup.py
-notes/
+notes/*
 !notes/knowledge/
 !notes/knowledge/**
+!notes/brands/
+!notes/brands/**
 .env
 
 # ── Agregado por setup_deploy.py ──────────────────
