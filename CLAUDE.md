@@ -1876,6 +1876,24 @@ Criterio YAGNI: no anticipar problemas teóricos sin feedback real.
 - **Afecta**: todos los componentes de Streamlit que renderizan markdown.
 - **Workaround permanente**: para mostrar valores monetarios formateados, preferir el helper `kpi_card()` (retorna HTML directo, no pasa por el renderer markdown).
 
+### 🔤 PowerShell + git redirects rompen encoding UTF-8
+- **Síntoma:** archivos UTF-8 se ven con mojibake (ej: `ÔÇö` en vez de `—`, `Secci├│n` en vez de `Sección`) al redirigir output de git con `>` en PowerShell 5.
+- **Causa:** git escribe UTF-8 a stdout, pero PowerShell 5 decodifica usando codepage OEM de Windows (CP850) antes de escribir al archivo. La corrupción pasa en el pipeline, no en git.
+- **Mitigación:** usar `cmd /c "git show ... > archivo"` para que el redirect sea byte-level. Alternativa: fijar `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` al inicio de la sesión. Ideal: agregarlo al `$PROFILE` permanente.
+- **Fecha documentado:** 2026-04-24
+
+### 🤖 sop-writer omite archivos gemelos silenciosamente
+- **Síntoma:** al pedirle al `sop-writer` que sincronice dos archivos con contenido similar (ej: `INTELLIGENCE-INDEX.md` raíz e `INTELLIGENCE-INDEX.md` en `notes/`), reporta "ambos actualizados" pero solo tocó uno. El otro queda sin cambios.
+- **Causa:** el agente razona sobre la intención ("sincronizar") pero no valida la ejecución en ambos paths. Tiende a asumir paralelismo automático.
+- **Mitigación:** siempre pedir cada archivo como tarea separada y explícita en el prompt ("actualizar archivo X" + "actualizar archivo Y" en pasos numerados). Validar con `git status` + `git diff --stat` post-ejecución antes de creer el reporte del agente.
+- **Fecha documentado:** 2026-04-24
+
+### 📏 sop-writer reporta métricas infladas
+- **Síntoma:** el agente dice "archivo de 121 → 166 líneas" pero `wc -l` devuelve 133. Dice "140 → 181" pero son 149. El contenido editado puede estar correcto, pero las cifras no.
+- **Causa:** el agente estima tamaño post-edición en lugar de medir. Al tomar estimaciones como hechos, reporta cifras infladas.
+- **Mitigación:** nunca confiar en métricas reportadas por un sub-agent. Siempre validar con `git diff --stat` (que mide el diff real) o `Get-Content | Measure-Object -Line` para ground truth.
+- **Fecha documentado:** 2026-04-24
+
 ### Commits pendientes al cerrar sesión
 - Sprint 1 completo en `campaign_builder.py` (pendiente de commit al momento de documentar — testing manual en curso)
 - Actualización de SOPs + CLAUDE.md (esta entrada) — commit separado
