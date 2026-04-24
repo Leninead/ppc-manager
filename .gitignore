@@ -8,6 +8,15 @@ notes/*
 !notes/knowledge/**
 !notes/brands/
 !notes/brands/**
+!notes/sops/
+!notes/sops/**
+!notes/state/
+!notes/state/**
+!notes/daily/
+!notes/daily/**
+!notes/personal/
+!notes/personal/**
+!notes/Biblioteca.md
 .env
 
 # ── Agregado por setup_deploy.py ──────────────────
