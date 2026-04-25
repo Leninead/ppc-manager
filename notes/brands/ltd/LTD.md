@@ -551,6 +551,70 @@ Agregar las 18 KWs marca del M4 a LTD BRAND DEFENSE ALL PRODUCTS NEW en EXACT co
 
 ---
 
+### 25/04/2026 — Ejecución Plan 6 Fases (Sesión 1) — Fase 1 + 3 completas
+
+**Sesión:** Primer chat del 25/04. Fases 4, 5 y 6 continúan en chat 2 del mismo día.
+
+**Estado plan integrado al cierre del chat 1:**
+- ✅ FASE 1 — Stop the bleeding (8 acciones ejecutadas, 5 efectivas + 3 SKIP justificados)
+- ⏸️ FASE 2 — Negativizaciones secundarias (saltada conscientemente, lección STR crudo no fiable)
+- ✅ FASE 3 — Escalado de 6 ganadoras (+$625/día budget, +$18.7K MXN/mes spend)
+- ⏳ FASE 4 — Push hard héroes (PENDIENTE chat 2)
+- ⏳ FASE 5 — Brand Defense (PENDIENTE chat 2 — solo análisis previo hecho, NO se agregó ninguna KW)
+- ⏳ FASE 6 — Compliance & cliente (PENDIENTE chat 2)
+
+**Hallazgo crítico transversal:** Patrón de mismatch producto/keyword en campañas RANK detectado durante limpieza. Casos confirmados: TR-FEAT tog 0.5 KWS y TR-FEAT saco dormir bebe KWS (KWs newborn → ASINs Sleep Suit 18-36M). Hipótesis: contribuye significativamente al % Waste 69.2% del STR. Auditoría sistémica programada esta semana.
+
+**Cambios netos cuenta (resumen ejecutivo):**
+
+*Pausados/reducidos (ahorro estimado ~$6,500-7,000 MXN/mes):*
+- 2 SBVs completas (B09MG1PM6L + B09MG1J3LC)
+- 1 ad creativo en SBV B09MG2CVCR (AG HERO)
+- 2 campañas TR-FEAT con mismatch sistemático
+- 4 KWs duplicadas/muertas (2 en TR-FEAT KWS, 2 en SU-NB RANK)
+- Budget SU-NB RANK: $270 → $100/día (-$5,100 MXN/mes)
+
+*Optimizados (mejor performance esperado):*
+- SU-NB B09MG2CVCR SBV: V3 PAIN HOOK + bids $6 + Theme brand $10
+- SU-CORE saco RN v2: 3 KWs Exact nuevas validadas SQP (bid $5.50)
+- SU-NB RANK: 4 bids alineados a sugeridos (ahorro CPC ~30%)
+
+*Escalados (impacto +$108-130K MXN/mes proyectado):*
+- 6 campañas con budget aumentado total +$625/día
+- Top performers: SU-M DEFENSIVE OWN (ROAS 32.59x), Scavenger AUTO (ROAS 9.24x), SU-S DEFENSIVE OWN (ROAS 11.84x)
+
+*Descubrimientos importantes:*
+- Nap Baby Saquito (B08V5PHTPY) en TOP20 → 23 purchases, ACoS 36% (escalable)
+- Nap Baby Saquito (B0BDGL9K2F) en SERP DIRECT v2 → ACoS 37%, ROAS 2.69x
+- BRAND DEFENSE ya tiene 3 ad groups bien estructurados (BRAND CORE, BRAND + PRODUCT, BRAND + EDAD) con ROAS 27-35x
+
+**Acciones documentadas con detalle completo en:** `notes/daily/2026-04-25.md` sección "FASE 1" + "FASE 3"
+
+**Plan reducido para Fase 5 (a ejecutar chat 2):**
+De las 16 KWs originales del bulk M4 (24/04), tras inspeccionar la estructura existente quedan 9 útiles distribuidas:
+- BRAND + PRODUCT (5 nuevas, bid $10): love to dream swaddle medium, love to dream 0.2 tog, love to dream sleep sack, love to dream transition bag organic, love to dream swaddle up transition bag
+- BRAND + EDAD (4 nuevas, bid $8): love to dream newborn, love to dream 24, love to dream medium, love to dream swaddle up newborn girl 2.0 tog
+- 3 KWs descartadas por duplicado con activas: love to dream, love to dream swaddle, love to dream swaddle up
+- 4 KWs descartadas por typos/variantes raras: love to dream swaddle .2, love to dream swaddle ytog 2, love to dream swaddle up tog 2, love to dream swaddle up,
+
+**Evaluaciones programadas (días 7 y 14):**
+- 02/05/2026 (día 7): SU-CORE saco RN v2 — ¿las 3 KWs nuevas SQP empezaron a impresionar?
+- 09/05/2026 (día 14): SBV B09MG2CVCR V3 PAIN HOOK — ¿bajó a ACoS ≤50%?
+- 09/05/2026 (día 14): SU-NB RANK saco dormir bebe KWS — ¿budget reducido + bids ajustados generaron primeras sales?
+
+**TODOs informe cliente:**
+1. ETA restock B09MG1J3LC (0u FBA + 1 unfulfillable) — campaña pausada, plan de reactivación documentado
+2. Confirmar con Aaron estado compliance flag B005ULUZIQ (16/04)
+3. Solicitar lista definitiva productos héroes
+4. Compartir hallazgo mismatch producto/KW como auditoría proactiva detectada esta sesión
+
+**Pendientes inmediatos próxima sesión (chat nuevo 25/04):**
+1. Fase 5 — Agregar 9 KWs útiles distribuidas en BRAND + PRODUCT (5 a $10) y BRAND + EDAD (4 a $8). Inspeccionar primero las 4 KWs ya activas en BRAND + EDAD para evitar duplicados.
+2. Fase 4 — Bulk EXACT 5 héroes con queries tallas/edad SQP-validadas (versión reducida del plan 24/04)
+3. Fase 6 — Mensajes Aaron + cliente
+
+---
+
 ### 08/04/2026 — Atom11 Rules + Campanas v2 + Analisis cuenta
 
 **Atom11 Rules — Estado final: 38 rules activas**
