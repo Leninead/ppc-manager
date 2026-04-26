@@ -1,11 +1,30 @@
 ---
 tipo: state
-actualizado: 2026-04-25
+actualizado: 2026-04-26
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-04-26
+
+**Último módulo tocado**: `modules/pages/variation_builder.py` (M26 NUEVO, 929 líneas, integrado en `app.py` y `core/constants.py`).
+
+**Bug abierto BLOQUEANTE para release**: `data_editor` de Variation Builder requiere doble entrada para persistir. Fix diseñado (patrón 3 keys `INPUT_KEY` / `EDITOR_KEY` / `OUTPUT_KEY`) está en el chat web del 2026-04-26 pero no aplicado. Plan B si falla: `st.form` con submit. **NO releaseable hasta resolver** — actualmente UX rota.
+
+**Qué funciona hoy**: subir template, llenar Parent, llenar Children (con doble entrada manual workaround), preview, descargar `.xlsm` preservando macros. End-to-end probado con `PET_FOOD__1_.xlsm` cliente.
+
+**Qué no funciona**: la UX del `data_editor` en tab Children requiere doble entrada (no es bloqueante para generar archivo, pero es frustrante).
+
+**Próximo paso**: aplicar fix de 3 keys al `data_editor`. Si falla, ir a `st.form`. Después: testing completo, commit final, push.
+
+**Deuda técnica nueva**:
+- 3 `return` dentro de `with tab_download:` en `variation_builder.py` (L840, 871, 883). Funciona porque es la última tab pero patrón frágil si se agrega tab5. Refactor a helper `_render_download_tab()` documentado en chat 2026-04-26.
+- Agentes `.claude/agents/*.md` tienen model string deprecated `claude-sonnet-4-5-20250514`. Actualizar a model actual.
+- `sop-writer` agente tiende a modificar archivos no autorizados — revisar system prompt.
 
 ---
 
@@ -41,6 +60,7 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 Todos commiteados a `main`, pendientes de push.
 
+- **Variation Builder M26 (2026-04-26 en curso)**. Módulo nuevo Account Manager para generar flat files Amazon (1 parent + N children). `modules/pages/variation_builder.py` (929L). 4 tabs: Parent / Children+Theme / Preview / Descargar. Tema Variation (Sabor, Tamano, Scent, etc). Bug abierto: `data_editor` requiere doble entrada para persistir — fix diseñado (3 keys pattern) pendiente de aplicar. End-to-end validado con template cliente `PET_FOOD__1_.xlsm`.
 - **Sprint 1 Campaign Builder v2.0 — SB rewrite (cerrado 2026-04-23)**. `_render_sb()` reescrito 864→1121 líneas en `modules/pages/campaign_builder.py`. Selector SBV/SBH. Brand Entity ID obligatorio. 29 columnas bulk SB 2026. Validaciones estrictas. Naming Capybaras hardcoded preservado (contrato con M11 Atom11 Rules Builder).
 - **Gamboa Generator M25 (integrado 2026-04-22)**. Módulo Account para reportes HTML integrales (SQP mensual + BR semanal). 5 archivos en `modules/gamboa/` + `modules/pages/gamboa_generator.py` (383L). Live en producción.
 - **Bulk Amazon 2026 compliance (2026-04-21)**. 30→31 columnas, helper `_fila_vacia_bulk()`. Validado con Batch ID UUID. Ver [[PPC-SOP-Manager]] sección Campaign Builder + [[AmazonBulkUploadGuide]].
@@ -52,6 +72,7 @@ Todos commiteados a `main`, pendientes de push.
 
 ## Bloqueos y pendientes críticos
 
+- **Variation Builder M26**: `data_editor` bug abierto — fix necesario antes de release. Seguimiento en [[daily/2026-04-26]].
 - **Dermaglos**: Rufus analysis pendiente para los 4 heroes (B0CYLMJJJC, B0CYLM4L23, B0F4KXZVNM, B0F548KTXD) — gate para escalar ads. Confirmar equipo Atom11 ejecutó entregable `DG_Atom11_v2026_2_ENTREGABLE.xlsx` (fix bug CONQUEST SD + 8 rules SCAVENGER SP nuevas).
 - **LTD progreso 25/04 cierre completo**: ✅ Fases 1+3+4+5 ejecutadas (sesiones 1+2 mismo día) · ⏳ Fase 6 pendiente esta semana — delegada a equipo (Adam con Aaron compliance B005ULUZIQ, Agustín con cliente ETA restock B09MG1J3LC + summary + lista heroes 3ra solicitud). Push Heroes Fase 4: 5 EXACT Delivering desde hoy +$200/d. Brand Defense expandido a 5 ad groups. Auditoría sistémica match producto/KW pendiente esta semana sin owner asignado. Outputs: bulk xlsx + HTML internal brief para Adam y Agustín.
 - **M&B Fase 2 bloqueada**: necesita Brand Store Women actualizado + video SBV para lanzar White Tee ($30/d) + Premium Cotton ($10/d) el 26-30 abril.
@@ -64,12 +85,13 @@ Todos commiteados a `main`, pendientes de push.
 
 ## Próximos pasos inmediatos
 
-1. **Dermaglos** — Ejecutar Rufus en 4 heroes (B0CYLMJJJC, B0CYLM4L23, B0F4KXZVNM, B0F548KTXD) + negativizaciones (18 términos) + harvest 7 KWs + escalar `dermaglos facial` / `dermaglos moisturizing cream` (0% brand share). Verificar equipo Atom11 ejecutó entregable `DG_Atom11_v2026_2_ENTREGABLE.xlsx`.
-2. **M&B** — 27/04 evaluación día 14 Elizabeth Greene (3 camps con ToS +900%, bid efectivo $0.20). 05/05 evaluación día 14 PAT Premium (2 camps, 12 ASINs target DataDive). Condicionado → Fase 2 SBV + Premium Cotton.
-3. **LTD** — Fase 6 esta semana (delegada a equipo): Adam con Aaron por flag B005ULUZIQ, Agustín con cliente por ETA restock B09MG1J3LC + summary Fases 1+3+4+5 + lista heroes definitiva (3ra solicitud) + verificar movimiento precio $859→$809 B09MG1PM6L. Lenin pendiente: asignar portfolios manualmente a las 5 EXACT recién creadas (SU-NB / SU-M ×2 / SU-T / SU-S) + programar auditoría sistémica match producto/KW. Evaluaciones día 7 (02/05) y día 14 (09/05) anotadas en [[LTD]].
-4. **360 Essentials** — Revisar evaluación Atom11 del 16/04 (pasó) y ejecutar plan PPC 2026: 3 camps SBV FreedomPlus ($45/d), test incrementalidad PHRASE KWS, relanzar SD RET VIEWS bid $1. Gate: video creativo FreedomPlus con cliente.
-5. **Setex** — Listing optimization con STR+SQP keywords de mayor conversión para nose pads (B081GB8F89) y temple tips (B0B94KBY8H). Definir dueño del video SBV B08PZF22R1.
-6. **Pura Vida Moringa** — 16/04 próxima evaluación: re-evaluar campañas HARVEST sesiones 1-3 (14+ días data). Negativizar b0dqr3ldwn y b08bbdc9c7 nuevos en AUTO DISCOVERY. Bajar bid RANK moringa capsulas.
-7. **Repo** — decidir Sprint 2 (Campaign Builder Modo B, ~4-5h) vs Sprint 3 (DaypartingApp, ~2h) según prioridad. Actualizar [[INTELLIGENCE-INDEX]] stale (1 nota reportada, falta incluir 360 Essentials + PVM + corregir MB → US). Push de commits locales.
-8. **Flujo vault + Claude.ai Project GitHub integration** — probar [[prompts-arranque-sesion]] la próxima sesión con una marca real (Dermaglos o M&B). Evaluar 2026-05-01 si el patrón "daily automático al cierre" se sostiene. Decidir si el compañero de agencia también setea el mismo flujo.
-9. **Outputs LTD sesión 25/04**: Bulk `LTD_Fase4_Bulk_M4_Push_Heroes_25Abr2026.xlsx` subido a Amazon (Batch UUID 10d5a6ef). HTML internal brief `LTD_Sesion_25Abr2026_InternalBrief.html` generado para distribución interna Adam+Agustín. Ambos en /mnt/user-data/outputs (compartidos con Lenin desde Claude chat).
+1. **Variation Builder M26** — Aplicar fix de 3 keys al `data_editor` de tab Children. Testing end-to-end. Si falla → pasar a `st.form`. Commit + push.
+2. **Dermaglos** — Ejecutar Rufus en 4 heroes (B0CYLMJJJC, B0CYLM4L23, B0F4KXZVNM, B0F548KTXD) + negativizaciones (18 términos) + harvest 7 KWs + escalar `dermaglos facial` / `dermaglos moisturizing cream` (0% brand share). Verificar equipo Atom11 ejecutó entregable `DG_Atom11_v2026_2_ENTREGABLE.xlsx`.
+3. **M&B** — 27/04 evaluación día 14 Elizabeth Greene (3 camps con ToS +900%, bid efectivo $0.20). 05/05 evaluación día 14 PAT Premium (2 camps, 12 ASINs target DataDive). Condicionado → Fase 2 SBV + Premium Cotton.
+4. **LTD** — Fase 6 esta semana (delegada a equipo): Adam con Aaron por flag B005ULUZIQ, Agustín con cliente por ETA restock B09MG1J3LC + summary Fases 1+3+4+5 + lista heroes definitiva (3ra solicitud) + verificar movimiento precio $859→$809 B09MG1PM6L. Lenin pendiente: asignar portfolios manualmente a las 5 EXACT recién creadas (SU-NB / SU-M ×2 / SU-T / SU-S) + programar auditoría sistémica match producto/KW. Evaluaciones día 7 (02/05) y día 14 (09/05) anotadas en [[LTD]].
+5. **360 Essentials** — Revisar evaluación Atom11 del 16/04 (pasó) y ejecutar plan PPC 2026: 3 camps SBV FreedomPlus ($45/d), test incrementalidad PHRASE KWS, relanzar SD RET VIEWS bid $1. Gate: video creativo FreedomPlus con cliente.
+6. **Setex** — Listing optimization con STR+SQP keywords de mayor conversión para nose pads (B081GB8F89) y temple tips (B0B94KBY8H). Definir dueño del video SBV B08PZF22R1.
+7. **Pura Vida Moringa** — 16/04 próxima evaluación: re-evaluar campañas HARVEST sesiones 1-3 (14+ días data). Negativizar b0dqr3ldwn y b08bbdc9c7 nuevos en AUTO DISCOVERY. Bajar bid RANK moringa capsulas.
+8. **Repo** — decidir Sprint 2 (Campaign Builder Modo B, ~4-5h) vs Sprint 3 (DaypartingApp, ~2h) según prioridad. Actualizar [[INTELLIGENCE-INDEX]] stale (1 nota reportada, falta incluir 360 Essentials + PVM + corregir MB → US). Push de commits locales + cambios de hoy.
+9. **Agentes** — Actualizar model strings deprecated en `.claude/agents/*.md` a versión actual. Revisar system prompt de `sop-writer` para que no modifique archivos no autorizados.
+10. **Outputs LTD sesión 25/04**: Bulk `LTD_Fase4_Bulk_M4_Push_Heroes_25Abr2026.xlsx` subido a Amazon (Batch UUID 10d5a6ef). HTML internal brief `LTD_Sesion_25Abr2026_InternalBrief.html` generado para distribución interna Adam+Agustín. Ambos en /mnt/user-data/outputs (compartidos con Lenin desde Claude chat).

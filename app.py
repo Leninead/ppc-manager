@@ -41,6 +41,7 @@ from modules.pages.helium10_analyzer import render as render_helium10
 from modules.pages.sbh_recommendation import render as render_sbh
 from modules.pages.knowledge_base import render as render_knowledge
 from modules.pages.gamboa_generator import render as render_gamboa_generator
+from modules.pages.variation_builder import render as render_variation_builder
 import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="PPC Manager", layout="wide")
@@ -234,6 +235,7 @@ with st.sidebar:
             "👁️ Listing Monitor",
             "🛡️ Listing Compliance",
             "📊 Gamboa Generator",
+            "🧬 Variation Builder",
         ]:
             st.button(_pg, use_container_width=True, on_click=_nav,
                       args=(_pg,), key=f"nav_{_pg}")
@@ -338,3 +340,6 @@ if selected == "🛡️ Listing Compliance":
 
 if selected == "📊 Gamboa Generator":
     render_gamboa_generator()
+
+if selected == "🧬 Variation Builder":
+    render_variation_builder()

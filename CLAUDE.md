@@ -45,6 +45,7 @@ No hay build step, test suite ni linter configurado.
 | 23 | 👁️ Listing Monitor | Account Manager | ✅ nuevo 2026-04-09 |
 | 24 | 🛡️ Listing Compliance | Account Manager | ✅ nuevo 2026-04-16 — detector keywords weighted product |
 | 25 | 📊 Gamboa Generator | Account | ✅ nuevo 2026-04-22 (SQP mensual + BR semanal → HTML integral) |
+| 26 | 🧬 Variation Builder | Account Manager | ✅ nuevo 2026-04-26 — flat file parent+N children Pet Food, parser dinámico 220 cols, themes, preserva macros |
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.
 Sidebar colapsable con `st.expander` por sección: PPC (expanded) | Research | Account | Knowledge.
@@ -96,6 +97,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `modules/gamboa/generator.py` (278 líneas) — `enrich_sqp`, `enrich_br`, `build_raw_json`, `build_wow_json`, `generate_html` ✅ creado 2026-04-22
 - `modules/gamboa/template.html` (874 líneas / 64KB) ✅ creado 2026-04-22
 - `modules/pages/gamboa_generator.py` (383 líneas) — render() ✅ creado 2026-04-22
+- `modules/pages/variation_builder.py` (913 líneas) — render() ✅ creado 2026-04-26 — parser dinámico 220 cols, themes Sabor/Nombre del Tamano/Scent/FlavorName-SizeName/Tamano del Sabor/Nombre del Patron, preserva macros + 10 hojas, v1 solo MX
 
 ### 🔜 Pendiente arquitectura
 - [ ] Reescribir app.py como router minimal (~100 líneas) — usar High effort
@@ -1903,3 +1905,60 @@ Criterio YAGNI: no anticipar problemas teóricos sin feedback real.
 - `sopppcmanagerdefinitivo.md` — sección Campaign Builder con tabla de versiones + subsección SB v2.0 completa ✅
 - `SOP_Uso_AgencyOS.md` — v3.3, flujo M10 con Paso 0 y campos SBV/SBH ✅
 - `modules/pages/CLAUDE.md` — M10 reescrito con helpers SB 2026 + contrato con M11 ✅
+
+---
+
+## 📅 Sesión 2026-04-26 — Variation Builder integrado (M26)
+
+### Módulo nuevo en Account Manager (#26)
+- **🧬 Variation Builder** — generador de flat files Amazon con variaciones (1 parent + N children) desde un template `.xlsm` de Seller Central
+- Recibido como módulo pre-validado (913 líneas, py_compile verde, tested end-to-end con Pet Food real) — integración quirúrgica sin modificar el archivo
+- Reemplaza trabajo manual de poblar 220 columnas por child con agrupación automática por `variation_theme`
+
+### Archivo agregado
+- `modules/pages/variation_builder.py` (913 líneas) — `render()` UI Streamlit con 4 tabs: Parent, Children + Theme, Preview, Descargar
+  - Parser dinámico (`@st.cache_data`): detecta hasta 220 columnas del template, mapea por `field_name` en row 3
+  - Helpers: `_parse_template`, `_extract_valid_values`, `_validate_inputs`, `_build_parent_row`, `_build_child_row`, `_write_template_with_rows`
+  - Output writer fuera de `render()` ✅
+  - Themes soportados (v1): Sabor, Nombre del Tamano, Scent, FlavorName-SizeName, Tamano del Sabor, Nombre del Patron
+  - Marketplaces v1: solo MX (MXN)
+  - Preserva macros VBA (openpyxl + `keep_vba=True`) y 10 hojas del template
+
+### Integración en `app.py` (3 edits quirúrgicos)
+- **L44** — Import: `from modules.pages.variation_builder import render as render_variation_builder`
+- **L237** — Sidebar: agregado `"🧬 Variation Builder"` dentro del expander `"👥 ACCOUNT"` (junto a Listing Monitor / Listing Compliance / Gamboa Generator)
+- **L342-343** — Router: nuevo bloque `if selected == "🧬 Variation Builder": render_variation_builder()`
+
+### Integración en `core/constants.py`
+- Agregado `"🧬 Variation Builder"` al final de `_PAGES` (lista de 26 páginas)
+
+### Validación
+- `py_compile` verde en los 3 archivos: `app.py`, `core/constants.py`, `modules/pages/variation_builder.py`
+- Archivo del módulo NO modificado (913 líneas intactas) — instrucción explícita del usuario
+
+### Code review (8 checks)
+- ✅ **Lógica PPC** — N/A (módulo de templates, no de optimización)
+- ✅ **Keys únicos** — todos los widgets con prefijo `vb_*` (`vb_uploader`, `vb_p_*`, `vb_theme`, `vb_n_children`, `vb_children_editor`, `vb_download_xlsm`)
+- ✅ **kpi_card** — usa `kpi_card()` de `core.helpers`, no hay `st.metric`
+- ✅ **`_write_template_with_rows()` fuera de `render()`** — L440, separación correcta
+- ✅ **`@st.cache_data`** — aplicado en `_parse_template` (L101) y `_extract_valid_values` (L156)
+- ✅ **Empty state** — `_empty_state()` con borde dashed `#FFD9B3` ✅
+- ✅ **Header estándar** — `_header()` con `st.divider()` ✅
+- ⚠️ **return-in-tabs** — hay 3 `return` dentro de `with tab_download:` (L840, 871, 883). Funciona porque `tab_download` es la última tab y no hay código después, pero patrón frágil — si se agrega una tab5, rompería tabs hermanas. No bloqueante para v1.
+
+### ⚠️ Bugs de sub-agents (recurrentes — ya documentados)
+- **ppc-module-builder + code-reviewer fallaron por modelo no disponible** (`claude-sonnet-4-5-20250514`) — error inmediato, `tool_uses=0`. Tareas reasignadas al main agent
+- **sop-writer reportó métricas infladas** (de nuevo): dijo `+1` en CHANGELOG.md cuando el real fue `+2`, dijo `+102` líneas en `modules/pages/CLAUDE.md` cuando el real fue `+63` (medido con `git diff --stat`)
+- **sop-writer omitió `CLAUDE.md` raíz** alegando "archivo muy grande" — sí podía editarlo (Edit tool funciona en archivos grandes), simplemente no lo intentó. Tarea completada manualmente por el main agent
+- **sop-writer modificó `notes/daily/2026-04-24.md` sin permiso** — archivo fuera del scope solicitado. Pendiente: revisar diff y revertir si no aplica
+
+### Documentación actualizada en esta sesión
+- `CLAUDE.md` (raíz) — fila #26 en tabla nav + módulo en lista extraídos + esta sección ✅
+- `CHANGELOG.md` — entrada Variation Builder en `[Unreleased] → Added` ✅ (escrito por sop-writer)
+- `modules/pages/CLAUDE.md` — sección M26 nueva ✅ (escrito por sop-writer)
+
+### ⚠️ Pendiente próxima sesión
+- [ ] Revisar diff de `notes/daily/2026-04-24.md` (modificado por sop-writer sin permiso)
+- [ ] Testing en producción del módulo Variation Builder con archivo Pet Food real (smoke test post-deploy Streamlit Cloud)
+- [ ] Validar que no haya regresión en navigation con la nueva entrada (botón visible y clickeable)
+- [ ] Considerar refactor del `return-in-tabs` en `tab_download` a `else` branches para robustez si se planea agregar más tabs

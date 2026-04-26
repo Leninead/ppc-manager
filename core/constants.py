@@ -31,4 +31,5 @@ _PAGES = [
     "📚 Knowledge Base",
     "🛡️ Listing Compliance",
     "📊 Gamboa Generator",
+    "🧬 Variation Builder",
 ]

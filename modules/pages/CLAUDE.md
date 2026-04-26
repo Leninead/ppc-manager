@@ -1,6 +1,6 @@
 # CLAUDE.md — Módulos del Agency OS
 ## Contexto por módulo para agentes especializados
-Última actualización: 2026-04-23
+Última actualización: 2026-04-26
 
 ---
 
@@ -10,10 +10,10 @@
 **Session state prefix:** —
 
 ### Propósito
-Dashboard de estado del Agency OS. Muestra 25 módulos agrupados por sección, Workflow Wizard piramidal (5 niveles), changelog y estado del Parent-Child map.
+Dashboard de estado del Agency OS. Muestra 26 módulos agrupados por sección, Workflow Wizard piramidal (5 niveles), changelog y estado del Parent-Child map.
 
 ### Arquitectura
-- 3 cards activas: PPC (10 módulos) + Account (6) + Research (7) + Intelligence (2)
+- 3 cards activas: PPC (10 módulos) + Account (7) + Research (7) + Intelligence (2)
 - KB card full-width
 - Flujo guiado 5 niveles: Subí datos → Analizá → Inteligencia → Ejecutá → Reportá
 - Parent-Child map: detecta automáticamente si hay BR en data/business_report/
@@ -675,3 +675,60 @@ HTML standalone (~5-10 MB) listo para publicar. 2 paneles interactivos con JS ru
 - Cargar SQP sin crear categorías CSV primero — template mostrará muchas "Sin Categorizar" (YAGNI: no auto-clasificar)
 - BR antiguo (sem 1-2 meses) sin datos recientes — usar único de semana actual
 - No validar que ASIN en BR coincida con ASIN del producto (cruce de cuentas)
+
+---
+
+## M26 — Variation Builder
+**Archivo:** modules/pages/variation_builder.py (913 líneas)
+**Sección sidebar:** Account Manager
+**Session state prefix:** vb_
+
+### Propósito
+Generador de flat files Amazon con variaciones (parent + N children). Agrupa por variation_theme configurable, preserva macros VBA y 10 hojas del template. Parser dinámico soporta hasta 220 columnas. Listo para subir a Seller Central.
+
+### Arquitectura
+- Parser dinámico que detecta columnas del template (hasta 220)
+- Agrupa children automáticamente por variation_theme seleccionado
+- Genera parent_sku derivado del primer child con sufijo
+- Escribe .xlsm con openpyxl + keep_vba=True (preserva macros)
+- Mantiene las 10 hojas del template (Template, Data Definitions, Valid Values, etc.)
+
+### Reglas de negocio
+- 1 parent + N children por SKU group
+- variation_theme define qué columnas varían entre children
+- parent_sku derivado del primer child con sufijo
+- relationship_type = "Variation" para children, vacío para parent
+- Columnasrequeridas: una con "ASIN" en el nombre, una con "Parent" en nombre o configuración
+
+### Themes soportados (v1)
+- Sabor
+- Nombre del Tamano
+- Scent
+- FlavorName-SizeName
+- Tamano del Sabor
+- Nombre del Patron
+
+### Marketplaces (v1)
+Solo MX (MXN). Futuro: multi-marketplace (COM, ES, BR, CA).
+
+### Inputs
+- **Template .xlsm** — Amazon Seller Central → Inventory → Add Products via Upload → Download Template
+- **Variation theme selector** — Sabor, Nombre del Tamano, Scent, FlavorName-SizeName, Tamano del Sabor, Nombre del Patron
+
+### Outputs
+- **.xlsm listo para subir a Seller Central**
+- Preserva macros VBA y 10 hojas del template
+- Agrupación automática por variation_theme
+
+### Testing realizado
+- End-to-end con archivo real Pet Food: parent + 15 children, generado exitosamente
+- py_compile: verde
+- Archivos modificados: app.py (3 edits quirúrgicos), core/constants.py (1 edit)
+
+### Anti-patterns
+- NO modificar el archivo del módulo (913 líneas, ya validado y tested)
+- NO usar pandas.to_excel solo (perdería macros) → usar openpyxl con keep_vba=True
+- NO asumir 50 columnas — el template Pet Food tiene 220
+- NO hardcodear marketplaces — v1 solo MX, futuro multi-MP
+- NO duplicar SKUs entre parent y children
+- NO cambiar nombre de hojas — Amazon rechaza si no son exactos
