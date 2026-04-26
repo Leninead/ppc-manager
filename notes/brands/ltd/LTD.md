@@ -613,6 +613,70 @@ De las 16 KWs originales del bulk M4 (24/04), tras inspeccionar la estructura ex
 2. Fase 4 — Bulk EXACT 5 héroes con queries tallas/edad SQP-validadas (versión reducida del plan 24/04)
 3. Fase 6 — Mensajes Aaron + cliente
 
+### 25/04/2026 — Ejecución Plan 6 Fases (Sesión 2) — Fase 5 + 4 completas, Fase 6 pendiente
+
+**Sesión:** Segundo chat del 25/04 (mismo día, context window nuevo). Cierre del plan integrado documentado el 24/04 a excepción de Fase 6 que pasa a esta semana.
+
+**Estado plan integrado al cierre del chat 2 (cierre completo):**
+- ✅ FASE 1 — Stop the bleeding (sesión 1)
+- ⏸️  FASE 2 — Negativizaciones secundarias (saltada conscientemente, sesión 1)
+- ✅ FASE 3 — Escalado de 6 ganadoras (sesión 1)
+- ✅ FASE 4 — Push hard heroes (sesión 2): 5 EXACT, +$200/d, 12 SKUs heroes
+- ✅ FASE 5 — Brand Defense reforzado (sesión 2): 2 ad groups nuevos + 2 KWs en EDAD
+- ⏳ FASE 6 — Compliance & cliente: Adam + Agustín toman, esta semana
+
+**Cambios netos chat 2 (resumen ejecutivo):**
+
+*Brand Defense expandido (Fase 5):*
+- 2 ad groups creados: BRAND + TALLAS (3 KWs, 31 ASINs L10+L31+hero) y BRAND + TRANSITION (3 KWs, 16 ASINs L20)
+- BRAND + EDAD activado con 2 KWs nuevas (love to dream newborn, love to dream swaddle up newborn girl 2.0 tog) bid $8 — gate revisión 09/05 si sigue 0 imp
+- Total ad groups Brand Defense: 3 → 5 con segmentación quirúrgica por línea de producto
+- Cleanup bulk M4 original: 16 KWs propuestas → 8 efectivas (3 duplicadas, 4 typos, 1 solape, 1 reubicada conceptualmente, 1 typo TOG corregido 0.2→0.5)
+
+*Push Heroes (Fase 4):*
+- 5 EXACT nuevas creadas vía bulk Excel — 35 filas, 31 columnas, Batch UUID 10d5a6ef-4ec9-4899-a0d9-6e9e2ea56a33
+- Inversión: +$200/día (+$6,000 MXN/mes)
+- 12 SKUs únicos targeteados, 9 ASINs únicos
+- Setup: Fixed bid · ToS +50% · Match Exact
+- Naming: SU-NB / SU-M / SU-T / SU-S según portfolio óptimo (asignación manual pendiente Lenin)
+- Bulk Success al primer intento, 5 campañas verificadas Delivering
+
+**Heroes verificados durante sesión (cambios vs plan 24/04):**
+- ✅ B09MG1PM6L restock confirmado 108u FBA durante sesión (datos $13.2K sales 30d, 20u vendidas)
+- ❌ B0CK2C1ZJ5 (DOL M) perdido del export — reemplazado por B09MG28M9D + B0F8PB4NHX
+- ❌ B0081GIZ52 (GR M Transition) confirmado OOS — reemplazado por DOL Trans M+L
+- 🆕 B0F8PCWD6J (OAT NB) descubierto como hero no mapeado: $11,107 sales 30d, 90u stock — sumado a EXACT swaddle 0-3
+- 🟡 B005ULUZIQ flag 16/04 aparenta resuelto: Active + 423u + ventas + BuyBox. Incluido en EXACT #2 y #3 con monitoreo.
+
+**Hallazgo procedimental (catch de Lenin):**
+Lenin cuestionó por qué decía que B005ULUZIQ tenía flag activo cuando el listing operaba normalmente. Mi error: asumí flag vigente sin evidencia actual (proyección sin verificación). Aprendizaje documentado: **data presente del listing > nota antigua**. Aplicar como criterio operativo en futuras sesiones.
+
+**Outputs entregables:**
+- `LTD_Fase4_Bulk_M4_Push_Heroes_25Abr2026.xlsx` — bulk creación 5 EXACT
+- `LTD_Sesion_25Abr2026_InternalBrief.html` — reporte editorial completo para Adam (Sales Director) + Agustín (Account Manager). NO para cliente, marcado claramente "Internal brief · Not for client distribution". 6 tabs interactivos por fase, filtros Fase 1, calendario evaluaciones, paleta Capybaras.
+
+**Acciones documentadas con detalle completo en:** `notes/daily/2026-04-25.md` sección "Sesión 2"
+
+**Asignación de portfolios manual (pendiente Lenin):**
+- SU-NB swaddle 0-3 → Swaddle UP para recién nacidos (0-3 meses)
+- SU-M saquito 6-12 → Swaddle UP para bebés de 6-12 meses
+- SU-M saco 6-12 meses → Swaddle UP para bebés de 6-12 meses
+- SU-T saquito 12-18 → Sacos de transición con un toque de diseño
+- SU-S swaddle → SU | MX | CORE | 0-12M | CATEGORY
+
+**Decisión Fase 6 (no se redactó en sesión, va a equipo):**
+Adam con Aaron (compliance B005ULUZIQ confirm) · Agustín con cliente (ETA restock B09MG1J3LC + summary Fases 1+3+4+5 + lista heroes 3ra solicitud + verificar movimiento precio $859→$809).
+
+**Evaluaciones programadas (extensión de las de sesión 1):**
+- 02/05/2026 (día 7): Push Heroes Fase 4 — eval inicial 5 EXACT, ¿impresiones razonables?
+- 09/05/2026 (día 14): Push Heroes Fase 4 review completa, BRAND + EDAD gate, BRAND + TALLAS/TRANSITION eval inicial
+
+**Aprendizajes para futuras sesiones / SOPs:**
+1. Atajo Amazon UI: "Add products from another ad group" copia los 54 ASINs en 1 click — agregar a SOP
+2. Regla Capybaras clusters de 5 KWs reforzada — cuando un ad group ya tiene 7, abrir ad group nuevo en lugar de inflar
+3. Criterio Portfolio ID en bulks: dejar vacío + asignar manual — agregar a AmazonBulkUploadGuide.md
+4. Catch B005ULUZIQ: data presente > nota antigua — criterio operativo para verificar status antes de actuar
+
 ---
 
 ### 08/04/2026 — Atom11 Rules + Campanas v2 + Analisis cuenta
