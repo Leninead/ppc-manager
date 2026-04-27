@@ -497,6 +497,61 @@ def _build_preview_df(
 def render() -> None:
     _header()
 
+    with st.expander("ℹ️ Cómo usar Variation Builder", expanded=False):
+        st.markdown(
+            """
+**Qué hace este módulo:** genera un flat file de Amazon (`.xlsm`) con 1 parent +
+N children agrupados como variations (sabor, tamaño, aroma, etc.). El archivo
+generado se sube directo a Seller Central → Catálogo → Añadir productos a
+través de subida.
+
+**Cuándo usarlo:** cuando tenés N listings activos en Amazon que comparten
+todo excepto un atributo (ej: 3 sabores del mismo alimento) y querés agruparlos
+bajo un parent para mejorar conversión y CTR.
+
+**Pre-requisitos:**
+- Los N children **ya existen** en Amazon (tienen ASIN)
+- Comparten marca, categoría y formato
+- Difieren solo en un atributo del variation_theme
+
+**Inputs que necesitás del cliente:**
+1. Template flat file `.xlsm` — Seller Central → Catálogo → Añadir productos a
+   través de subida → Inventory Files → seleccionar la categoría aplicable
+2. SKU del parent nuevo (no debe existir en Amazon todavía)
+3. Si los children tienen FBA + FBM (mismo ASIN, dos SKUs), elegí UNO solo.
+   No se pueden agrupar ambos en el mismo parent — Amazon los rechaza por
+   tener ASIN duplicado
+
+**Flujo de las tabs:**
+1. **Parent** — datos comunes a todos los children (marca, manufacturer, item_name
+   genérico, browse node, descripción, bullets, imagen principal, country_of_origin)
+2. **Children + Theme** — elegís el variation theme y cargás N filas con SKU
+   existente + valor único del atributo
+3. **Preview** — confirmás que las filas se vean correctas antes de generar
+4. **Descargar** — bajás el `.xlsm` listo para subir a Seller Central
+
+**Themes disponibles para Pet Food:** Sabor, Nombre del Tamano, Tamano del Sabor,
+Scent, Nombre del Patron, FlavorName-SizeName, Nombre del Patron y del Tamano.
+
+**Modo merge (recomendado para listings existentes):** el módulo escribe
+los children con `update_delete = "Editar (Actualización parcial)"` para no
+sobreescribir títulos, bullets, imágenes ni descripciones que ya existen.
+Solo agrupa.
+
+**SOP completo:** `notes/sops/SOP_Variation_Builder_FlatFile.md` (browse nodes,
+errores comunes, alias API de flavors no listados en el dropdown, valores
+válidos por theme).
+
+**Limitaciones v1:**
+- Solo marketplace **México (MXN)** por ahora
+- Si necesitás otro marketplace (US, CA, etc.), pasá el flat file template
+  correspondiente y se agrega
+- Categoría Pet Food testeada — otras categorías `fptcustom` pueden funcionar
+  pero sin validar
+- Cada child requiere ASIN único (1 child = 1 ASIN)
+            """
+        )
+
     # Uploader
     up = st.file_uploader(
         "Template flat file de Amazon (.xlsm)",
