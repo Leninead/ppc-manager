@@ -16,9 +16,10 @@ notes/*
 !notes/daily/**
 !notes/personal/
 !notes/personal/**
+!notes/prompts/
+!notes/prompts/**
 !notes/Biblioteca.md
 !notes/CLAUDE.md
 .env
-
 # ── Agregado por setup_deploy.py ──────────────────
 .streamlit/secrets.toml
