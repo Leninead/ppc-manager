@@ -1,6 +1,6 @@
 ---
 tipo: state
-actualizado: 2026-04-26
+actualizado: 2026-04-27
 ---
 
 # STATE Agencia — Capybaras
@@ -9,22 +9,15 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
-## Última sesión — 2026-04-26
+## Última sesión — 2026-04-27
 
-**Último módulo tocado**: `modules/pages/variation_builder.py` (M26 NUEVO, 929 líneas, integrado en `app.py` y `core/constants.py`).
+**Tipo**: agencia/infra (sin cliente).
 
-**Bug abierto BLOQUEANTE para release**: `data_editor` de Variation Builder requiere doble entrada para persistir. Fix diseñado (patrón 3 keys `INPUT_KEY` / `EDITOR_KEY` / `OUTPUT_KEY`) está en el chat web del 2026-04-26 pero no aplicado. Plan B si falla: `st.form` con submit. **NO releaseable hasta resolver** — actualmente UX rota.
+**Lo que se hizo**: creada la biblioteca `notes/prompts/` con metodología v5 (10 pilares Anthropic Applied AI). Estructura `sesion/` + `codigo/` + `operativos/`. 5 prompts de sesión (arranque-libre/cliente/continuar/reporte-semanal + cierre-meta). Pieza clave nueva: [[cierre-meta]] — meta-prompt que automatiza la generación de los 6 artefactos al cierre de cada sesión (3 prompts sop-writer + git + refresh + arranque siguiente). Commit `9da32a5` pusheado.
 
-**Qué funciona hoy**: subir template, llenar Parent, llenar Children (con doble entrada manual workaround), preview, descargar `.xlsm` preservando macros. End-to-end probado con `PET_FOOD__1_.xlsm` cliente.
+**Estado anterior preservado**: Variation Builder M26 sigue con bug de doble entrada en `data_editor` — fix de 3 keys pattern pendiente de aplicar. Ver [[daily/2026-04-26]] y [[daily/2026-04-27]].
 
-**Qué no funciona**: la UX del `data_editor` en tab Children requiere doble entrada (no es bloqueante para generar archivo, pero es frustrante).
-
-**Próximo paso**: aplicar fix de 3 keys al `data_editor`. Si falla, ir a `st.form`. Después: testing completo, commit final, push.
-
-**Deuda técnica nueva**:
-- 3 `return` dentro de `with tab_download:` en `variation_builder.py` (L840, 871, 883). Funciona porque es la última tab pero patrón frágil si se agrega tab5. Refactor a helper `_render_download_tab()` documentado en chat 2026-04-26.
-- Agentes `.claude/agents/*.md` tienen model string deprecated `claude-sonnet-4-5-20250514`. Actualizar a model actual.
-- `sop-writer` agente tiende a modificar archivos no autorizados — revisar system prompt.
+**Próximo paso**: refresh del proyecto Claude con los 7 archivos nuevos de prompts/, después validar el meta-prompt en sesiones reales. Decidir si se posponen Sprint 2 Campaign Builder Modo B y Variation Builder fix hasta probar el flujo nuevo durante una semana.
 
 ---
 
@@ -95,3 +88,4 @@ Todos commiteados a `main`, pendientes de push.
 8. **Repo** — decidir Sprint 2 (Campaign Builder Modo B, ~4-5h) vs Sprint 3 (DaypartingApp, ~2h) según prioridad. Actualizar [[INTELLIGENCE-INDEX]] stale (1 nota reportada, falta incluir 360 Essentials + PVM + corregir MB → US). Push de commits locales + cambios de hoy.
 9. **Agentes** — Actualizar model strings deprecated en `.claude/agents/*.md` a versión actual. Revisar system prompt de `sop-writer` para que no modifique archivos no autorizados.
 10. **Outputs LTD sesión 25/04**: Bulk `LTD_Fase4_Bulk_M4_Push_Heroes_25Abr2026.xlsx` subido a Amazon (Batch UUID 10d5a6ef). HTML internal brief `LTD_Sesion_25Abr2026_InternalBrief.html` generado para distribución interna Adam+Agustín. Ambos en /mnt/user-data/outputs (compartidos con Lenin desde Claude chat).
+11. **Biblioteca de prompts v5 (2026-04-27)** — refrescar 7 archivos en proyecto Claude vía "Add content from GitHub". Después validar `cierre-meta` en sesión real durante esta misma conversación. Crear archivos de `codigo/` cuando aparezca el primer módulo nuevo. Actualizar [[CLAUDE]] del vault + [[Biblioteca]] con la nueva carpeta.
