@@ -1,10 +1,83 @@
+---
+tipo: brand-reference
+actualizado: 2026-04-28
+cliente: dermaglos
+---
+
 # Atom11 Rules — Dermaglos USA — v2026.2 AGRESIVO
+
+**Status:** 🔴 EN REVISIÓN — esperando v2026.3 con 4 fixes de Neha
 **Agencia:** Capybaras Agency
-**Última actualización:** 2026-03-26
+**Última actualización:** 2026-04-28
 **Total rules activas:** 62 (+ 1 skipped + 1 harvest descartada)
 **Rules viejas pausadas:** 14 (reemplazadas por v2026.2 — ver historial)
-**Sistema:** v2026.2 por objetivo — ver lógica completa en `Atom11_Template.md`
+**Sistema:** v2026.2 por objetivo — ver lógica completa en [[atom11-template]]
 **Creadas por:** Lenin (manual) + Cowork (automatizado via Claude in Chrome)
+**Detalle ejecución 28/04:** ver [[2026-04-28]] | catálogo SKUs: [[skus_dermaglos]] | estado cuenta: [[DERMAGLOS]]
+
+---
+
+## Findings reportados a Neha 2026-04-27/28
+
+Cuatro fixes pendientes para v2026.3. Detalle del mensaje a Neha 28/04 embebido en [[DERMAGLOS]].
+
+### 1. Bug rule no dispara en Prospecting Vitamin A (diagnóstico CORREGIDO 28/04)
+
+**Antes** pensábamos que el bug era el nombre de la campaña con coma. **Ahora** sabemos que el nombre es limpio (`Body Lotion 2Pack - B0F548KTXD - SD - VCPM - Prospecting Vitamin A`). El bug REAL es que la rule HARD-STOP no ejecuta contra esa campaña a pesar de cumplir condiciones.
+
+| Campo | Valor |
+|---|---|
+| Campaign ID (sangrado mayor) | `341852079119387` |
+| Spend lifetime | $558.57 |
+| Sales | $32.11 (1 order) |
+| ACoS | 1,740% |
+| ROAS | 0.06× |
+| Daily budget | $12 |
+| Started | Jan 10, 2026 (3.5 meses sin pausar) |
+| Clicks | 978 (CVR 0%) |
+
+Misma campaña pero menor sangrado: `Dermatological 2Pack - B0F4KXZVNM - SD - VCPM - Prospecting Vitamin A` — Campaign ID `125683659095742`.
+
+**Hipótesis a investigar:**
+
+1. Tier mal asignado — producto $32 debería ser MID/HIGH, podría estar clasificado LOW.
+2. Double-optimize bug (ver finding #2) podría estar "satisfaciendo" la rule vía bid reductions antes de que HARD-STOP dispare.
+3. Asignación múltiple de la rule a varias campañas genera conflicto lógico.
+
+**Acción Capybaras**: ambas campañas pausadas manualmente el 28/04 para parar el sangrado.
+
+### 2. Double-optimize sistémico en TODAS las DEC tiers
+
+**Patrón del bug:**
+
+- INC tiers usan rangos disjuntos: `INC AGG <35%`, `INC SOFT 35-60%` → solo dispara una.
+- DEC tiers usan thresholds acumulativos: `DEC SOFT >80%`, `DEC RISK >95%`, `DEC CTRL >110%`, `DEC HARD >130%` → en RANKING ACoS=100% disparan **DEC SOFT (-10%) y DEC RISK (-15%) simultáneamente**.
+
+**Resultado**: ajuste compuesto de **-23.5%** vs **-15% diseñado** en una sola ejecución. En ACoS=120% se compone -10% + -15% + -25% = -42.5% vs -25% diseñado.
+
+**Fix propuesto**: reescribir las ~24 DEC rules como rangos disjuntos:
+
+```
+DEC SOFT  : ACOS > target × 1.14 AND ACOS <= target × 1.36
+DEC RISK  : ACOS > target × 1.36 AND ACOS <= target × 1.57
+DEC CTRL  : ACOS > target × 1.57 AND ACOS <= target × 1.86
+DEC HARD  : ACOS > target × 1.86  (PAUSE TARGET)
+```
+
+Aplicar a los 6 objetivos × 4 DEC rules cada uno = 24 rules a modificar.
+
+### 3. 5 SP ASIN "Related Dermaglos Products" con triple-classification
+
+Cada una tiene **17 rules asignadas** (CONQUEST + DEFENSIVE + RANKING simultáneamente). Estas campañas apuntan a ASINs propios (cross-SKU) → son **DEFENSIVE puro**.
+
+**Acción**: strip `CONQUEST` y `RANKING` de las 5 campañas, dejar solo `DEFENSIVE` (target 50%).
+
+### 4. 13 Body Cream B0CYLDSQ5L SP sin HARD-STOP/NEGATE (gap del 15/04)
+
+El gap reportado el 15/04 sigue documentado. **Status actual**: las 13 ya no existen (eliminadas en cleanup del 23-25/04 con deploy v2026.2).
+
+**Aplicar cuando**: tras listing fix de B0CYLDSQ5L, las 3 campañas reactivadas deben recibir el set RANKING completo (Bid Optimiser × 6 + Negate + HARD-STOP + Harvest).
+
 ---
 ## Thresholds v2026.2 (multiplicadores × target ACoS)
 | Nivel | Multiplicador | Acción |

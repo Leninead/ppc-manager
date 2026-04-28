@@ -1,4 +1,123 @@
+---
+tipo: brand
+actualizado: 2026-04-28
+cliente: dermaglos
+---
+
 # DERMAGLOS.md
+
+## Sesión 2026-04-28 — Análisis cruzado completo + ejecución bulk
+
+> Detalle completo de la sesión con outputs y bugs en [[2026-04-28]].
+
+### Hallazgos críticos (10)
+
+1. **Bug del comma de Atom11 — diagnóstico CORREGIDO hoy**: el campaign_analyzer mostraba un nombre concatenado con coma. El export real de Amazon muestra el nombre limpio: `Body Lotion 2Pack - B0F548KTXD - SD - VCPM - Prospecting Vitamin A` (Campaign ID `341852079119387`). La coma venía de Atom11 mostrando una rule asignada a 2 campañas (Prospecting Retinol + Prospecting Vitamin A). Bug REAL: la rule HARD-STOP no dispara contra esa campaña. Spend lifetime $558.57 / Sales $32.11 / ACoS 1,740% / Started 10/01/2026 (3.5 meses sangrando). Pausada manualmente hoy.
+2. **Double-optimize sistémico en TODAS las DEC rules** — INC tiers usan rangos disjuntos, DEC usan thresholds acumulativos. ~24 rules a reescribir.
+3. **5 SP ASIN "Related Dermaglos Products" con triple-classification** — apuntan a ASINs propios → DEFENSIVE puro (no CONQUEST + RANKING + DEFENSIVE simultáneo).
+4. **62→0 campañas zombies (resolución)**: el campaign_analyzer mostraba 114 campañas, BulkSheetExport muestra 84 reales. **30 campañas eliminadas en cleanup previo** (probablemente con deploy Atom11 v2026.2 del 23-25/04). Las 11 P2 del archivo `03_campañas_pausar_dermaglos_2026-04-28.xlsx` quedan canceladas — ya no existen.
+5. **B0F548KTXD sale de heroes**: ROAS 0.61× lifetime / ACoS 163% / CVR 3.7% / Net -$42/mes. Movido de hero → monitor. Cambio narrativo importante con cliente.
+6. **B0F6VZMF2V Facial Skincare Set = estrella oculta PERO OOS**: ROAS 6.20× / CVR 33% (máximo de la cuenta) pero **Available FBA = 0 desde 09/04/2026**. Push diferido hasta restock. Stock confirmado en Seller Central.
+7. **Hipoglos cream = oportunidad #1 cross-brand**: Mercado paga $19, Dermaglos vende $9.99 (47% más barato). SQV 1,074/mes, 17 mkt purchases/mes, BS 5.88%, IS 6.30%. Audiencia hispana cross-shopping. Campaña Conquest creada hoy.
+8. **Mina sin tocar — `dermaglos cleansing gel`**: STR mostró ACoS 3% (mina). Cross-SKU 100% (compra otros productos). Campaña EXACT dedicada bid $13.50 creada hoy.
+9. **Cluster Vitamin A subexplotado**: 8 KWs validadas BS 100% en SQP. `vitamin a cream` = 18 órdenes ACoS 51% IS 8.9% (techo). Vitamin A Power Cluster activado hoy con $40/d.
+10. **Cluster Retinol confirmado matar**: $121 spend $0 sales en 30d. Dermaglos no compite en Retinol (claim es Vitamina A). 7 negativos aplicados hoy.
+
+### Cambios de status estratégico
+
+- **B0F548KTXD movido de hero → monitor** (ROAS 0.61× lifetime). Ya no recibe push.
+- **B0F6VZMF2V identificada como estrella oculta** (ROAS 6.20×, CVR 33%) pero OOS desde 09/04 → push diferido hasta restock.
+- **Oportunidad #1 cross-brand: Hipoglos cream** (SQV 1,074, BS 5.88%, ventaja $19→$10). Conquest creada.
+- **Mina sin tocar: `dermaglos cleansing gel`** (ACoS 3% en STR). EXACT dedicado creado bid $13.50.
+
+### Acciones ejecutadas hoy
+
+**7 campañas nuevas creadas** — naming Atom11-friendly híbrido `DG | OBJETIVO | TIPO - Producto - ASIN - Cluster`:
+
+| # | Campaña | Budget |
+|---|---|---|
+| 1 | `DG \| CONQUEST \| SP \| EXACT - Cream - B0CYLMJJJC - Hipoglos` | $20/d |
+| 2 | `DG \| RANKING \| SP \| EXACT - Cream - B0CYLMJJJC - Vitamin A Power` | $40/d |
+| 3 | `DG \| RANKING \| SP \| EXACT - Lotion - B0CYLM4L23 - Vitamin A Lotion` | $25/d |
+| 4 | `DG \| RANKING \| SP \| EXACT - Cream - B0CYLMJJJC - Allantoin Hub` | $30/d |
+| 5 | `DG \| DEFENSIVE \| SP \| EXACT - Cleanser - B0CYK4G2Y8 - Cleansing Gel Brand` | $25/d (bid $13.50) |
+| 6 | `DG \| DEFENSIVE \| SP \| EXACT - All Heroes - Brand Hub Defensive` | $30/d (35 KWs brand) |
+| 7 | `DG \| DISCOVERY \| SP \| PHRASE - Cream+Lotion - Spanish Hidratante` | $30/d |
+
+**46 negativos aplicados** (Bulk 05): cluster Retinol completo + competidores (Lubriderm, Bioderma, Eucerin, Bepantol) + categorías huge (body lotion, micellar water, glycerin, oily skin) + 27 STR waste tier 1.
+
+**10 campañas P0 pausadas manualmente**: spend lifetime $973.66 con $42.00 sales (ACoS 2,318%) → $132/d budget liberado = $3,960/mes.
+
+**Cluster Vitamin A Power activado**: $40/d, 8 KWs BS 100% en SQP.
+
+**Brand Hub Defensive activado**: 35 KWs brand sin paid coverage previas.
+
+**Net delta budget**: solo +$68/d en cuenta (de los $200/d nuevos, $132/d venían de pausas) — mucho más eficiente de lo que parecía.
+
+## Mensaje pendiente para Neha — corrección finding #1
+
+Listo para copiar a Slack:
+
+```
+Hi Neha,
+
+Quick update on finding #1 about the "comma bug" in CONQUEST SD HARD-STOP:
+
+Correction: The campaign name in Amazon is actually clean — Body Lotion 2Pack - B0F548KTXD - SD - VCPM - Prospecting Vitamin A (no comma, no concatenation). The comma I saw in the campaign-wise export was likely showing two campaigns sharing the same rule, separated by comma in the rule's target list.
+
+The actual problem is the rule isn't firing. Current state of that single campaign:
+
+- Campaign ID: 341852079119387
+- Spend lifetime: $558.57
+- Sales: $32.11 (1 order)
+- ACoS: 1,740%
+- ROAS: 0.06×
+- Daily budget: $12
+- Started: Jan 10, 2026 — running 3.5 months unchecked
+- 978 clicks for 1 conversion (Conversion Rate 0%)
+
+It clearly meets the HARD-STOP criteria, but the rule isn't pausing it. Possible causes worth investigating:
+
+1. Tier assignment may be wrong (this is a $32 product → MID/HIGH tier, but maybe classified LOW)
+2. Double-optimize bug we discussed could be "satisfying" the rule via bid reductions before HARD-STOP fires
+3. Rule assignment to multiple campaigns may be causing logic conflict
+
+I'm pausing the campaign manually today to stop the bleed. Same diagnostic applies to the equivalent campaign on the 2Pack Cream (Dermatological 2Pack - B0F4KXZVNM - SD - VCPM - Prospecting Vitamin A, ID 125683659095742).
+
+Findings #2-4 from the original message stand as written.
+```
+
+## Pendientes próxima sesión
+
+### Manual en Campaign Manager
+
+- [ ] **Asignar Portfolio ID a las 7 nuevas campañas** — urgente, sin esto Atom11 no las clasifica
+- [ ] Resolver `allantoin 0.5% cream` (manual UI — el carácter `%` fue rechazado en bulk; SQV solo 79/mes, low priority)
+- [ ] Bid adjust SD `Dermatological Cream - B0CYLMJJJC - SD - VCPM - Views Retargeting 30D` (ID `169476572963877`): bajar default de $1.00 a $0.50
+- [ ] Subir budget `B0CYLDSQ5L - Body Cream - SP ASIN - Exact - Related Dermaglos Products` (ID `340653992125674`) de $5/d a $15/d (ROAS 3.13× / ACoS 32%, subexplotada)
+
+### Comunicación
+
+- [ ] Enviar mensaje corregido a Neha sobre el bug del comma (texto arriba en este doc)
+
+### Listing optimization (gate para escalar)
+
+- [ ] Tattoo copy en bullets/A+ de B0CYLMJJJC + B0CYLM4L23 (activar 500K imp/mes mkt)
+- [ ] B0CYK4G2Y8 (Facial Cleanser) — Rufus analysis (CVR 5.8% es problema de listing)
+- [ ] B0CYLDSQ5L (Body Cream) — Rufus pre-reactivación
+
+### Diferidos
+
+- [ ] Cuando reabastezcan B0F6VZMF2V (Facial Set OOS desde 09/04): crear 2 campañas Push EXACT + PAT
+- [ ] Cluster Tattoo decisión final post listing fix (si en 30d sigue 0 conv → pausar)
+- [ ] Re-correr STR 15/05 para medir delta ACoS post-ejecución
+
+### Conversación con cliente (futuro revenue)
+
+- [ ] Vit C, Niacinamida, BB Cream, Protector Solar — hay demanda brand en SQP, no listados en Amazon USA. Definir si lanzar. Detalle en [[skus_dermaglos]].
+
+---
+
 ## 💊 Cliente: Dermaglos
 **Categoría:** Skincare dermatológico (Body Cream, Body Lotion, Facial Cleanser, Serums)
 **Marketplace:** Amazon USA 🇺🇸
