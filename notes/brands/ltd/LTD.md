@@ -674,7 +674,7 @@ Adam con Aaron (compliance B005ULUZIQ confirm) · Agustín con cliente (ETA rest
 **Aprendizajes para futuras sesiones / SOPs:**
 1. Atajo Amazon UI: "Add products from another ad group" copia los 54 ASINs en 1 click — agregar a SOP
 2. Regla Capybaras clusters de 5 KWs reforzada — cuando un ad group ya tiene 7, abrir ad group nuevo en lugar de inflar
-3. Criterio Portfolio ID en bulks: dejar vacío + asignar manual — agregar a AmazonBulkUploadGuide.md
+3. Criterio Portfolio ID en bulks: dejar vacío + asignar manual — agregar a amazon-bulk-upload-guide.md
 4. Catch B005ULUZIQ: data presente > nota antigua — criterio operativo para verificar status antes de actuar
 
 ---

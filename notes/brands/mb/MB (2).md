@@ -270,7 +270,7 @@ Verificadas pausadas al cierre (estaban pre-hechas):
 - **Re-subida tras fallo**: cambiar 1 letra del naming evita "already exists" (Amazon retiene nombre ~10 min post-archive).
 - **Listing alert temporal**: "Price cannot be found" al agregar producto se resuelve solo en 1-2 min refresh.
 
-Wikilinks: [[STATE-agencia]] [[daily/2026-04-27]] [[AmazonBulkUploadGuide]]
+Wikilinks: [[STATE-agencia]] [[daily/2026-04-27]] [[amazon-bulk-upload-guide]]
 
 ### 21/04/2026 — Ejecución Fase 1: PAT Conquest Women Premium
 
