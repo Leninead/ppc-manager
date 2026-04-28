@@ -176,6 +176,102 @@
 
 ## 💬 Historial
 
+### 27/04/2026 — Re-arquitectura non-branded HW + cleanup quirúrgico + bid up PAT Premium
+
+**Contexto:** Día previsto como evaluación EG/Marcy día 14 (lanzamiento 13/04), pero el análisis de 8 archivos reveló que las 9 campañas non-branded del 07/04 + 13/04 nunca arrancaron — bid base $0.02 + ToS +900% no superó bid floor en queries competitivos. La pregunta correcta dejó de ser "¿escalamos EG?" y pasó a ser "¿cómo arrancamos non-branded de verdad?". Decisión ejecutiva: pivot a arquitectura clásica EXACT con multi-child desde día 1.
+
+**Hallazgo Premium también:** PAT Conquest CR/VN Premium 21/04 con 2 y 0 impresiones en 6 días respectivamente. Bid $0.60 insuficiente.
+
+#### Cleanup quirúrgico ejecutado (manual, validado vs Campaign CSV)
+
+**8 PAUSADAS:**
+- WTC | shirts KWS (HV) — $56 / 0 sales
+- WTC | t shirts KWS (HV) — $13 / 0 sales
+- WTV | shirts KWS (HV) — $32 / 0 sales
+- WTV | t shirts KWS (HV) — $32 / 0 sales
+- WTC | Casual tshirts KWS — $21 / 0 sales
+- WTC HIGHER PRICED — $48 / $40 / ACoS 121%
+- WTV HIGHER PRICED — $9 / 0 sales
+- WTC SBV shirt KWS (HV) — $1.91 / 0 sales
+
+**2 BID -50%:**
+- WTV | Casual tshirts KWS
+- MTC | Cotton tshirts KWS
+
+**Acciones internas en ad groups (no pausar campaña):**
+- `MTC - HB - SD - IMG - CVR - REMARKETING - ADV PR - PURCHASES 30/60 DAYS`: pausados targets Purchases:30 + Purchases:60. Bid up Purchases:90 ($2.00 → $3.00). Descubrimiento: Purchases:90 convierte 80% CVR (4 orders / 5 clicks) — ciclo recompra largo en M&B Women.
+- `WTV - B0F84474KS - SBV - EXACT - t shirts KWS (HV)`: pausadas 6 KWs no-convirtientes. Bid up "women t shirt" singular $1.00 → $1.30 — winner aislado, ACoS 7.38% / ROAS 13.56x.
+
+#### Re-arquitectura non-branded HW (3 campañas live)
+
+Lanzamiento 27/04 (Batch UUID `b09c8dd1-00c5-4b2c-a86b-af169ac7ac49`). Naming HW = "High Winners" (KWs ya validadas en STR convirtiendo desde BROAD).
+
+| Campaña | KWs EXACT | Budget | Bid base | ToS | Multi-child |
+|---|---|---|---|---|---|
+| MB \| B0F6LCGH2L \| US \| SP-KW \| EXACT \| NB CR HW A | 5 KWs CR | $15/d | $0.80 | +50% | M+L+S White |
+| MB \| B0F6LDGCDS \| US \| SP-KW \| EXACT \| NB VN HW A | 1 KW HOT (v neck t shirts for women) | $8/d | $1.00 | +50% | M+L+XL Crimson |
+| MB \| B0F6LDGCDS \| US \| SP-KW \| EXACT \| NB VN HW B | 3 KWs VN expansión | $7/d | $0.85 | +50% | M+L+XL Crimson |
+
+**Inversión:** $30/d (~$900/mes). **Eval día 14:** 11/05/2026.
+
+**KWs CR HW A** (todas con ROAS 10x+ desde BROAD):
+- short sleeve shirts for women (ROAS 11.76x)
+- short sleeve t shirts for women (ROAS 31.45x)
+- white shirt womens (ROAS 46.51x)
+- womens short sleeve t shirts (ROAS 17.99x)
+- womens tops (ROAS 13.85x)
+
+**KW HOT VN HW A:**
+- v neck t shirts for women — $764 sales / 20 orders / ROAS 10.42x últimos 30d, sin campaña EXACT propia hasta hoy
+
+**KWs VN HW B (expansión):**
+- women's v neck t shirts (2,277 SV, brand share 0%)
+- cotton v neck t shirts women (cambio de "100% cotton..." que rechazó Amazon por `%`)
+- premium v neck t shirts women
+
+**SKUs multi-child (pattern confirmado `f{cr|vn}t_marc_{whit|crim}_vn-{tamaño}`):**
+- CR: B0F6LCGH2L (M White, hero) + B0FQPNV46L (L White) + B0F6LCDW3S (S White)
+- VN: B0F6LDGCDS (M Crimson, hero) + B0F6LBN14W (L Crimson) + B0F6LCMR6L (XL Crimson)
+
+**Cross-negation marca (4 negs Exact en cada ad group):**
+- mott and bow / mott & bow / mottandbow / mott bow
+
+**Portfolios asignados:** CR HW A → WTC · VN HW A/B → WTV.
+
+**Guardrails día 14:** ACoS > 52% (BE) bajar bids -30% / < 2 órdenes por campaña pausar específica / ROAS < 5x revisar bid.
+
+#### Bid up PAT Premium 21/04
+
+24 product targets actualizados (12 CR + 12 VN) de $0.60 → $1.10 vía bulk action ("12 of 12 targets updated" cada uno).
+
+- `MB | B0F6LCGH2L | US | SP-PAT | ASIN | NB CONQUEST CR PREMIUM A`
+- `MB | B0F6LDGCDS | US | SP-PAT | ASIN | NB CONQUEST VN PREMIUM A`
+
+Plan escalada si en 72h no impresionan: $1.10 → $1.50 → revisar creative → re-validar 12 ASINs DataDive.
+
+#### 9 fantasmas non-branded ya pausadas
+
+Verificadas pausadas al cierre (estaban pre-hechas):
+- BROAD NB CR A/B (Junglr 13/04, 0 impr)
+- EXACT NB RANKING CR A / VN A / VN B (Marcy 07/04)
+- PHRASE NB DISCOVERY CR A / VN A
+- PT ASIN NB CONQUEST CR A / VN A
+
+#### Hallazgos del análisis pendientes de explotar (próximas sesiones)
+
+- **Fuga branded JEANS** — queries "mott and bow jeans" con IS% 2-4% (110 + 86 vol). ¿M&B vende jeans en Amazon? Decisión de catálogo + brand defense.
+- **V-neck + Pocket branded mal defendido** — ~50% IS en queries "mott and bow v neck" / "with pocket". Agregar al WTV EXACT DEFEND.
+- **PAT Conquest MTC research** — TrueClassic ($69.99 / 541 purchases mercado / 0% share), Goodfellow, Lacoste, Polo RL. Resuelve scope Men pendiente del vault desde 21/04.
+
+#### Bugs / gotchas operativos descubiertos
+
+- **`%` en KW**: Amazon rechaza el caracter en `Keyword Text`. Usar variante sin `%` — Amazon lo trata como noise word igual al hacer match.
+- **Bulk async stop-on-error**: si 1 fila falla, UI muestra "Failed" pero filas anteriores YA están creadas. Verificación visual obligatoria.
+- **Re-subida tras fallo**: cambiar 1 letra del naming evita "already exists" (Amazon retiene nombre ~10 min post-archive).
+- **Listing alert temporal**: "Price cannot be found" al agregar producto se resuelve solo en 1-2 min refresh.
+
+Wikilinks: [[STATE-agencia]] [[daily/2026-04-27]] [[AmazonBulkUploadGuide]]
+
 ### 21/04/2026 — Ejecución Fase 1: PAT Conquest Women Premium
 
 **Contexto:** Account Manager aprobó propuesta Full-Funnel Women del 20/04 (Opción B — Fase 1+2, +$46/día bajo Profit First). Hoy se ejecuta Fase 1: 2 campañas PAT con targeting corregido al nicho real (12 ASINs DataDive).
