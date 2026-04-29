@@ -560,7 +560,7 @@ def render() -> None:
 
                     # ── Bullets actuales ─────────────────────────────
                     if data.get("bullets"):
-                        with st.expander("Ver bullets actuales"):
+                        with st.popover("Ver bullets actuales"):
                             for b in data["bullets"]:
                                 st.markdown(f"• {b}")
 
