@@ -232,17 +232,41 @@ _build_merchanspring_excel(data, client_name)
 
 ### Funciones
 ```python
-_parse_br_daily_wow(file)
-_parse_br_wow(file)
+_parse_br_daily_wow(file)         # @st.cache_data — usa _detectar_columnas_br
+_parse_br_wow(file)               # @st.cache_data — usa _detectar_columnas_br
 _parse_atom11_wow(file)
 _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name, lang, br_daily)
 render()
 ```
 
+### Helpers BR (2026-05-04)
+```python
+_normalizar_col_br(s)             # lowercase + dashes unicode → '-' + collapse spaces + strip
+_detectar_columnas_br(df, tipo)   # tipo='by_date' | 'by_child' → dict cols reales + flags
+_validar_cols_core_br(detect, tipo)  # → lista de cols faltantes (vacía si OK)
+```
+
+**BR tolerante a subset + dashes unicode + split Mobile/Browser** (2026-05-04)
+- El AM puede exportar el BR con cualquier subset que incluya las cols core mínimas — el parser detecta automáticamente.
+- Tolera dashes unicode: `Sessions – Total` (en-dash U+2013), `Sessions — Total` (em-dash U+2014), doble espacio, falta de guión.
+- Si falta `Sessions - Total` pero existen `Sessions - Mobile App` + `Sessions - Browser` → suma automática a Total sintético. Mismo para Page Views.
+- B2B filtrado uniformemente en ambos parsers — info disponible vía flag `b2b_disponible`.
+- CVR fallback uniforme en ambos parsers: `Unit Session Percentage` → `Order Item Session Percentage`.
+- Si falta una col core mínima → `ValueError` con mensaje canónico que orienta al AM hacia Seller Central → Reports → Business Reports.
+
+### Columnas core mínimas
+
+**BR diario (By Date — Sales and Traffic):** `Date` · `Sessions - Total` (o split Mobile App + Browser) · `Units Ordered` · `Ordered Product Sales`.
+
+**BR by Child (Detail Page Sales and Traffic By Child Item):** `(Child) ASIN` · `Sessions - Total` (o split) · `Units Ordered` · `Ordered Product Sales`.
+
+**Opcionales (se incluyen si vienen, se omiten gracioso si no):** `Featured Offer (Buy Box) Percentage`, `Unit Session Percentage` / `Order Item Session Percentage` (CVR), `(Parent) ASIN`, `Title`, `Page Views - Total` y splits, `Total Order Items`, `Units Refunded`, `Refund Rate`, `Shipped Product Sales`, `Units Shipped`, `Orders Shipped`, variantes B2B.
+
 ### Fixes importantes
 - `BuyBox_TW = None` si BR diario no tiene columna (ej: M&B)
 - Detecta automáticamente `Unit Session Percentage` o `Order Item Session Percentage`
 - BuyBox con 0 sesiones → ignorado (evita falsos positivos)
+- CVR=None propagado en `_parse_br_wow` cuando faltan ambas columnas de CVR (asimetría con `_parse_br_daily_wow` que aún retorna 0 — documentado como deuda técnica BAJA en STATE-agencia.md)
 
 ### Clientes probados
 - **Love To Dream MX** — 56 ASINs, ACoS 22.7%, TACoS 17.4%, semana +43.9%

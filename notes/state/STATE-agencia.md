@@ -1,6 +1,6 @@
 ---
 tipo: state
-actualizado: 2026-04-29
+actualizado: 2026-05-04
 ---
 
 # STATE Agencia — Capybaras
@@ -92,6 +92,46 @@ Todos commiteados a `main`, pendientes de push.
 - **AmazonBulkUploadGuide.md stale (4 puntos críticos descubiertos 27/04)**: (1) caracteres prohibidos en Keyword Text no documentados (`%`, `$`, `#`, `@`, `*`, etc.) — el `&` SÍ se permite en negativeExact, (2) comportamiento secuencial stop-on-error 2026 no documentado — UI muestra Failed pero filas anteriores ya creadas (verificación visual obligatoria), (3) estrategia re-subida con cambio de 1 letra del naming, (4) Regla #2 lista 30 cols pero el código en producción usa 31 (Sites). Próxima sesión: actualizar guía. Riesgo si no se hace: bulks futuros van a fallar igual y el equipo va a perder horas.
 - **Patrón Streamlit a documentar (29/04)**: `st.expander` no se puede anidar dentro de otro `st.expander` (`_check_nested_element_violation`). Bug intermitente — solo crashea cuando se ejecuta el branch que crea el expander interno, por eso pasa code review básico. Reemplazo standard: `st.popover` (Streamlit ≥1.28). Documentar en `notes/sops/` o `module-architecture-standard.md`.
 - **Listing Monitor fix aplicado 29/04 + 2 sospechosos pendientes**: `modules/pages/listing_monitor.py` L563 — `st.expander("Ver bullets actuales")` anidado dentro de expander padre L508 → fix aplicado con `st.popover` (1 línea). Live en producción, validado con ASIN B01M6DFC5W (Medix 5.5, marketplace MX). Diagnóstico via agente `code-reviewer` reveló 2 sospechosos del mismo bug que NO se atacaron (scope): `modules/pages/gamboa_generator.py` L322+L370 y `modules/pages/atom11.py` L261+L303. Verificar indentación próxima sesión y aplicar mismo fix preventivo si confirma.
+
+---
+
+## Deuda técnica
+
+### 1. Dashes unicode pendientes en M17 / M18 / M19 / M20 (prioridad MEDIA)
+
+**Hallazgo (2026-05-04):** El fix de tolerancia a variantes Amazon (dashes unicode `–` en-dash, `—` em-dash, doble espacio, falta de guión, splits Mobile/Browser sin Total) se aplicó solo a M14 Weekly Client Report — los parsers BR de los siguientes módulos siguen con el mismo bug latente:
+
+- **M17 Account Pulse** (`modules/pages/account_pulse.py`) — parsea BR diario + BR by Child
+- **M18 PPC Insights** (`modules/pages/ppc_insights.py`) — BR by ASIN opcional
+- **M19 PPC Forecast** (`modules/pages/ppc_forecast.py`) — BR diario para tendencia
+- **M20 PPC Audit Pro** (`modules/pages/ppc_audit.py`) — BR opcional para TACoS
+
+**Síntoma**: si Amazon devuelve cualquier variante rara de separador (dash unicode o split Mobile+Browser sin Total), el match flexible por substring falla y los parsers retornan métricas en 0 silencioso. El AM no se entera hasta ver el output con datos faltantes.
+
+**Plan sugerido**:
+1. Extraer `_normalizar_col_br`, `_detectar_columnas_br` y `_validar_cols_core_br` desde `modules/pages/weekly_client_report.py` a un módulo común `core/br_parser.py` (o `core/business_report.py` extendido).
+2. Reemplazar los matchers ad-hoc (`_n(col)` o helpers internos similares) en M17/M18/M19/M20 por llamadas al detector centralizado.
+3. Mantener firmas de retorno actuales para no romper downstream.
+4. Agregar `@st.cache_data(show_spinner=False)` a parsers BR si no lo tienen.
+5. Tests sintéticos por módulo (5+ casos: completo / mínimo / dash unicode / split / col core ausente).
+
+**Esfuerzo estimado**: ~2h por módulo si se extrae el helper común. Total ~3-4h con tests.
+
+**Trigger para atacarlo**: cuando un cliente reporte el primer caso de output con datos faltantes en alguno de los 4 módulos. Hasta entonces, riesgo aceptable porque hoy los AMs validan visualmente los Excel antes de enviar.
+
+---
+
+### 2. Asimetría CVR sin columnas — by_child vs by_date (prioridad BAJA)
+
+**Hallazgo (2026-05-04):** En el refactor de M14, `_parse_br_wow` (by_child) propaga `None` cuando faltan TANTO `Unit Session Percentage` como `Order Item Session Percentage`. Pero `_parse_br_daily_wow` (by_date) retorna `0` silencioso en el mismo caso (legacy de `_a()` sobre col=None que devuelve 0).
+
+**Hoy no rompe nada** porque el daily se usa solo para display de % en celdas únicas del Excel (formato `0.00`) y la UI/builder ya manejan ambos casos (`if avg_cvr_tw > 0` filtra el 0 sin error).
+
+**Riesgo a futuro**: si se usa `CVR_TW` del daily para alertas automatizadas, scoring o comparaciones (ej: "CVR cayó >X%"), `0` se confunde con CVR realmente cero — falso positivo de "caída total".
+
+**Fix sugerido cuando se ataque**: paridad propagando `None` en daily también, junto con verificación de que `_build_weekly_excel` maneja `CVR_TW=None` correctamente en las celdas L458-460 (`_tot(12, bd["CVR_TW"], '0.00')` puede romper si `bd["CVR_TW"]=None`).
+
+**Trigger**: cuando se construya el primer alert/score basado en CVR del daily.
 
 ---
 

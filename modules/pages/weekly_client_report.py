@@ -9,19 +9,173 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
+# ── Helpers BR — detección tolerante a variantes Amazon (dashes unicode, splits, B2B) ──
+_DASHES_UNICODE = ("–", "—", "−")  # en-dash, em-dash, minus sign
+
+
+def _normalizar_col_br(s):
+    """Normaliza nombre de columna del BR: lowercase + dashes unicode → '-' + collapse spaces + strip."""
+    if s is None:
+        return ""
+    s = str(s)
+    for d in _DASHES_UNICODE:
+        s = s.replace(d, "-")
+    s = s.lower()
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+
+def _detectar_columnas_br(df, tipo):
+    """
+    Detecta columnas del BR de manera tolerante a variantes Amazon.
+
+    tipo: 'by_date' (BR diario By Date) | 'by_child' (BR Detail Page By Child Item)
+
+    Retorna dict con columnas reales encontradas + flags de opcionales.
+    Filtra B2B uniformemente en ambos tipos — info B2B disponible vía flag b2b_disponible.
+    CVR fallback uniforme: Unit Session Percentage → Order Item Session Percentage.
+    """
+    cols = list(df.columns)
+    norm_pairs = [(_normalizar_col_br(c), c) for c in cols]
+
+    def _find(needle, exclude_b2b=True):
+        """Match por substring sobre columnas normalizadas. Excluye B2B por default."""
+        needle_n = _normalizar_col_br(needle)
+        for col_n, col_real in norm_pairs:
+            if needle_n in col_n:
+                if exclude_b2b and "b2b" in col_n:
+                    continue
+                return col_real
+        return None
+
+    # Sessions — Total directo o splits Mobile App + Browser
+    sessions_total   = _find("sessions - total") or _find("sessions total")
+    sessions_mobile  = _find("sessions - mobile app") or _find("sessions mobile app")
+    sessions_browser = _find("sessions - browser") or _find("sessions browser")
+
+    # Page Views (opcional)
+    page_views_total   = _find("page views - total") or _find("page views total")
+    page_views_mobile  = _find("page views - mobile app") or _find("page views mobile app")
+    page_views_browser = _find("page views - browser") or _find("page views browser")
+
+    # CVR — fallback uniforme en ambos tipos
+    cvr = _find("unit session percentage") or _find("order item session percentage")
+
+    # BuyBox
+    buybox = (
+        _find("featured offer (buy box) percentage")
+        or _find("buy box percentage")
+        or _find("featured offer")
+    )
+
+    # Métricas core + opcionales
+    units_ordered         = _find("units ordered")
+    ordered_product_sales = _find("ordered product sales")
+    total_order_items     = _find("total order items")
+    units_refunded        = _find("units refunded")
+    refund_rate           = _find("refund rate")
+    shipped_product_sales = _find("shipped product sales")
+    units_shipped         = _find("units shipped")
+    orders_shipped        = _find("orders shipped")
+
+    detect = {
+        "sessions_total":         sessions_total,
+        "sessions_mobile":        sessions_mobile,
+        "sessions_browser":       sessions_browser,
+        "page_views_total":       page_views_total,
+        "page_views_mobile":      page_views_mobile,
+        "page_views_browser":     page_views_browser,
+        "cvr":                    cvr,
+        "buybox":                 buybox,
+        "units_ordered":          units_ordered,
+        "ordered_product_sales":  ordered_product_sales,
+        "total_order_items":      total_order_items,
+        "units_refunded":         units_refunded,
+        "refund_rate":            refund_rate,
+        "shipped_product_sales":  shipped_product_sales,
+        "units_shipped":          units_shipped,
+        "orders_shipped":         orders_shipped,
+        # Flags
+        "b2b_disponible":           any("b2b" in _normalizar_col_br(c) for c in cols),
+        "sessions_split_presente":  bool(sessions_mobile and sessions_browser),
+        "page_views_disponibles":   bool(page_views_total or (page_views_mobile and page_views_browser)),
+        "refunds_disponibles":      bool(units_refunded or refund_rate),
+        "shipped_disponible":       bool(shipped_product_sales or units_shipped or orders_shipped),
+    }
+
+    if tipo == "by_date":
+        detect["date"] = next((c for c in cols if "date" in c.lower()), None)
+
+    elif tipo == "by_child":
+        # ASIN child + parent + title (nunca filtrar B2B en estos campos)
+        asin_child = None
+        asin_parent = None
+        title_col = None
+        for col_n, col_real in norm_pairs:
+            if asin_child is None and ("(child) asin" in col_n or "child asin" in col_n):
+                asin_child = col_real
+            if asin_parent is None and ("(parent) asin" in col_n or "parent asin" in col_n):
+                asin_parent = col_real
+            if title_col is None and "title" in col_n:
+                title_col = col_real
+        # Fallback: cualquier "asin" suelto si no hubo child específico
+        if asin_child is None:
+            for col_n, col_real in norm_pairs:
+                if "asin" in col_n:
+                    asin_child = col_real
+                    break
+        detect["asin_child"]  = asin_child
+        detect["asin_parent"] = asin_parent
+        detect["title"]       = title_col
+
+    return detect
+
+
+def _validar_cols_core_br(detect, tipo):
+    """Retorna lista de nombres canónicos faltantes. Vacía si OK."""
+    faltantes = []
+    if tipo == "by_date":
+        if not detect.get("date"):
+            faltantes.append("Date")
+        if not detect.get("sessions_total") and not detect.get("sessions_split_presente"):
+            faltantes.append("Sessions - Total (o Sessions - Mobile App + Sessions - Browser)")
+        if not detect.get("units_ordered"):
+            faltantes.append("Units Ordered")
+        if not detect.get("ordered_product_sales"):
+            faltantes.append("Ordered Product Sales")
+    elif tipo == "by_child":
+        if not detect.get("asin_child"):
+            faltantes.append("(Child) ASIN")
+        if not detect.get("ordered_product_sales"):
+            faltantes.append("Ordered Product Sales")
+        if not detect.get("units_ordered"):
+            faltantes.append("Units Ordered")
+        if not detect.get("sessions_total") and not detect.get("sessions_split_presente"):
+            faltantes.append("Sessions - Total (o Sessions - Mobile App + Sessions - Browser)")
+    return faltantes
+
+
+@st.cache_data(show_spinner=False)
 def _parse_br_daily_wow(file):
     fname = file.name if hasattr(file, "name") else ""
     df = pd.read_excel(file) if fname.endswith(".xlsx") else pd.read_csv(file)
-    date_col = next((c for c in df.columns if "date" in c.lower()), None)
-    if not date_col:
-        raise ValueError("BR diario: no se encontró columna Date")
+
+    detect = _detectar_columnas_br(df, tipo="by_date")
+    faltantes = _validar_cols_core_br(detect, tipo="by_date")
+    if faltantes:
+        raise ValueError(
+            "Falta(n) columna(s) requerida(s) en el BR diario: "
+            + ", ".join(faltantes)
+            + ". Re-exportá el reporte con esas columnas activadas en "
+            "Seller Central → Reports → Business Reports → By Date → Sales and Traffic."
+        )
 
     def _clean(series):
         return pd.to_numeric(
-            series.astype(str).str.replace(r"[MX$,%$]", "", regex=True).str.replace(",", ""),
+            series.astype(str).str.replace(r"[MX$,%]", "", regex=True).str.replace(",", ""),
             errors="coerce").fillna(0)
 
-    df["_date"] = pd.to_datetime(df[date_col], format="mixed", dayfirst=False)
+    df["_date"] = pd.to_datetime(df[detect["date"]], format="mixed", dayfirst=False)
     df = df.sort_values("_date")
     dates = sorted(df["_date"].unique())
     if len(dates) < 7:
@@ -30,76 +184,100 @@ def _parse_br_daily_wow(file):
     pw_df = df[df["_date"] < split_date]
     tw_df = df[df["_date"] >= split_date]
 
-    def _n(col): return next((c for c in df.columns if col.lower() in c.lower() and "b2b" not in c.lower()), None)
+    # Sessions: Total directo o sumar split Mobile App + Browser
+    def _sessions_sum(d):
+        if detect["sessions_total"]:
+            return round(_clean(d[detect["sessions_total"]]).sum(), 2)
+        return round(
+            (_clean(d[detect["sessions_mobile"]]) + _clean(d[detect["sessions_browser"]])).sum(),
+            2,
+        )
+
     def _s(d, col): return round(_clean(d[col]).sum(), 2) if col else 0
     def _a(d, col): return round(_clean(d[col]).mean(), 2) if col else 0
 
-    sales_col = _n("Ordered Product Sales")
-    units_col = _n("Units Ordered")
-    sess_col  = _n("Sessions - Total")
-    cvr_col   = _n("Unit Session Percentage") or _n("Order Item Session Percentage")
-    bb_col    = _n("Featured Offer (Buy Box) Percentage") if _n("Featured Offer (Buy Box) Percentage") and "b2b" not in (_n("Featured Offer (Buy Box) Percentage") or "").lower() else None
+    sales_col = detect["ordered_product_sales"]
+    units_col = detect["units_ordered"]
+    cvr_col   = detect["cvr"]
+    bb_col    = detect["buybox"]
 
     return {
-        "Sales_TW": _s(tw_df, sales_col), "Sales_PW": _s(pw_df, sales_col),
-        "Units_TW": _s(tw_df, units_col), "Units_PW": _s(pw_df, units_col),
-        "Sessions_TW": _s(tw_df, sess_col), "Sessions_PW": _s(pw_df, sess_col),
-        "CVR_TW": _a(tw_df, cvr_col), "CVR_PW": _a(pw_df, cvr_col),
-        "BuyBox_TW": _a(tw_df, bb_col) if bb_col else None,
-        "BuyBox_PW": _a(pw_df, bb_col) if bb_col else None,
+        "Sales_TW":    _s(tw_df, sales_col), "Sales_PW":    _s(pw_df, sales_col),
+        "Units_TW":    _s(tw_df, units_col), "Units_PW":    _s(pw_df, units_col),
+        "Sessions_TW": _sessions_sum(tw_df), "Sessions_PW": _sessions_sum(pw_df),
+        "CVR_TW":      _a(tw_df, cvr_col),   "CVR_PW":      _a(pw_df, cvr_col),
+        "BuyBox_TW":   _a(tw_df, bb_col) if bb_col else None,
+        "BuyBox_PW":   _a(pw_df, bb_col) if bb_col else None,
         "dates_pw": [str(d.date()) for d in sorted(pw_df["_date"].unique())],
         "dates_tw": [str(d.date()) for d in sorted(tw_df["_date"].unique())],
     }
 
 
+@st.cache_data(show_spinner=False)
 def _parse_br_wow(file):
     fname = file.name if hasattr(file, "name") else ""
     df = pd.read_excel(file) if fname.endswith(".xlsx") else pd.read_csv(file)
 
-    def _n(col):
-        for c in df.columns:
-            if col.lower() in c.lower(): return c
-        return None
+    detect = _detectar_columnas_br(df, tipo="by_child")
+    faltantes = _validar_cols_core_br(detect, tipo="by_child")
+    if faltantes:
+        raise ValueError(
+            "Falta(n) columna(s) requerida(s) en el BR by Child: "
+            + ", ".join(faltantes)
+            + ". Re-exporta el reporte con esas columnas activadas en "
+            "Seller Central > Reports > Business Reports > By ASIN > Detail Page Sales and Traffic By Child Item."
+        )
 
     def _to_float(series):
         return pd.to_numeric(
             series.astype(str).str.replace(r"[MX$,%]", "", regex=True).str.replace(",", ""),
             errors="coerce").fillna(0)
 
-    asin_col     = _n("Child) ASIN") or _n("ASIN")
-    title_col    = _n("Title")
-    sessions_col = _n("Sessions - Total")
-    units_col    = _n("Units Ordered")
-    sales_col    = _n("Ordered Product Sales")
-    cvr_col      = _n("Unit Session Percentage")
-    bb_col       = _n("Buy Box") or _n("Featured Offer")
-
-    if not asin_col:
-        raise ValueError("No se encontró columna ASIN en el Business Report")
+    asin_col  = detect["asin_child"]
+    title_col = detect["title"]
+    cvr_col   = detect["cvr"]
+    bb_col    = detect["buybox"]
 
     df = df.dropna(subset=[asin_col])
-    df["_sessions"] = _to_float(df[sessions_col]) if sessions_col else 0
-    df["_units"]    = _to_float(df[units_col])    if units_col    else 0
-    df["_sales"]    = _to_float(df[sales_col])    if sales_col    else 0
-    df["_cvr"]      = _to_float(df[cvr_col])      if cvr_col      else 0
-    df["_bb"]       = _to_float(df[bb_col])       if bb_col       else None
+
+    # Sessions: Total directo o sumar split Mobile App + Browser
+    if detect["sessions_total"]:
+        df["_sessions"] = _to_float(df[detect["sessions_total"]])
+    elif detect["sessions_split_presente"]:
+        df["_sessions"] = (
+            _to_float(df[detect["sessions_mobile"]]) + _to_float(df[detect["sessions_browser"]])
+        )
+    else:
+        df["_sessions"] = 0  # cubierto por _validar_cols_core_br, defensivo
+
+    df["_units"] = _to_float(df[detect["units_ordered"]]) if detect["units_ordered"] else 0
+    df["_sales"] = _to_float(df[detect["ordered_product_sales"]]) if detect["ordered_product_sales"] else 0
+    df["_cvr"]   = _to_float(df[cvr_col]) if cvr_col else None
+    df["_bb"]    = _to_float(df[bb_col])  if bb_col  else None
 
     result = {}
     for _, row in df.iterrows():
         asin = str(row[asin_col]).strip()
         if not asin or asin == "nan": continue
         title = str(row[title_col]).strip() if title_col else ""
-        bb_raw = row.get("_bb")
+
         sessions_val = float(row["_sessions"])
+
+        bb_raw = row.get("_bb")
         bb_val = float(bb_raw) if bb_raw is not None and str(bb_raw) != "nan" else None
         if bb_val is not None and sessions_val == 0:
             bb_val = None
+
+        # CVR=None propagado si Amazon no exporto ni Unit Session ni Order Item Session Percentage
+        cvr_raw = row.get("_cvr")
+        cvr_val = float(cvr_raw) if cvr_raw is not None and str(cvr_raw) != "nan" else None
+
         result[asin] = {
             "Title":    title[:60] + ("\u2026" if len(title) > 60 else ""),
             "Sessions": sessions_val,
             "Units":    float(row["_units"]),
             "Sales":    float(row["_sales"]),
-            "CVR":      float(row["_cvr"]),
+            "CVR":      cvr_val,
             "BuyBox":   bb_val,
         }
     return result
@@ -849,6 +1027,29 @@ def render():
     client_w = st.text_input("Nombre del cliente / Client name",
                               placeholder="Ej: Love To Dream MX", key="weekly_client")
 
+    with st.expander("\U0001f4cb Columnas requeridas / opcionales del BR", expanded=False):
+        st.markdown(
+            "**BR diario (By Date \u2014 Sales and Traffic) \u2014 core m\u00ednimo:**\n"
+            "- `Date`\n"
+            "- `Sessions - Total` (o `Sessions - Mobile App` + `Sessions - Browser`)\n"
+            "- `Units Ordered`\n"
+            "- `Ordered Product Sales`\n\n"
+            "**BR by Child (Detail Page Sales and Traffic By Child Item) \u2014 core m\u00ednimo:**\n"
+            "- `(Child) ASIN`\n"
+            "- `Sessions - Total` (o split Mobile App + Browser)\n"
+            "- `Units Ordered`\n"
+            "- `Ordered Product Sales`\n\n"
+            "**Opcionales (se incluyen si vienen, se omiten si no):**\n"
+            "- `Featured Offer (Buy Box) Percentage` \u2014 recomendado para WoW\n"
+            "- `Unit Session Percentage` o `Order Item Session Percentage` (CVR \u2014 fallback autom\u00e1tico)\n"
+            "- `(Parent) ASIN`, `Title`\n"
+            "- `Page Views - Total` y splits Mobile/Browser\n"
+            "- `Total Order Items`, `Units Refunded`, `Refund Rate`\n"
+            "- `Shipped Product Sales`, `Units Shipped`, `Orders Shipped`\n"
+            "- Variantes B2B de cualquier columna (filtradas por defecto, info disponible v\u00eda flag)\n\n"
+            "**Tip:** el parser tolera dashes unicode (`\u2013`, `\u2014`), doble espacio, falta de gui\u00f3n y splits Mobile/Browser sin Total."
+        )
+
     st.markdown("#### 1\ufe0f\u20e3 Business Report \u2014 " + ("14 d\u00edas diario" if lang_w == "es" else "14-day daily"))
     st.caption("Sales Dashboard \u2192 By Date \u2192 Sales and Traffic \u00b7 Rango: 14 d\u00edas")
     br_daily_file = st.file_uploader("BR diario 14 d\u00edas (.csv/.xlsx)", type=["csv","xlsx"], key="br_daily")
@@ -933,7 +1134,7 @@ def render():
                         "Producto": d.get("Title","")[:40],
                         "Sales TW": f"MX${d.get('Sales',0):,.0f}",
                         "Sessions": int(d.get("Sessions",0)),
-                        "CVR%": f"{d.get('CVR',0):.2f}%",
+                        "CVR%": (f"{d['CVR']:.2f}%" if d.get('CVR') is not None else "—"),
                         "BuyBox%": "{}%".format(d.get("BuyBox", "—")) if d.get("BuyBox") else "—",
                         "AdSpend TW": f"MX${at.get('Spend_TW',0):,.2f}" if at else "\u2014",
                         "ACoS": f"{at.get('Spend_TW',0)/at.get('Sales_TW',1)*100:.1f}%"

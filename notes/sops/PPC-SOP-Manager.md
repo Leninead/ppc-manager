@@ -293,6 +293,8 @@ Clasifica: ↑ creciendo (>10%), → estable, ↓ cayendo (>10%).
 
 **Para qué sirve:** Reporte semanal para el cliente con comparación WoW automática.
 
+> **📋 Nota — BR tolerante a subset (2026-05-04):** El BR puede exportarse con cualquier subset de columnas que incluya las core mínimas (lista abajo). El parser tolera dashes unicode (`–` en-dash, `—` em-dash), doble espacio, falta de guión y splits Mobile App + Browser sin Total. Si falta una col core, muestra mensaje canónico orientando a re-exportar desde Seller Central.
+
 **Inputs (4 archivos, date range 14 días):**
 
 | Archivo | Bajarlo desde | Para qué |
@@ -301,6 +303,29 @@ Clasifica: ↑ creciendo (>10%), → estable, ↓ cayendo (>10%).
 | BR by Child ASIN | Business Reports → By ASIN | Desglose por ASIN |
 | Atom 11 ASIN | Atom 11 → ASIN → DateRange 14d | Ad Spend/Sales split 7+7 |
 | Campaign CSV | Campaign Manager → mismo date range | Impressions/CTR/NTB |
+
+### Columnas BR — core mínimas vs opcionales
+
+**BR diario (By Date — Sales and Traffic) — core mínimo:**
+- `Date`
+- `Sessions - Total` (o `Sessions - Mobile App` + `Sessions - Browser` — el parser suma)
+- `Units Ordered`
+- `Ordered Product Sales`
+
+**BR by Child (Detail Page Sales and Traffic By Child Item) — core mínimo:**
+- `(Child) ASIN`
+- `Sessions - Total` (o split Mobile App + Browser)
+- `Units Ordered`
+- `Ordered Product Sales`
+
+**Opcionales (se incluyen si vienen, se omiten si no):**
+- `Featured Offer (Buy Box) Percentage` — recomendado para WoW
+- `Unit Session Percentage` o `Order Item Session Percentage` (CVR — fallback automático)
+- `(Parent) ASIN`, `Title`
+- `Page Views - Total` y splits Mobile/Browser
+- `Total Order Items`, `Units Refunded`, `Refund Rate`
+- `Shipped Product Sales`, `Units Shipped`, `Orders Shipped`
+- Variantes B2B de cualquier columna (filtradas por defecto, info disponible vía flag)
 
 **Output Excel (4 hojas):**
 - 📈 WoW Comparison — fila azul CUENTA TOTAL + desglose por ASIN
