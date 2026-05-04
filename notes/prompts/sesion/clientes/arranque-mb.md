@@ -2,10 +2,10 @@
 tipo: prompt-arranque-cliente
 cliente: mb
 nivel: cargado
-actualizado: 2026-04-28
+actualizado: 2026-05-04
 proxima_actualizacion: cierre próxima sesión MB
-heroes_oficiales: <<<rellenar próxima sesión>>>
-status_atom11: <<<rellenar próxima sesión>>>
+heroes_oficiales: B0F6LCGH2L (CR M White) · B0F6LDGCDS (VN M Crimson)
+status_atom11: activa (siempre tuvo — corregido 2026-05-04)
 ---
 
 # Arranque Sesión — MB (Mott & Bow)
@@ -45,11 +45,17 @@ Cliente: Mott & Bow — Amazon US, apparel premium.
 <conocimiento_operativo_mb>
 
 ## Heroes oficiales
-<<<rellenar próxima sesión MB>>>
+- CR M White: B0F6LCGH2L (Crew Neck Hero)
+- VN M Crimson: B0F6LDGCDS (V-Neck Hero)
+- Sleeper en observación: línea Black Women (~$3K+/sem orgánico, futuro hero candidato)
 
-## Status Fase 2 (snapshot inicial 2026-03)
-- BLOQUEADA — necesita Brand Store Women actualizado + video SBV
-- Lanzamientos pendientes: White Tee ($30/d) + Premium Cotton ($10/d) — ventana 26-30 abril (verificar si se ejecutó)
+## Status Fase 2 (snapshot 2026-05-04)
+🔥 BLOQUEADA hace 7 días — ventana 26-30 abril vencida sin lanzamientos.
+
+- White Tee ($30/d) + Premium Cotton ($10/d) **NO lanzados**
+- Bloqueo: Brand Store Women actualizado + video SBV (cliente, sin ETA)
+- **Mensaje gate AM Fase 2 — pendiente desde 27/04 — PRIMERA TAREA próxima sesión**
+- Pregunta cerrada al AM: "Brand Store Women + video SBV listos sí/no, fecha estimada"
 
 ## Análisis de tráfico externo (Marzo 2026)
 - Push detectado 27-29/03: sesiones +134% vs fines de semana normales
@@ -57,13 +63,20 @@ Cliente: Mott & Bow — Amazon US, apparel premium.
 - Patrón: tráfico externo (redes sociales / email / influencer) sin aviso a la agencia
 
 ## Atom11 status
-<<<rellenar próxima sesión MB>>>
+✅ Activa (corregido 2026-05-04 — M&B siempre tuvo Atom11, el STATE histórico estaba mal). Coverage exacto, rules activas y portfolios bajo Atom11 — TBD próxima sesión con datos del cliente.
 
 ## Naming convention MB
-<<<rellenar próxima sesión MB — verificar si usa naming Atom11-friendly o legacy>>>
+**Mixto** — coexisten:
+- Legacy con paréntesis de dispositivo: `MTC - B0F844CHFY | SP - PR | EXACT | DEFEND | BRAND ASINS`
+- Capybaras nuevo (las 5 NB HW + Premium del 21-27/04): `MB | B0F6LDGCDS | US | SP-KW | EXACT | NB CR HW A`
+
+Auditoría de unificación naming pendiente — bloqueante para que Atom11 Rules Builder (M11) clasifique todas las campañas correctamente.
 
 ## Bid strategy MB
-<<<rellenar próxima sesión MB>>>
+TBD — definir en próxima sesión M&B. Datos para el análisis:
+- CPC promedio cuenta TW: $0.75
+- Las 5 nuevas con bid $0.80-$1.10 NO impresionan → bid floor apparel Women US > $1.50
+- DEFEND brand sigue eficiente: BROAD M `+mott +bow` ACoS 12.2%, EXACT defenders ACoS 6-15%
 
 </conocimiento_operativo_mb>
 
@@ -149,6 +162,7 @@ Al cierre: 3 prompts sop-writer + update este archivo + git commit/push + refres
 
 ## 📜 Historial de actualizaciones
 
+- **2026-05-04**: STUBs poblados con datos reales del análisis WoW (PW 19-25 abr / TW 26 abr-2 may). Heroes confirmados (CR M White B0F6LCGH2L + VN M Crimson B0F6LDGCDS). Atom11 corregido a activa. Naming mixto documentado. Status Fase 2 actualizado a bloqueada hace 7 días. Bid strategy datos para análisis incluidos.
 - **2026-04-28**: stub creado con contexto disponible (Fase 2 bloqueada + análisis tráfico externo Marzo). Secciones marcadas con `<<<rellenar>>>` esperan la próxima sesión MB.
 
 ---

@@ -176,6 +176,50 @@
 
 ## 💬 Historial
 
+### 2026-05-04 — Análisis WoW Atom11 + fix M14
+
+**Foco:** Análisis WoW (PW 19-25 abr / TW 26 abr-2 may) + fix bug parser BR del Weekly Client Report.
+
+**KPIs cuenta TW:**
+- Spend $1,461 (-24.4% WoW)
+- Ad Sales $13,570 (-14.2%)
+- ACoS 10.8% (mejoró desde 12.2%)
+- ROAS 9.28x (subió desde 8.18x)
+- 303 orders / CVR 15.5%
+
+**Lectura:** Cleanup del 27/04 está rindiendo. Spend bajó más rápido que sales atribuidas → eficiencia neta mejor. Tráfico externo del cliente sigue capturando ventas que antes se atribuían a ads.
+
+**Hallazgos:**
+- 🔴 SCAVENGER quemador: `ALL - SP - KW - AUTO - SCAVENGER` ACoS 58.9% TW vs 3.4% en marzo
+- 🔴 Las 5 campañas nuevas siguen muertas: 3 EXACT NB HW + 2 PAT Premium = 218 imp / 0 clicks en 14d. Bid floor apparel Women US > $1.50.
+- 🟢 SB explotó positivamente: $43→$63 spend / $40→$520 sales / ACoS 108%→12.1%
+- 🟢 Hero VN M Crimson B0F6LDGCDS volvió: 0→3 órdenes, CVR 21.4%
+- 🟡 Hero CR M White B0F6LCGH2L se enfrió: -33% sales, orders 9→6
+- 🔴 ASINs sangrando: B0FY3X2KCT + B0FY3XYNWW (3-Pack Women VN), $56 spend / $0 sales TW
+
+**Corrección crítica al STATE:** M&B SIEMPRE tuvo Atom11 — el STATE-agencia decía "sin Atom11" por error. Los 4 exports analizados hoy lo prueban. Cobertura agencia ahora: 5/6 clientes con Atom11.
+
+**Fix M14 entregado** (commit `fdc4ff9`):
+- BR parser ahora tolera dashes unicode + splits Mobile/Browser + subset de cols
+- 3 helpers nuevos: `_normalizar_col_br`, `_detectar_columnas_br`, `_validar_cols_core_br`
+- B2B filtrado uniforme + CVR fallback uniforme entre `_parse_br_daily_wow` y `_parse_br_wow`
+- Validación bloqueante con mensaje canónico
+- 9/9 tests sintéticos pasaron
+
+**Pendientes que arrastran (NO atacados hoy):**
+- 🔥 Mensaje gate AM Fase 2 — Brand Store Women + video SBV (vencido 26-30 abr, lleva 7 días)
+- Audit SCAVENGER
+- Bid up de las 5 muertas a $1.50 (gate venció hace 14 días)
+- Research PAT Conquest MTC (TrueClassic, Goodfellow, Lacoste, Polo RL)
+- Catálogo Jeans + V-neck/Pocket Defense
+- Investigar qué desbloqueó SB
+
+**Artefacto:** `MB_WoW_26Abr-2May_2026.xlsx` — Excel 7 hojas Capybaras.
+
+**Decisión arquitectónica:** Módulo "Atom11 Weekly Insights" propuesto para complementar M14 — postergado hasta atrincherar pendientes M&B.
+
+---
+
 ### 27/04/2026 — Re-arquitectura non-branded HW + cleanup quirúrgico + bid up PAT Premium
 
 **Contexto:** Día previsto como evaluación EG/Marcy día 14 (lanzamiento 13/04), pero el análisis de 8 archivos reveló que las 9 campañas non-branded del 07/04 + 13/04 nunca arrancaron — bid base $0.02 + ToS +900% no superó bid floor en queries competitivos. La pregunta correcta dejó de ser "¿escalamos EG?" y pasó a ser "¿cómo arrancamos non-branded de verdad?". Decisión ejecutiva: pivot a arquitectura clásica EXACT con multi-child desde día 1.

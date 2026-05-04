@@ -51,9 +51,11 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 | Dermaglos | 83 | v2026.2 AGRESIVO | 117/123 (95%) | 11/04 realizada, 14 días desde confirmación equipo |
 | 360 Essentials | 49 | v2026.2 | 110/131 + 23★ pendientes | 16/04 (primera evaluación) |
 | LTD | 38 | custom (via Cowork) | 99 camps en 6 grupos | pendiente schedule oficial |
-| M&B | — | sin Atom11 | optimización manual | n/a |
+| M&B | TBD | activa (siempre tuvo) | TBD | TBD próxima sesión M&B |
 | Setex | — | sin Atom11 | 92 camps ENABLED | pendiente gestión con Guille |
 | Pura Vida Moringa | — | sin Atom11 (sin crédito) | 14 camps manual | 16/04 evaluación manual |
+
+**Corrección 2026-05-04:** M&B figuraba históricamente como "sin Atom11 — optimización manual" pero los exports analizados en sesión 2026-05-04 prueban que sí tiene reporting Atom11. Coverage agencia ahora: **5/6 clientes con Atom11** (faltan Setex y PVM). Coverage exacto, rules activas y versión bajo Atom11 — TBD próxima sesión M&B con datos del cliente.
 
 ---
 
