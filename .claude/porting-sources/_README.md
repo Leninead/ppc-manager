@@ -14,7 +14,7 @@ Streamlit del Agency OS via el agente `html-to-streamlit-porter`.
 
 | HTML fuente | Origen | Fecha port | Módulo destino | Commit |
 |---|---|---|---|---|
-| flat-file-migrator.html | Marcos (Capybaras) | 2026-05-07 | M27 modules/pages/flat_file_migrator.py | (pendiente, completar al cerrar Bloque 3) |
+| flat-file-migrator.html | Marcos (Capybaras) | 2026-05-07 | M27 modules/pages/flat_file_migrator.py | fd192c8 |
 
 ## Próximos portings planeados
 
