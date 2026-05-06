@@ -732,3 +732,88 @@ Solo MX (MXN). Futuro: multi-marketplace (COM, ES, BR, CA).
 - NO hardcodear marketplaces — v1 solo MX, futuro multi-MP
 - NO duplicar SKUs entre parent y children
 - NO cambiar nombre de hojas — Amazon rechaza si no son exactos
+
+---
+
+## M27 — Flat File Migrator
+**Archivo:** modules/pages/flat_file_migrator.py
+**Sección sidebar:** Account Health
+**Session state prefix:** ffm_
+**Fuente:** porteado de `.claude/porting-sources/flat-file-migrator.html` (2026-05-06)
+
+### Propósito
+Migrar datos de un flat file viejo de Amazon a un template nuevo, mapeando columnas automáticamente con 5 estrategias en cascada (exact field ID → normalized → alias → base → header). Soporta 5 marketplaces independientes en tabs (US/DE/IT/FR/ES). **Stateless por diseño** — sin persistencia, procesamiento puro in-memory.
+
+### Arquitectura
+- 1 tab por marketplace (5 tabs total). Toda la lógica vive en `_render_marketplace(suffix, sheet_names)` parametrizado.
+- Parser cacheado `_parse_workbook(file_bytes, file_name, sheet_names)` con `@st.cache_data(show_spinner=False)`. Cache key = bytes hash.
+- Builders fuera de `render()`: `_build_migrated_xlsx(rows, sheet_name) → bytes` y `_build_migrated_tsv(rows) → bytes` con BOM UTF-8.
+- Helpers porteados literal del HTML: `_detect_header_row`, `_get_headers`, `_is_amazon_internal_row`, `_get_data_rows`, `_detect_file_type`, `_normalize_field_id`, `_looks_like_field_ids`, `_norm_header`, `_match_columns`.
+- `_run_migration(...)` orquesta el flujo completo: detecta header rows, extrae field_ids, aplica las 5 estrategias, construye output preservando rows pre-data del template nuevo.
+
+### Reglas de negocio (porteadas literal del HTML)
+- **Header row detection**: escanea primeras 11 rows, prioriza row con keywords típicas Amazon (`sku`, `item_sku`, `feed_product_type`, `seller sku`, `verkäufer-sku`, `sku venditore`, `référence vendeur`, `sku del vendedor`, etc.). Multi-idioma EN/DE/IT/FR/ES.
+- **5 estrategias de matching en orden estricto**:
+  1. Exact field ID (lowercase)
+  2. Normalized field ID (sin brackets, hash, sufijos)
+  3. Aliases bidireccionales (~40 mappings: `item_sku ↔ contribution_sku`, `brand ↔ brand_name`, `main_image_url ↔ main_product_image_locator`, `other_image_urlN ↔ other_product_image_locator_N`, etc.)
+  4. Base name only
+  5. Header normalizado (lowercase, sin spaces/underscores/dashes) — fallback cuando no hay field IDs
+- **Filtro de filas internas Amazon**: regex `marketplace_id=` · `amzn1\.volt\.` · `#\d+\.value` · `\[language_tag=` + heurística "tipo SHIRT/SHOES con commas"
+- **Skip example row** (default ON): saltea la primera data row del old (ejemplo Amazon)
+- **Preserva rows pre-data del template nuevo**: header rows, field IDs, separadores se copian tal cual; luego una row vacía separadora; luego data del old mapeada a posiciones del new
+- **Output**: XLSX (openpyxl) o TSV con BOM UTF-8 (`﻿` prefix)
+- **Sheet matching**: 1) match exacto lowercase contra `sheetNames` esperados, 2) contains, 3) primer sheet del workbook
+- **Header row override quirky logic** (HTML L997-998): si user pone `1` y auto > 0 → usa auto. Si user pone otro valor → usa user. **Replicado tal cual.**
+
+### Marketplaces v1
+| Marketplace | Sheet names esperados (en orden) |
+|---|---|
+| 🇺🇸 USA | `Template` |
+| 🇩🇪 Germany | `Vorlage`, `Template` |
+| 🇮🇹 Italy | `Modello`, `Template` |
+| 🇫🇷 France | `Modèle`, `Template` |
+| 🇪🇸 Spain | `Plantilla`, `Template` |
+
+Cada marketplace es totalmente independiente (state propio en widget keys con prefijo `ffm_{suffix}_`).
+
+### Inputs
+- **Old Flat File** (.xlsx, .xls, .xlsm, .tsv, .csv, .txt) — flat file viejo con datos
+- **New Flat File** (.xlsx, .xls, .xlsm, .tsv, .csv, .txt) — template nuevo descargado de Seller Central → Catalog → Add Products via Upload → Download Template
+
+### Outputs
+- Stats: columnas migradas / solo en nuevo / no migradas / filas migradas / example row saltada / filas Amazon filtradas / match por método
+- Listas color-coded en expander: 🟢 migradas · 🔴 no encontradas en nuevo · 🟠 solo en nuevo
+- Download: `{base}_migrated.xlsx` o `{base}_migrated.tsv`
+
+### Validación
+- `py_compile` verde en `flat_file_migrator.py`, `app.py`, `core/constants.py`
+- Stateless: no hay `st.session_state` para datos persistentes (solo widget keys)
+- Empty state con borde dashed `#FFD9B3` y mensaje "📂 Subí los flat files para arrancar"
+- Header `🏥 Flat File Migrator` con divider (patrón Account Health)
+
+### Anti-patterns
+- NO arreglar bugs del HTML original durante el porting (regla del Caso 1 del porter)
+- NO inventar marketplaces nuevos — los 5 son los que el HTML original soporta
+- NO usar `pd.read_excel` para parsear — openpyxl preserva mejor la estructura de rows pre-data
+- NO usar `aoa_to_sheet` equivalent en pandas — openpyxl `Workbook()` + `ws.append()` es más fiel al output del HTML
+- NO eliminar el "Skip example row" checkbox — es comportamiento esperado por el AM
+- NO traducir las keywords del header detection — están en 5 idiomas a propósito
+- NO modificar el dict `_ALIASES` — es copia literal del HTML, fiel al comportamiento del compañero
+- NO omitir el BOM `﻿` en el TSV — el HTML lo agrega y Amazon Seller Central lo espera
+- NO permitir output XLSM ni preservar macros del template (el template Amazon flat file no tiene macros relevantes — divergencia respecto a M26 Variation Builder por diseño)
+
+### Deuda técnica heredada del HTML (NO arreglada por regla del Caso 1)
+- **Header row override quirky** (L997-998): comportamiento contraintuitivo cuando user pone `1` y hay auto-detect. Documentado, no arreglado.
+- **`looksLikeFieldIds` regex frágil** (L1005): falsos positivos posibles en headers cortos. Documentado, no arreglado.
+- **`aoa_to_sheet` no preserva data validations / formulas / macros** del new template — solo column widths en HTML, ni eso en el porting Python (openpyxl no lo provee con la misma facilidad). Si el AM reporta pérdida de validations al subir el migrado, evaluar refactor con `keep_vba=True` + copiado de `data_validations` (pero NO durante el porting, sí como sesión separada).
+- **Mensaje de error mezcla idiomas** (`'Error al leer el archivo: ' + err.message` en el HTML — alert en español, código en inglés). Replicado en español como `st.error("Error al leer el archivo: ...")`.
+
+### Propuestas no implementadas — para sesiones futuras
+- **Preview de los datos migrados** antes de descargar (primeras 20 rows) — útil para validar el mapping a ojo antes de comprometerse al download
+- **Editor manual del mapping** post-detección automática: tabla `st.data_editor` para que el AM corrija mappings que el algoritmo no pudo resolver
+- **Persistir mappings custom por marketplace** en `data/account_health/flat_file_mappings.parquet` — si el AM aprende que `mi_kw_custom` siempre debe mapear a `generic_keyword`, recordarlo entre sesiones (Caso 2 — requiere coordinación con `data-persistence-specialist`)
+- **Soporte input TSV / CSV directo** — el HTML acepta `.tsv` y `.csv` en el `accept` pero `XLSX.read` los parsea con auto-detect. En el porting Python `openpyxl.load_workbook` solo abre Excel — los TSV/CSV no van a funcionar como input. Documentado como limitación del v1.
+- **Diff visual entre old → new column mapping** con flechas/líneas (cosmético)
+- **Multi-archivo batch**: subir 5 old files al mismo tiempo y migrar a 5 templates distintos en una sola pasada
+- **Detección de Category Listing vs Flat File más estricta**: usar el campo `feed_product_type` para mapear automáticamente la categoría correcta y avisar si old y new son de categorías distintas

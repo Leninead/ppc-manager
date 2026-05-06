@@ -76,7 +76,7 @@ def render():
         f"<div style='display:flex;align-items:center;gap:1rem;margin-bottom:0.25rem;'>"
         f"<span style='font-size:2.5rem;'>🦫</span>"
         f"<div>"
-        f"<div style='font-size:1.6rem;font-weight:800;color:{_NEGRO};'>Capybaras Agency OS</div>"
+        f"<div style='font-size:1.6rem;font-weight:800;color:{_NEGRO};'>Agency OS</div>"
         f"<div style='font-size:0.85rem;color:{_GRIS_TXT};'>"
         f"El sistema operativo de la agencia — {_VERSION} — {_DATE}</div>"
         f"</div>"
@@ -98,7 +98,7 @@ def render():
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(_area_card(
-            "📊", "PPC Manager",
+            "📊", "PPC",
             "Gestionamos campañas publicitarias en Amazon para maximizar ventas y rentabilidad."
             "<div style='margin-top:0.8rem;padding:0.75rem;background:#FFF3EE;"
             "border-radius:8px;border-left:3px solid #E84000;'>"
@@ -274,7 +274,7 @@ def render():
         st.markdown(_area_card(
             "🏥", "Account Health",
             "Incidencias y cumplimiento de políticas Amazon.",
-            "—", [], activo=False
+            "Marcos", [], activo=True
         ), unsafe_allow_html=True)
 
     col9, col10, col11 = st.columns(3)
