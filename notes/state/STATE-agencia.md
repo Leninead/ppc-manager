@@ -1,11 +1,38 @@
 ---
 tipo: state
-actualizado: 2026-05-06
+actualizado: 2026-05-07
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-05-07
+
+**Cliente tocado**: ninguno. Sesión de tooling/desarrollo sobre infraestructura del repo.
+
+**Foco**: ejecución del plan de 3 bloques bloqueado en sesión anterior — rebrand visual del repo a Agency OS + bootstrap real de `core/persistence.py` + porting del primer HTML del compañero Marcos (Flat File Migrator → M27 sección Account Health). Validación en operación real de los 2 agentes Opus 4.7 nuevos (`data-persistence-specialist` y `html-to-streamlit-porter`) creados en la sesión anterior.
+
+**Acciones ejecutadas** (7 commits pusheados a main, merge commit `e49dc52`):
+- `e93121f` rebrand UI: page_title + header sidebar + expander Account Health activado
+- `f00de3c` bootstrap `core/persistence.py` con 10 helpers + schemas + roundtrip test (415 líneas)
+- `64279c3` setup `.claude/porting-sources/` con README versionado e ignorado de `*.html` fuente
+- `fd192c8` portar Flat File Migrator → M27 (1075 líneas, 21 funciones, 5 marketplaces US/DE/IT/FR/ES, 5 tabs)
+- `acdffae` registrar commit hash de M27 en inventario `porting-sources/_README.md`
+- `9d9ef17` cleanup strings Capybaras/PPC Manager residuales (login form + card PPC; footers con Lenin se respetaron)
+- `e49dc52` merge `feat/agency-os-rebrand` → main `--no-ff` (10 archivos, 1775 insertions, 8 deletions)
+
+**Validaciones de agentes en operación real** (primera vez):
+- `data-persistence-specialist` Caso 1: 6/6 verdes (roundtrip, schema check, cache invalidation, path coherence, gitignore, module import). Output estructurado al primer intento.
+- `html-to-streamlit-porter` Caso 1 (HTML stateless): 6 fases ejecutadas, Fase 3 skipped por stateless confirmado en Fase 1. Output estructurado al primer intento. Deuda técnica heredada del HTML (5 ítems) documentada en CLAUDE.md de M27 sin arreglar.
+
+**Decisiones tardías post-merge** (sin ejecutar, deuda menor):
+- Footers con "Capybaras Agency" en autoría de Lenin Acosta se respetan en cleanup. Si en futuro se busca 0 menciones de Capybaras en UI, son 2 edits triviales en `app.py L262-264` y `inicio.py L311-313`.
+- Branch `feat/agency-os-rebrand` merged-not-deleted como red de seguridad. Lenin decide cuándo purgarla.
+
+**Próximas evaluaciones programadas**: ninguna específica. Próxima sesión abierta a (a) validar otros agentes con model fix, (b) avanzar M28 SKU Progress Report con persistence-specialist Caso 2, (c) tareas de cliente pendientes (Dermaglos, Variation Builder M26, Setex).
 
 ---
 
@@ -184,19 +211,21 @@ Todos commiteados a `main`, pendientes de push.
 
 ## Próximos pasos inmediatos
 
-1. **Próxima sesión 2026-05-07 — 3 bloques de Account Health activation:**
-   - Bloque 1: rebrand visual del repo (PPC Manager → Agency OS, eliminar Capybaras branding visible, activar sección Account Health)
-   - Bloque 2: bootstrap real de core/persistence.py invocando data-persistence-specialist con Caso 1 (10 helpers + data/_README.md + data/_schemas/.gitkeep + .gitignore update + roundtrip test)
-   - Bloque 3: porting Flat File Migrator → M27 invocando html-to-streamlit-porter con Caso 1 (stateless). Validación end-to-end.
-2. **Variation Builder M26** — Aplicar fix de 3 keys al `data_editor` de tab Children. Testing end-to-end. Si falla → pasar a `st.form`. Commit + push.
-3. **Dermaglos** — Ejecutar Rufus en 4 heroes (B0CYLMJJJC, B0CYLM4L23, B0F4KXZVNM, B0F548KTXD) + negativizaciones (18 términos) + harvest 7 KWs + escalar `dermaglos facial` / `dermaglos moisturizing cream` (0% brand share). Verificar equipo Atom11 ejecutó entregable `DG_Atom11_v2026_2_ENTREGABLE.xlsx`.
-4. **M&B** — (1) Redactar mensaje gate AM Fase 2 (NO se hizo 27/04) — pregunta cerrada Brand Store Women + video SBV. (2) 05/05 eval día 14 PAT Premium (bid $1.10 desde 27/04) — si no impresiona en 72h escalada $1.50/creative/re-validar ASINs. (3) 11/05 eval día 14 NB HW (3 EXACT $30/d). (4) Investigar catálogo Jeans M&B — fuga branded 60-70% en queries "mott and bow jeans" (~$300+/mes). (5) Research PAT Conquest MTC vs TrueClassic ($69.99/541 purchases mercado/0% share) + Goodfellow + Lacoste + Polo RL — resuelve scope Men pendiente desde 21/04.
-5. **LTD** — Fase 6 esta semana (delegada a equipo): Adam con Aaron por flag B005ULUZIQ, Agustín con cliente por ETA restock B09MG1J3LC + summary Fases 1+3+4+5 + lista heroes definitiva (3ra solicitud) + verificar movimiento precio $859→$809 B09MG1PM6L. Lenin pendiente: asignar portfolios manualmente a las 5 EXACT recién creadas (SU-NB / SU-M ×2 / SU-T / SU-S) + programar auditoría sistémica match producto/KW. Evaluaciones día 7 (02/05) y día 14 (09/05) anotadas en [[LTD]].
-6. **360 Essentials** — Revisar evaluación Atom11 del 16/04 (pasó) y ejecutar plan PPC 2026: 3 camps SBV FreedomPlus ($45/d), test incrementalidad PHRASE KWS, relanzar SD RET VIEWS bid $1. Gate: video creativo FreedomPlus con cliente.
-7. **Setex** — Listing optimization con STR+SQP keywords de mayor conversión para nose pads (B081GB8F89) y temple tips (B0B94KBY8H). Definir dueño del video SBV B08PZF22R1.
-8. **Pura Vida Moringa** — 16/04 próxima evaluación: re-evaluar campañas HARVEST sesiones 1-3 (14+ días data). Negativizar b0dqr3ldwn y b08bbdc9c7 nuevos en AUTO DISCOVERY. Bajar bid RANK moringa capsulas.
-9. **Repo** — decidir Sprint 2 (Campaign Builder Modo B, ~4-5h) vs Sprint 3 (DaypartingApp, ~2h) según prioridad. Actualizar [[INTELLIGENCE-INDEX]] stale (1 nota reportada, falta incluir 360 Essentials + PVM + corregir MB → US). Push de commits locales + cambios de hoy.
-10. **Agentes** — ⏳ EN PROGRESO. `code-reviewer.md` actualizado 29/04 (claude-sonnet-4-5-20250514 → claude-sonnet-4-6). Pendiente: auditar el resto de `.claude/agents/*.md` por mismo patrón. Síntoma del bug: agente devuelve `tool_uses=0` sin error explícito. Revisar system prompt de `sop-writer` para que no modifique archivos no autorizados.
-11. **Outputs LTD sesión 25/04**: Bulk `LTD_Fase4_Bulk_M4_Push_Heroes_25Abr2026.xlsx` subido a Amazon (Batch UUID 10d5a6ef). HTML internal brief `LTD_Sesion_25Abr2026_InternalBrief.html` generado para distribución interna Adam+Agustín. Ambos en /mnt/user-data/outputs (compartidos con Lenin desde Claude chat).
-12. **Biblioteca de prompts v5 (2026-04-27)** — refrescar 7 archivos en proyecto Claude vía "Add content from GitHub". Después validar `cierre-meta` en sesión real durante esta misma conversación. Crear archivos de `codigo/` cuando aparezca el primer módulo nuevo. Actualizar [[CLAUDE]] del vault + [[Biblioteca]] con la nueva carpeta.
-13. **Setex** — (1) Esperar respuesta Tati con ETA reposición FBA Temple Tips + Ear Hooks + B086H3TZ6B. (2) Asignación manual portfolios RANKING/CONQUEST/DEFENSIVE a las 9 nuevas en Campaign Manager. (3) 06/05 chequeo impressions de las 9 nuevas (4d). (4) 09/05 review performance EXACT iniciales (1sem). (5) Cuando llegue restock: ejecutar [[PENDIENTES_RESTOCK]] playbook (5 campañas + 12 KWs + bid +25-30%). (6) Próxima sesión también: subir bid Brand Hub Heroes $3→$5 + crear KWs "best nose pads" + listing opt B081GB8F89 + conectar Atom11 con Guille (pre-requisito ✓ cumplido).
+1. **Validar otros agentes con model fix en operación real**: `ppc-module-builder`, `code-reviewer`, `atom11-specialist`, `excel-export-builder`, `ui-designer`, `testing-agent`, `client-onboarding`. Los 2 agentes Opus 4.7 nuevos (`data-persistence-specialist`, `html-to-streamlit-porter`) ya fueron validados al primer intento en la sesión 2026-05-07.
+
+2. **Coordinar con Marcos sobre M27**: confirmar si MX se agrega como 6to marketplace (template Amazon distinto?) o queda fuera del scope. Validar v1 con un flat file real de su workflow para detectar si las 5 estrategias de matching en cascada cubren los casos reales.
+
+3. **M28 SKU Progress Report (próximo porting)**: invocar `data-persistence-specialist` con Caso 2 (HTML con persistencia simple en lugar de stateless). Diseñar schema `sku-progress-v1.json` antes de invocar al porter. Esfuerzo estimado: 4-6h.
+
+4. **Variation Builder M26**: fix de 3 keys al `data_editor` de tab Children. Testing end-to-end. Sigue pendiente de sesión anterior.
+
+5. **Dermaglos**: Rufus en 4 heroes (B0CYLMJJJC, B0CYLM4L23, B0F4KXZVNM, B0F548KTXD) + negativizaciones (18 términos) + harvest 7 KWs + escalar `dermaglos facial` / `dermaglos moisturizing cream` (0% brand share). Verificar equipo Atom11 ejecutó entregable `DG_Atom11_v2026_2_ENTREGABLE.xlsx`. Sigue pendiente de sesión anterior.
+6. **M&B** — (1) Redactar mensaje gate AM Fase 2 (NO se hizo 27/04) — pregunta cerrada Brand Store Women + video SBV. (2) 05/05 eval día 14 PAT Premium (bid $1.10 desde 27/04) — si no impresiona en 72h escalada $1.50/creative/re-validar ASINs. (3) 11/05 eval día 14 NB HW (3 EXACT $30/d). (4) Investigar catálogo Jeans M&B — fuga branded 60-70% en queries "mott and bow jeans" (~$300+/mes). (5) Research PAT Conquest MTC vs TrueClassic ($69.99/541 purchases mercado/0% share) + Goodfellow + Lacoste + Polo RL — resuelve scope Men pendiente desde 21/04.
+7. **LTD** — Fase 6 esta semana (delegada a equipo): Adam con Aaron por flag B005ULUZIQ, Agustín con cliente por ETA restock B09MG1J3LC + summary Fases 1+3+4+5 + lista heroes definitiva (3ra solicitud) + verificar movimiento precio $859→$809 B09MG1PM6L. Lenin pendiente: asignar portfolios manualmente a las 5 EXACT recién creadas (SU-NB / SU-M ×2 / SU-T / SU-S) + programar auditoría sistémica match producto/KW. Evaluaciones día 7 (02/05) y día 14 (09/05) anotadas en [[LTD]].
+8. **360 Essentials** — Revisar evaluación Atom11 del 16/04 (pasó) y ejecutar plan PPC 2026: 3 camps SBV FreedomPlus ($45/d), test incrementalidad PHRASE KWS, relanzar SD RET VIEWS bid $1. Gate: video creativo FreedomPlus con cliente.
+9. **Setex** — Listing optimization con STR+SQP keywords de mayor conversión para nose pads (B081GB8F89) y temple tips (B0B94KBY8H). Definir dueño del video SBV B08PZF22R1.
+10. **Pura Vida Moringa** — 16/04 próxima evaluación: re-evaluar campañas HARVEST sesiones 1-3 (14+ días data). Negativizar b0dqr3ldwn y b08bbdc9c7 nuevos en AUTO DISCOVERY. Bajar bid RANK moringa capsulas.
+11. **Repo** — decidir Sprint 2 (Campaign Builder Modo B, ~4-5h) vs Sprint 3 (DaypartingApp, ~2h) según prioridad. Actualizar [[INTELLIGENCE-INDEX]] stale (1 nota reportada, falta incluir 360 Essentials + PVM + corregir MB → US). Push de commits locales + cambios de hoy.
+12. **Outputs LTD sesión 25/04**: Bulk `LTD_Fase4_Bulk_M4_Push_Heroes_25Abr2026.xlsx` subido a Amazon (Batch UUID 10d5a6ef). HTML internal brief `LTD_Sesion_25Abr2026_InternalBrief.html` generado para distribución interna Adam+Agustín. Ambos en /mnt/user-data/outputs (compartidos con Lenin desde Claude chat).
+13. **Biblioteca de prompts v5 (2026-04-27)** — refrescar 7 archivos en proyecto Claude vía "Add content from GitHub". Después validar `cierre-meta` en sesión real durante esta misma conversación. Crear archivos de `codigo/` cuando aparezca el primer módulo nuevo. Actualizar [[CLAUDE]] del vault + [[Biblioteca]] con la nueva carpeta.
+14. **Setex** — (1) Esperar respuesta Tati con ETA reposición FBA Temple Tips + Ear Hooks + B086H3TZ6B. (2) Asignación manual portfolios RANKING/CONQUEST/DEFENSIVE a las 9 nuevas en Campaign Manager. (3) 06/05 chequeo impressions de las 9 nuevas (4d). (4) 09/05 review performance EXACT iniciales (1sem). (5) Cuando llegue restock: ejecutar [[PENDIENTES_RESTOCK]] playbook (5 campañas + 12 KWs + bid +25-30%). (6) Próxima sesión también: subir bid Brand Hub Heroes $3→$5 + crear KWs "best nose pads" + listing opt B081GB8F89 + conectar Atom11 con Guille (pre-requisito ✓ cumplido).
