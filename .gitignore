@@ -44,3 +44,10 @@ notes/*
 .env
 # ── Agregado por setup_deploy.py ──────────────────
 .streamlit/secrets.toml
+
+# ── Carpeta porting-sources/ ──────────────────────
+# HTMLs fuente que se portean a módulos Streamlit. Los archivos .html
+# son data del compañero (privacidad + tamaño) y NO se versionan.
+# El _README.md SÍ se versiona como inventario de qué se porteó cuándo.
+.claude/porting-sources/*.html
+!.claude/porting-sources/_README.md
