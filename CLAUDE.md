@@ -1986,3 +1986,75 @@ Criterio YAGNI: no anticipar problemas teóricos sin feedback real.
 - [ ] Testing en producción del módulo Variation Builder con archivo Pet Food real (smoke test post-deploy Streamlit Cloud)
 - [ ] Validar que no haya regresión en navigation con la nueva entrada (botón visible y clickeable)
 - [ ] Considerar refactor del `return-in-tabs` en `tab_download` a `else` branches para robustez si se planea agregar más tabs
+
+---
+
+## 🛠️ Tooling — Snapshot 2026-05-06
+
+Estado actual del directorio `.claude/` después del setup de Account Health tooling.
+
+### Skills activos — 5 archivos
+
+| Skill | Propósito | Aplica a |
+|---|---|---|
+| `ppc-reporting-standard` | Paleta Capybaras, kpi_card, semáforos ACoS, fórmulas PPC, formato numérico | Módulos sección PPC |
+| `module-architecture-standard` | Patrón render(), header, empty states, tabs, parsers @st.cache_data, checklist pre-commit | Todo módulo Streamlit |
+| `client-communication-tone` | Tono Capybaras, reportes ejecutivos, formato Slack, ES/EN | Módulos que generan output al cliente |
+| `data-persistence-standard` 🆕 | Estructura paths data/, naming, formato Parquet, schemas evolutivos, migration path local→cloud | Todo módulo que persiste datos |
+| `account-health-standard` 🆕 | Paleta severidades, terminología bilingüe, conceptos del dominio, exports Excel | Módulos sección Account Health |
+
+### Agentes activos — 11 archivos
+
+| Agente | Modelo | Color | Tier | Skills que lee |
+|---|---|---|---|---|
+| `ppc-module-builder` | Opus 4.7 | orange | 🧠 Lógica pura | `ppc-reporting-standard`, `module-architecture-standard` |
+| `code-reviewer` | Opus 4.7 | red | 🧠 Lógica pura | `module-architecture-standard`, `ppc-reporting-standard` |
+| `atom11-specialist` | Opus 4.7 | green | 🧠 Lógica pura | `ppc-reporting-standard` |
+| `data-persistence-specialist` 🆕 | Opus 4.7 | violet | 🧠 Lógica pura | `data-persistence-standard`, `module-architecture-standard` |
+| `html-to-streamlit-porter` 🆕 | Opus 4.7 | cyan | 🧠 Lógica pura | `module-architecture-standard`, `account-health-standard`, `ppc-reporting-standard` |
+| `excel-export-builder` | Sonnet 4.5 | orange | ⚙️ Implementación | `ppc-reporting-standard` |
+| `ui-designer` | Sonnet 4.5 | blue | ⚙️ Implementación | `ppc-reporting-standard`, `module-architecture-standard` |
+| `testing-agent` | Sonnet 4.5 | yellow | ⚙️ Implementación | `module-architecture-standard` |
+| `client-onboarding` | Sonnet 4.5 | purple | ⚙️ Implementación | `ppc-reporting-standard`, `client-communication-tone` |
+| `sop-writer` | Haiku 4.5 | green | 📝 Markdown | `client-communication-tone` |
+| `client-notes-updater` | Haiku 4.5 | purple | 📝 Markdown | `client-communication-tone` |
+
+**Distribución por tier**: 5 Opus (45%) · 4 Sonnet (36%) · 2 Haiku (18%).
+
+### Cambios en este setup (2026-05-06)
+
+**Skills nuevos (2):**
+- `data-persistence-standard.md` — capa de persistencia para todo el Agency OS, base para escalar a Account Health, Supply Chain, etc.
+- `account-health-standard.md` — convenciones de la nueva sección Account Health del sidebar (Pricing, SKU Progress, Flat File, etc.).
+
+**Agentes nuevos (2):**
+- `data-persistence-specialist.md` — dueño de `core/persistence.py` y `data/` schemas. Diseña capa I/O cuando se construye módulo nuevo con persistencia.
+- `html-to-streamlit-porter.md` — portea HTMLs standalone del compañero (Pricing Dashboard, SKU Progress, Flat File Migrator) a módulos Streamlit del repo.
+
+**Model fixes (7 agentes) — issue AGENT-001 cerrado:**
+
+Tier upgrade — promovidos a Opus 4.7 por ser lógica pura crítica:
+- `ppc-module-builder` (era sonnet-4-5-20250514 deprecated)
+- `code-reviewer` (era sonnet-4-6)
+- `atom11-specialist` (era sonnet-4-5-20250514 deprecated)
+
+Snapshot fix — actualizados de model deprecated a snapshot estable Sonnet:
+- `excel-export-builder` (sonnet-4-5-20250514 → sonnet-4-5-20250929)
+- `ui-designer` (sonnet-4-5-20250514 → sonnet-4-5-20250929)
+- `testing-agent` (sonnet-4-5-20250514 → sonnet-4-5-20250929)
+- `client-onboarding` (sonnet-4-5-20250514 → sonnet-4-5-20250929)
+
+Sin cambios:
+- `sop-writer` y `client-notes-updater` ya estaban en `claude-haiku-4-5-20251001` correcto.
+
+### Convención de modelos del repo
+
+A partir de hoy:
+
+| Tier | Modelo | Cuándo |
+|---|---|---|
+| 🧠 Lógica pura | `claude-opus-4-7` (alias estable) | Agentes que hacen razonamiento crítico: construcción de módulos, code review, análisis de scoring, diseño de capas arquitectónicas, porting fiel de lógica ajena |
+| ⚙️ Implementación | `claude-sonnet-4-5-20250929` (snapshot fijo) | Agentes que ejecutan plantillas: Excel exports, layouts UI, testing mecánico, onboarding de cliente |
+| 📝 Markdown | `claude-haiku-4-5-20251001` (snapshot fijo) | Agentes que escriben markdown a partir de instrucciones explícitas |
+
+Los snapshots fijos en Sonnet y Haiku evitan el incidente de 2026-04-26 (deprecación silenciosa). Opus va con alias estable porque históricamente cambia con menos frecuencia y sin breaking changes.

@@ -6,6 +6,20 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Tooling — Account Health setup (2026-05-06)
+- **Skills nuevos (2):**
+  - `data-persistence-standard.md` — convenciones bloqueadas de persistencia para todo el Agency OS. Estructura paths `data/<area>/<cliente>/<modulo>/`, naming `YYYY-WW.parquet`, schemas evolutivos en `data/_schemas/`, API mínima de `core/persistence.py` con 10 helpers, migration path Parquet→SQLite→Postgres, `.gitignore` por defecto para datos cliente.
+  - `account-health-standard.md` — convenciones nueva sección Account Health: paleta 6 severidades unificadas (crítico/importante/saludable/menor/info/logístico), terminología bilingüe Amazon (~40 términos en inglés sin traducir), conceptos has_backup/aging/AIS, header con emoji 🏥, naming Excel exports `{Cliente}_{Modulo}_{Periodo}.xlsx`.
+- **Agentes nuevos (2):**
+  - `data-persistence-specialist.md` (Opus 4.7, color violet) — dueño de `core/persistence.py` y `data/` schemas. NO construye módulos enteros, coordina con `html-to-streamlit-porter` o `ppc-module-builder`.
+  - `html-to-streamlit-porter.md` (Opus 4.7, color cyan) — porter de HTMLs standalone a módulos Streamlit. 6 fases obligatorias: análisis estructural, mapeo HTML→Streamlit, coordinación con persistence specialist, implementación, integración router, validación end-to-end.
+- **Model fixes — issue AGENT-001 cerrado:**
+  - Promociones a Opus 4.7 (lógica pura): `ppc-module-builder`, `code-reviewer`, `atom11-specialist`.
+  - Snapshot fix Sonnet 4.5 estable: `excel-export-builder`, `ui-designer`, `testing-agent`, `client-onboarding`.
+  - Sin cambios (ya estaban correctos): `sop-writer`, `client-notes-updater`.
+- **Convención de modelos del repo formalizada**: Opus alias estable para lógica pura, Sonnet snapshot fijo para implementación, Haiku snapshot fijo para markdown.
+- **Setup motivado por integración futura**: 3 HTMLs del compañero Marcos (Pricing Dashboard v3, SKU Progress Report v4, Flat File Migrator) van a portearse a la sección Account Health en próximas sesiones, usando estos skills/agents como infra base.
+
 ### Added
 - **Variation Builder (M26)** — módulo nuevo en Account Manager. Generador de flat files Amazon con variaciones (parent + N children). 913 líneas, parser dinámico soporta hasta 220 columnas. Agrupa por variation_theme (Sabor, Nombre del Tamano, Scent, FlavorName-SizeName, Tamano del Sabor, Nombre del Patron). Preserva macros VBA y 10 hojas del template. v1 solo MX (MXN). Tested end-to-end con Pet Food real.
 - **Gamboa Generator (M25)** — módulo nuevo en Account Manager. Reportes HTML integrales combinando SQP mensual + BR semanal. Dashboard interactivo con filtros runtime, agregaciones por mes, comparación WoW. Categorización persistente de keywords por cliente. 5 archivos: `modules/gamboa/__init__.py`, `parsers.py` (421L), `generator.py` (278L), `template.html` (874L/64KB), `modules/pages/gamboa_generator.py` (383L).

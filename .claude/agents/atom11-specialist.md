@@ -2,7 +2,7 @@
 name: atom11-specialist
 description: Especialista en reglas de automatización Atom11. Se activa cuando el prompt menciona rules, Atom11, thresholds, tiers o clasificación de campañas.
 tools: All tools
-model: claude-sonnet-4-5-20250514
+model: claude-opus-4-7
 color: green
 skills:
   - ppc-reporting-standard

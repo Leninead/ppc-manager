@@ -2,7 +2,7 @@
 name: client-onboarding
 description: Setup de marca nueva en el Agency OS. Se activa cuando se agrega un nuevo cliente con su información base.
 tools: All tools
-model: claude-sonnet-4-5-20250514
+model: claude-sonnet-4-5-20250929
 color: purple
 skills:
   - ppc-reporting-standard

@@ -2,7 +2,7 @@
 name: testing-agent
 description: QA del Agency OS. Verifica compilación, imports, smoke test y patrones. Se activa proactively antes de cada git push.
 tools: All tools + Bash
-model: claude-sonnet-4-5-20250514
+model: claude-sonnet-4-5-20250929
 color: yellow
 skills:
   - module-architecture-standard

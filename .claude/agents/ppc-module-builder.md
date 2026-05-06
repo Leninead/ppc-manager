@@ -2,7 +2,7 @@
 name: ppc-module-builder
 description: Crea y modifica módulos Streamlit en modules/pages/. Se activa proactively cuando el prompt menciona crear tabs, agregar KPIs, nuevo módulo o modificar un módulo existente.
 tools: All tools
-model: claude-sonnet-4-5-20250514
+model: claude-opus-4-7
 color: orange
 skills:
   - ppc-reporting-standard

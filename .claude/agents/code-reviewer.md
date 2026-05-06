@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Review de código read-only. Se activa proactively después de cualquier cambio en modules/pages/ para verificar calidad, bugs y patrones.
 tools: Glob, Grep, Read
-model: claude-sonnet-4-6
+model: claude-opus-4-7
 color: red
 skills:
   - module-architecture-standard

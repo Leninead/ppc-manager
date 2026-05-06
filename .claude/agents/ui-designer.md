@@ -2,7 +2,7 @@
 name: ui-designer
 description: Diseña componentes visuales y layouts del Agency OS. Se activa proactively cuando el prompt menciona rediseñar, layout, cards, sidebar, o componentes visuales.
 tools: All tools
-model: claude-sonnet-4-5-20250514
+model: claude-sonnet-4-5-20250929
 color: blue
 skills:
   - ppc-reporting-standard

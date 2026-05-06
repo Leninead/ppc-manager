@@ -2,7 +2,7 @@
 name: excel-export-builder
 description: Construye funciones _build_*_excel() con branding Capybaras. Se activa proactively cuando el prompt menciona export Excel, descarga, o generar reporte descargable.
 tools: All tools
-model: claude-sonnet-4-5-20250514
+model: claude-sonnet-4-5-20250929
 color: orange
 skills:
   - ppc-reporting-standard
