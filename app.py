@@ -157,7 +157,7 @@ _authenticator = stauth.Authenticate(
 
 _name, _auth_status, _username = _authenticator.login(
     fields={
-        "Form name": "🦫 Capybaras PPC Manager",
+        "Form name": "🦫 Agency OS",
         "Username": "Usuario",
         "Password": "Contraseña",
         "Login": "Ingresar",

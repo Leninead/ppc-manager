@@ -98,7 +98,7 @@ def render():
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(_area_card(
-            "📊", "PPC Manager",
+            "📊", "PPC",
             "Gestionamos campañas publicitarias en Amazon para maximizar ventas y rentabilidad."
             "<div style='margin-top:0.8rem;padding:0.75rem;background:#FFF3EE;"
             "border-radius:8px;border-left:3px solid #E84000;'>"
