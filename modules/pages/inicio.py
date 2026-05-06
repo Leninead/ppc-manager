@@ -76,7 +76,7 @@ def render():
         f"<div style='display:flex;align-items:center;gap:1rem;margin-bottom:0.25rem;'>"
         f"<span style='font-size:2.5rem;'>🦫</span>"
         f"<div>"
-        f"<div style='font-size:1.6rem;font-weight:800;color:{_NEGRO};'>Capybaras Agency OS</div>"
+        f"<div style='font-size:1.6rem;font-weight:800;color:{_NEGRO};'>Agency OS</div>"
         f"<div style='font-size:0.85rem;color:{_GRIS_TXT};'>"
         f"El sistema operativo de la agencia — {_VERSION} — {_DATE}</div>"
         f"</div>"
@@ -274,7 +274,7 @@ def render():
         st.markdown(_area_card(
             "🏥", "Account Health",
             "Incidencias y cumplimiento de políticas Amazon.",
-            "—", [], activo=False
+            "Marcos", [], activo=True
         ), unsafe_allow_html=True)
 
     col9, col10, col11 = st.columns(3)

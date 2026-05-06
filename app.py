@@ -44,7 +44,7 @@ from modules.pages.gamboa_generator import render as render_gamboa_generator
 from modules.pages.variation_builder import render as render_variation_builder
 import streamlit_authenticator as stauth
 
-st.set_page_config(page_title="PPC Manager", layout="wide")
+st.set_page_config(page_title="Agency OS", layout="wide")
 
 st.markdown("""
 <style>
@@ -189,7 +189,7 @@ with st.sidebar:
         "<div style='padding:0.75rem 0.5rem 0.25rem;'>"
         "<span style='font-size:1.4rem;'>🦫</span>"
         "<span style='font-size:0.75rem;font-weight:800;color:#E84000;"
-        "margin-left:0.4rem;vertical-align:middle;'>Capybaras OS</span>"
+        "margin-left:0.4rem;vertical-align:middle;'>Agency OS</span>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -243,6 +243,9 @@ with st.sidebar:
     with st.expander("📚 KNOWLEDGE", expanded=False):
         st.button("📚 Knowledge Base", use_container_width=True, on_click=_nav,
                   args=("📚 Knowledge Base",), key="nav_📚 Knowledge Base")
+
+    with st.expander("🏥 ACCOUNT HEALTH", expanded=False):
+        st.caption("Módulos próximamente · owner: Marcos")
 
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
     _pe_label = (
