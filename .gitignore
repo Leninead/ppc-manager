@@ -1,6 +1,27 @@
 ﻿__pycache__/
 *.pyc
-data/
+
+# ── Capa de persistencia (data/) ──────────────────────
+# Por default ignoramos todo data/, pero permitimos versionar:
+#   - _README.md y _schemas/ (estructura del directorio)
+#   - _examples/ por área (data sintética para testing)
+#   - configs versionados de módulos client-agnostic (ej. flat-file-migrator/aliases-v*.json)
+# Datos reales de cliente NUNCA se versionan (privacidad, tamaño, sync con Claude.ai).
+data/*
+!data/_README.md
+!data/_schemas/
+!data/_schemas/**
+!data/account-health/
+data/account-health/*
+!data/account-health/_README.md
+!data/account-health/_examples/
+!data/account-health/_examples/**
+!data/account-health/flat-file-migrator/
+data/account-health/flat-file-migrator/*
+!data/account-health/flat-file-migrator/*.json
+!data/account-health/flat-file-migrator/_examples/
+!data/account-health/flat-file-migrator/_examples/**
+
 *.csv
 app_backup.py
 notes/*
