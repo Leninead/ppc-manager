@@ -32,4 +32,5 @@ _PAGES = [
     "🛡️ Listing Compliance",
     "📊 Gamboa Generator",
     "🧬 Variation Builder",
+    "🗂️ Flat File Migrator",
 ]

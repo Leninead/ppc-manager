@@ -42,6 +42,7 @@ from modules.pages.sbh_recommendation import render as render_sbh
 from modules.pages.knowledge_base import render as render_knowledge
 from modules.pages.gamboa_generator import render as render_gamboa_generator
 from modules.pages.variation_builder import render as render_variation_builder
+from modules.pages.flat_file_migrator import render as render_flat_file_migrator
 import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="Agency OS", layout="wide")
@@ -245,7 +246,8 @@ with st.sidebar:
                   args=("📚 Knowledge Base",), key="nav_📚 Knowledge Base")
 
     with st.expander("🏥 ACCOUNT HEALTH", expanded=False):
-        st.caption("Módulos próximamente · owner: Marcos")
+        st.button("🗂️ Flat File Migrator", use_container_width=True, on_click=_nav,
+                  args=("🗂️ Flat File Migrator",), key="nav_🗂️ Flat File Migrator")
 
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
     _pe_label = (
@@ -346,3 +348,6 @@ if selected == "📊 Gamboa Generator":
 
 if selected == "🧬 Variation Builder":
     render_variation_builder()
+
+if selected == "🗂️ Flat File Migrator":
+    render_flat_file_migrator()
