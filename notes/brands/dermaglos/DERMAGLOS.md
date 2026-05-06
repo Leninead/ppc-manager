@@ -1,7 +1,8 @@
 ---
 tipo: brand
-actualizado: 2026-04-28
+actualizado: 2026-05-05
 cliente: dermaglos
+marketplace: USA
 ---
 
 # DERMAGLOS.md
@@ -474,3 +475,9 @@ Findings #2-4 from the original message stand as written.
 - [ ] Escalar `dermaglos facial` y `dermaglos moisturizing cream` en brand campaigns
 - [ ] Bajar bids en Facial Cleanser B0CYK4G2Y8 — ACoS 432%
 - [ ] Evaluación Atom11 en 14 días desde confirmación del equipo
+
+---
+
+## 2026-05-05 — Corrección de marketplace
+
+Marketplace confirmado: **Amazon.com (USA)**, NO MX como estaba documentado previamente. Corrección identificada en sesión de test Apify. Ver [[daily/2026-05-05]].

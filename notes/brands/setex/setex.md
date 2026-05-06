@@ -5,7 +5,7 @@ mercado: Amazon MX
 account_manager: Tatiana Velasquez
 status: cuenta madura post-Perpetua takeover
 ultima_sesion: 2026-04-29
-actualizado: 2026-04-29
+actualizado: 2026-05-05
 ---
 
 # 🏢 Setex Technologies — Amazon MX
@@ -238,3 +238,18 @@ Si se pierde el badge, recuperarlo es difícil — Amazon premia performance his
 - **24/03/2026**: revisión 2 semanas + 16 campañas nuevas (harvest + brand + SQP) · 9 fantasmas EN pausadas
 - **17/03/2026**: Account Pulse v3 · 96 campañas (43 Perpetua + 53 nuevas)
 - **13/03/2026**: lanzamiento 53 campañas iniciales (reemplazo de Perpetua)
+
+---
+
+## 2026-05-05 — Sample ASIN identificado
+
+### Producto sample para tests
+- ASIN: `B08SNRCL63`
+- SKU: XG9G121
+- Producto: **Setex Gecko Grip — Almohadillas para Lentes Nariz Antideslizantes 1mm**
+- Categoría: Salud y Cuidado Personal
+- Origen: Fabricado en EE.UU., vendido en MX
+- Marketplace: **Amazon.com.mx**
+
+### Notas
+ASIN usado en test #5 de la sesión Apify para validar si el bloqueo de reviews de Amazon también aplica a marketplace MX. Resultado: status 500 — MX también bloqueado. Detalle en [[daily/2026-05-05]].

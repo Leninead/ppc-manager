@@ -1,3 +1,10 @@
+---
+tipo: brand
+cliente: mb
+marketplace: USA
+actualizado: 2026-05-05
+---
+
 # 👕 M&B (Mott & Bow) US
 
 **Account Manager:** (pendiente asignar)
@@ -615,3 +622,25 @@ Wikilinks: [[STATE-agencia]] [[daily/2026-04-27]] [[amazon-bulk-upload-guide]]
 - TACoS 5.4% — muy bueno
 - Sin alarmas de ACoS en campañas (todas bajo 60%)
 - BuyBox es el tema principal: 21 ASINs con issues, patrón en packs de 3
+
+---
+
+## 2026-05-05 — Datos confirmados
+
+### Identidad de la marca
+- Nombre comercial: **Mott & Bow**
+- Categoría: Clothing, Shoes & Jewelry (ropa premium)
+- Producto principal: Camisetas de algodón premium (~$40 USD/unidad)
+- Marketplace: **Amazon.com (USA)**
+
+### Estructura de catálogo
+- Productos con muchas variaciones (17-40 hijas por parent ASIN)
+- Reviews se acumulan en parent ASIN, no en variations individuales
+
+### Sample parent ASINs activos (Octubre 2025)
+- `B0F844CHFY` — Men's Driggs Classic Crew Neck T-Shirt (36 variations)
+- `B0F84474KS` — Women's Fitted V-Neck T-Shirt (40 variations)
+- `B0F84637MJ` — Women's Classic Crew Neck T-Shirt (17 variations)
+
+### Notas
+Marketplace previamente documentado incorrectamente como MX. Corregido el [[daily/2026-05-05]].

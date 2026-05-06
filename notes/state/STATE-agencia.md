@@ -1,6 +1,6 @@
 ---
 tipo: state
-actualizado: 2026-05-04
+actualizado: 2026-05-05
 ---
 
 # STATE Agencia — Capybaras
@@ -94,6 +94,13 @@ Todos commiteados a `main`, pendientes de push.
 - **AmazonBulkUploadGuide.md stale (4 puntos críticos descubiertos 27/04)**: (1) caracteres prohibidos en Keyword Text no documentados (`%`, `$`, `#`, `@`, `*`, etc.) — el `&` SÍ se permite en negativeExact, (2) comportamiento secuencial stop-on-error 2026 no documentado — UI muestra Failed pero filas anteriores ya creadas (verificación visual obligatoria), (3) estrategia re-subida con cambio de 1 letra del naming, (4) Regla #2 lista 30 cols pero el código en producción usa 31 (Sites). Próxima sesión: actualizar guía. Riesgo si no se hace: bulks futuros van a fallar igual y el equipo va a perder horas.
 - **Patrón Streamlit a documentar (29/04)**: `st.expander` no se puede anidar dentro de otro `st.expander` (`_check_nested_element_violation`). Bug intermitente — solo crashea cuando se ejecuta el branch que crea el expander interno, por eso pasa code review básico. Reemplazo standard: `st.popover` (Streamlit ≥1.28). Documentar en `notes/sops/` o `module-architecture-standard.md`.
 - **Listing Monitor fix aplicado 29/04 + 2 sospechosos pendientes**: `modules/pages/listing_monitor.py` L563 — `st.expander("Ver bullets actuales")` anidado dentro de expander padre L508 → fix aplicado con `st.popover` (1 línea). Live en producción, validado con ASIN B01M6DFC5W (Medix 5.5, marketplace MX). Diagnóstico via agente `code-reviewer` reveló 2 sospechosos del mismo bug que NO se atacaron (scope): `modules/pages/gamboa_generator.py` L322+L370 y `modules/pages/atom11.py` L261+L303. Verificar indentación próxima sesión y aplicar mismo fix preventivo si confirma.
+- **Reviews Intelligence (esperando decisión CEO)** — feedback del CEO pendiente sobre cancelar tarjeta Apify o dejarla. Caminos posibles: (a) export manual Seller Central + automatizar procesamiento, (b) probar Bright Data ($15-30/mes), (c) pausar el módulo. Mensaje al CEO ya enviado el 2026-05-05.
+
+---
+
+## Aprendizajes técnicos
+
+- **2026-05-05** — Amazon bloqueó globalmente el scraping de text reviews (USA y MX confirmados, alineado con [[knowledge/2026-03-21-amazon-agent-policy-bsa-march-2026|Agent Policy del 4-mar-2026]]). Implicación: módulo de Reviews Intelligence en [[ppc-manager]] requiere replanteo completo. Setup de Apify queda configurado por si se usa para otro caso no-Amazon. Detalle: [[daily/2026-05-05]].
 
 ---
 
