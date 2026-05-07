@@ -1,0 +1,205 @@
+{
+  "module": "sku-progress",
+  "version": 1,
+  "created": "2026-05-07",
+  "description": "SKU Progress Report — snapshot semanal de tráfico/ventas por SKU + log append-only de optimizaciones + config de SKUs trackeados. Multi-cliente. Una fila consolidada por SKU (las variants se agregan en el parser antes de guardar).",
+  "primary_key": ["sku"],
+  "period_column": "_period",
+  "columns": {
+    "sku": {
+      "dtype": "string",
+      "required": true,
+      "description": "Identificador SKU del cliente. Clave primaria del snapshot. Si el cliente no usa SKU, se cae a ASIN como fallback (en ese caso este campo lleva el ASIN)."
+    },
+    "asin": {
+      "dtype": "string",
+      "required": false,
+      "description": "ASIN child de Amazon. Opcional cuando el cliente trabaja por SKU; se popula si el inventory report del cliente lo expone."
+    },
+    "title": {
+      "dtype": "string",
+      "required": true,
+      "description": "Título del producto en Amazon. Tomado del config tracked-skus al tiempo de la importación."
+    },
+    "image_url": {
+      "dtype": "string",
+      "required": false,
+      "description": "URL de la imagen principal del producto (m.media-amazon.com/...). Para mostrar thumbnail en la UI."
+    },
+    "link": {
+      "dtype": "string",
+      "required": false,
+      "description": "URL del producto en Amazon (https://www.amazon.com/gp/product/<ASIN>)."
+    },
+    "week_iso": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Número de semana ISO 8601 (1-53). Coincide con el nombre del archivo (2026-W14.parquet → week_iso=14)."
+    },
+    "year": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Año calendario del snapshot (ej: 2026). Decisión bloqueada Lenin: data Gamboa migrada es 2026 aunque el HTML legacy diga 2025."
+    },
+    "week_label": {
+      "dtype": "string",
+      "required": true,
+      "description": "Label legible del rango de fechas de la semana (ej: 'Mar 29-Abr 4'). Tomado de weekDates del HTML al migrar; recalculado al importar CSV nuevo en producción."
+    },
+    "sessions": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Sesiones totales en la semana. Si el SKU tiene variants en el CSV de origen, este valor es la suma de variants (consolidación en parser, no en este Parquet)."
+    },
+    "page_views": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Page Views totales en la semana. Misma regla de consolidación que sessions."
+    },
+    "units_ordered": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Unidades ordenadas en la semana. Consolidado por SKU."
+    },
+    "total_order_items": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Total order items en la semana. Si Amazon no expone esta columna, fallback al valor de units_ordered (regla del HTML legacy)."
+    },
+    "unit_session_pct": {
+      "dtype": "float64",
+      "required": true,
+      "description": "CVR como porcentaje (ej: 2.34 = 2.34%). Calculado POST-consolidación: units_ordered / sessions * 100. Si sessions=0 → 0."
+    },
+    "ordered_product_sales": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Ventas totales en USD para la semana. Consolidado por SKU."
+    },
+    "avg_price": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Precio promedio calculado POST-consolidación: ordered_product_sales / units_ordered. Si units_ordered=0 → 0."
+    }
+  },
+  "entities": {
+    "snapshot": {
+      "filename_pattern": "<YYYY-WW>.parquet",
+      "path": "data/account-health/<cliente>/sku-progress/<YYYY-WW>.parquet",
+      "frequency": "weekly",
+      "primary_key": ["sku"],
+      "columns_ref": "see top-level 'columns' key (this is the main entity validated by _validate_against_schema)"
+    },
+    "optimizations": {
+      "filename": "optimizations.parquet",
+      "path": "data/account-health/<cliente>/sku-progress/optimizations.parquet",
+      "frequency": "append-only",
+      "description": "Log append-only de optimizaciones aplicadas a SKUs. Cada fila = 1 evento inmutable. Equivalente al array DATA[sku].events del HTML.",
+      "columns": {
+        "timestamp": {
+          "dtype": "string",
+          "required": true,
+          "description": "ISO 8601 datetime de cuando se loggeo la optimización. _append_log lo agrega automáticamente si falta."
+        },
+        "sku": {
+          "dtype": "string",
+          "required": true,
+          "description": "SKU al que aplica la optimización."
+        },
+        "week_iso": {
+          "dtype": "int64",
+          "required": true,
+          "description": "Semana ISO en la que se aplicó la optimización (no la semana en que se loggeó)."
+        },
+        "year": {
+          "dtype": "int64",
+          "required": true,
+          "description": "Año calendario de la semana de aplicación."
+        },
+        "label": {
+          "dtype": "string",
+          "required": true,
+          "description": "Descripción libre de la optimización (ej: 'Cambio de imágenes', 'Update bullets', 'A+ Content nuevo')."
+        },
+        "applied_by": {
+          "dtype": "string",
+          "required": false,
+          "description": "Usuario que aplicó la optimización. Opcional en v1 (single-user); obligatorio cuando migremos a Fase 2 multi-usuario."
+        }
+      }
+    },
+    "tracked_skus_config": {
+      "filename": "tracked-skus.json",
+      "path": "data/account-health/<cliente>/sku-progress/tracked-skus.json",
+      "frequency": "low (cambia cuando se agregan/quitan SKUs del tracking)",
+      "format": "JSON",
+      "description": "Lista de SKUs trackeados por cliente con metadata estática (título, imagen, link, fecha de alta). NO versionado en git (datos de cliente).",
+      "structure": {
+        "version": "int (interno del config, independiente del schema)",
+        "cliente": "string (slug del cliente, redundante con el path pero útil para validación)",
+        "skus": "array de objetos con keys: sku, asin, title, image_url, link, added_at"
+      },
+      "sku_object": {
+        "sku": {"dtype": "string", "required": true},
+        "asin": {"dtype": "string", "required": false},
+        "title": {"dtype": "string", "required": true},
+        "image_url": {"dtype": "string", "required": false},
+        "link": {"dtype": "string", "required": false},
+        "added_at": {
+          "dtype": "string",
+          "required": true,
+          "description": "Period ISO en que el SKU se agregó al tracking (ej: '2026-W14')."
+        }
+      }
+    }
+  },
+  "consolidation_rule": {
+    "description": "Cuando el CSV de origen 'Detail Page Sales and Traffic By Child Item' devuelve múltiples filas para un mismo SKU (variants — colores, tamaños), el parser ANTES de escribir el Parquet debe consolidar:",
+    "additive_columns": ["sessions", "page_views", "units_ordered", "total_order_items", "ordered_product_sales"],
+    "derived_post_consolidation": {
+      "unit_session_pct": "units_ordered / sessions * 100 (0 si sessions=0)",
+      "avg_price": "ordered_product_sales / units_ordered (0 si units_ordered=0)"
+    },
+    "rationale": "El HTML legacy guarda en DATA[sku].weeks[N] los valores YA consolidados. Replicar esa misma decisión en el Parquet preserva paridad visual con el HTML original y evita que el módulo M28 muestre métricas que no matchean con el dashboard del cliente."
+  },
+  "csv_priority_columns": {
+    "description": "Reflejo de CSV_PRIORITY del HTML (línea 3236). El parser del módulo Streamlit debe respetar este mismo mapeo y orden de prioridad al detectar columnas en el CSV.",
+    "sessions": ["sessions - total", "sessions"],
+    "page_views": ["page views - total", "page views"],
+    "units_ordered": ["units ordered"],
+    "total_order_items": ["total order items"],
+    "unit_session_pct": ["unit session percentage", "unit session percentage - total", "order item session percentage"],
+    "ordered_product_sales": ["ordered product sales"],
+    "_sku": ["sku"],
+    "_asin": ["(child) asin", "child asin", "asin"]
+  },
+  "csv_ignore_columns": {
+    "description": "Reflejo de CSV_IGNORE del HTML (línea 3248). Estas columnas se descartan siempre — splits B2B/Mobile/Browser y métricas no relevantes al snapshot consolidado.",
+    "list": [
+      "sessions - mobile app", "sessions - mobile app - b2b", "sessions - browser", "sessions - browser - b2b",
+      "sessions - total - b2b",
+      "page views - mobile app", "page views - mobile app - b2b", "page views - browser", "page views - browser - b2b",
+      "page views - total - b2b",
+      "units ordered - b2b",
+      "unit session percentage - b2b",
+      "ordered product sales - b2b",
+      "total order items - b2b",
+      "session percentage - mobile app", "session percentage - mobile app - b2b",
+      "session percentage - browser", "session percentage - browser - b2b",
+      "session percentage - total", "session percentage - total - b2b",
+      "page views percentage - mobile app", "page views percentage - mobile app - b2b",
+      "page views percentage - browser", "page views percentage - browser - b2b",
+      "page views percentage - total", "page views percentage - total - b2b",
+      "featured offer (buy box) percentage", "featured offer (buy box) percentage - b2b",
+      "(parent) asin", "parent asin", "title"
+    ]
+  },
+  "evolution_notes": {
+    "v1_baseline": "Schema baseline derivado del HTML legacy de Gamboa. Las 13 columnas del snapshot matchean 1:1 con DATA[sku].weeks[N] del HTML + metadata (sku, asin, title, image_url, link, week_iso, year, week_label).",
+    "future_v2_candidates": [
+      "buybox_pct (cuando agreguemos columna Buy Box % al snapshot — actualmente en CSV_IGNORE pero podríamos quererla)",
+      "category (para drilldown cross-cliente futuro)",
+      "is_active (flag para SKUs deprecated sin borrarlos del histórico)"
+    ]
+  }
+}
