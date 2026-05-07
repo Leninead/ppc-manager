@@ -817,3 +817,122 @@ Cada marketplace es totalmente independiente (state propio en widget keys con pr
 - **Diff visual entre old → new column mapping** con flechas/líneas (cosmético)
 - **Multi-archivo batch**: subir 5 old files al mismo tiempo y migrar a 5 templates distintos en una sola pasada
 - **Detección de Category Listing vs Flat File más estricta**: usar el campo `feed_product_type` para mapear automáticamente la categoría correcta y avisar si old y new son de categorías distintas
+
+---
+
+## M28 — SKU Progress Report
+**Archivo:** modules/pages/sku_progress_report.py
+**Sección sidebar:** Account Health
+**Session state prefix:** sku_progress_
+**Fuente:** porteado de `.claude/porting-sources/sku-progress-report.html` (2026-05-07)
+**Schema:** `data/_schemas/sku-progress-v1.json` (commit d9fd787)
+**Persistencia:** `data/account-health/<cliente>/sku-progress/`
+
+### Propósito
+Tracker semanal de progreso por SKU. Multi-cliente. Reemplaza el HTML legacy de Gamboa (data embedded) por una capa de persistencia centralizada vía `core.persistence`. Cruza CSVs de "Detail Page Sales and Traffic By Child Item" semanales con un log append-only de optimizaciones aplicadas (cambio de imágenes, A+ Content, etc.) para correlacionar acción → impacto en CVR / sessions / sales.
+
+### Arquitectura
+- **Multi-cliente** via `st.selectbox` al tope. El selector lista clientes que tengan carpeta en `data/account-health/<cliente>/sku-progress/`. Si no hay clientes → empty state + botón "➕ Cliente nuevo" que crea la carpeta y el `tracked-skus.json` vacío.
+- **Tabs por SKU dentro del cliente seleccionado** + 2 tabs fijas: `📤 Importar CSV` y `⚙️ Admin`. Una tab por SKU recargable: hero (imagen + título + botones), badges de eventos, KPI cards (7), 1 chart cruzado (CVR + Avg Price + Sessions con anotaciones de eventos) + 4 charts en grid 2x2 (Plotly), tabla detallada.
+- **Modals via `st.dialog()`**: agregar SKU, editar SKU, registrar/editar evento, confirmar borrado, agregar cliente nuevo.
+- **Parser CSV cacheado**: `_parse_csv_bytes(raw, filename)` con `@st.cache_data(show_spinner=False)`. Replica literal de `parseCSV()` del HTML L3267-3332.
+- **Consolidación variants**: `_consolidate_rows_by_sku()` replica `buildPreview()` L3433. Una row consolidada por SKU; CVR y avg_price recalculadas POST-consolidación. Decisión bloqueada en el schema (`consolidation_rule.additive_columns` + `derived_post_consolidation`).
+- **Excel export**: `_build_sku_progress_excel()` fuera de `render()` (patrón openpyxl-bug-prevention). Hojas: Resumen, Detalle, Optimizaciones, una por SKU.
+
+### Helpers principales
+- `_list_clientes()` — escanea `data/account-health/*/sku-progress/`
+- `_load_tracked_skus(cliente)` / `_save_tracked_skus(cliente, config)` — JSON per-cliente (excepción documentada abajo)
+- `_period_str(year, week_iso)` — `"2026-W14"` canonical
+- `_parse_period_str(period)` — inverse
+- `_iso_week_dates(year, week_iso)` — devuelve (lunes, domingo)
+- `_week_label_es(year, week_iso)` — `"Mar 29-Abr 4"` (ES)
+- `_detect_week_from_filename(filename)` — soporta `2026-W14`, `W14`, `wk14`, `semana14`
+- `_parse_csv_bytes` / `_split_csv_line` — replica literal del parser JS
+- `_consolidate_rows_by_sku` — replica de buildPreview con consolidación de variants
+- `_build_snapshot_df` — construye DataFrame con schema sku-progress-v1
+- `_render_sku_tab` / `_render_import_tab` / `_render_admin_tab` — sub-renders
+- `_dialog_add_sku` / `_dialog_edit_sku` / `_dialog_add_event` / `_dialog_confirm_delete_sku` / `_dialog_add_cliente` — modals via `@st.dialog`
+
+### Reglas de negocio (porteadas literal del HTML)
+- **CSV_PRIORITY**: priority list de headers (espejo HTML L3236) — `sessions - total > sessions`, `unit session percentage > order item session percentage`, etc.
+- **CSV_IGNORE**: ~30 columnas descartadas siempre (splits B2B / Mobile / Browser, percentages no relevantes). Espejo HTML L3248.
+- **Year=2026 hardcoded en v1** (decisión Lenin). El campo `year` es editable en el form de import por si el AM carga retro.
+- **Una fila consolidada por SKU** en el snapshot. Variants se agregan ANTES de escribir Parquet — additive: sessions, page_views, units_ordered, total_order_items, ordered_product_sales. Derived post-consolidación: `unit_session_pct = units_ordered / sessions * 100` y `avg_price = ordered_product_sales / units_ordered`.
+- **Match SKU**: equality case-insensitive primero, fallback a substring bidireccional (heredado del HTML — bug documentado abajo).
+- **Eventos = log append-only**: cada evento es 1 row inmutable en `optimizations.parquet`. Editar/borrar eventos NO existe en v1 — el HTML sí los permitía pero el modelo append-only del agency OS lo prohíbe. Si se quiere "borrar" un evento, agregar uno nuevo con label `"REVERT: <label original>"` (deuda técnica documentada abajo).
+
+### Inputs
+- **CSV semanal "Detail Page Sales and Traffic By Child Item"** (Seller Central → Reports → Business Reports). UTF-8 con BOM o latin-1 fallback.
+- **Cliente** (selectbox al tope) — auto-discover de `data/account-health/*/sku-progress/`.
+- **SKU agregado vía modal**: SKU obligatorio, ASIN/title/image_url/link opcionales.
+- **Evento agregado vía modal**: SKU + week (period) + label libre.
+
+### Outputs
+- **Snapshot Parquet semanal** en `data/account-health/<cliente>/sku-progress/<YYYY-WW>.parquet` validado contra schema sku-progress-v1.
+- **Log Parquet append-only** en `optimizations.parquet`.
+- **Excel multi-hoja** descargable: Resumen + Detalle + Optimizaciones + una hoja por SKU con su evolución completa.
+
+### Excepción documentada — `tracked-skus.json` NO usa `_save_config` / `_load_config`
+
+`core.persistence._save_config()` y `_load_config()` son **client-agnostic por diseño** (path: `data/<area>/<modulo>/<name>-v<version>.json`, sin nivel cliente). El config de SKUs trackeados de SKU Progress es **per-cliente** y debe vivir junto a los snapshots para que un borrado total del cliente sea atómico (carpeta única `data/account-health/<cliente>/sku-progress/`).
+
+Por eso el módulo define helpers locales:
+```python
+_load_tracked_skus(cliente: str) -> dict        # lee data/account-health/<cliente>/sku-progress/tracked-skus.json
+_save_tracked_skus(cliente: str, config: dict)  # escribe en el mismo path
+```
+
+**Regla del skill data-persistence-standard**: "los casos especiales matan el patrón". NO se promueve esta excepción a la API global hasta que aparezca un M30+ con la misma necesidad de config per-cliente. Si eso pasa, el `data-persistence-specialist` evalúa agregar `_save_client_config` / `_load_client_config` a `core/persistence.py`.
+
+### Excepción 2 — `shutil.rmtree()` para borrar cliente entero
+
+Helper privado `_delete_cliente()` en el módulo usa `shutil.rmtree()` directo sobre `data/account-health/<cliente>/`. NO se delegó a `core/persistence.py` porque:
+
+- El skill `data-persistence-standard` tiene regla dura "cero borrados automáticos" (apunta al código corriendo solo, no al usuario clickeando un botón en UI).
+- La acción está protegida por type-to-confirm en `_dialog_borrar_cliente`: el usuario debe escribir el slug exacto del cliente para habilitar el botón "Borrar definitivamente".
+- El borrado es atómico (carpeta única `data/account-health/<cliente>/`) — todo el tracking del cliente se va de una vez, sin estados parciales.
+- Counts pre-delete se muestran en el dialog para feedback explícito antes del confirmar.
+
+Trigger de promoción a `core/persistence.py`: si aparece un 2do módulo Account Health con la misma necesidad de borrar cliente entero (ej: M29 Pricing Dashboard cuando se portee), promover a `_delete_cliente_data(area, cliente)` (~12 líneas, retrocompatible). Hasta entonces, vive como helper local del módulo M28.
+
+### Validación end-to-end
+- `py_compile` verde en `sku_progress_report.py`, `app.py`, `core/constants.py`
+- No hay `pd.read_parquet` ni `pd.to_parquet` directo en el módulo (todo via `core.persistence`)
+- No hay `pd.read_csv` en el módulo (parser custom byte-level porque el HTML usa parser JS custom — preserva paridad con el HTML legacy)
+- El JSON de config se gestiona localmente con `json.loads/dumps` (excepción documentada arriba)
+- Empty states correctos: sin clientes → mensaje + botón "Cliente nuevo"; cliente sin SKUs → mensaje + indicación dónde bajar el CSV
+- Header `🏥 SKU Progress Report` con divider (patrón Account Health)
+- Excel builder fuera de `render()` (patrón anti-bug openpyxl)
+- 1 solo `return` dentro de `render()` — para early-exit cuando no hay clientes
+
+### Deuda técnica heredada del HTML (NO arreglada por regla del Caso 2)
+- **Match SKU substring bidireccional** (HTML L3444): el matching `id.includes(k.toUpperCase()) || k.toUpperCase().includes(id)` puede generar falsos positivos. Ej: SKU "ABC" matchea row del CSV con id "ABC123" (y viceversa). Documentado, no arreglado para preservar paridad. Si el AM reporta cruces incorrectos, escalar a sesión separada.
+- **`splitCSVLine` no maneja escaped quotes** (HTML L3335): un campo con `""` adentro (escape de comilla) no se parsea correctamente. Limitación del parser JS replicada literal en Python. Mitigación: el CSV de Amazon "Detail Page Sales..." rara vez tiene quotes anidadas — si aparece, el AM verá warning de fila descartada.
+- **`weekLabel` JS hardcodea año 2025** (HTML L3386): inconsistente con el contexto del módulo (2026). En el porting Python NO se replica — usamos `date.fromisocalendar(year, week_iso, 1)` que es correcto. Esta es la **única divergencia funcional** del porting (la otra es exportHTML, que se reemplaza por persistencia).
+- **Subtítulo del header HTML hardcodea 2025** (L3563): no aplica al porting (no hay subtítulo dinámico).
+- **`confirm()` browser native** (HTML L2991, L3052, L3069): UX inconsistente. En el porting se reemplaza por `st.dialog()` con botones explícitos (mejor UX, pero divergencia documentada).
+- **Validación URL imagen** (HTML `onerror`/`onload`): en Streamlit `st.image()` muestra placeholder/error si la URL no carga, sin bloqueo del flow. Equivalente funcional.
+- **No se permite editar/borrar eventos individuales** (divergencia con HTML que sí los permite): el modelo append-only del Agency OS los hace inmutables. El HTML usaba splice/index access que no es compatible con Parquet append-only. Documentado como deuda funcional.
+
+### Propuestas no implementadas — para sesiones futuras
+- **Migración de la data Gamboa actual del HTML legacy**: el HTML tiene 21 SKUs × 15 semanas (Ene-Abr 2026) + eventos ya cargados. La migración no se hace en esta sesión por decisión Lenin (validar primero módulo vacío). Plan: script `scripts/migrate_gamboa_sku_progress.py` que parsee el `DATA = {...}` const del HTML, construya 15 snapshots Parquet + N filas en optimizations.parquet + 1 tracked-skus.json. Sesión separada.
+- **Edit/delete de eventos individuales**: hoy el log es append-only. Para "deshacer" un evento, agregar uno nuevo con label `"REVERT: <label original>"`. Mejor UX: agregar columna `_deleted: bool` al schema (v2) y filtrar en `_load_log` con flag `include_deleted=False`. Discutible si vale la pena romper la inmutabilidad.
+- **Vista cross-SKU del cliente** (dashboard de salud agregado): hoy cada SKU es una tab; falta una vista "total cliente" con todos los SKUs en una matriz CVR×Sales. Útil cuando el cliente tenga >10 SKUs.
+- **Filtro temporal en tabs SKU**: hoy se muestran todas las semanas con datos. Útil agregar slider "últimas N semanas" para vistas focalizadas.
+- **Detección automática de week del CSV**: hoy detecta del filename con regex. Si falla, usa la semana actual. Mejora: parsear la columna "Reporting Range" del CSV (Amazon a veces la incluye).
+- **Comparativa entre 2 clientes**: para detectar patterns cross-clientes (ej: "Gamboa y Dermaglos cayeron en CVR la misma semana — ¿problema Amazon?"). Requiere multi-cliente desktop view.
+- **Heatmap de optimizaciones aplicadas**: vista calendario que muestra qué semanas tuvieron eventos y cuáles no. Útil para identificar gaps de actividad del AM.
+- **Export PDF para cliente**: hoy solo Excel. Para presentaciones cliente-facing, un PDF con gráficos embebidos es mejor.
+
+### Anti-patterns
+- ❌ NO usar `pd.read_csv` directo — el parser custom byte-level (replicando JS) es deliberado para preservar paridad con el HTML legacy.
+- ❌ NO promover `_load_tracked_skus`/`_save_tracked_skus` a `core/persistence.py` hasta que aparezca M30+ con la misma necesidad.
+- ❌ NO arreglar bugs del HTML durante el porting (regla del Caso 2): match substring bidireccional, escape quotes, etc. Documentar, no fixear.
+- ❌ NO replicar `exportHTML()`: los datos viven en `data/`. Cambio de UX deliberado, decisión bloqueada en daily 2026-05-06.
+- ❌ NO hardcodear años (excepto YEAR_DEFAULT=2026 que es decisión bloqueada v1).
+- ❌ NO usar `pd.read_parquet`/`pd.to_parquet` directo — todo I/O via `core.persistence`.
+- ❌ NO permitir borrar/editar eventos via UI individual del badge (modelo append-only).
+- ❌ NO usar `st.metric` — usar `kpi_card` de `core.helpers`.
+- ❌ NO portar el CSS dark del HTML — el Agency OS es light theme.
+- ❌ NO mezclar lógica I/O en `render()` — pasar todo por `_save_snapshot`/`_append_log`/`_rebuild_history` después de la acción del usuario.
+

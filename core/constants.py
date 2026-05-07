@@ -33,4 +33,5 @@ _PAGES = [
     "📊 Gamboa Generator",
     "🧬 Variation Builder",
     "🗂️ Flat File Migrator",
+    "🏥 SKU Progress Report",
 ]

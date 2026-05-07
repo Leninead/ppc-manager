@@ -43,6 +43,7 @@ from modules.pages.knowledge_base import render as render_knowledge
 from modules.pages.gamboa_generator import render as render_gamboa_generator
 from modules.pages.variation_builder import render as render_variation_builder
 from modules.pages.flat_file_migrator import render as render_flat_file_migrator
+from modules.pages.sku_progress_report import render as render_sku_progress
 import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="Agency OS", layout="wide")
@@ -248,6 +249,8 @@ with st.sidebar:
     with st.expander("🏥 ACCOUNT HEALTH", expanded=False):
         st.button("🗂️ Flat File Migrator", use_container_width=True, on_click=_nav,
                   args=("🗂️ Flat File Migrator",), key="nav_🗂️ Flat File Migrator")
+        st.button("🏥 SKU Progress Report", use_container_width=True, on_click=_nav,
+                  args=("🏥 SKU Progress Report",), key="nav_🏥 SKU Progress Report")
 
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
     _pe_label = (
@@ -351,3 +354,6 @@ if selected == "🧬 Variation Builder":
 
 if selected == "🗂️ Flat File Migrator":
     render_flat_file_migrator()
+
+if selected == "🏥 SKU Progress Report":
+    render_sku_progress()
