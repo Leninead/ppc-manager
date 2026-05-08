@@ -24,6 +24,32 @@ Detalle completo en `notes/daily/2026-05-09.md` (173 lineas).
 
 ---
 
+## Última sesión — 2026-05-08 (continuación, vespertina)
+
+**Foco**: Pitch deck M29 Proposal Studio — pivot estratégico de "construir módulo Streamlit" a "construir pitch HTML que presenta el módulo" para validar concepto con Sales Directors antes de invertir en Streamlit.
+
+**Output principal**:
+- ``presentations/m29-proposal-studio-pitch/index.html`` (~75 KB, 2628 líneas, 9 slides standalone con Chart.js + Google Fonts CDN)
+- ``presentations/m29-proposal-studio-pitch/README.md`` (contexto, decisiones de diseño, próximos pasos)
+- Append a ``notes/daily/2026-05-08.md`` con sección "(continuación)"
+
+**Decisiones cerradas**:
+- v1 output = HTML standalone (principal) + PDF via Playwright (futuro). Sin link hosteado en v1.
+- Paleta + tipografía: dark + naranja Capybaras + Bricolage Grotesque/Geist/JetBrains Mono
+- Stack render del módulo M29 a futuro: HTML modular en ``templates/proposal_modules/`` + JSON schema en ``data/_schemas/proposal-v1.json`` + Playwright para PDF
+- 27 módulos confirmados (7 FIXED + 20 VARIABLE) basados en Excel ``Capybaras_Proposal_Module_Template.xlsx``
+
+**Pendientes propuesta de M29 Proposal Studio**:
+1. Lenin presenta pitch a Sales Directors semana 12-16 mayo
+2. Feedback define cuál VARIABLE arranca el MVP (candidatos: Listing Audit Main Image, Pricing/Scope, o Brand Overview)
+3. Confirmar 3 propuestas próximas que van a usar M29 como validación real
+4. Generar PDF del pitch con Playwright (sesión separada, instalar Chromium ~150 MB)
+5. Post-feedback: mover ``index.html`` a ``.claude/porting-sources/m29-pitch.html`` → arrancar Fase 1 del módulo Streamlit con ``html-to-streamlit-porter`` Caso 2 + ``data-persistence-specialist`` Caso 2
+
+**Sin push todavía**: commit local pendiente de push por Lenin al cierre.
+
+---
+
 ## Última sesión — 2026-05-08
 
 **Foco**: M28 SKU Progress Report — primer porting Caso 2 (HTML con persistencia simple) del Agency OS.
