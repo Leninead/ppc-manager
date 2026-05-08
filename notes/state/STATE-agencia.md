@@ -24,6 +24,46 @@ Detalle completo en `notes/daily/2026-05-09.md` (173 lineas).
 
 ---
 
+## Última sesión — 2026-05-08 (Dermaglos PPC)
+
+**Foco**: Deep optimization Dermaglos US — análisis triple (STR + SQP + Campañas) + auditoría cross-negation + ejecución de 6 bulks Amazon SP en Bulk Operations.
+
+**Output operativo**:
+- 374 cambios aplicados en Amazon (333 negativos + 18 brand defense + 4 SQP adds + 8 bid adjusts + 8 pausas + 3 spanish ES) — 6/6 bulks SUCCESS, 0 errores
+- 7 campañas pausadas (6 OOS B0F6VZMF2V + 1 AUTO B0F548KTXD sangrante)
+- Cross-negation pattern auditado y confirmado PRO (5 KWs críticas, 0 errores) — sistema histórico manual de calidad, NO TOCAR
+- Catálogo ASIN expandido a 10 productos (Micellar Water B0CY2XC91Z descubierto, diferido por cliente)
+
+**Decisiones cerradas**:
+- `vitamin e cream` y `allantoin` NO se negativizan global (industry standards 2026 + ROAS 49x en B0CYLM4L23)
+- Threshold negativos Capybaras: $25-35 spend / 0 sales (calibrado vs 15-20 clicks industria)
+- Self-canibalización ACoS 15.3% es brand defense cross-sell — mantener, no negativizar
+- Listing fix B0CYLMJJJC asumido 30+ días, mitigation con bid down ya implementado
+
+**Pendientes manuales nuevos (E bucket)**:
+1. E.1 Listing fix B0CYLMJJJC Cream (URGENTE, 6 evidencias) — Cliente/Adam
+2. E.2 Restock B0F6VZMF2V Skincare Set (URGENTE) — Cliente
+3. E.3 Validación tattoo/scar/wrinkle target (30d) — Cliente/Agustín
+4. E.4 Listings ES disponibilidad (14d) — Cliente/Agustín
+5. E.5 Listing-copying audit search terms (14d) — Aaron/Adam
+6. E.6 Micellar B0CY2XC91Z decisión (60d, diferido) — Cliente
+7. E.7 Atom11 v2026.3 ETA (7d) — Lenin/Neha
+8. E.8 Atomización B0CYL1RLNQ Night Cream Spanish Core (30d) — Lenin
+
+**Métricas proyectadas**: ahorro neto ~$140/mes + sales lift potencial ~$180/mes, riesgo $0.
+
+**Próxima evaluación Dermaglos**: 2026-05-22 (14d post-bulks).
+
+**Aprendizajes para vault**:
+- Validación Bulk Operations export antes de plan reduce 50% del trabajo planificado (detectó 50% duplicados en plan original Lenin)
+- Auditoría cross-negation por KW crítica evita pisar ventas (caso `vitamin e cream`)
+- Hojas auxiliares en bulks Amazon rompen validación — solo `Sponsored Products Campaigns`
+- Script `STR_analizado` filtra Auto/PT (62% del business) — patch documentado, deferido
+
+Detalle completo en `notes/daily/2026-05-08.md` (sección "Sesión 2026-05-08 (Dermaglos PPC)") y en `notes/brands/dermaglos/DERMAGLOS.md` (sección "Sesión 2026-05-08 — Deep Optimization + Bulk Execution").
+
+---
+
 ## Última sesión — 2026-05-08 (continuación, vespertina)
 
 **Foco**: Pitch deck M29 Proposal Studio — pivot estratégico de "construir módulo Streamlit" a "construir pitch HTML que presenta el módulo" para validar concepto con Sales Directors antes de invertir en Streamlit.

@@ -481,3 +481,68 @@ Findings #2-4 from the original message stand as written.
 ## 2026-05-05 — Corrección de marketplace
 
 Marketplace confirmado: **Amazon.com (USA)**, NO MX como estaba documentado previamente. Corrección identificada en sesión de test Apify. Ver [[daily/2026-05-05]].
+
+---
+
+## Sesión 2026-05-08 — Deep Optimization + Bulk Execution
+
+### Estado pre-sesión
+- Última optimización real: ~05/05/2026 (3 días atrás)
+- 110 campañas activas, $1,425 spend / $2,457 sales / ACoS 58%
+- Atom11 v2026.2 en revisión, esperando v2026.3 de Neha
+- 8 pendientes manuales del 28/04 vigentes
+- Bloqueos: OOS B0F6VZMF2V, listing fixes B0CYLMJJJC
+
+### Catálogo ASIN confirmado (10 productos)
+| ASIN | Producto | Categoría | Precio | Status |
+|---|---|---|---|---|
+| B0CYLMJJJC | Cream 1.76oz | Vit A+E+Allantoin | $9.99 | Active — listing fix needed |
+| B0F4KXZVNM | Cream 2-pack | Vit A+E+Allantoin | $16.99 | Active |
+| B0CYLM4L23 | Body Lotion 13.52oz | Vit A+E+Allantoin | $18.89 | Active — winner |
+| B0F548KTXD | Body Lotion 2-pack | Vit A+E+Allantoin | $32.11 | Active |
+| B0CYLDSQ5L | Body Cream 10.58oz | Vit A+E+Allantoin+Glycerin | $13.49 | Active |
+| B0CYL1RLNQ | Ultra Volume Night Cream | Hyaluronic+Collagen+Niacinamide | $14.84 | Active |
+| B0CYKDSDJX | Hyaluronic Acid Serum | + Pro Vit B5 | $18.89 | Active |
+| B0CYK4G2Y8 | Facial Cleanser | Pro Vit B5 + Allantoin + Glycerin | $9.89 | Active |
+| B0CY2XC91Z | Micellar Water | All skin types | $13.49 | Active — diferido (cliente decisión) |
+| B0F6VZMF2V | 3-pack Skincare Set | Bundle | $42.00 | OOS confirmado |
+
+### Productos que NO vendemos (negative phrase confirmados)
+- Protector solar / sunscreen (4 variants estaban activas como KW positive — archivadas hoy)
+- Productos con ectoína (variants brand sin listing — flag para no crear)
+
+### Brand defense — estructura completa post-sesión
+- **Brand Hub Defensive (consolidado)**: 53 KWs activas (35 previas + 18 nuevas)
+- **Brand Defensive Core por listing**: 5 KWs c/u en B0CYLMJJJC y B0CYLM4L23
+- **Brand Defensive Long Tail**: 5 KWs c/u en B0CYLMJJJC y B0CYLM4L23
+- Resto listings sin Brand Defensive Core dedicado (E.8 pendiente Lenin)
+
+### Cross-negation pattern (auditoría confirmó PRO)
+- `dermaglos` negative en 36 ad groups + 3 campaign-level
+- `dermaglos crema` negative en 12 lugares
+- `vitamin a cream` negative en 11 lugares
+- `vitamin e cream` negative en 9 lugares
+- `allantoin` negative en 7 lugares
+- **NO TOCAR este sistema**. Es trabajo manual histórico de alta calidad.
+
+### Listings con problemas confirmados
+- **B0CYLMJJJC Cream**: 6 evidencias acumuladas de bajo CTR/CVR. Bloqueador principal del crecimiento brand. Listing fix urgente (E.1).
+- **B0CYL1RLNQ Night Cream**: formulación distinta (Hyaluronic+Collagen+Niacinamide+Anti-aging). NO es vitamin A cream. Necesita Spanish Core dedicada (E.8).
+
+### Métricas SQP semana 18 (2026-04-26 a 2026-05-02)
+- Brand Impression Share market-wide: 0.18%
+- Brand Click Share: 0.23%
+- Brand Purchase Share: 0.076% (25 sales vs 32,994 mkt)
+- Mejor query single: `vitamin a cream` (PIS 26.32%, mkt CVR 3.76%, brand price $9.99 vs mkt $18.97)
+
+### Cuenta pendientes históricos
+- 28/04 → 5/8: 8 pendientes manuales, 6 cerrados o reforzados hoy
+- 5/8 → próxima: 8 pendientes nuevos (E.1 a E.8)
+
+### Decisión cliente esta sesión
+- ❌ NO activar Micellar Water B0CY2XC91Z agresivamente (asset enterrado, diferido a 60 días)
+- ✅ Tattoo/scar/wrinkle son categorías target válidas (catálogo respalda)
+- ✅ Spanish ES con bid bajo $0.40-0.50, monitor CTR 14d
+- ⏳ Listing fix B0CYLMJJJC asumido 30+ días, mitigation con bid down ya implementado
+
+Detalle completo de bulks ejecutados, findings y métricas en [[daily/2026-05-08]] (sección "Sesión 2026-05-08 (Dermaglos PPC) — Deep optimization").
