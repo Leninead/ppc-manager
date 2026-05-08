@@ -2058,3 +2058,30 @@ A partir de hoy:
 | 📝 Markdown | `claude-haiku-4-5-20251001` (snapshot fijo) | Agentes que escriben markdown a partir de instrucciones explícitas |
 
 Los snapshots fijos en Sonnet y Haiku evitan el incidente de 2026-04-26 (deprecación silenciosa). Opus va con alias estable porque históricamente cambia con menos frecuencia y sin breaking changes.
+
+---
+
+## 📅 Sesión 2026-05-09 — Lecciones técnicas (validación E2E M28)
+
+Lecciones extraídas de la validación end-to-end de M28 SKU Progress Report con datos reales de Dermaglos. Detalle completo en `notes/daily/2026-05-09.md`.
+
+### 🔤 Get-Content -Raw rompe Unicode en PowerShell 5
+
+- **Síntoma:** leer archivos con emojis (📦 🏥 ➕ 🗑️) usando `Get-Content -Raw` los corrompe en cascada (`📦` → `Ã°Å¸â€œÂ¦`). Detectado al editar `modules/pages/sku_progress_report.py`.
+- **Causa:** la doc previa (línea 1905, 2026-04-24) cubría solo la escritura de archivos UTF-8 con redirects. La lectura tiene el mismo problema: PowerShell 5 decodifica usando codepage OEM (CP850) antes de pasar el contenido al pipeline.
+- **Mitigación:** para archivos con Unicode (emojis, tildes, símbolos), usar siempre las APIs explícitas de .NET. Lectura: `[System.IO.File]::ReadAllText($file, [System.Text.UTF8Encoding]::new($false))`. Escritura: `[System.IO.File]::WriteAllText($file, $content, [System.Text.UTF8Encoding]::new($false))`. Si después de editar ves caracteres tipo `Ã°Å¸` en el archivo, ROLLBACK con `git checkout <file>` y reintentar con encoding explícito.
+- **Fecha documentado:** 2026-05-09
+
+### 🐍 Nunca crear scripts en raíz del repo con nombres de módulos stdlib
+
+- **Síntoma:** crear `inspect.py` en la raíz del repo provoca circular import en pandas (numpy importa `inspect` internamente y agarra el cwd primero).
+- **Causa:** Python prioriza el cwd en `sys.path[0]`. Si hay un archivo en raíz con el mismo nombre que un módulo stdlib que numpy/pandas/etc. importan internamente, ese archivo gana el match y rompe la cadena de imports.
+- **Mitigación:** evitar nombres de módulos stdlib en raíz del repo. Lista de evitar (no exhaustiva): `inspect.py`, `random.py`, `math.py`, `email.py`, `json.py`, `csv.py`, `time.py`, `os.py`, `sys.py`, `io.py`, `string.py`, `re.py`, `socket.py`, `logging.py`, `tokenize.py`, `pdb.py`, `tempfile.py`. Workaround: usar prefijo `_` (ej: `_check_history.py`) o sufijo descriptivo (ej: `inspect_parquet.py`). Como regla mental: si el nombre suena a "función básica de Python", probablemente ya existe.
+- **Fecha documentado:** 2026-05-09
+
+### 🧹 Fixes en core/persistence.py NO auto-curan archivos derivados ya generados
+
+- **Síntoma:** tras commit `0c7dbf4` (fix `_list_periods` glob laxo en M28), los KPIs de M28 seguían mostrando NaN en la UI. El fix estaba aplicado en código pero el `_history.parquet` generado pre-fix seguía contaminado en disco.
+- **Causa:** los fixes en código NO regeneran archivos derivados automáticamente. `_history.parquet`, `_aggregate.parquet` y similares son outputs persistentes que sobreviven a los fixes hasta que el módulo los regenere desde cero (típicamente vía `_rebuild_*` o re-ejecución del flujo de import).
+- **Mitigación:** después de cualquier cambio en `core/persistence.py` que toque generación de agregadores (`_history.parquet`), `_rebuild_*` o derivados similares, ejecutar sweep manual: `Get-ChildItem -Path data -Recurse -Filter "_history.parquet" | Remove-Item`. Crítico para multi-cliente: un solo `_history.parquet` contaminado en cualquier cliente envenena todo el dashboard de ese cliente.
+- **Fecha documentado:** 2026-05-09
