@@ -441,15 +441,28 @@ def _consolidate_rows_by_sku(
       1. Equality (case-insensitive) entre CSV_id y SKU trackeado
       2. Substring bidireccional (puede generar falsos positivos — bug heredado)
     """
-    sku_keys_upper = {s["asin"].upper(): s["sku"] for s in tracked_skus}
+    # Solo SKUs con ASIN no vacío entran al matching (guard contra envenenamiento
+    # del fallback substring: si un SKU tiene asin="" el dict tendría clave ""
+    # y "" in cualquier_string == True, consolidando TODOS los ASINs del CSV bajo él)
+    sku_keys_upper = {
+        s["asin"].upper(): s["sku"]
+        for s in tracked_skus
+        if s.get("asin", "").strip()
+    }
     matched_map: dict[str, dict] = {}
     unmatched: list[dict] = []
+
+    # Length minima para substring matching: ASINs Amazon son 10 chars, SKUs internos
+    # suelen ser 6+ chars. Bajo este umbral, "in" genera falsos positivos en cascada.
+    MIN_MATCH_LEN = 6
 
     for row in rows:
         rid = row["_id"].upper()
         sku_key = sku_keys_upper.get(rid)
-        if not sku_key:
+        if not sku_key and len(rid) >= MIN_MATCH_LEN:
             for tk_upper, tk_orig in sku_keys_upper.items():
+                if len(tk_upper) < MIN_MATCH_LEN:
+                    continue
                 if rid in tk_upper or tk_upper in rid:
                     sku_key = tk_orig
                     break
@@ -1419,6 +1432,9 @@ def _render_admin_tab(cliente: str, tracked_skus: list[dict]):
                                     "_history.parquet")
                             if hist.exists():
                                 hist.unlink()
+                        # Invalidar caches que apuntaban al snapshot borrado
+                        _list_periods.clear()
+                        _load_history.clear()
                         st.success(f"Snapshot {p} eliminado.")
                         st.rerun()
 

@@ -171,7 +171,10 @@ def _list_periods(area: str, cliente: str, modulo: str) -> list[str]:
     periods = []
     for p in base.glob("*.parquet"):
         name = p.stem
+        # Excluir: history aggregator (_*) + logs append-only canonicos del Agency OS
         if name.startswith("_"):
+            continue
+        if name in ("optimizations", "events", "decisions-log"):
             continue
         periods.append(name)
     return sorted(periods)
