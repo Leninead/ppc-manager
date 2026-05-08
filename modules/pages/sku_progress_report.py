@@ -441,7 +441,7 @@ def _consolidate_rows_by_sku(
       1. Equality (case-insensitive) entre CSV_id y SKU trackeado
       2. Substring bidireccional (puede generar falsos positivos — bug heredado)
     """
-    sku_keys_upper = {s["sku"].upper(): s["sku"] for s in tracked_skus}
+    sku_keys_upper = {s["asin"].upper(): s["sku"] for s in tracked_skus}
     matched_map: dict[str, dict] = {}
     unmatched: list[dict] = []
 
