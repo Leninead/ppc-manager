@@ -1,11 +1,26 @@
 ---
 tipo: state
-actualizado: 2026-05-08
+actualizado: 2026-05-09
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Ultima sesion — 2026-05-09
+
+**Resumen**: Validacion E2E de M28 SKU Progress Report con CSV real de Dermaglos US (B0CYLMJJJC, W19). 5/5 features funcionales pasaron smoke test inicial. 4 bugs cerrados en el dia: 1 fixeado en sesion (commit 841b230) + 3 detectados por audit del code-reviewer Opus 4.7 (commit 0c7dbf4). Primera invocacion operacional real del code-reviewer = PASS, encontro bug C2 (envenenamiento ASIN vacio) no detectado por flujo humano. M28 queda production-ready local con triple validacion.
+
+**Commits** (3):
+- 841b230 fix(M28): matching CSV usa s["asin"] como clave del dict
+- 0c7dbf4 fix(M28): cierra 3 bugs detectados por code-reviewer audit (C1+C2+I1)
+- b4d84e9 docs(vault): daily 2026-05-09 + cierre validacion M28
+
+**Estado M28**: production-ready local. Bloqueado para uso compartido con equipo por filesystem efimero de Streamlit Community Cloud (decision de arquitectura persistencia pendiente, esperando respuesta de Freddy).
+
+Detalle completo en `notes/daily/2026-05-09.md` (173 lineas).
 
 ---
 
@@ -150,6 +165,7 @@ Todos commiteados a `main`, pendientes de push.
 - **Vault Obsidian versionado (hoy 2026-04-24)**. `.gitignore` fix `notes/` → `notes/*` + excepciones por carpeta. Estructura 8 directorios (`brands/`, `daily/`, `knowledge/`, `personal/`, `prompts/`, `sops/`, `state/`, `.obsidian/`). 6 brand notes + 9 archivos sueltos reorganizados con `git mv`.
 - **Sprint 2 Campaign Builder Modo B (TBD ~4-5h)**. XLSX custom + `st.data_editor` para flujo rápido power-user.
 - **Sprint 3 DaypartingApp (TBD ~2h)**. Módulo nuevo Account Manager — automatización bids por día/hora.
+- **M28 SKU Progress Report (Account Health)** — production-ready local con 4 bugs cerrados (commits 841b230 + 0c7dbf4 + b4d84e9). Triple validacion: audit code-reviewer + diff visual + smoke E2E con Dermaglos. Bloqueado para uso compartido por filesystem efimero de Streamlit Cloud.
 
 ---
 
@@ -163,6 +179,7 @@ Todos commiteados a `main`, pendientes de push.
 ## Bloqueos y pendientes críticos
 
 - **Variation Builder M26**: `data_editor` bug abierto — fix necesario antes de release. Seguimiento en [[daily/2026-04-26]].
+- 🔴 **Decision arquitectura persistencia compartida** (Supabase / R2 / Railway / Neon): bloqueante para uso real con equipo + porting M29 Pricing Dashboard. Esperando respuesta de Freddy sobre aprobacion $25/mes Supabase Pro (mensaje enviado 2026-05-09 con desglose costos). Streamlit Community Cloud filesystem efimero NO sobrevive redeploys.
 - **Dermaglos**: ✅ Sesión 28/04 cierre completo — análisis cruzado + plan maestro + 3 bulks ejecutados (93/94 + 46/46 + 7/10 success) + 10 campañas P0 pausadas ($932 net waste detenido / $132/d budget liberado). 7 campañas nuevas live ($200/d budget). ⏳ Pendientes manuales próxima sesión (ver [[2026-04-28]]): Portfolio ID assignment a las 7 nuevas, allantoin 0.5% cream resolver, bid SD Views Retargeting 30D ($1→$0.50), budget B0CYLDSQ5L SP ASIN Related ($5→$15), mensaje corregido a Neha, listing opt Tattoo + Cleanser + Body Cream, restock B0F6V para activar push diferido. Atom11 v2026.2 EN REVISIÓN — Neha trabajando en v2026.3 con 4 fixes (1 corregido en diagnóstico hoy: bug del comma era falso positivo, problema real es rule HARD-STOP que no dispara). Cambio de status: B0F548KTXD sale de heroes (ROAS 0.61×). Estrella oculta identificada: B0F6VZMF2V (ROAS 6.20× OOS desde 09/04).
 - **LTD progreso 25/04 cierre completo**: ✅ Fases 1+3+4+5 ejecutadas (sesiones 1+2 mismo día) · ⏳ Fase 6 pendiente esta semana — delegada a equipo (Adam con Aaron compliance B005ULUZIQ, Agustín con cliente ETA restock B09MG1J3LC + summary + lista heroes 3ra solicitud). Push Heroes Fase 4: 5 EXACT Delivering desde hoy +$200/d. Brand Defense expandido a 5 ad groups. Auditoría sistémica match producto/KW pendiente esta semana sin owner asignado. Outputs: bulk xlsx + HTML internal brief para Adam y Agustín.
 - **M&B Fase 2 bloqueada (escalada pendiente)**: ventana original 26-30 abril vencida. Mensaje gate AM con pregunta cerrada (Brand Store Women + video SBV listos sí/no) NO se hizo hoy — primera tarea próxima sesión. Mientras: las 3 EXACT HW non-branded ($30/d) cubren funnel mid sin esperar al cliente. Eval 11/05.
@@ -235,9 +252,25 @@ Todos commiteados a `main`, pendientes de push.
 
 ---
 
+### 4. Bug recurrente git renormalize en `notes/daily/2026-04-24.md` (prioridad MEDIA)
+
+**Hallazgo (2026-05-09):** El archivo `notes/daily/2026-04-24.md` aparece como modificado cada vez que git toca el repo (3 veces durante la sesion 2026-05-09: al inicio, durante aplicacion de fixes via super-prompt, y al cierre para escribir el daily). Workaround actual: `git checkout notes/daily/2026-04-24.md`.
+
+**Causa probable**: inconsistencia entre line endings en disco (CRLF) y regla de normalizacion de git (LF segun `core.autocrlf` o `.gitattributes`). El warning `LF will be replaced by CRLF the next time Git touches it` confirma el sintoma.
+
+**Hoy no rompe nada** funcional — solo agrega friccion al guard de repo en cada sesion.
+
+**Fix sugerido**: `git add --renormalize` + commit del archivo, o regla explicita en `.gitattributes` con `*.md text eol=lf`. Sesion separada chica.
+
+**Trigger**: cuando aparezca el sintoma en mas de un archivo o cuando el guard de repo bloquee 2+ veces seguidas en una misma sesion (ya paso el 2026-05-09).
+
+Detalle en `notes/daily/2026-05-09.md` (item 7 de "Deuda tecnica anotada").
+
+---
+
 ## Próximos pasos inmediatos
 
-1. **Validar otros agentes con model fix en operación real**: `ppc-module-builder`, `code-reviewer`, `atom11-specialist`, `excel-export-builder`, `ui-designer`, `testing-agent`, `client-onboarding`. Los 2 agentes Opus 4.7 nuevos (`data-persistence-specialist`, `html-to-streamlit-porter`) ya fueron validados al primer intento (Caso 1 en sesión 2026-05-07, Caso 2 en sesión 2026-05-08).
+1. **Validar otros agentes con model fix en operación real**: `ppc-module-builder`, `atom11-specialist`, `excel-export-builder`, `ui-designer`, `testing-agent`, `client-onboarding`. Los 2 agentes Opus 4.7 nuevos (`data-persistence-specialist`, `html-to-streamlit-porter`) ya fueron validados al primer intento (Caso 1 en sesión 2026-05-07, Caso 2 en sesión 2026-05-08). `code-reviewer` validado en sesion 2026-05-09 (detalle en `notes/daily/2026-05-09.md`).
 
 2. **Coordinar con Marcos sobre M27**: mensaje enviado 2026-05-08 con pedido de flat file real de su workflow. Esperando respuesta. Pendientes: validar v1 con datos reales + decidir si MX se agrega como 6to marketplace o queda fuera del scope.
 
