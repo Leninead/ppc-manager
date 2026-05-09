@@ -29,6 +29,8 @@ notes/*
 !notes/knowledge/**
 !notes/brands/
 !notes/brands/**
+!notes/clients/
+!notes/clients/**
 !notes/sops/
 !notes/sops/**
 !notes/state/
