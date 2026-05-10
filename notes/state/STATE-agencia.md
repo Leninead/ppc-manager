@@ -223,7 +223,7 @@ Detalle completo en `daily/2026-05-08.md`.
 
 Todos commiteados a `main`, pendientes de push.
 
-- **Variation Builder M26 (2026-04-26 en curso)**. Módulo nuevo Account Manager para generar flat files Amazon (1 parent + N children). `modules/pages/variation_builder.py` (929L). 4 tabs: Parent / Children+Theme / Preview / Descargar. Tema Variation (Sabor, Tamano, Scent, etc). Bug abierto: `data_editor` requiere doble entrada para persistir — fix diseñado (3 keys pattern) pendiente de aplicar. End-to-end validado con template cliente `PET_FOOD__1_.xlsm`.
+- **Variation Builder M26 (2026-04-26 en curso)**. Módulo nuevo Account Manager para generar flat files Amazon (1 parent + N children). `modules/pages/variation_builder.py` (929L). 4 tabs: Parent / Children+Theme / Preview / Descargar. Tema Variation (Sabor, Tamano, Scent, etc). Bug abierto: `data_editor` requiere doble entrada para persistir — fix diseñado (3 keys pattern) pendiente de aplicar. End-to-end validado con template cliente `PET_FOOD__1_.xlsm`. **Casos de éxito acumulados (3)**: VITALPET 27/04 (4/4), OPTIPET_ADULT 08/05 (4/4), OPTIPET_FLAVORBOOST 09/05 PARCIAL (2/4 — primer caso "listing rico desde cero", 7 hallazgos técnicos nuevos VB-004 a VB-011). Knowledge: `notes/knowledge/2026-05-08-variation-builder-flat-file-format.md`.
 - **Sprint 1 Campaign Builder v2.0 — SB rewrite (cerrado 2026-04-23)**. `_render_sb()` reescrito 864→1121 líneas en `modules/pages/campaign_builder.py`. Selector SBV/SBH. Brand Entity ID obligatorio. 29 columnas bulk SB 2026. Validaciones estrictas. Naming Capybaras hardcoded preservado (contrato con M11 Atom11 Rules Builder).
 - **Gamboa Generator M25 (integrado 2026-04-22)**. Módulo Account para reportes HTML integrales (SQP mensual + BR semanal). 5 archivos en `modules/gamboa/` + `modules/pages/gamboa_generator.py` (383L). Live en producción.
 - **Bulk Amazon 2026 compliance (2026-04-21)**. 30→31 columnas, helper `_fila_vacia_bulk()`. Validado con Batch ID UUID. Ver [[PPC-SOP-Manager]] sección Campaign Builder + [[amazon-bulk-upload-guide]].
@@ -245,6 +245,7 @@ Todos commiteados a `main`, pendientes de push.
 ## Bloqueos y pendientes críticos
 
 - **Variation Builder M26**: `data_editor` bug abierto — fix necesario antes de release. Seguimiento en [[daily/2026-04-26]].
+- **OPTIPET FlavorBoost** (cliente personal Lenin, NO Capybaras): respuesta cliente sobre eliminación Cat Treats Inactive (libera UPCs Pulmón/Pollo). Sin esto no se completa Variation Family #2. Seguimiento en [[daily/2026-05-09]] · [[optipet]].
 - 🔴 **Decision arquitectura persistencia compartida** (Supabase / R2 / Railway / Neon): bloqueante para uso real con equipo + porting M29 Pricing Dashboard. Esperando respuesta de Freddy sobre aprobacion $25/mes Supabase Pro (mensaje enviado 2026-05-09 con desglose costos). Streamlit Community Cloud filesystem efimero NO sobrevive redeploys.
 - **Dermaglos**: ✅ Sesión 28/04 cierre completo — análisis cruzado + plan maestro + 3 bulks ejecutados (93/94 + 46/46 + 7/10 success) + 10 campañas P0 pausadas ($932 net waste detenido / $132/d budget liberado). 7 campañas nuevas live ($200/d budget). ⏳ Pendientes manuales próxima sesión (ver [[2026-04-28]]): Portfolio ID assignment a las 7 nuevas, allantoin 0.5% cream resolver, bid SD Views Retargeting 30D ($1→$0.50), budget B0CYLDSQ5L SP ASIN Related ($5→$15), mensaje corregido a Neha, listing opt Tattoo + Cleanser + Body Cream, restock B0F6V para activar push diferido. Atom11 v2026.2 EN REVISIÓN — Neha trabajando en v2026.3 con 4 fixes (1 corregido en diagnóstico hoy: bug del comma era falso positivo, problema real es rule HARD-STOP que no dispara). Cambio de status: B0F548KTXD sale de heroes (ROAS 0.61×). Estrella oculta identificada: B0F6VZMF2V (ROAS 6.20× OOS desde 09/04).
 - **LTD progreso 25/04 cierre completo**: ✅ Fases 1+3+4+5 ejecutadas (sesiones 1+2 mismo día) · ⏳ Fase 6 pendiente esta semana — delegada a equipo (Adam con Aaron compliance B005ULUZIQ, Agustín con cliente ETA restock B09MG1J3LC + summary + lista heroes 3ra solicitud). Push Heroes Fase 4: 5 EXACT Delivering desde hoy +$200/d. Brand Defense expandido a 5 ad groups. Auditoría sistémica match producto/KW pendiente esta semana sin owner asignado. Outputs: bulk xlsx + HTML internal brief para Adam y Agustín.
@@ -318,7 +319,34 @@ Todos commiteados a `main`, pendientes de push.
 
 ---
 
-### 4. Bug recurrente git renormalize en `notes/daily/2026-04-24.md` (prioridad MEDIA)
+### 4. M26 Refactor post-OPTIPET FlavorBoost (10 bloques) (prioridad MEDIA)
+
+**Hallazgo (2026-05-09):** Sesión OPTIPET FlavorBoost descubrió 7 deudas técnicas nuevas (VB-004 a VB-011) sumadas a las 3 viejas (VB-001 a VB-003). Agrupar refactor M26 después de los 3 casos validados Variation Builder (VITALPET 27/04, OPTIPET_ADULT 08/05, OPTIPET_FLAVORBOOST 09/05 parcial). Estimación: 1.5-2 sesiones de trabajo.
+
+Bloques ordenados por prioridad y riesgo:
+- **VB-001** (deuda vieja, 30 min, riesgo bajo): refactor 3 returns en tab_download a helper `_render_download_tab()`
+- **VB-002** (15 min, riesgo bajo): cambiar update_delete hardcoded "Actualizar" → "Update" en `_build_parent_row` y "PartialUpdate" en `_build_child_row`
+- **VB-003** (30 min, riesgo medio): refactorizar `_build_child_row` a minimal payload (9 cols solo) para casos PartialUpdate
+- **VB-004** (15 min, riesgo bajo): validar ningún valor contiene `\n` `\t` `\r` crudos antes de escribir TSV
+- **VB-005** (15 min, riesgo bajo): para Pet Food MX, populate automático de `max_order_quantity=999` y `number_of_items=1` si no se especifican
+- **VB-006** (30 min, riesgo bajo): validar `external_product_id_type` matchee longitud (UPC=12, EAN=13, ASIN=10 alfanumérico)
+- **VB-007** (10 min, riesgo bajo): documentar en UI que "FBM 0" del parent post-feed es transitorio (warning informativo, no error)
+- **VB-008** (15 min, riesgo bajo): mejorar mensajes de error 99001 explicando posible falso positivo por feed_product_type
+- **VB-009** (45 min, riesgo medio): cargar valores válidos enum desde hoja "Valores válidos" del template y validarlos antes de escribir
+- **VB-010** (1h, riesgo medio): pre-flight check de UPC contra catálogo Amazon (requiere SP-API call) para detectar collision antes de subir
+- **VB-011** (15 min, riesgo bajo): documentar en UI que listings Inactive NO liberan UPCs (warning visual cuando se escribe un UPC)
+
+Bug `data_editor` 3 keys (pendiente desde 26/04): aplicar fix patrón de 3 keys o fallback `st.form` en tab Children.
+
+**Smoke test**: regenerar `OPTIPET_FlavorBoost` con módulo y comparar contra v4 manual del 09/05 byte por byte.
+
+**Trigger**: alcance final a decidir en próxima sesión cuando estemos con código en frente.
+
+Detalle completo en `notes/daily/2026-05-09.md` (sección "Sesión 2 — OPTIPET FlavorBoost") y `notes/knowledge/2026-05-08-variation-builder-flat-file-format.md` (Caso de éxito #3).
+
+---
+
+### 5. Bug recurrente git renormalize en `notes/daily/2026-04-24.md` (prioridad MEDIA)
 
 **Hallazgo (2026-05-09):** El archivo `notes/daily/2026-04-24.md` aparece como modificado cada vez que git toca el repo (3 veces durante la sesion 2026-05-09: al inicio, durante aplicacion de fixes via super-prompt, y al cierre para escribir el daily). Workaround actual: `git checkout notes/daily/2026-04-24.md`.
 

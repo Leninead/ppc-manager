@@ -7,7 +7,7 @@ marketplace: MX
 categoria: petfood
 cuenta: gestionada directamente por Lenin
 ppc_status: sin historial — PPC futuro
-actualizado: 2026-05-08
+actualizado: 2026-05-09
 ---
 
 # OPTIPET
@@ -31,10 +31,20 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 - **Theme**: `Sabor` (`flavor_name` col 39 del flat file `fptcustom`)
 - **Valores custom validados**: Vitality / Skin and Coat / Healthy Gut (semánticos no-sabor en inglés, aceptados sin warnings por Amazon MX)
 - **Browse node**: `11601177001` (validado para suplementos en polvo)
-- **Stock total FBA al 2026-05-08**: 0 disponibles · 72u inbound
+- **Stock al 2026-05-09**: Vitality 16u FBA, Skin and Coat 18u FBA, Healthy Gut 17u FBA. Total 51u operativo. Precio MXN $649 con Buy Box ganado en los 3.
 
 ### Pre-flight cleanup ejecutado
 - SKU `OPTIPETSKINCOATFBA` (FBM zombi, 15u Active) compartía ASIN `B0G6TW7G12` con el child FBA — apagado vía `Close listing` antes del feed para respetar la regla "1 ASIN ≠ 2 children".
+
+### Variation Family #2 — OPTIPET Flavor Boost (creada 2026-05-09)
+- Parent ASIN: B0H16N6SHP · SKU: OPTIPET_FLAVORBOOST_PARENT (creado 2026-05-09)
+- Children FBA-only (3 sabores planificados, 1 creado al 2026-05-09):
+  - ✅ B0H16T5H18 · OPTIPETFLAVORHIGADO (Hígado y Espirulina) — UPC 613365967019
+  - 🔴 sin ASIN · OPTIPETFLAVORPULMON (Pulmón y Melena de León) — UPC 613365694298 BLOQUEADO
+  - 🔴 sin ASIN · OPTIPETFLAVORPOLLO (Pollo y Cúrcuma) — UPC 613365971085 BLOQUEADO
+- Theme variation: Sabor (valores en español)
+- Bloqueante: UPCs de Pulmón y Pollo colisionan con OPTIPET Gato Premios Inactive (B0GPPR1ZGC + B0GPPXWPB1)
+- Pendiente respuesta cliente: ¿eliminar Cat Treats Inactive para liberar UPCs?
 
 ## Hitos completados
 
@@ -44,6 +54,7 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
   - Parent ASIN asignado: `B0H12ZXVPF`
   - Variation Family confirmada en Seller Central post-upload
   - Snapshot del flat file: `flat-files/OPTIPET_AdultParent_2026-05-08.txt`
+- **2026-05-09**: Variation Family #2 FlavorBoost iniciada. 2/4 SKUs creados (parent + Hígado). 2 children bloqueados por collision UPC con OPTIPET Cat Treats Inactive (Tuna Bites B0GPPR1ZGC + Chicken Bites B0GPPXWPB1).
 
 ## Pendientes activos
 
@@ -60,6 +71,12 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 6. Definir naming convention propio (no aplica el estándar Capybaras).
 7. Decidir arquitectura: campañas separadas por child vs única apuntando al parent.
 
+### FlavorBoost (sesión 2026-05-09)
+8. Esperar respuesta cliente: eliminación de Cat Treats Inactive (libera UPCs) vs alternativas
+9. Conseguir imágenes Flavor Boost (3 main_image_url públicas)
+10. Confirmar ingredientes reales Pulmón y Pollo con iNASA Innovation
+11. Confirmar shelf life real del producto (default 730d en feed actual)
+
 ## Notas operativas
 
 - **SKUs FBA-only por política del cliente.** Si aparecen FBMs nuevos compartiendo ASIN con un child, apagar antes de cualquier cambio en variations (lección aprendida 2026-05-08 con `OPTIPETSKINCOATFBA`).
@@ -67,6 +84,9 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 - **Theme `Sabor` con valores custom en inglés**: validado en MX. Amazon acepta strings fuera del dropdown sin warnings, incluso semánticos no-sabor.
 - **Reviews y BSR**: se consolidan a nivel parent post-agrupación. Monitorear en próxima sesión cuando lleguen ventas.
 - **Parent NO comprable**: solo referente. Children mantienen ASINs originales y son los que venden.
+- **Variation Family Adult 100% operativa al 2026-05-09** (51u stock total, precio $649, Buy Box ganado).
+- **VITALPET_ADULT_PARENT ASIN confirmado**: B0GZLWRY9Z (Jan 2026).
+- **Cat Treats OPTIPET Inactive desde Feb 2026** (Tuna Bites + Chicken Bites) — UPCs reutilizados en cajas Flavor Boost causando collision.
 
 ## Wikilinks
 
