@@ -1,0 +1,32 @@
+{
+  "archetype": "launch",
+  "name": {
+    "en": "Launch — New Brand",
+    "es": "Lanzamiento — Marca Nueva"
+  },
+  "description": {
+    "en": "For new brands with no historical PPC data. Focus on market opportunity + modular launch plan across Amazon, Shopify, Meta, and other marketplaces.",
+    "es": "Para marcas nuevas sin data PPC histórica. Foco en oportunidad de mercado + plan modular de lanzamiento cross-channel (Amazon, Shopify, Meta, marketplaces)."
+  },
+  "example_client_industries": ["home_goods", "consumer_electronics", "wellness"],
+  "default_blocks": [
+    "F1_cover",
+    "F2_about_stats",
+    "F3_brand_stages",
+    "F4_operation_pillars",
+    "F5_case_studies",
+    "V1_brand_overview",
+    "V17_made_in_country_advantage",
+    "V2_category_overview",
+    "V3_seo_opportunity",
+    "V4_listing_improvements_current_state",
+    "V18_modular_launch_strategy",
+    "V19_amazon_launch_grid",
+    "V20_shopify_d2c_channel",
+    "V21_meta_ads_growth",
+    "V22_walmart_marketplaces",
+    "F6_why_capybaras",
+    "F7_team",
+    "F8_lets_scale"
+  ]
+}

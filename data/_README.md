@@ -39,7 +39,7 @@ data/
 | `supply-chain/` | reservado | — |
 | `disenio/` | reservado | — |
 | `rrhh/` | reservado | — |
-| `sales/` | reservado | — |
+| `sales/` | activa | M29 Proposal Studio. Owner: Sales Directors. Schema `proposal-v1`, 4 archetypes (launch / scale_seo / defense / cvr), catálogo de 37 módulos (8 FIXED + 29 VARIABLE). |
 | `marketplaces/` | reservado | — |
 | `direccion-general/` | reservado | — |
 

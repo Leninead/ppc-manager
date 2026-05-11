@@ -1,0 +1,31 @@
+{
+  "archetype": "defense",
+  "name": {
+    "en": "Defense — Brand Under Attack",
+    "es": "Defensa — Marca Bajo Ataque"
+  },
+  "description": {
+    "en": "Competitors bidding on your brand keywords. Focus on branded terms analysis + defensive campaigns strategy.",
+    "es": "Competidores pujando por keywords de marca. Foco en branded terms + campañas defensivas."
+  },
+  "example_client_industries": ["travel", "consumer_electronics", "apparel"],
+  "default_blocks": [
+    "F1_cover",
+    "F2_about_stats",
+    "F3_brand_stages",
+    "F4_operation_pillars",
+    "F5_case_studies",
+    "V1_brand_overview",
+    "V2_category_overview",
+    "V3_seo_opportunity",
+    "V23_branded_terms_overview",
+    "V24_branded_terms_chart",
+    "V25_defensive_campaigns_strategy",
+    "V26_branded_terms_summary",
+    "V4_listing_improvements_current_state",
+    "V6_growth_plan_phases",
+    "F6_why_capybaras",
+    "F7_team",
+    "F8_lets_scale"
+  ]
+}

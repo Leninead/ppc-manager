@@ -1,0 +1,739 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-11",
+  "description": "Catálogo canónico de módulos del sistema Sales Proposals. 37 módulos: 8 FIXED + 6 CORE_VARIABLE + 10 COMMON_VARIABLE + 13 SPECIALIZED_VARIABLE. Versionado en git. Toda referencia a module_id desde Blocks o Templates debe existir acá. Why Capybaras v3 con pilar 'Proprietary Operating System' como diferenciador real del Agency OS.",
+  "tiers": {
+    "fixed": "Aparece en TODAS las propuestas (frequency=5). Estructura inmutable del pitch deck.",
+    "core_variable": "Aparece en 4-5 de cada 5 propuestas. Backbone de cualquier pitch.",
+    "common_variable": "Aparece en 2-3 de cada 5 propuestas. Específicos de PPC audit / sales forecast / casos.",
+    "specialized_variable": "Aparece en 1 de cada 5 propuestas. Específicos de cliente o tipo de proyecto."
+  },
+  "modules": [
+    {
+      "module_id": "F1_cover",
+      "tier": "fixed",
+      "frequency": 5,
+      "title": {"en": "Cover", "es": "Portada"},
+      "description": {
+        "en": "Cover slide with proposal title, client name, date, and language.",
+        "es": "Slide de portada con título de propuesta, nombre del cliente, fecha e idioma."
+      },
+      "schema": {
+        "proposal_title": {"dtype": "string", "required": true},
+        "client_name": {"dtype": "string", "required": true},
+        "date": {"dtype": "string", "required": true, "description": "ISO date YYYY-MM-DD"},
+        "language": {"dtype": "string", "required": true, "enum": ["en", "es"]}
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "F2_about_stats",
+      "tier": "fixed",
+      "frequency": 5,
+      "title": {"en": "About Capybaras — Agency Stats", "es": "Sobre Capybaras — Stats de la Agencia"},
+      "description": {
+        "en": "Agency-level stats: years of experience, monthly revenue managed, monthly ad spend, average ROAS, conversion rate advantage, certifications, partners.",
+        "es": "Stats de la agencia: años de experiencia, revenue mensual gestionado, ad spend mensual, ROAS promedio, ventaja en CVR, certificaciones, partners."
+      },
+      "schema": {
+        "years_experience": {"dtype": "int", "required": true},
+        "monthly_revenue_usd": {"dtype": "float", "required": true},
+        "monthly_ad_spend_usd": {"dtype": "float", "required": true},
+        "average_roas": {"dtype": "float", "required": true},
+        "conversion_rate_advantage": {"dtype": "string", "required": false, "description": "Texto libre (ej: '+ 34% sobre el promedio de categoría')"},
+        "certifications": {"dtype": "array<string>", "required": false},
+        "partners": {"dtype": "array<string>", "required": false}
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "F3_brand_stages",
+      "tier": "fixed",
+      "frequency": 5,
+      "title": {"en": "Brands We Work With — Create / Launch / Scale", "es": "Marcas con las que Trabajamos — Crear / Lanzar / Escalar"},
+      "description": {
+        "en": "Three buckets of brand logos: Create (new brands we built), Launch (brands we took to market), Scale (brands we grew).",
+        "es": "Tres bloques de logos: Crear (marcas nuevas), Lanzar (marcas que llevamos al mercado), Escalar (marcas que hicimos crecer)."
+      },
+      "schema": {
+        "create_brands": {"dtype": "array<object>", "required": false, "description": "Cada objeto: {name, logo_url}"},
+        "launch_brands": {"dtype": "array<object>", "required": false},
+        "scale_brands": {"dtype": "array<object>", "required": false}
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "F4_operation_pillars",
+      "tier": "fixed",
+      "frequency": 5,
+      "title": {"en": "How We Operate — 4 Pillars", "es": "Cómo Operamos — 4 Pilares"},
+      "description": {
+        "en": "Four operational pillars: Strategic Management, Advertising, Creative, Supply.",
+        "es": "Cuatro pilares operativos: Strategic Management, Advertising, Creative, Supply."
+      },
+      "schema": {
+        "pillars": {
+          "dtype": "array<object>",
+          "required": true,
+          "description": "4 objetos. Cada uno: {name, tagline: {en, es}}",
+          "default": [
+            {"name": "Strategic Management", "tagline": {"en": "Roadmap, P&L, account governance.", "es": "Roadmap, P&L, gobernanza de cuenta."}},
+            {"name": "Advertising", "tagline": {"en": "PPC + DSP + branded defense, run on our own OS.", "es": "PPC + DSP + defensa de marca, corriendo sobre nuestro OS."}},
+            {"name": "Creative", "tagline": {"en": "Main image, infographics, A+, video — built to convert.", "es": "Imagen principal, infographics, A+, video — hechos para convertir."}},
+            {"name": "Supply", "tagline": {"en": "Inventory, IPI, restock, FBA-FBM playbook.", "es": "Inventario, IPI, restock, playbook FBA-FBM."}}
+          ]
+        }
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "F5_case_studies",
+      "tier": "fixed",
+      "frequency": 5,
+      "title": {"en": "Case Studies", "es": "Casos de Éxito"},
+      "description": {
+        "en": "3-4 case studies chosen from catalog: Tattoo Care, Wamery, Shapermint, AimZone Games, Challenge Me, Dermaglos Main Image.",
+        "es": "3-4 casos elegidos del catálogo: Tattoo Care, Wamery, Shapermint, AimZone Games, Challenge Me, Dermaglos Main Image."
+      },
+      "schema": {
+        "selected_cases": {
+          "dtype": "array<string>",
+          "required": true,
+          "description": "Slugs del catálogo de casos disponibles.",
+          "allowed_values": ["tattoo_care", "wamery", "shapermint", "aimzone_games", "challenge_me", "dermaglos_main_image"]
+        }
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "F6_why_capybaras",
+      "tier": "fixed",
+      "frequency": 5,
+      "title": {"en": "Why Capybaras", "es": "Por qué Capybaras"},
+      "description": {
+        "en": "Why Capybaras pillars — v3 includes the Proprietary Operating System as the real differentiator.",
+        "es": "Pilares Why Capybaras — v3 incluye el Proprietary Operating System como el diferenciador real."
+      },
+      "schema": {
+        "version": {"dtype": "string", "required": true, "default": "v3"},
+        "pillars": {
+          "dtype": "array<object>",
+          "required": true,
+          "description": "4 pilares oficiales v3.",
+          "default": [
+            {
+              "slug": "end_of_amateur_hour",
+              "title": {"en": "The End of Amateur Hour", "es": "El Fin de la Improvisación"},
+              "body": {
+                "en": "$100M+ managed. We don't experiment — we execute a proven system. We aren't an expense; we are an insurance policy for your growth.",
+                "es": "$100M+ gestionados. No experimentamos: ejecutamos un sistema probado. No somos un gasto; somos una póliza de seguro para tu crecimiento."
+              }
+            },
+            {
+              "slug": "proprietary_operating_system",
+              "title": {"en": "Proprietary Operating System", "es": "Sistema Operativo Propio"},
+              "body": {
+                "en": "26+ internal modules, our own Atom11 Rules engine, real-time PPC orchestration. Other agencies run on spreadsheets. We run on infrastructure.",
+                "es": "26+ módulos internos, nuestro motor Atom11 Rules, orquestación PPC en tiempo real. Otras agencias funcionan con planillas. Nosotros, con infraestructura."
+              }
+            },
+            {
+              "slug": "intellectual_capital",
+              "title": {"en": "The Intellectual Capital", "es": "Capital Intelectual"},
+              "body": {
+                "en": "Top 1% LATAM e-commerce minds. US-level strategy with an agile team in your time zone — your brand never sleeps and never lags.",
+                "es": "Top 1% de mentes e-commerce de LATAM. Estrategia nivel USA con un equipo ágil en tu huso horario — tu marca nunca se detiene ni se atrasa."
+              }
+            },
+            {
+              "slug": "ceo_bandwidth_recovery",
+              "title": {"en": "CEO Bandwidth Recovery", "es": "Recuperá tu Tiempo de CEO"},
+              "body": {
+                "en": "Amazon is a complexity trap. We institutionalize it. Stop being the Manager of Amazon and return to being the Architect of your Brand.",
+                "es": "Amazon es una trampa de complejidad. La institucionalizamos. Dejá de ser el Manager de Amazon para volver a ser el Arquitecto de tu Marca."
+              }
+            }
+          ]
+        }
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "F7_team",
+      "tier": "fixed",
+      "frequency": 5,
+      "title": {"en": "Assigned Team", "es": "Equipo Asignado"},
+      "description": {
+        "en": "Core team assigned to the account (Account Manager, PPC Expert, Graphic Designer + optional Shopify Dev / Meta Ads Expert) plus cross-support team (Freddy, Guille, Ramiro always).",
+        "es": "Equipo core asignado a la cuenta (Account Manager, PPC Expert, Graphic Designer + opcionales Shopify Dev / Meta Ads Expert) y equipo de cross-support (Freddy, Guille, Ramiro siempre)."
+      },
+      "schema": {
+        "core_team": {
+          "dtype": "array<object>",
+          "required": true,
+          "description": "Cada objeto: {name, role, photo_url, bio}"
+        },
+        "cross_support_team": {
+          "dtype": "array<object>",
+          "required": true,
+          "description": "Default: Freddy, Guille, Ramiro. Cada objeto: {name, role}",
+          "default": [
+            {"name": "Freddy", "role": "Strategic Director"},
+            {"name": "Guille", "role": "Operations Lead"},
+            {"name": "Ramiro", "role": "Tech & OS Lead"}
+          ]
+        }
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "F8_lets_scale",
+      "tier": "fixed",
+      "frequency": 5,
+      "title": {"en": "Let's Scale", "es": "Hagámoslo Crecer"},
+      "description": {
+        "en": "Closing slide with CTA and contact info.",
+        "es": "Slide de cierre con CTA e información de contacto."
+      },
+      "schema": {
+        "language": {"dtype": "string", "required": true, "enum": ["en", "es"]}
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V1_brand_overview",
+      "tier": "core_variable",
+      "frequency": 5,
+      "title": {"en": "Brand Overview", "es": "Resumen de Marca"},
+      "description": {
+        "en": "Brand history, founding context, and value propositions.",
+        "es": "Historia de la marca, contexto fundacional y propuestas de valor."
+      },
+      "schema": {
+        "founded_year": {"dtype": "int", "required": false},
+        "founder": {"dtype": "string", "required": false},
+        "country": {"dtype": "string", "required": false},
+        "mission_statement": {"dtype": "string", "required": false},
+        "value_props": {"dtype": "array<string>", "required": true, "max_items": 5}
+      },
+      "applicable_archetypes": ["scale_seo", "defense", "cvr", "launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V2_category_overview",
+      "tier": "core_variable",
+      "frequency": 5,
+      "title": {"en": "Category Overview & Competitor Analysis", "es": "Resumen de Categoría y Análisis de Competidores"},
+      "description": {
+        "en": "Market summary: total revenue, total sales, median price, median reviews, competition strength (SV + KW), weakness distribution.",
+        "es": "Resumen de mercado: revenue total, ventas totales, precio mediano, reviews medianos, fuerza de competencia (SV + KW), distribución de debilidades."
+      },
+      "schema": {
+        "category_name": {"dtype": "string", "required": true},
+        "total_revenue": {"dtype": "float", "required": false},
+        "total_sales": {"dtype": "int", "required": false},
+        "median_price": {"dtype": "float", "required": false},
+        "median_reviews": {"dtype": "int", "required": false},
+        "competition_sv_strength_pct": {"dtype": "float", "required": false, "description": "0-100"},
+        "competition_kw_strength_pct": {"dtype": "float", "required": false, "description": "0-100"},
+        "weakness_distribution": {"dtype": "array<object>", "required": false, "description": "Cada objeto: {weakness, pct}"}
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V3_seo_opportunity",
+      "tier": "core_variable",
+      "frequency": 4,
+      "title": {"en": "SEO Opportunity — Missing Keywords & Page 1 Domination", "es": "Oportunidad SEO — Keywords Faltantes y Dominación Page 1"},
+      "description": {
+        "en": "Missing high-volume keywords, Launch Score table, Brand Page 1 Domination chart.",
+        "es": "Keywords de alto volumen donde no estamos, Launch Score table, chart de Brand Page 1 Domination."
+      },
+      "schema": {
+        "missing_keywords": {"dtype": "array<object>", "required": true, "description": "Cada objeto: {keyword, sv, current_rank, opportunity_score}"},
+        "launch_score_table": {"dtype": "array<object>", "required": false},
+        "page1_domination_chart_data": {"dtype": "array<object>", "required": false}
+      },
+      "applicable_archetypes": ["scale_seo", "launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V4_listing_improvements_current_state",
+      "tier": "core_variable",
+      "frequency": 4,
+      "title": {"en": "Listing — Current State Checklist", "es": "Listing — Checklist de Estado Actual"},
+      "description": {
+        "en": "Checklist of listing elements (main image, infographics, bullets, A+, storefront, video) with status missing / present / weak.",
+        "es": "Checklist de elementos del listing (imagen principal, infographics, bullets, A+, storefront, video) con estado missing / present / weak."
+      },
+      "schema": {
+        "current_state_url": {"dtype": "string", "required": false, "description": "URL a screenshot del listing actual"},
+        "items": {
+          "dtype": "array<object>",
+          "required": true,
+          "description": "Cada objeto: {name, status: 'missing'|'present'|'weak', notes}"
+        }
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V5_listing_comparison_competitor",
+      "tier": "core_variable",
+      "frequency": 4,
+      "title": {"en": "Listing — Side-by-Side vs Competitor", "es": "Listing — Comparación vs Competidor"},
+      "description": {
+        "en": "Side-by-side comparison of client listing vs main competitor: main image, infographics, A+ content.",
+        "es": "Comparación lado-a-lado del listing del cliente vs competidor principal: main image, infographics, A+ content."
+      },
+      "schema": {
+        "comparison_groups": {
+          "dtype": "array<object>",
+          "required": true,
+          "description": "Cada objeto: {type: 'main_image'|'infographics'|'a_plus', client_assets: [], competitor_assets: [], commentary}"
+        }
+      },
+      "applicable_archetypes": ["scale_seo", "cvr", "launch"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V6_growth_plan_phases",
+      "tier": "core_variable",
+      "frequency": 4,
+      "title": {"en": "Growth Plan — 3 Phases", "es": "Plan de Crecimiento — 3 Fases"},
+      "description": {
+        "en": "Phase 1 Foundations, Phase 2 Expansion, Phase 3 DSP. Each phase has number, name, duration, narrative (bilingual).",
+        "es": "Phase 1 Foundations, Phase 2 Expansion, Phase 3 DSP. Cada fase tiene número, nombre, duración, narrativa (bilingüe)."
+      },
+      "schema": {
+        "phases": {
+          "dtype": "array<object>",
+          "required": true,
+          "min_items": 3,
+          "max_items": 3,
+          "description": "Cada objeto: {number, name: {en, es}, duration, narrative: {en, es}}"
+        }
+      },
+      "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V7_ppc_audit_overview",
+      "tier": "common_variable",
+      "frequency": 3,
+      "title": {"en": "PPC Audit — Overview", "es": "Auditoría PPC — Resumen"},
+      "description": {
+        "en": "Cover slide for the PPC audit section. Lists the scope of audit checks performed.",
+        "es": "Slide de cobertura para la sección PPC audit. Lista el alcance de los checks realizados."
+      },
+      "schema": {
+        "audit_scope": {"dtype": "array<string>", "required": true},
+        "account_summary": {"dtype": "object", "required": false, "description": "{total_spend, total_sales, account_acos, total_campaigns}"}
+      },
+      "applicable_archetypes": ["scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V8_ppc_audit_target_types",
+      "tier": "common_variable",
+      "frequency": 3,
+      "title": {"en": "PPC Audit — Target Types", "es": "Auditoría PPC — Tipos de Target"},
+      "description": {
+        "en": "Missing exact match coverage, % of spend in broad/phrase, target type distribution.",
+        "es": "Cobertura faltante en exact match, % de spend en broad/phrase, distribución por tipo de target."
+      },
+      "schema": {
+        "missing_exact_pct": {"dtype": "float", "required": false},
+        "broad_phrase_spend_pct": {"dtype": "float", "required": false},
+        "target_type_distribution": {"dtype": "array<object>", "required": false}
+      },
+      "applicable_archetypes": ["scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V9_ppc_audit_campaign_type",
+      "tier": "common_variable",
+      "frequency": 3,
+      "title": {"en": "PPC Audit — Campaign Type Coverage", "es": "Auditoría PPC — Cobertura por Tipo de Campaña"},
+      "description": {
+        "en": "Missing SB/SD analysis: which campaign types are absent and why they matter.",
+        "es": "Análisis de SB/SD faltantes: qué tipos de campaña no están y por qué importan."
+      },
+      "schema": {
+        "campaign_types_present": {"dtype": "array<string>", "required": true},
+        "campaign_types_missing": {"dtype": "array<string>", "required": true},
+        "impact_estimate": {"dtype": "string", "required": false}
+      },
+      "applicable_archetypes": ["scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V10_ppc_audit_harvesting",
+      "tier": "common_variable",
+      "frequency": 2,
+      "title": {"en": "PPC Audit — Harvesting Opportunities", "es": "Auditoría PPC — Oportunidades de Harvesting"},
+      "description": {
+        "en": "Profitable targets currently sitting in broad/auto/PT that should be promoted to exact match SKAGs.",
+        "es": "Targets rentables que viven en broad/auto/PT y deben promocionarse a exact match SKAGs."
+      },
+      "schema": {
+        "harvest_candidates": {"dtype": "array<object>", "required": true},
+        "expected_impact_usd": {"dtype": "float", "required": false}
+      },
+      "applicable_archetypes": ["scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V11_ppc_audit_placement",
+      "tier": "common_variable",
+      "frequency": 2,
+      "title": {"en": "PPC Audit — Placement Performance", "es": "Auditoría PPC — Performance por Placement"},
+      "description": {
+        "en": "Performance breakdown by placement: Top of Search, Product Pages, Rest of Search.",
+        "es": "Performance por placement: Top of Search, Product Pages, Rest of Search."
+      },
+      "schema": {
+        "placement_data": {"dtype": "array<object>", "required": true, "description": "Cada objeto: {placement, spend, sales, acos, cvr}"}
+      },
+      "applicable_archetypes": ["scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V12_ppc_audit_negative_keywords",
+      "tier": "common_variable",
+      "frequency": 2,
+      "title": {"en": "PPC Audit — Negative Keywords Hygiene", "es": "Auditoría PPC — Higiene de Negativos"},
+      "description": {
+        "en": "Spend on non-relevant search terms + examples of negatives that should be added.",
+        "es": "Spend en search terms no relevantes + ejemplos de negativos que deben agregarse."
+      },
+      "schema": {
+        "wasted_spend_usd": {"dtype": "float", "required": false},
+        "wasted_spend_pct": {"dtype": "float", "required": false},
+        "negative_examples": {"dtype": "array<object>", "required": true}
+      },
+      "applicable_archetypes": ["scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V13_sales_forecast_table",
+      "tier": "common_variable",
+      "frequency": 3,
+      "title": {"en": "Sales Forecast — Current vs Projected", "es": "Forecast de Ventas — Actual vs Proyectado"},
+      "description": {
+        "en": "Table with KPIs current vs forecast + delta % (revenue, units, ACoS, TACoS, CVR).",
+        "es": "Tabla con KPIs actuales vs forecast + delta % (revenue, units, ACoS, TACoS, CVR)."
+      },
+      "schema": {
+        "kpi_rows": {"dtype": "array<object>", "required": true, "description": "Cada objeto: {kpi_name, current, projected, delta_pct}"}
+      },
+      "applicable_archetypes": ["scale_seo", "defense", "cvr", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V14_market_trend_growth",
+      "tier": "common_variable",
+      "frequency": 2,
+      "title": {"en": "Market Trend & Growth", "es": "Tendencia y Crecimiento del Mercado"},
+      "description": {
+        "en": "Year-over-year and quarterly growth trend for the category.",
+        "es": "Crecimiento interanual y trimestral de la categoría."
+      },
+      "schema": {
+        "yoy_growth_pct": {"dtype": "float", "required": false},
+        "quarterly_data": {"dtype": "array<object>", "required": true},
+        "narrative": {"dtype": "string", "required": false}
+      },
+      "applicable_archetypes": ["scale_seo", "launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V15_competitive_position_table",
+      "tier": "common_variable",
+      "frequency": 3,
+      "title": {"en": "Competitive Position — Table", "es": "Posición Competitiva — Tabla"},
+      "description": {
+        "en": "Table of competitors with ASINs, prices, ratings, reviews count, BSR.",
+        "es": "Tabla de competidores con ASINs, precios, ratings, número de reviews, BSR."
+      },
+      "schema": {
+        "competitors": {"dtype": "array<object>", "required": true}
+      },
+      "applicable_archetypes": ["scale_seo", "defense", "cvr", "launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V16_listing_main_image_case_dermaglos",
+      "tier": "common_variable",
+      "frequency": 2,
+      "title": {"en": "Case: Main Image Optimization — Dermaglos", "es": "Caso: Optimización de Main Image — Dermaglos"},
+      "description": {
+        "en": "Real before/after case study of Dermaglos main image: CTR +59%, CVR +92%.",
+        "es": "Caso real de Dermaglos con before/after de main image: CTR +59%, CVR +92%."
+      },
+      "schema": {
+        "before_url": {"dtype": "string", "required": true},
+        "after_url": {"dtype": "string", "required": true},
+        "ctr_lift_pct": {"dtype": "float", "required": false, "default": 59.0},
+        "cvr_lift_pct": {"dtype": "float", "required": false, "default": 92.0},
+        "notes": {"dtype": "string", "required": false}
+      },
+      "applicable_archetypes": ["cvr", "launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V17_made_in_country_advantage",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Made-in-Country Advantage", "es": "Ventaja de Made-in-Country"},
+      "description": {
+        "en": "Tariff exposure analysis + restock speed advantage from local manufacturing. Originally built for Garland Rug.",
+        "es": "Análisis de exposición arancelaria + ventaja de restock por manufactura local. Creado originalmente para Garland Rug."
+      },
+      "schema": {
+        "country": {"dtype": "string", "required": true},
+        "tariff_exposure_pct": {"dtype": "float", "required": false},
+        "restock_lead_time_days": {"dtype": "int", "required": false},
+        "competitor_lead_time_days": {"dtype": "int", "required": false}
+      },
+      "applicable_archetypes": ["launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V18_modular_launch_strategy",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Modular Launch Strategy", "es": "Estrategia de Lanzamiento Modular"},
+      "description": {
+        "en": "4 channels: Amazon, Shopify, Meta, Marketplaces (Walmart/eBay). Originally built for Garland Rug.",
+        "es": "4 canales: Amazon, Shopify, Meta, Marketplaces (Walmart/eBay). Creado originalmente para Garland Rug."
+      },
+      "schema": {
+        "channels": {"dtype": "array<string>", "required": true, "default": ["Amazon", "Shopify", "Meta", "Marketplaces"]},
+        "channel_narratives": {"dtype": "object", "required": false}
+      },
+      "applicable_archetypes": ["launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V19_amazon_launch_grid",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Amazon Launch Grid (2x3)", "es": "Grilla de Amazon Launch (2x3)"},
+      "description": {
+        "en": "6 sub-items in a 2x3 grid: Listing, PPC, A+, Storefront, Brand Story, Posts. Originally built for Garland Rug.",
+        "es": "6 sub-items en grilla 2x3: Listing, PPC, A+, Storefront, Brand Story, Posts. Creado originalmente para Garland Rug."
+      },
+      "schema": {
+        "grid_items": {"dtype": "array<object>", "required": true, "min_items": 6, "max_items": 6}
+      },
+      "applicable_archetypes": ["launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V20_shopify_d2c_channel",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Shopify D2C Channel", "es": "Canal Shopify D2C"},
+      "description": {
+        "en": "4 advantages + Customer Journey for D2C via Shopify. Originally built for Garland Rug.",
+        "es": "4 ventajas + Customer Journey para D2C en Shopify. Creado originalmente para Garland Rug."
+      },
+      "schema": {
+        "advantages": {"dtype": "array<string>", "required": true, "min_items": 4, "max_items": 4},
+        "customer_journey": {"dtype": "array<object>", "required": false}
+      },
+      "applicable_archetypes": ["launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V21_meta_ads_growth",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Meta Ads Growth Capabilities", "es": "Capacidades de Crecimiento en Meta Ads"},
+      "description": {
+        "en": "6 capabilities + funnel diagram for Meta Ads. Originally built for Garland Rug.",
+        "es": "6 capacidades + diagrama de funnel para Meta Ads. Creado originalmente para Garland Rug."
+      },
+      "schema": {
+        "capabilities": {"dtype": "array<string>", "required": true, "min_items": 6, "max_items": 6},
+        "funnel_data": {"dtype": "array<object>", "required": false}
+      },
+      "applicable_archetypes": ["launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V22_walmart_marketplaces",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Walmart & Other Marketplaces", "es": "Walmart y Otros Marketplaces"},
+      "description": {
+        "en": "4 advantages + 4 target marketplaces (Walmart, eBay, Target+, Wayfair). Originally built for Garland Rug.",
+        "es": "4 ventajas + 4 marketplaces target (Walmart, eBay, Target+, Wayfair). Creado originalmente para Garland Rug."
+      },
+      "schema": {
+        "advantages": {"dtype": "array<string>", "required": true, "min_items": 4, "max_items": 4},
+        "target_marketplaces": {"dtype": "array<string>", "required": true, "min_items": 4, "max_items": 4}
+      },
+      "applicable_archetypes": ["launch", "custom"],
+      "status": "active",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V23_branded_terms_overview",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Branded Terms — Attack Overview", "es": "Branded Terms — Resumen del Ataque"},
+      "description": {
+        "en": "Analysis of competitors attacking your brand search terms. Originally built for Nobl Travel.",
+        "es": "Análisis de competidores atacando los search terms de tu marca. Creado originalmente para Nobl Travel."
+      },
+      "schema": {
+        "attacking_competitors": {"dtype": "array<object>", "required": true},
+        "total_lost_impression_share_pct": {"dtype": "float", "required": false}
+      },
+      "applicable_archetypes": ["defense", "custom"],
+      "status": "placeholder_coming_soon",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V24_branded_terms_chart",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Branded Terms — Attackers Chart", "es": "Branded Terms — Gráfico de Atacantes"},
+      "description": {
+        "en": "Visualization of attackers stealing branded clicks. Originally built for Nobl Travel.",
+        "es": "Visualización de atacantes que roban clicks de marca. Creado originalmente para Nobl Travel."
+      },
+      "schema": {
+        "chart_data": {"dtype": "array<object>", "required": true}
+      },
+      "applicable_archetypes": ["defense", "custom"],
+      "status": "placeholder_coming_soon",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V25_defensive_campaigns_strategy",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Defensive Campaigns Strategy", "es": "Estrategia de Campañas Defensivas"},
+      "description": {
+        "en": "Strategy to defend brand search terms with SP exact + SB headline campaigns. Originally built for Nobl Travel.",
+        "es": "Estrategia para defender search terms de marca con SP exact + SB headline campaigns. Creado originalmente para Nobl Travel."
+      },
+      "schema": {
+        "strategy_pillars": {"dtype": "array<object>", "required": true},
+        "campaign_types": {"dtype": "array<string>", "required": false}
+      },
+      "applicable_archetypes": ["defense", "custom"],
+      "status": "placeholder_coming_soon",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V26_branded_terms_summary",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Branded Terms — Closing Summary", "es": "Branded Terms — Resumen de Cierre"},
+      "description": {
+        "en": "Closing slide with conclusions and expected impact. Originally built for Nobl Travel.",
+        "es": "Slide de cierre con conclusiones e impacto esperado. Creado originalmente para Nobl Travel."
+      },
+      "schema": {
+        "conclusions": {"dtype": "array<string>", "required": true},
+        "expected_impact": {"dtype": "string", "required": false}
+      },
+      "applicable_archetypes": ["defense", "custom"],
+      "status": "placeholder_coming_soon",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V27_listing_audit_quality_score",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Listing Audit — Helium10 Quality Score", "es": "Auditoría de Listing — Helium10 Quality Score"},
+      "description": {
+        "en": "Helium10 Quality Score breakdown by category. Originally built for Sunny Zebra.",
+        "es": "Desglose del Helium10 Quality Score por categoría. Creado originalmente para Sunny Zebra."
+      },
+      "schema": {
+        "overall_score": {"dtype": "int", "required": true},
+        "category_scores": {"dtype": "array<object>", "required": true}
+      },
+      "applicable_archetypes": ["cvr", "custom"],
+      "status": "placeholder_coming_soon",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V28_listing_audit_infographics_detail",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Listing Audit — Infographics Multi-Slide", "es": "Auditoría de Listing — Infographics Multi-Slide"},
+      "description": {
+        "en": "Slide-by-slide comparison of infographics (client vs benchmark). Originally built for Sunny Zebra.",
+        "es": "Comparación slide-por-slide de infographics (cliente vs benchmark). Creado originalmente para Sunny Zebra."
+      },
+      "schema": {
+        "slides": {"dtype": "array<object>", "required": true}
+      },
+      "applicable_archetypes": ["cvr", "custom"],
+      "status": "placeholder_coming_soon",
+      "interested_votes": 0
+    },
+    {
+      "module_id": "V29_listing_audit_aplus_comparison",
+      "tier": "specialized_variable",
+      "frequency": 1,
+      "title": {"en": "Listing Audit — A+ Generic vs Premium", "es": "Auditoría de Listing — A+ Genérico vs Premium"},
+      "description": {
+        "en": "Comparison between generic A+ Content and Premium A+ Content. Originally built for Sunny Zebra.",
+        "es": "Comparación entre A+ Content genérico y A+ Content Premium. Creado originalmente para Sunny Zebra."
+      },
+      "schema": {
+        "generic_a_plus_url": {"dtype": "string", "required": false},
+        "premium_a_plus_url": {"dtype": "string", "required": false},
+        "differences": {"dtype": "array<string>", "required": true}
+      },
+      "applicable_archetypes": ["cvr", "custom"],
+      "status": "placeholder_coming_soon",
+      "interested_votes": 0
+    }
+  ]
+}

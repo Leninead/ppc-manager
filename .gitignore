@@ -22,6 +22,22 @@ data/account-health/flat-file-migrator/*
 !data/account-health/flat-file-migrator/_examples/
 !data/account-health/flat-file-migrator/_examples/**
 
+# ── Sales Proposals ────────────────────────────────────
+# Versionamos: catálogo, templates, seeds (referencia histórica), README, .gitkeep.
+# NO versionamos: propuestas reales (data de cliente), votes log (operacional).
+!data/sales/
+data/sales/*
+!data/sales/_catalog.json
+!data/sales/_templates/
+!data/sales/_templates/**
+!data/sales/_seed/
+!data/sales/_seed/**
+!data/sales/_README.md
+!data/sales/proposals/
+data/sales/proposals/*
+!data/sales/proposals/.gitkeep
+data/sales/interested-votes.parquet
+
 *.csv
 app_backup.py
 notes/*
