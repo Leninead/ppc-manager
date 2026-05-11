@@ -223,6 +223,7 @@ Detalle completo en `daily/2026-05-08.md`.
 
 Todos commiteados a `main`, pendientes de push.
 
+- **M29 Proposal Studio (Sales Director module)** — Sesión 1/6 completada (schema + persistencia + 4 templates + parser). Branch `feat/m29-proposal-studio`, último commit `affc575`. 37 módulos en catálogo (8 FIXED + 29 VARIABLE), 4 arquetipos (launch / scale_seo / defense / cvr), Why Capybaras v3 con pilar nuevo "Proprietary Operating System". Capa de persistencia abstracta (`ProposalStorage` + `LocalJsonStorage`) preparada para swap a Supabase post-decisión Freddy. 57 tests verdes. Próximo: Sesión 2 — UI Streamlit (`modules/pages/proposal_studio.py`). Owner: Lenin (dev) + Sales Directors (validación). Ver [[brands/agency-os]] y [[daily/2026-05-11]].
 - **Variation Builder M26 (2026-04-26 en curso)**. Módulo nuevo Account Manager para generar flat files Amazon (1 parent + N children). `modules/pages/variation_builder.py` (929L). 4 tabs: Parent / Children+Theme / Preview / Descargar. Tema Variation (Sabor, Tamano, Scent, etc). Bug abierto: `data_editor` requiere doble entrada para persistir — fix diseñado (3 keys pattern) pendiente de aplicar. End-to-end validado con template cliente `PET_FOOD__1_.xlsm`. **Casos de éxito acumulados (3)**: VITALPET 27/04 (4/4), OPTIPET_ADULT 08/05 (4/4), OPTIPET_FLAVORBOOST 09/05 PARCIAL (2/4 — primer caso "listing rico desde cero", 7 hallazgos técnicos nuevos VB-004 a VB-011). Knowledge: `notes/knowledge/2026-05-08-variation-builder-flat-file-format.md`.
 - **Sprint 1 Campaign Builder v2.0 — SB rewrite (cerrado 2026-04-23)**. `_render_sb()` reescrito 864→1121 líneas en `modules/pages/campaign_builder.py`. Selector SBV/SBH. Brand Entity ID obligatorio. 29 columnas bulk SB 2026. Validaciones estrictas. Naming Capybaras hardcoded preservado (contrato con M11 Atom11 Rules Builder).
 - **Gamboa Generator M25 (integrado 2026-04-22)**. Módulo Account para reportes HTML integrales (SQP mensual + BR semanal). 5 archivos en `modules/gamboa/` + `modules/pages/gamboa_generator.py` (383L). Live en producción.
@@ -264,6 +265,7 @@ Todos commiteados a `main`, pendientes de push.
 ## Aprendizajes técnicos
 
 - **2026-05-05** — Amazon bloqueó globalmente el scraping de text reviews (USA y MX confirmados, alineado con [[knowledge/2026-03-21-amazon-agent-policy-bsa-march-2026|Agent Policy del 4-mar-2026]]). Implicación: módulo de Reviews Intelligence en [[ppc-manager]] requiere replanteo completo. Setup de Apify queda configurado por si se usa para otro caso no-Amazon. Detalle: [[daily/2026-05-05]].
+- **2026-05-11** — PowerShell no expande wildcards de paths. El comando `pytest tests/test_X_*.py` falla con "no tests ran" cuando se corre desde PowerShell (Windows), porque el shell no resuelve el `*` y pytest recibe el string literal. Usar `pytest tests/ -k "X"` (filtro por keyword sobre nombres) en Windows. Bash sí expande wildcards, PowerShell no. Regla general: cualquier comando que use `*` o `?` en path desde PowerShell — reescribir con flags equivalentes o usar `Get-ChildItem | ForEach-Object`. Detectado al correr los tests M29 Sesión 1. Detalle: [[daily/2026-05-11]].
 
 ---
 
@@ -359,6 +361,16 @@ Detalle completo en `notes/daily/2026-05-09.md` (sección "Sesión 2 — OPTIPET
 **Trigger**: cuando aparezca el sintoma en mas de un archivo o cuando el guard de repo bloquee 2+ veces seguidas en una misma sesion (ya paso el 2026-05-09).
 
 Detalle en `notes/daily/2026-05-09.md` (item 7 de "Deuda tecnica anotada").
+
+### 6. M29 Proposal Studio — deudas Sesión 1 (prioridad BAJA, arreglar en Sesión 6)
+
+Tres deudas detectadas al cerrar Sesión 1 de M29. Ninguna bloqueante, todas se atacan en la Sesión 6 (cierre M29):
+
+- **[M29] `copy_overrides` actual es `dict[str,str]`**; futuro multi-campo (override solo del título sin tocar el body de un bloque) requiere `dict[str,dict[str,str]]`. Anotado para Sesión 4 cuando aparezcan los placeholders con copy editable por subcampo.
+- **[M29] `PROPOSALS_DIR` hardcoded en `core/proposal_paths.py`** — sin env var. Migrar a env var post-Supabase (Fase 2/3), cuando los tests CI necesiten redirigir el path sin monkeypatch.
+- **[M29] `data/_README.md` sección "API de persistencia" no documenta los 11 helpers nuevos** de `core/proposal_persistence.py` (solo lista los 10 de `core/persistence.py`). Arreglar en Sesión 6 junto con el resto del polish de docs.
+
+Detalle completo en `notes/daily/2026-05-11.md`.
 
 ---
 
