@@ -372,6 +372,17 @@ Tres deudas detectadas al cerrar Sesión 1 de M29. Ninguna bloqueante, todas se 
 
 Detalle completo en `notes/daily/2026-05-11.md`.
 
+### 7. Fix badge inicio — deudas residuales detectadas 2026-05-11 (prioridad BAJA, sesión separada)
+
+Cuatro deudas detectadas durante el descubrimiento de Fase 1 del fix del badge (commit `74597bc`). El fix atendió el bug principal (badge hardcoded → dinámico) y la deuda crítica (Listing Monitor faltante en `_PAGES`), pero estos 4 hallazgos quedan abiertos por scope:
+
+- **[inicio.py] Counts por sección hardcoded** (líneas 123 / 132 / 142): `count=10` PPC, `count=4` Account Manager, `count=7` Research. El de PPC dice 10 pero la lista visible tiene 9 items. El de Account Manager dice 4 pero ignora Listing Monitor + Listing Compliance + Gamboa Generator + Variation Builder + SKU Progress Report + Flat File Migrator (que están en sección Account/Account Health en el sidebar). Necesita registry por sección para evitar rotar manualmente con cada módulo nuevo. Detectado durante fix del badge 2026-05-11.
+- **[constants.py vs app.py] Emoji inconsistencies** entre `_PAGES` y las routes de `app.py` (mismo módulo, distinto emoji, no rompe routing porque `_PAGES` no se usa para match): Account Pulse (📅 vs 📊), PPC Forecast (🔮 vs 📈), PPC Audit (📋 vs 🛡️), DataDive Analyzer (🔬 vs 🧲). Detectado 2026-05-11.
+- **[constants.py vs app.py] Naming inconsistency**: `_PAGES` dice `"PPC Insights Engine"` pero la route en `app.py` dice `"PPC Insights"`. Es el mismo módulo (`ppc_insights.py`), dos labels distintos. Detectado 2026-05-11.
+- **[arquitectura] `_PAGES` se importa en `app.py` pero NO se usa para routing real**. Las routes son strings hardcoded en `if selected == "..."`. Convertir `_PAGES` en single source of truth (iterar routes desde `_PAGES`) requiere refactor de 1-2h. Vale la pena para evitar inconsistencias futuras como las 3 anteriores. Anotado 2026-05-11 durante fix badge.
+
+Detalle del descubrimiento en [[daily/2026-05-11]] (sección fix badge — Fase 1).
+
 ---
 
 ## Próximos pasos inmediatos
@@ -386,7 +397,7 @@ Detalle completo en `notes/daily/2026-05-11.md`.
 
 5. **Migración data Gamboa legacy del HTML a Parquet** — script one-shot `scripts/migrate_gamboa_sku_progress.py` (~2-3h). Parsea `weekDates + DATA + skuOrder + events` del HTML legacy y genera 15 snapshots Parquet + N filas optimizations.parquet + tracked-skus.json para cliente "gamboa". Sesión separada.
 
-6. **Badge "módulos activos" del Inicio Agency OS marca 23** (esperable: 27 con M27 + M28 conectados). Deuda del router del Agency OS, sesión separada chica para revisar el conteo en `modules/pages/inicio.py`.
+6. ~~**Badge "módulos activos" del Inicio Agency OS marca 23**~~ ✅ **RESUELTO 2026-05-11** (commit `74597bc` + merge `0c32550`). `_TOTAL_MODULOS` ahora se calcula dinámicamente desde `_PAGES` (single source of truth). Badge muestra 27 (28 entries en `_PAGES` menos Inicio). Listing Monitor agregado a `_PAGES` (deuda 2026-04-22 también cerrada). Tests blindando regresión en `tests/test_inicio_badge.py` (3 verdes). Detalle: [[daily/2026-05-11]]. Deudas residuales detectadas durante el fix → ver "Deuda técnica → 7. Fix badge inicio 2026-05-11".
 
 7. **Variation Builder M26**: fix de 3 keys al `data_editor` de tab Children. Testing end-to-end. Sigue pendiente de sesión anterior.
 
