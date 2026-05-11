@@ -29,6 +29,7 @@ _PAGES = [
     "🧲 Helium 10 Analyzer",
     "📢 SBH Recommendation",
     "📚 Knowledge Base",
+    "👁️ Listing Monitor",
     "🛡️ Listing Compliance",
     "📊 Gamboa Generator",
     "🧬 Variation Builder",

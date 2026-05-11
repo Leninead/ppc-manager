@@ -1,5 +1,7 @@
 import streamlit as st
 
+from core.constants import _PAGES
+
 _NARANJA  = "#E84000"
 _NEGRO    = "#1F1F1F"
 _GRIS_CLR = "#F5F5F5"
@@ -7,7 +9,10 @@ _GRIS_TXT = "#888888"
 
 _VERSION = "v3.0"
 _DATE    = "2026-03-27"
-_TOTAL_MODULOS = 23
+
+# Conteo dinámico desde _PAGES — single source of truth.
+# Excluye Inicio (es la home que muestra el badge, no un módulo funcional).
+_TOTAL_MODULOS = len([p for p in _PAGES if "Inicio" not in p])
 
 _CHANGELOG = [
     ("2026-04-16", "Listing Compliance — detector keywords weighted product (LTD MX)"),
