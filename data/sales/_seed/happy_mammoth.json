@@ -1,0 +1,12 @@
+{
+  "seed_id": "happy_mammoth",
+  "client_name": "Happy Mammoth",
+  "archetype": "scale_seo",
+  "language": "en",
+  "source_file": null,
+  "source_found": false,
+  "_TODO": "Source file no encontrado en repo local. Cuando esté disponible, correr de nuevo `python scripts/parse_seed_proposals.py` para poblar detected_blocks + unmapped_sections.",
+  "detected_blocks": [],
+  "unmapped_sections": [],
+  "_text_sample": null
+}

@@ -1,0 +1,273 @@
+{
+  "module": "proposal",
+  "version": 1,
+  "created": "2026-05-11",
+  "description": "Schema versionado del sistema de Sales Proposals del Agency OS. Define 5 entidades: Proposal (propuesta versionada), Block (instancia de módulo en propuesta), Catalog Module (definición canónica de módulo), Template (preset por arquetipo) e InterestedVote (log append-only de votos del equipo). Diseñado para migrar a Supabase sin tocar consumidores (capa abstracta ProposalStorage en core/proposal_persistence.py).",
+  "primary_key": ["id", "version"],
+  "entities": {
+    "proposal": {
+      "filename_pattern": "<proposal_id>__v<N>.json",
+      "path": "data/sales/proposals/<proposal_id>__v<N>.json",
+      "frequency": "on-demand (cada save crea una versión nueva)",
+      "format": "JSON",
+      "primary_key": ["id", "version"],
+      "fields": {
+        "id": {
+          "dtype": "string",
+          "required": true,
+          "description": "UUID v4 inmutable de la propuesta. Compartido entre todas las versiones."
+        },
+        "version": {
+          "dtype": "int",
+          "required": true,
+          "description": "Entero >= 1. Auto-incrementa en cada save_proposal con mismo id."
+        },
+        "client_name": {
+          "dtype": "string",
+          "required": true,
+          "description": "Nombre comercial del cliente (ej: 'Garland Rug')."
+        },
+        "client_industry": {
+          "dtype": "string",
+          "required": true,
+          "description": "Industria del cliente. Valores libres pero alineados con example_client_industries de templates (ej: 'home_goods', 'wellness', 'pets')."
+        },
+        "language": {
+          "dtype": "string",
+          "required": true,
+          "enum": ["en", "es"],
+          "description": "Idioma del output final de la propuesta."
+        },
+        "archetype": {
+          "dtype": "string",
+          "required": true,
+          "enum": ["launch", "scale_seo", "defense", "cvr", "custom"],
+          "description": "Arquetipo de la propuesta. 'custom' no obliga a un template."
+        },
+        "status": {
+          "dtype": "string",
+          "required": true,
+          "enum": ["draft", "ready_for_review", "sent", "won", "lost", "archived"],
+          "description": "Estado del pipeline de la propuesta. 'archived' = soft delete."
+        },
+        "created_by": {
+          "dtype": "string",
+          "required": true,
+          "description": "Sales Director name. Ej: 'Lenin Acosta'."
+        },
+        "created_at": {
+          "dtype": "string",
+          "required": true,
+          "description": "ISO 8601 datetime. Inmutable después del primer save."
+        },
+        "updated_at": {
+          "dtype": "string",
+          "required": true,
+          "description": "ISO 8601 datetime. Se actualiza en cada save_proposal."
+        },
+        "blocks": {
+          "dtype": "array<object>",
+          "required": true,
+          "description": "Array ordenado de Blocks (orden = orden de presentación en la propuesta final). Cada Block es un objeto inline (no FK) — la propuesta es self-contained.",
+          "min_items": 8,
+          "validation_rule": "blocks debe incluir al menos los 8 módulos FIXED (F1-F8) en alguna posición del array."
+        },
+        "meta": {
+          "dtype": "object",
+          "required": false,
+          "description": "Dict de metadata interna no visible al cliente. Keys comunes: notas_internas, deal_size_usd, expected_close_date, source_lead, tags.",
+          "schema": {
+            "notas_internas": {"dtype": "string", "required": false},
+            "deal_size_usd": {"dtype": "float", "required": false},
+            "expected_close_date": {"dtype": "string", "required": false, "description": "ISO date YYYY-MM-DD"},
+            "source_lead": {"dtype": "string", "required": false},
+            "tags": {"dtype": "array<string>", "required": false}
+          }
+        }
+      }
+    },
+    "block": {
+      "description": "Instancia de un módulo en una propuesta. Vive embebido dentro del array proposal.blocks (no en archivo aparte).",
+      "fields": {
+        "id": {
+          "dtype": "string",
+          "required": true,
+          "description": "UUID v4 del block. Único dentro de la propuesta."
+        },
+        "module_id": {
+          "dtype": "string",
+          "required": true,
+          "description": "FK a catalog.module_id (ej: 'F1_cover', 'V1_brand_overview'). Debe existir en _catalog.json."
+        },
+        "proposal_id": {
+          "dtype": "string",
+          "required": true,
+          "description": "FK al id de la Proposal padre. Redundante con el path pero útil para queries."
+        },
+        "is_fixed": {
+          "dtype": "bool",
+          "required": true,
+          "description": "True sii el module_id apunta a un Catalog Module con tier='fixed'. Validado en save_proposal."
+        },
+        "data": {
+          "dtype": "object",
+          "required": true,
+          "description": "Contenido del bloque. La estructura depende de module_id (ver catalog.modules[].schema). Es el único campo que el Sales Director realmente edita."
+        },
+        "copy_overrides": {
+          "dtype": "object",
+          "required": false,
+          "description": "Override del texto default del módulo, por idioma. Keys permitidas: 'en', 'es'. Si está vacío, se usa el texto del catálogo.",
+          "allowed_keys": ["en", "es"]
+        }
+      },
+      "validation_rules": [
+        "is_fixed=true requiere que el module_id correspondiente tenga tier='fixed' en el catálogo.",
+        "copy_overrides solo puede tener keys 'en' y 'es'."
+      ]
+    },
+    "catalog_module": {
+      "filename": "_catalog.json",
+      "path": "data/sales/_catalog.json",
+      "format": "JSON",
+      "description": "Definición canónica de todos los módulos disponibles. Versionado en git. Es el contrato que valida que cada Block.module_id existe.",
+      "fields": {
+        "module_id": {
+          "dtype": "string",
+          "required": true,
+          "description": "Identificador único. Convención: '<F|V><N>_<slug>'. Ej: 'F1_cover', 'V30_branded_terms'."
+        },
+        "tier": {
+          "dtype": "string",
+          "required": true,
+          "enum": ["fixed", "core_variable", "common_variable", "specialized_variable"],
+          "description": "Tier del módulo. fixed = aparece siempre. core = frequency 4-5. common = 2-3. specialized = 1."
+        },
+        "frequency": {
+          "dtype": "int",
+          "required": true,
+          "min": 1,
+          "max": 5,
+          "description": "En cuántas de las 5 propuestas seed aparece. Sirve para priorizar bloques en la UI."
+        },
+        "title": {
+          "dtype": "object",
+          "required": true,
+          "description": "Título del módulo bilingüe. Keys 'en' y 'es'."
+        },
+        "description": {
+          "dtype": "object",
+          "required": true,
+          "description": "Descripción del módulo bilingüe. Keys 'en' y 'es'."
+        },
+        "schema": {
+          "dtype": "object",
+          "required": true,
+          "description": "Estructura de campos del .data del Block que instancia este módulo."
+        },
+        "applicable_archetypes": {
+          "dtype": "array<string>",
+          "required": true,
+          "description": "Lista de arquetipos donde tiene sentido incluir este módulo. Valores permitidos: 'launch', 'scale_seo', 'defense', 'cvr', 'custom'."
+        },
+        "status": {
+          "dtype": "string",
+          "required": true,
+          "enum": ["active", "placeholder_coming_soon", "deprecated"],
+          "description": "Estado del módulo. placeholder = está en el catálogo pero la UI lo marca como 'coming soon'. deprecated = no usable en nuevas propuestas."
+        },
+        "interested_votes": {
+          "dtype": "int",
+          "required": true,
+          "min": 0,
+          "description": "Contador agregado de votos 'Marcar como interesado'. Se actualiza desde el log InterestedVote vía script de agregación (no en tiempo real)."
+        }
+      }
+    },
+    "template": {
+      "filename_pattern": "<archetype-slug>.json",
+      "path": "data/sales/_templates/<archetype-slug>.json",
+      "format": "JSON",
+      "description": "Preset de bloques para un arquetipo. Versionado en git.",
+      "fields": {
+        "archetype": {
+          "dtype": "string",
+          "required": true,
+          "enum": ["launch", "scale_seo", "defense", "cvr"],
+          "description": "Arquetipo del template. Note: 'custom' no tiene template propio."
+        },
+        "name": {
+          "dtype": "object",
+          "required": true,
+          "description": "Nombre del template bilingüe. Keys 'en' y 'es'."
+        },
+        "description": {
+          "dtype": "object",
+          "required": true,
+          "description": "Descripción larga del template bilingüe. Keys 'en' y 'es'."
+        },
+        "default_blocks": {
+          "dtype": "array<string>",
+          "required": true,
+          "min_items": 8,
+          "description": "Array ordenado de module_id del catálogo. Debe incluir los 8 FIXED. Cada module_id referenciado debe existir en _catalog.json."
+        },
+        "example_client_industries": {
+          "dtype": "array<string>",
+          "required": false,
+          "description": "Industrias ejemplo donde este template encaja. Solo para sugerencias en la UI."
+        }
+      }
+    },
+    "interested_vote": {
+      "filename": "interested-votes.parquet",
+      "path": "data/sales/interested-votes.parquet",
+      "format": "Parquet (append-only)",
+      "description": "Log append-only de votos 'Marcar como interesado' del equipo sobre módulos específicos. Inmutable: nunca se borra, solo se appendea.",
+      "fields": {
+        "id": {
+          "dtype": "string",
+          "required": true,
+          "description": "UUID v4 del voto."
+        },
+        "module_id": {
+          "dtype": "string",
+          "required": true,
+          "description": "FK a catalog.module_id."
+        },
+        "voter_name": {
+          "dtype": "string",
+          "required": true,
+          "description": "Nombre del votante (Sales Director, AM, PPC Expert)."
+        },
+        "voted_at": {
+          "dtype": "string",
+          "required": true,
+          "description": "ISO 8601 datetime del voto."
+        },
+        "proposal_id": {
+          "dtype": "string",
+          "required": false,
+          "description": "Opcional: id de la Proposal desde donde se votó (contexto)."
+        }
+      }
+    }
+  },
+  "validation_rules_summary": [
+    "Toda Proposal debe incluir al menos los 8 módulos FIXED en su blocks array.",
+    "Un Block con is_fixed=true debe matchear un catálogo con tier='fixed'.",
+    "copy_overrides solo puede tener keys 'en' y 'es'.",
+    "archetype='custom' no obliga a un template ni a un set de bloques predefinido.",
+    "Cada module_id referenciado en cualquier Block o Template debe existir en _catalog.json (FK enforcement).",
+    "Cada Block.proposal_id debe matchear el id de la Proposal padre."
+  ],
+  "evolution_notes": {
+    "v1_baseline": "Schema inicial del sistema Sales Proposals. 5 entidades: Proposal versionada, Block (inline en Proposal), Catalog Module (canónico), Template (preset por arquetipo), InterestedVote (log append-only). Why Capybaras v3 con pilar Proprietary Operating System como diferenciador real.",
+    "future_v2_candidates": [
+      "translation_versioning: snapshot del texto i18n al momento del envío (para que cambios en el catálogo no muten propuestas históricas)",
+      "block_assets: array de URLs/blobs de imágenes/PDFs adjuntados por block (hoy se almacenan dentro de .data)",
+      "approval_workflow: campos reviewed_by + reviewed_at + approval_status para flujo de revisión 2-pasos",
+      "supabase_migration: cambio de almacenamiento a Supabase manteniendo el contrato ProposalStorage. Sin tocar consumidores."
+    ]
+  }
+}

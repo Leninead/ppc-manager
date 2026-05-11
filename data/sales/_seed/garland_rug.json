@@ -1,0 +1,177 @@
+{
+  "seed_id": "garland_rug",
+  "client_name": "Garland Rug",
+  "archetype": "launch",
+  "language": "en",
+  "source_file": "Garland_Rug_New_Brand_Launching_Proposal.pdf",
+  "source_found": true,
+  "_TODO": null,
+  "detected_blocks": [
+    {
+      "module_id": "F1_cover",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F2_about_stats",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F3_brand_stages",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F4_operation_pillars",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F5_case_studies",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F6_why_capybaras",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F7_team",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V2_category_overview",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V3_seo_opportunity",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V4_listing_improvements_current_state",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V6_growth_plan_phases",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V9_ppc_audit_campaign_type",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V11_ppc_audit_placement",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V17_made_in_country_advantage",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V18_modular_launch_strategy",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V19_amazon_launch_grid",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V20_shopify_d2c_channel",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V21_meta_ads_growth",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V22_walmart_marketplaces",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    }
+  ],
+  "unmapped_sections": [
+    "Garland Rug",
+    "May 2026",
+    "About Us",
+    "Certifications Mentorships Collaborators Strategic Partners",
+    "Strategic",
+    "CHALLENGE",
+    "SOLUTIONS & SERVICES",
+    "RESULTS",
+    "5° Amazon 6",
+    "The Project",
+    "Proven Strengths",
+    "CAPYBARAS AGENCY",
+    "Inventory Control",
+    "Consumer Trust",
+    "Market Analysis",
+    "Competitors Analysis",
+    "Artificial Grass Rugs - Listing Improvements",
+    "✕ MISSING",
+    "Modular & Scalable",
+    "Catalog Creation Brand Storefront",
+    "Listing Optimization Promos & Ranking Strategy",
+    "Channel",
+    "Own Customer Data Landing Page",
+    "Better Margins",
+    "Purchase",
+    "Owned Transaction",
+    "Richer Brand Storytelling ↓",
+    "Flexible Promotions",
+    "Demographic Targeting Interest-Based Targeting",
+    "Retargeting Visitors Cart Abandonment Recovery"
+  ],
+  "_text_sample": "Commercial Proposal\nGarland Rug\nMay 2026\nAbout Us\nWe are the #1 Amazon Growth\nagency in The Americas\nWe boost your e-commerce sales so your brand reaches its full potential\n10 YEARS +$12M USD +1.5M USD x6 ROAS +30%\nwith experience in more than 20 of monthly revenue billing generated Monthly ad spend on PPC and DSP our customers average with Amazon conversion rate versus market\ncategories Ads leaders\nCertifications Mentorships Collaborators Strategic Partners\nWe help our clients create, launch, a"
+}

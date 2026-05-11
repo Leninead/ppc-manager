@@ -1,0 +1,29 @@
+{
+  "archetype": "cvr",
+  "name": {
+    "en": "CVR Optimization — Listing-Driven",
+    "es": "Optimización CVR — Foco en Listing"
+  },
+  "description": {
+    "en": "Decent traffic but low conversion rate. Focus on main image + infographics + A+ content optimization.",
+    "es": "Tráfico OK pero conversión baja. Foco en main image + infographics + A+ content."
+  },
+  "example_client_industries": ["pets", "home_goods", "beauty", "wellness"],
+  "default_blocks": [
+    "F1_cover",
+    "F2_about_stats",
+    "F3_brand_stages",
+    "F4_operation_pillars",
+    "F5_case_studies",
+    "V1_brand_overview",
+    "V2_category_overview",
+    "V27_listing_audit_quality_score",
+    "V16_listing_main_image_case_dermaglos",
+    "V28_listing_audit_infographics_detail",
+    "V29_listing_audit_aplus_comparison",
+    "V5_listing_comparison_competitor",
+    "F6_why_capybaras",
+    "F7_team",
+    "F8_lets_scale"
+  ]
+}

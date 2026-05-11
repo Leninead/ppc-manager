@@ -1,0 +1,114 @@
+{
+  "seed_id": "nandog",
+  "client_name": "Nandog",
+  "archetype": "scale_seo",
+  "language": "es",
+  "source_file": "Nandog_Análisis_Amazon.docx",
+  "source_found": true,
+  "_TODO": null,
+  "detected_blocks": [
+    {
+      "module_id": "F3_brand_stages",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F4_operation_pillars",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F5_case_studies",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F6_why_capybaras",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "F7_team",
+      "is_fixed": true,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V3_seo_opportunity",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V4_listing_improvements_current_state",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V6_growth_plan_phases",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V9_ppc_audit_campaign_type",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V15_competitive_position_table",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    },
+    {
+      "module_id": "V20_shopify_d2c_channel",
+      "is_fixed": false,
+      "data": {},
+      "copy_overrides": {},
+      "_source": "auto-detected from seed file"
+    }
+  ],
+  "unmapped_sections": [
+    "Propuesta Comercial",
+    "Nandog",
+    "Apr-26",
+    "Sobre Nosotros",
+    "10 AÑOS",
+    "+10M USD",
+    "+1.5M USD",
+    "DESAFÍO",
+    "SOLUCIONES & SERVICIOS",
+    "RESULTADOS",
+    "Amazon",
+    "Choice",
+    "Nandog - Overview",
+    "Propuesta de Valor:",
+    "Packaging",
+    "Dog Beds - Conclusiones",
+    "Libertad",
+    "Seguridad",
+    "Know-How",
+    "Agustiv Favano",
+    "Ivan Mendoza",
+    "Jeremias Orcajo",
+    "Craphic Designer"
+  ],
+  "_text_sample": "Propuesta Comercial\nNandog\nApr-26\nSobre Nosotros\nSomos la agencia N°1 de Amazon Growth en LATAM\nImpulsamos tus ventas de e-commerce para que tu marca alcance su máximo potencial en Amazon.\n10 AÑOS\nde trayectoria en más de 20 categorías\n+10M USD\nde facturación mensual generada\n+1.5M USD\nde inversión publicitaria mensual en PPC y DSP\nx6 ROAS\npromedian nuestros clientes con Amazon Ads\n+30%\nde conversión rate vs. mercado.\nNo decimos que somos expertos en Amazon, nuestros resultados hablan por sí sol"
+}

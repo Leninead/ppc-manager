@@ -1,0 +1,30 @@
+{
+  "archetype": "scale_seo",
+  "name": {
+    "en": "Scale — Existing Brand with SEO Gap",
+    "es": "Escala — Marca Existente con Gap SEO"
+  },
+  "description": {
+    "en": "Client with catalog and sales but poorly positioned on relevant keywords. Focus on SEO opportunity + listing improvements + 3-phase growth plan.",
+    "es": "Cliente con catálogo y ventas pero mal posicionado en keywords relevantes. Foco en oportunidad SEO + mejoras de listing + plan de crecimiento en 3 fases."
+  },
+  "example_client_industries": ["wellness", "pets", "beauty", "apparel"],
+  "default_blocks": [
+    "F1_cover",
+    "F2_about_stats",
+    "F3_brand_stages",
+    "F4_operation_pillars",
+    "F5_case_studies",
+    "V1_brand_overview",
+    "V2_category_overview",
+    "V3_seo_opportunity",
+    "V14_market_trend_growth",
+    "V5_listing_comparison_competitor",
+    "V4_listing_improvements_current_state",
+    "V6_growth_plan_phases",
+    "V13_sales_forecast_table",
+    "F6_why_capybaras",
+    "F7_team",
+    "F8_lets_scale"
+  ]
+}
