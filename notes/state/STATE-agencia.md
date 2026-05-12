@@ -64,39 +64,58 @@ Detalle completo en `notes/daily/2026-05-08.md` (sección "Sesión 2026-05-08 (D
 
 ---
 
-## Última sesión — 2026-05-12
+## Última sesión — 2026-05-12 (día completo)
 
-**Foco**: M29 Proposal Studio Sesión 2/6 — UI completa funcional E2E. Construcción incremental en 7 sub-bloques validados visualmente paso a paso.
+**Foco principal**: M29 Proposal Studio Sesión 2/6 — UI completa (Listado + Wizard 3 pasos).
 
 **Output principal**:
-- `modules/pages/proposal_studio.py` (módulo nuevo, ~900 LOC, 25 funciones)
-- 3 edits quirúrgicos en `app.py` (import + sidebar SALES DIRECTOR + router branch)
-- 1 edit en `core/constants.py` (entry `📋 Proposal Studio` en `_PAGES`)
+- `modules/pages/proposal_studio.py` (~923 LOC, 25 funciones) — módulo nuevo Sales Director
+- 3 edits quirúrgicos: import + router + sidebar SALES DIRECTOR en `app.py`
+- 1 edit en `core/constants.py`: entry "📋 Proposal Studio" en `_PAGES` (total 28 módulos)
+- Fix bug Duplicar (commit 28a6d69) — hardening post-S2
+- 3 propuestas demo persistidas en `data/sales/proposals/`
 
-**Commit**: `aa2d873` en `main` (3 files changed, 1075 insertions).
+**Commits del día**: `aa2d873` (código S2) + `5a1a575` (docs S2) + `28a6d69` (fix Duplicar). Todos en main, pusheados a origin/main.
 
-**Validación E2E completa**:
-- Wizard 3 pasos navega correctamente (Anterior / Cancelar / Siguiente con validación por paso)
-- Paso 1 form con auto-save + warning rojo cuando faltan campos obligatorios
-- Paso 2 preview readonly con KPI bar + agrupación por tier + cache por signature de inputs
-- Paso 3 review + save persistente vía `pp.save_proposal()` con auto-versionado
-- Smoke test propuesta "Gamboa" launch/es → 18 blocks instanciados, UUID generado, aparece en Listado con todos los metadatos
+**Sub-bloques ejecutados** (5 validables independientemente):
+- B1 skeleton + B2 wire al Agency OS + B3 Listado funcional + B4a state machine + B4b paso 1 form + B4c-i paso 2 preview + B4c-ii paso 3 save
 
-**Decisiones clave**:
-- Workflow main-only confirmado (no más branches feature/* para M29). Reduce overhead de merge.
-- Cliente del wizard es `text_input` libre (no `selectbox` con clientes existentes) — M29 es para leads/prospects nuevos.
-- Cards visuales en el Listado en lugar de `st.dataframe` para incluir botones de acción por fila.
-- Confirmación 2-clicks para Archivar.
+**Smoke test E2E final**: Crear propuesta Gamboa launch ES → 18 blocks instanciados → save persistido en `data/sales/proposals/<uuid>__v1.json` → banner verde + card poblada en Listado. Duplicar funcional post-fix. Abrir muestra placeholder S3.
 
-**Deudas detectadas (no bloqueantes)**:
-- Autocomplete del browser sugiere valores históricos en los `text_input` del paso 1 → evaluar `autocomplete="off"` en S3
-- Vista detalle de propuesta (botón "Abrir") es placeholder hasta S3
-- Edición de blocks individuales pendiente S3 (V1-V6) y S4 (placeholders V23-V29)
-- Tests E2E automatizados: hoy validado solo manualmente
+**Hardening adicional (mismo día, post-cierre formal)**:
+- Bug Duplicar detectado durante testing manual + fix aplicado (FK consistency en blocks)
+- Limpieza de dataset de testing y creación de 3 propuestas demo (Marca LATAM Premium / US Wellness Brand / Tech Accessories Co) cubriendo 3 arquetipos para futuros screenshots
 
-**Próximas evaluaciones programadas**: ninguna específica. Próxima sesión abierta a Sesión 3 de M29 cuando Lenin agende.
+**Comunicación pública**:
+- Primer update del módulo a toda la agencia mandado por Slack (CEO + directores + ops + ventas + diseño)
+- 6 iteraciones del mensaje hasta versión final
+- Decisiones: estructura por fases con propósito de negocio (no técnico), objetivo cuantificable (10 min vs 2-4h), distinción HTML interactivo vs PDF, feedback async
+- **Compromiso público de timeline**: fases 3+4 esta semana, fases 5+6 próxima
+- 2 screenshots adjuntos: Listado poblado + Landing wizard con 4 arquetipos
 
-Detalle completo en `notes/daily/2026-05-12.md` y `notes/brands/agency-os.md` (sección 2026-05-12).
+**Decisiones cerradas**:
+- Cliente como text_input libre (NO selectbox de clientes existentes — M29 es para leads/prospects)
+- Paso 2 readonly en S2, edición de blocks va a S3
+- Soft delete por default para Archivar
+- Cache por signature tuple del paso 1 preserva block ids entre navegación
+- Banner verde post-save en Listado vía flag `ps_just_saved` (Streamlit no permite cambiar tab programáticamente)
+- Patrón de generación de IDs padre: ANTES del save (no después) cuando hay validadores estrictos de FK
+
+**Sin invocación de sub-agentes**: el `ppc-module-builder` con model fix pendiente de validación operacional queda para sesión más chica. ~900 LOC de Python sin retries.
+
+**Pendientes Sesión 3 (esta semana)**:
+- Vista detalle de propuesta (botón Abrir funcional)
+- Edición funcional de los 6 CORE Variables (V1-V6) con form dinámico desde schema
+- Aprovechar refactor del form para cerrar deuda #9 (autocomplete="off")
+
+**Pendientes Sesión 4-6 (esta semana / próxima)**:
+- S4 (esta semana): 23 placeholders Tier 2-3 con toggle "Marcar como interesado"
+- S5 (próxima semana): Renderer HTML interactivo (templates Jinja2)
+- S6 (próxima semana): Playwright PDF + polish + smoke test E2E + update READMEs
+
+**Riesgos a vigilar**: el compromiso público de timeline crea presión sobre las próximas sesiones. Si S3 se desborda, comunicar al canal Slack ANTES del 17-18 de mayo (no después del deadline). Status check informal mid-week recomendado.
+
+Detalle completo en [[daily/2026-05-12]] y [[brands/agency-os]] (sección 2026-05-12).
 
 ---
 
@@ -259,7 +278,7 @@ Detalle completo en `daily/2026-05-08.md`.
 
 Todos commiteados a `main`, pendientes de push.
 
-- **M29 Proposal Studio (Sales Director module)** — Sesión 2/6 completada (UI completa: Listado + Wizard 3 pasos + Save persistente). Branch `main` (workflow main-only post-merge S1), último commit `aa2d873`. 37 módulos en catálogo (8 FIXED + 29 VARIABLE), 4 arquetipos (launch / scale_seo / defense / cvr). Capa de persistencia abstracta (`ProposalStorage` + `LocalJsonStorage`) preparada para swap a Supabase post-decisión Freddy. Smoke test E2E validado (propuesta Gamboa launch/es, 18 blocks, UUID generado, persistida). Nueva sección sidebar `📋 SALES DIRECTOR` (28 módulos activos en Agency OS ahora). Próximo: Sesión 3 — Vista detalle de propuesta (botón Abrir) + 6 CORE Variables funcionales (V1 Brand Overview, V2 Category, V3 SEO, V4 Listing Current State, V5 Listing Comparison, V6 Growth Plan). Owner: Lenin (dev) + Sales Directors (validación). Ver [[brands/agency-os]] y [[daily/2026-05-12]].
+- **M29 Proposal Studio (Sales Director module)** — Sesión 2/6 completada + bug fix Duplicar (commit 28a6d69) + primer update público a la agencia. Branch `main`, últimos commits: `aa2d873` código S2, `5a1a575` docs S2, `28a6d69` fix Duplicar. Módulo `modules/pages/proposal_studio.py` (~923 LOC, 25 funciones) wired al Agency OS. Smoke test E2E + 3 propuestas demo persistidas (Marca LATAM Premium / US Wellness Brand / Tech Accessories Co). **Compromiso público de timeline** post-Slack: fases 3+4 esta semana (13-18 may), fases 5+6 próxima (19-25 may). Próximo: Sesión 3 — Vista detalle (botón Abrir funcional) + edición de los 6 CORE Variables (V1-V6) con form dinámico desde schema. Owner: Lenin (dev) + Sales Directors (validación). Ver [[brands/agency-os]] y [[daily/2026-05-12]].
 - **Variation Builder M26 (2026-04-26 en curso)**. Módulo nuevo Account Manager para generar flat files Amazon (1 parent + N children). `modules/pages/variation_builder.py` (929L). 4 tabs: Parent / Children+Theme / Preview / Descargar. Tema Variation (Sabor, Tamano, Scent, etc). Bug abierto: `data_editor` requiere doble entrada para persistir — fix diseñado (3 keys pattern) pendiente de aplicar. End-to-end validado con template cliente `PET_FOOD__1_.xlsm`. **Casos de éxito acumulados (3)**: VITALPET 27/04 (4/4), OPTIPET_ADULT 08/05 (4/4), OPTIPET_FLAVORBOOST 09/05 PARCIAL (2/4 — primer caso "listing rico desde cero", 7 hallazgos técnicos nuevos VB-004 a VB-011). Knowledge: `notes/knowledge/2026-05-08-variation-builder-flat-file-format.md`.
 - **Sprint 1 Campaign Builder v2.0 — SB rewrite (cerrado 2026-04-23)**. `_render_sb()` reescrito 864→1121 líneas en `modules/pages/campaign_builder.py`. Selector SBV/SBH. Brand Entity ID obligatorio. 29 columnas bulk SB 2026. Validaciones estrictas. Naming Capybaras hardcoded preservado (contrato con M11 Atom11 Rules Builder).
 - **Gamboa Generator M25 (integrado 2026-04-22)**. Módulo Account para reportes HTML integrales (SQP mensual + BR semanal). 5 archivos en `modules/gamboa/` + `modules/pages/gamboa_generator.py` (383L). Live en producción.
@@ -430,6 +449,33 @@ Detectadas durante el smoke test visual del 2026-05-12. No bloquean Sesión 3 ni
 - **[Listado proposal_studio.py] Cards no usan `kpi_card()` standard** (prioridad BAJA): el render de filas del Listado usa HTML/CSS custom en lugar de los helpers de `core.helpers`. Funciona pero rompe consistencia visual con otros módulos. Anotado para pasada de `ui-designer` post-Sesión 6 de M29.
 
 Detalle completo en `notes/daily/2026-05-12.md`.
+
+### 10. Script de seed de propuestas demo no commiteado (prioridad BAJA)
+
+**Hallazgo (2026-05-12)**: durante prep de screenshots para update Slack, Lenin creó un script Python temporal (`_seed_demos.py`) para crear 3 propuestas demo de una sola corrida. El script se ejecutó vía `notepad` + `python` + `Remove-Item` sin quedar persistido en el repo.
+
+**Impacto**: cada vez que se necesite "limpiar y resembrar" el dataset de testing (para demos, screenshots, validación E2E), Lenin tiene que reescribir el script desde cero. Estimado: 10-15 min de fricción cada vez.
+
+**Fix sugerido**: crear `scripts/seed_demos.py` commiteado con CLI (`--reset` y `--archetypes launch,scale_seo,defense,cvr`), que sea reutilizable. Incluir en README cómo correrlo. Path sugerido: `scripts/seed_demos.py`.
+
+**Trigger**: la 2da o 3ra vez que necesitemos resembrar dataset. Si solo pasa una vez más, no vale la pena el commit.
+
+### 11. Compromiso público de timeline M29 (prioridad ALTA — vigilancia activa)
+
+**Contexto (2026-05-12)**: Lenin se comprometió públicamente en Slack a la agencia entera con un timeline específico de M29:
+- **Esta semana (13-18 mayo)**: Fases 3 + 4
+- **Próxima semana (19-25 mayo)**: Fases 5 + 6
+
+**Riesgo**: si Sesión 3 se desborda (es la fase más compleja, requiere form dinámico desde schema para los 6 CORE Variables), el deadline público no se cumple. Hay obligación social de comunicar proactivamente al canal antes de que se cumpla la fecha (no después de que se pase).
+
+**Mitigación operativa**:
+- Priorizar S3 al máximo esta semana (la más compleja)
+- S4 (sistema de votos) puede caer en cualquier hueco — es chica
+- Status check informal mid-week (15-16 mayo): si S3 está atorada, mandar mensaje preventivo a Slack: "S3 me está tomando más de lo esperado, ajusto deadline a X"
+
+**Cierre de la deuda**: cuando S6 esté completada y mergeada a main (commit de cierre + push + refresh proyecto Claude.ai), se puede cerrar esta deuda con nota de retrospectiva: ¿se cumplió? ¿qué se aprendió del compromiso público vs interno?
+
+**No es deuda técnica clásica** — es deuda de delivery/comunicación. Pero amerita estar en STATE para que próximas sesiones operen con conciencia del compromiso.
 
 ---
 

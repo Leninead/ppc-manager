@@ -45,6 +45,22 @@ Propuesta de prueba "Gamboa" creada con arquetipo launch + es:
 
 Con S2 cerrada, **un Sales Director puede crear y persistir propuestas reales** usando el módulo — no es una shell visual. El siguiente cuello de botella es la edición de los 6 CORE Variables (S3), que es lo que convierte propuestas "default del template" en propuestas customizadas por cliente real.
 
+### Hardening post-cierre y comunicación pública (mismo día)
+
+Después del commit de cierre `5a1a575`, el día tuvo 2 milestones adicionales:
+
+**Commit `28a6d69` — fix Duplicar**: durante testing manual del Listado se detectó que click en "Duplicar" tiraba FK mismatch (proposal_id de blocks no matcheaba con el nuevo id de la propuesta padre). Fix quirúrgico: generar new_proposal_id ANTES del save y propagarlo a todos los blocks en una sola pasada. Lección operativa: validadores estrictos requieren que los IDs padre se generen antes, no después.
+
+**Primer update público del módulo a toda la agencia**: comunicación a CEO + directores + ops + ventas + diseño en Slack, redactada en 6 iteraciones para encontrar el tono correcto. Decisiones clave:
+
+- **Estructura por fases 1-6** con propósito de negocio (no detalles técnicos)
+- **Objetivo cuantificable** como hook: 10 min vs 2-4 horas
+- **Compromiso público de timeline**: fases 3+4 esta semana, fases 5+6 próxima
+- **Distinción HTML interactivo (calls de venta) vs PDF estático (circulación interna)** — diferencial técnico que sin mencionarlo se perdía
+- **Feedback async, sin oferta de demo en vivo** (mantiene el control de tiempo del autor)
+
+Tras este update, la cadencia esperada de M29 cambia: antes era "una sesión semanal según disponibilidad", ahora es "fases 3-6 en 7-10 días corridos". Mitigación: priorizar S3 (la compleja) primero, S4 puede caer en cualquier hueco.
+
 ---
 
 ## 2026-05-11 — M29 Proposal Studio Sesión 1 (Sales Director module)
