@@ -44,6 +44,7 @@ from modules.pages.gamboa_generator import render as render_gamboa_generator
 from modules.pages.variation_builder import render as render_variation_builder
 from modules.pages.flat_file_migrator import render as render_flat_file_migrator
 from modules.pages.sku_progress_report import render as render_sku_progress
+from modules.pages.proposal_studio import render as render_proposal_studio
 import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="Agency OS", layout="wide")
@@ -242,6 +243,10 @@ with st.sidebar:
             st.button(_pg, use_container_width=True, on_click=_nav,
                       args=(_pg,), key=f"nav_{_pg}")
 
+    with st.expander("📋 SALES DIRECTOR", expanded=False):
+        st.button("📋 Proposal Studio", use_container_width=True, on_click=_nav,
+                  args=("📋 Proposal Studio",), key="nav_📋 Proposal Studio")
+
     with st.expander("📚 KNOWLEDGE", expanded=False):
         st.button("📚 Knowledge Base", use_container_width=True, on_click=_nav,
                   args=("📚 Knowledge Base",), key="nav_📚 Knowledge Base")
@@ -357,3 +362,6 @@ if selected == "🗂️ Flat File Migrator":
 
 if selected == "🏥 SKU Progress Report":
     render_sku_progress()
+
+if selected == "📋 Proposal Studio":
+    render_proposal_studio()

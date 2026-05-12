@@ -35,4 +35,5 @@ _PAGES = [
     "🧬 Variation Builder",
     "🗂️ Flat File Migrator",
     "🏥 SKU Progress Report",
+    "📋 Proposal Studio",
 ]
