@@ -64,6 +64,42 @@ Detalle completo en `notes/daily/2026-05-08.md` (sección "Sesión 2026-05-08 (D
 
 ---
 
+## Última sesión — 2026-05-12
+
+**Foco**: M29 Proposal Studio Sesión 2/6 — UI completa funcional E2E. Construcción incremental en 7 sub-bloques validados visualmente paso a paso.
+
+**Output principal**:
+- `modules/pages/proposal_studio.py` (módulo nuevo, ~900 LOC, 25 funciones)
+- 3 edits quirúrgicos en `app.py` (import + sidebar SALES DIRECTOR + router branch)
+- 1 edit en `core/constants.py` (entry `📋 Proposal Studio` en `_PAGES`)
+
+**Commit**: `aa2d873` en `main` (3 files changed, 1075 insertions).
+
+**Validación E2E completa**:
+- Wizard 3 pasos navega correctamente (Anterior / Cancelar / Siguiente con validación por paso)
+- Paso 1 form con auto-save + warning rojo cuando faltan campos obligatorios
+- Paso 2 preview readonly con KPI bar + agrupación por tier + cache por signature de inputs
+- Paso 3 review + save persistente vía `pp.save_proposal()` con auto-versionado
+- Smoke test propuesta "Gamboa" launch/es → 18 blocks instanciados, UUID generado, aparece en Listado con todos los metadatos
+
+**Decisiones clave**:
+- Workflow main-only confirmado (no más branches feature/* para M29). Reduce overhead de merge.
+- Cliente del wizard es `text_input` libre (no `selectbox` con clientes existentes) — M29 es para leads/prospects nuevos.
+- Cards visuales en el Listado en lugar de `st.dataframe` para incluir botones de acción por fila.
+- Confirmación 2-clicks para Archivar.
+
+**Deudas detectadas (no bloqueantes)**:
+- Autocomplete del browser sugiere valores históricos en los `text_input` del paso 1 → evaluar `autocomplete="off"` en S3
+- Vista detalle de propuesta (botón "Abrir") es placeholder hasta S3
+- Edición de blocks individuales pendiente S3 (V1-V6) y S4 (placeholders V23-V29)
+- Tests E2E automatizados: hoy validado solo manualmente
+
+**Próximas evaluaciones programadas**: ninguna específica. Próxima sesión abierta a Sesión 3 de M29 cuando Lenin agende.
+
+Detalle completo en `notes/daily/2026-05-12.md` y `notes/brands/agency-os.md` (sección 2026-05-12).
+
+---
+
 ## Última sesión — 2026-05-08 (continuación, vespertina)
 
 **Foco**: Pitch deck M29 Proposal Studio — pivot estratégico de "construir módulo Streamlit" a "construir pitch HTML que presenta el módulo" para validar concepto con Sales Directors antes de invertir en Streamlit.
@@ -223,7 +259,7 @@ Detalle completo en `daily/2026-05-08.md`.
 
 Todos commiteados a `main`, pendientes de push.
 
-- **M29 Proposal Studio (Sales Director module)** — Sesión 1/6 completada (schema + persistencia + 4 templates + parser). Branch `feat/m29-proposal-studio`, último commit `affc575`. 37 módulos en catálogo (8 FIXED + 29 VARIABLE), 4 arquetipos (launch / scale_seo / defense / cvr), Why Capybaras v3 con pilar nuevo "Proprietary Operating System". Capa de persistencia abstracta (`ProposalStorage` + `LocalJsonStorage`) preparada para swap a Supabase post-decisión Freddy. 57 tests verdes. Próximo: Sesión 2 — UI Streamlit (`modules/pages/proposal_studio.py`). Owner: Lenin (dev) + Sales Directors (validación). Ver [[brands/agency-os]] y [[daily/2026-05-11]].
+- **M29 Proposal Studio (Sales Director module)** — Sesión 2/6 completada (UI completa: Listado + Wizard 3 pasos + Save persistente). Branch `main` (workflow main-only post-merge S1), último commit `aa2d873`. 37 módulos en catálogo (8 FIXED + 29 VARIABLE), 4 arquetipos (launch / scale_seo / defense / cvr). Capa de persistencia abstracta (`ProposalStorage` + `LocalJsonStorage`) preparada para swap a Supabase post-decisión Freddy. Smoke test E2E validado (propuesta Gamboa launch/es, 18 blocks, UUID generado, persistida). Nueva sección sidebar `📋 SALES DIRECTOR` (28 módulos activos en Agency OS ahora). Próximo: Sesión 3 — Vista detalle de propuesta (botón Abrir) + 6 CORE Variables funcionales (V1 Brand Overview, V2 Category, V3 SEO, V4 Listing Current State, V5 Listing Comparison, V6 Growth Plan). Owner: Lenin (dev) + Sales Directors (validación). Ver [[brands/agency-os]] y [[daily/2026-05-12]].
 - **Variation Builder M26 (2026-04-26 en curso)**. Módulo nuevo Account Manager para generar flat files Amazon (1 parent + N children). `modules/pages/variation_builder.py` (929L). 4 tabs: Parent / Children+Theme / Preview / Descargar. Tema Variation (Sabor, Tamano, Scent, etc). Bug abierto: `data_editor` requiere doble entrada para persistir — fix diseñado (3 keys pattern) pendiente de aplicar. End-to-end validado con template cliente `PET_FOOD__1_.xlsm`. **Casos de éxito acumulados (3)**: VITALPET 27/04 (4/4), OPTIPET_ADULT 08/05 (4/4), OPTIPET_FLAVORBOOST 09/05 PARCIAL (2/4 — primer caso "listing rico desde cero", 7 hallazgos técnicos nuevos VB-004 a VB-011). Knowledge: `notes/knowledge/2026-05-08-variation-builder-flat-file-format.md`.
 - **Sprint 1 Campaign Builder v2.0 — SB rewrite (cerrado 2026-04-23)**. `_render_sb()` reescrito 864→1121 líneas en `modules/pages/campaign_builder.py`. Selector SBV/SBH. Brand Entity ID obligatorio. 29 columnas bulk SB 2026. Validaciones estrictas. Naming Capybaras hardcoded preservado (contrato con M11 Atom11 Rules Builder).
 - **Gamboa Generator M25 (integrado 2026-04-22)**. Módulo Account para reportes HTML integrales (SQP mensual + BR semanal). 5 archivos en `modules/gamboa/` + `modules/pages/gamboa_generator.py` (383L). Live en producción.
@@ -382,6 +418,18 @@ Cuatro deudas detectadas durante el descubrimiento de Fase 1 del fix del badge (
 - **[arquitectura] `_PAGES` se importa en `app.py` pero NO se usa para routing real**. Las routes son strings hardcoded en `if selected == "..."`. Convertir `_PAGES` en single source of truth (iterar routes desde `_PAGES`) requiere refactor de 1-2h. Vale la pena para evitar inconsistencias futuras como las 3 anteriores. Anotado 2026-05-11 durante fix badge.
 
 Detalle del descubrimiento en [[daily/2026-05-11]] (sección fix badge — Fase 1).
+
+### 8. Deudas de UI/UX detectadas durante M29 Sesión 2 (prioridad BAJA-MEDIA)
+
+Detectadas durante el smoke test visual del 2026-05-12. No bloquean Sesión 3 ni el roadmap de M29, pero deberían atacarse en sesiones separadas chicas:
+
+- **[Inicio Agency OS] Página sobrecargada visualmente** (prioridad MEDIA, sesión con `ui-designer`): el dashboard tiene demasiados elementos compitiendo — Áreas activas con bordes naranjas en todas las cards, Próximamente con 10 cards en 2 filas, Changelog reciente con tipografía monoespaciada densa, Flujo de trabajo guiado con layout distinto al resto. Necesita pasada de jerarquía visual + decisión sobre qué información priorizar arriba del fold. Anotado por Lenin durante S2 cuando vio el Inicio entre tests.
+
+- **[proposal_studio.py paso 1] Autocomplete del browser sugiere histórico cruzado** (prioridad BAJA): los `st.text_input` del paso 1 (cliente, industria, sales director) muestran sugerencias de otros forms del Agency OS (Dermaglos, M&B, Love To Dream). No es bug del módulo — es comportamiento HTML default. Workaround: agregar `autocomplete="off"` vía atributo HTML cuando se refactore visualmente en S3.
+
+- **[Listado proposal_studio.py] Cards no usan `kpi_card()` standard** (prioridad BAJA): el render de filas del Listado usa HTML/CSS custom en lugar de los helpers de `core.helpers`. Funciona pero rompe consistencia visual con otros módulos. Anotado para pasada de `ui-designer` post-Sesión 6 de M29.
+
+Detalle completo en `notes/daily/2026-05-12.md`.
 
 ---
 
