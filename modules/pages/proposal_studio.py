@@ -250,24 +250,32 @@ def _render_proposal_row_actions(proposal: dict) -> None:
     with col_dup:
         if st.button("📋 Duplicar", key=f"dup_{pid}", use_container_width=True):
             try:
+                import uuid as _uuid
+                # Generar proposal_id nuevo PRIMERO para mantener consistencia FK
+                new_proposal_id = str(_uuid.uuid4())
                 duplicate = dict(proposal)
-                duplicate["id"] = ""  # save_proposal asignará uuid nuevo
+                duplicate["id"] = new_proposal_id
                 duplicate["client_name"] = f"{cliente} (copia)"
                 duplicate["status"] = "draft"
                 duplicate["created_at"] = ""  # save_proposal lo setea
-                # Regenerar block ids para que no pisen los originales
-                import uuid as _uuid
+                # Regenerar block.id (UUID nuevo) Y reasignar block.proposal_id al nuevo padre.
+                # Ambos cambios en una sola pasada para que el validator FK pase al primer save.
                 duplicate["blocks"] = [
-                    {**b, "id": str(_uuid.uuid4())} for b in proposal.get("blocks", [])
+                    {
+                        **b,
+                        "id": str(_uuid.uuid4()),
+                        "proposal_id": new_proposal_id,
+                    }
+                    for b in proposal.get("blocks", [])
                 ]
                 saved = pp.save_proposal(duplicate)
-                # Bumpear proposal_id de los blocks al id real generado
-                saved["blocks"] = [{**b, "proposal_id": saved["id"]} for b in saved["blocks"]]
-                saved = pp.save_proposal(saved)
                 st.success(f"✅ Duplicada como '{saved['client_name']}' (v{saved['version']})")
                 st.rerun()
+            except ValueError as e:
+                # Errores de validación del schema
+                st.error(f"❌ La copia no pasó validación: {e}")
             except Exception as e:
-                st.error(f"❌ Error al duplicar: {e}")
+                st.error(f"❌ Error al duplicar: {type(e).__name__}: {e}")
 
     with col_arch:
         confirm_key = f"confirm_arch_{pid}"
