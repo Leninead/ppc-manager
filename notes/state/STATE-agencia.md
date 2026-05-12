@@ -378,7 +378,7 @@ Todos commiteados a `main`, pendientes de push.
 
 ### 4. M26 Refactor post-OPTIPET FlavorBoost (10 bloques) (prioridad MEDIA)
 
-**Hallazgo (2026-05-09):** Sesión OPTIPET FlavorBoost descubrió 7 deudas técnicas nuevas (VB-004 a VB-011) sumadas a las 3 viejas (VB-001 a VB-003). Agrupar refactor M26 después de los 3 casos validados Variation Builder (VITALPET 27/04, OPTIPET_ADULT 08/05, OPTIPET_FLAVORBOOST 09/05 parcial). Estimación: 1.5-2 sesiones de trabajo.
+**Hallazgo (2026-05-09, ampliado 2026-05-12):** Sesión OPTIPET FlavorBoost del 2026-05-09 descubrió 7 deudas técnicas nuevas (VB-004 a VB-011). El 2026-05-12 se descubrió un caso de estudio adicional: el listing del Hígado pasó a Inactive el 2026-05-10 por compliance policy `GRLKLZ6WQ9R259LC` (Amazon MX Pet Consumables), no por bug del módulo M26. Esto agrega un requerimiento operativo NUEVO al refactor M26: el módulo debería validar pre-feed que el seller tenga paquete de compliance preparado para categorías reguladas (Pet Food MX, supplements). Estimación refactor sube a 2-2.5 sesiones.
 
 Bloques ordenados por prioridad y riesgo:
 - **VB-001** (deuda vieja, 30 min, riesgo bajo): refactor 3 returns en tab_download a helper `_render_download_tab()`
@@ -392,6 +392,7 @@ Bloques ordenados por prioridad y riesgo:
 - **VB-009** (45 min, riesgo medio): cargar valores válidos enum desde hoja "Valores válidos" del template y validarlos antes de escribir
 - **VB-010** (1h, riesgo medio): pre-flight check de UPC contra catálogo Amazon (requiere SP-API call) para detectar collision antes de subir
 - **VB-011** (15 min, riesgo bajo): documentar en UI que listings Inactive NO liberan UPCs (warning visual cuando se escribe un UPC)
+- **VB-012** (nueva, 2026-05-12, 1h, riesgo bajo): pre-flight check de compliance categórico. Para categorías reguladas (Pet Food MX, supplements, alimentos, dietary supplements), antes de generar el flat file, mostrar warning visual con link a la política Amazon aplicable + checklist de docs típicos requeridos. Bloquea la generación hasta que el seller confirme "Tengo el paquete de compliance preparado".
 
 Bug `data_editor` 3 keys (pendiente desde 26/04): aplicar fix patrón de 3 keys o fallback `st.form` en tab Children.
 
@@ -476,6 +477,29 @@ Detalle completo en `notes/daily/2026-05-12.md`.
 **Cierre de la deuda**: cuando S6 esté completada y mergeada a main (commit de cierre + push + refresh proyecto Claude.ai), se puede cerrar esta deuda con nota de retrospectiva: ¿se cumplió? ¿qué se aprendió del compromiso público vs interno?
 
 **No es deuda técnica clásica** — es deuda de delivery/comunicación. Pero amerita estar en STATE para que próximas sesiones operen con conciencia del compromiso.
+
+### 12. OPTIPET Compliance & UPCs nuevos (prioridad ALTA, cliente personal Lenin)
+
+> Renumerada de "6" a "12" durante el escribe del 2026-05-12 para evitar colisión con la sección 6 ya existente (M29 Proposal Studio — deudas Sesión 1).
+
+**Hallazgo (2026-05-12):** El cliente personal OPTIPET tiene 2 bloqueos paralelos:
+
+1. **Compliance Amazon MX Pet Food** del Hígado del Flavor Boost (ASIN B0H16T5H18). Listing removed el 2026-05-10. Esperando docs específicos del producto (COA, etiqueta, ficha técnica, Non-GMO).
+
+2. **UPCs nuevos del fabricante** para crear los 2 sabores faltantes (Pulmón + Pollo) del Flavor Boost. Cliente confirmó NO eliminar Cat Treats Inactive — única salida es asignación de UPCs nuevos por PETSA.
+
+**Estado al 2026-05-12**: comunicación con Adam (conector con INASA) activa. Lenin va a escribir directo a Mario (lado fabricante PETSA) y Abraham (lado marca INASA) en el chat INASA una vez que Adam confirme framing.
+
+**Trigger para destrabar**: respuesta de Mario con UPCs nuevos + entrega de docs específicos de producto por parte de INASA.
+
+**Datos validados que entran al vault esta sesión**:
+- Master Sheet INASA (hoja OptiPet) confirmada como fuente de verdad de datos de producto
+- Pricing oficial Flavor Boost: $349 MXN / $303.48 MXN real
+- Peso paquete real: 297g (no 360g como se usó en v4)
+- Ingredientes reales Pulmón y Pollo confirmados
+- Línea OPTICAT identificada (3 SKUs, no lanzada todavía)
+
+Detalle completo en `notes/daily/2026-05-12.md` (sección "Continuación del día — OPTIPET").
 
 ---
 

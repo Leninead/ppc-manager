@@ -7,7 +7,7 @@ marketplace: MX
 categoria: petfood
 cuenta: gestionada directamente por Lenin
 ppc_status: sin historial — PPC futuro
-actualizado: 2026-05-09
+actualizado: 2026-05-12
 ---
 
 # OPTIPET
@@ -55,6 +55,13 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
   - Variation Family confirmada en Seller Central post-upload
   - Snapshot del flat file: `flat-files/OPTIPET_AdultParent_2026-05-08.txt`
 - **2026-05-09**: Variation Family #2 FlavorBoost iniciada. 2/4 SKUs creados (parent + Hígado). 2 children bloqueados por collision UPC con OPTIPET Cat Treats Inactive (Tuna Bites B0GPPR1ZGC + Chicken Bites B0GPPXWPB1).
+- **2026-05-12** — Diagnóstico compliance Hígado + análisis Innasa Master Sheet.
+  - Identificado bloqueo del Hígado: violación política `GRLKLZ6WQ9R259LC` Pet Consumables MX
+  - Encontrado panel oficial Amazon "Add Compliance" para upload de docs
+  - Confirmados ingredientes reales Pulmón (Pulmón y Melena de León) y Pollo (Pollo y Cúrcuma)
+  - Pricing oficial Flavor Boost confirmado: $349 MXN Amazon / $303.48 MXN real
+  - Identificada línea OPTICAT nueva (3 SKUs para gatos, 80g, $299 MXN)
+  - UPCs originales de Pulmón y Pollo confirmados como bloqueados permanentemente (cliente no elimina Cat Treats Inactive)
 
 ## Pendientes activos
 
@@ -72,10 +79,20 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 7. Decidir arquitectura: campañas separadas por child vs única apuntando al parent.
 
 ### FlavorBoost (sesión 2026-05-09)
-8. Esperar respuesta cliente: eliminación de Cat Treats Inactive (libera UPCs) vs alternativas
+8. **UPCs nuevos del fabricante** para Pulmón y Pollo (cliente rechazó eliminar Cat Treats Inactive — la única salida es UPCs nuevos asignados por PETSA)
 9. Conseguir imágenes Flavor Boost (3 main_image_url públicas)
 10. Confirmar ingredientes reales Pulmón y Pollo con iNASA Innovation
 11. Confirmar shelf life real del producto (default 730d en feed actual)
+12. **Compliance documentation Hígado** — esperando del cliente:
+    - COA del producto Flavor Boost (3 sabores)
+    - Etiqueta física alta resolución (frente, dorso, laterales)
+    - Ficha técnica con análisis garantizado
+    - Status regulatorio (¿desregulado clase III o código SAGARPA 8 dígitos?)
+    - Certificación Non-GMO formal (sin esto, sacar claim del título)
+13. **Peso bruto del paquete**: confirmar 297g (master sheet) vs 360g (intento v4 anterior)
+14. **Imágenes finales en URLs públicas**: las del master sheet están en Drive (no aceptado por Amazon main_image_url) — hay que re-hostear
+15. **OPTICAT roadmap Amazon**: confirmar si entra al pipeline (3 SKUs nuevos para gatos identificados en master sheet)
+16. **FBM zombi `OPTIPETSKINCOATFBA` reapareció Active el 2026-05-06** — apagar con Close listing real
 
 ## Notas operativas
 
@@ -87,6 +104,11 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 - **Variation Family Adult 100% operativa al 2026-05-09** (51u stock total, precio $649, Buy Box ganado).
 - **VITALPET_ADULT_PARENT ASIN confirmado**: B0GZLWRY9Z (Jan 2026).
 - **Cat Treats OPTIPET Inactive desde Feb 2026** (Tuna Bites + Chicken Bites) — UPCs reutilizados en cajas Flavor Boost causando collision.
+- **Master Sheet INASA es fuente de verdad para datos de producto** (peso, dimensiones, ingredientes, pricing). Validado 2026-05-12.
+- **SKU naming Amazon ≠ SKU naming master sheet INASA**: el master sheet usa OP-FLB-LIV-270J / OP-FLB-LNG-270J / OP-FLB-CHK-270J; Amazon usa OPTIPETFLAVOR{SABOR}. Mantener Amazon naming en flat files.
+- **Línea OPTICAT** (3 SKUs para gatos, 80g, $299 MXN): identificada en master sheet 2026-05-12, NO lanzada en Amazon todavía. UPCs: 610655906857 (Chicken), 610655895748 (Liver), 610655814770 (Tuna).
+- **Política compliance Amazon MX Pet Food**: `GRLKLZ6WQ9R259LC`. URL: https://sellercentral.amazon.com/help/hub/reference/GRLKLZ6WQ9R259LC
+- **Decisión cliente 2026-05-12**: NO eliminar Cat Treats Inactive (Tuna Bites + Chicken Bites). UPCs originales 613365694298 + 613365971085 quedan reservados permanentemente.
 
 ## Wikilinks
 

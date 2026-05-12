@@ -2,11 +2,13 @@
 tipo: prompt-arranque-cliente
 cliente: optipet
 nivel: cargado
-actualizado: 2026-05-08
+actualizado: 2026-05-12
 proxima_actualizacion: cierre próxima sesión OPTIPET
 parent_asin: B0H12ZXVPF
-status_catalogo: variation family creada 2026-05-08, esperando inbound 72u FBA
-status_ppc: sin historial al 2026-05-08 — agregar cuando se inicien campañas
+flavorboost_parent_asin: B0H16N6SHP
+status_catalogo: Adult variation family 100% operativa (51u FBA, Buy Box ganado) | FlavorBoost variation family 1 child Inactive por compliance, 2 children pendientes UPCs nuevos
+status_ppc: sin historial al 2026-05-12 — agregar cuando se inicien campañas
+status_compliance: Hígado bloqueado por política GRLKLZ6WQ9R259LC Pet Consumables MX — esperando docs cliente
 ---
 
 # Arranque Sesión — OPTIPET
@@ -121,54 +123,75 @@ Si saltás cualquier paso de los 3 primeros, el próximo chat lee data stale y t
 
 ---
 
-## 📊 Estado actual del cliente (snapshot 2026-05-08)
+## 📊 Estado actual del cliente
 
 > Esta sección se actualiza al cierre de cada sesión.
 
-### Hitos ejecutados (2026-05-08)
-- **Variation Family creada** vía flat file Variation Builder.
-- Feed batch ID Amazon: `50059020581`.
-- Resultado: 4/4 SKUs successful · 0 errors · 0 warnings.
-- Parent ASIN asignado por Amazon: `B0H12ZXVPF`.
-- Variation Family confirmada en Seller Central post-upload.
-- Pre-flight cleanup: `OPTIPETSKINCOATFBA` (FBM zombi) apagado vía `Close listing`.
+### Snapshot al cierre 2026-05-12
 
-### Catálogo post-sesión
-| Rol | ASIN | SKU | Sabor | Stock FBA |
-|---|---|---|---|---|
-| Parent | `B0H12ZXVPF` | `OPTIPET_ADULT_PARENT` | (referente) | — |
-| Child | `B0G6VWT7RB` | `OPTIPETVITALITY` | Vitality | 0 · 24u inbound |
-| Child | `B0G6TW7G12` | `OPTIPETSKINCOAT` | Skin and Coat | 0 · 24u inbound |
-| Child | `B0G6TPVT2G` | `OPTIPETHEALTHYGUT` | Healthy Gut | 0 · 24u inbound |
+#### Variation Family #1 — Adult (creada 2026-05-08, 100% operativa)
+| Child | ASIN | Stock FBA | Estado |
+|---|---|---|---|
+| Vitality | B0G6VWT7RB | 22u | Active, Buy Box ganado |
+| Skin and Coat | B0G6TW7G12 | 22u | Active, Buy Box ganado |
+| Healthy Gut | B0G6TPVT2G | 21u | Active, Buy Box ganado |
 
-### KPIs
-PPC: sin historial al 2026-05-08 — agregar cuando se inicien campañas.
+Total 65u FBA · Precio MXN $649 · Parent B0H12ZXVPF (OPTIPET_ADULT_PARENT)
 
-Operativos:
-- Stock total FBA: 0 disponibles · 72u inbound (24u × 3 children).
-- Variation Family: 1 active · 100% children FBA-only.
+⚠️ FBM zombi OPTIPETSKINCOATFBA reapareció Active el 2026-05-06 (15u, mismo ASIN B0G6TW7G12) — pendiente apagar con Close listing real.
+
+#### Variation Family #2 — Flavor Boost (iniciada 2026-05-09, BLOQUEADA)
+| SKU | ASIN | Estado |
+|---|---|---|
+| OPTIPET_FLAVORBOOST_PARENT | B0H16N6SHP | Inactive (consecuencia compliance del Hígado) |
+| OPTIPETFLAVORHIGADO (Hígado y Espirulina) | B0H16T5H18 | Inactive — Review blocked reason (compliance MAVERiCK MX) |
+| OPTIPETFLAVORPULMON (Pulmón y Melena de León) | — | Sin crear — bloqueado por UPC collision permanente |
+| OPTIPETFLAVORPOLLO (Pollo y Cúrcuma) | — | Sin crear — bloqueado por UPC collision permanente |
+
+Compliance issue activo:
+- Policy: `GRLKLZ6WQ9R259LC` Pet Consumables: Food and Product Safety Issues
+- Fecha violación: 2026-05-10
+- Estado: Listing removed, esperando upload de docs vía panel "Add Compliance" en Safety & Compliance tab del listing
 
 ---
 
-## ⏰ Pendientes activos (al 2026-05-08)
+## ⏰ Pendientes activos
 
 > Esta sección se actualiza al cierre de cada sesión.
 
-### Operativos (esperan trigger externo)
-1. **Esperar arrival inbound 72u FBA** (24u × 3 children) — fecha TBD.
-2. **Definir fecha oficial de launch** del variation family.
-3. **Definir hero del variation** — cuál de los 3 children será el default mostrado en search results de Amazon MX.
+### Bloqueantes absolutos (sin esto no avanza nada)
 
-### Listing post-agrupación
-4. Validar bullets / A+ Content de cada child post-agrupación (que sigan reflejando el child individual).
-5. Decidir Brand Store / A+ específico del parent — cómo presentar la familia completa.
+1. **UPCs nuevos del fabricante** para Pulmón y Pollo (cliente confirmó NO eliminar Cat Treats Inactive — única vía es UPCs nuevos PETSA)
+2. **Compliance docs Hígado** — esperando del cliente:
+   - COA del producto
+   - Etiqueta física alta resolución (frente + dorso de los 3 sabores)
+   - Ficha técnica con análisis garantizado
+   - Status regulatorio (¿desregulado clase III o código SAGARPA 8 dígitos?)
+   - Certificación Non-GMO formal (sin esto, sacar claim del título)
 
-### PPC (cuando se inicien campañas)
-6. Definir naming convention propia para OPTIPET (no aplica el estándar Capybaras).
-7. Decidir arquitectura: campañas separadas por child vs única apuntando al parent.
+### Operativos no bloqueantes pero importantes
 
-### Diferidos (no urgentes)
-8. Si Amazon notifica template nuevo del flat file → bajar `.xlsm` actual y regenerar el knowledge entry con header fresco.
+3. **Peso bruto paquete**: confirmar 297g (master sheet) vs 360g (intento v4)
+4. **Imágenes en URLs públicas**: re-hostear desde Drive a host directo (.jpg/.png)
+5. **OPTICAT roadmap Amazon**: confirmar si los 3 SKUs nuevos para gatos entran al pipeline
+6. **FBM zombi OPTIPETSKINCOATFBA**: Close listing real (reapareció 2026-05-06)
+
+### Variation Family Adult (sin cambios esta sesión)
+
+7. Definir fecha launch oficial
+8. Definir hero del variation (default en search results)
+9. Validar bullets / A+ Content de cada child post-agrupación
+10. Decidir Brand Store / A+ específico del parent
+
+### PPC (cuando arranque)
+
+11. Definir naming convention propio (NO aplica estándar Capybaras)
+12. Decidir arquitectura: campañas por child vs apuntando al parent
+
+### Diferidos
+
+13. M26 refactor (10 bloques VB-001 a VB-011) — post 3 casos validados Variation Builder
+14. Si Amazon notifica template nuevo flat file → bajar `.xlsm` actual y regenerar knowledge entry
 
 ---
 
@@ -176,9 +199,11 @@ Operativos:
 
 > Esta sección lista los milestones esperados con fechas concretas.
 
-- **TBD (cuando llegue inbound 72u FBA)**: confirmar stock activo en los 3 children + definir fecha de launch.
-- **TBD (post-launch)**: primera medición de ventas + reviews consolidados a nivel parent.
-- **TBD (pre-PPC)**: workshop interno con Lenin para definir naming convention y arquitectura de campañas.
+- **Inmediato (esperando respuesta de Adam vía WhatsApp)**: framing de presentación para chat INASA + ¿Lenin pregunta directo a Mario los UPCs nuevos, o lo maneja Adam?
+- **TBD (cuando responda Adam)**: Lenin escribe directo a Mario y Abraham en chat INASA con los 5 pedidos concretos (UPCs nuevos, peso, imágenes, Non-GMO, OPTICAT)
+- **TBD (cuando lleguen UPCs nuevos)**: armar borrador v5 flat file en local (NO subir hasta Hígado Active)
+- **TBD (cuando lleguen compliance docs)**: upload paquete completo al panel "Add Compliance" del Hígado
+- **TBD (24-72h post-upload)**: Amazon review compliance → si pasa Active, validar si "child SKU not setup correctly" persiste
 
 ---
 
@@ -197,6 +222,9 @@ Operativos:
 - **SKUs FBA-only** por política del cliente. FBMs nuevos compartiendo ASIN con un child → apagar antes de tocar variations.
 - **Browse node validado**: `11601177001` para suplementos en polvo OPTIPET.
 - **Theme `Sabor` con custom values**: válido en MX, sin warnings.
+- **Política compliance Amazon MX para suplementos pet**: `GRLKLZ6WQ9R259LC`. URL: https://sellercentral.amazon.com/help/hub/reference/GRLKLZ6WQ9R259LC. Amazon requiere docs específicos del producto (no solo del fabricante) antes de permitir venta.
+- **Master Sheet INASA es fuente de verdad** para datos físicos de producto. SKU naming interno ≠ Amazon (master usa OP-FLB-*, Amazon usa OPTIPETFLAVOR*).
+- **Línea OPTICAT existe en master sheet** pero NO lanzada en Amazon al 2026-05-12. 3 SKUs: OPTICAT_CHICKEN, OPTICAT_LIVER, OPTICAT_TUNA.
 
 ### Histórico de operaciones
 - **2026-05-08**: Variation Family Adult creada (3 children FBA bajo parent `B0H12ZXVPF`).
@@ -207,6 +235,7 @@ Operativos:
 
 > Una línea por sesión. Más reciente arriba.
 
+- **2026-05-12**: diagnóstico compliance Hígado (policy GRLKLZ6WQ9R259LC), análisis Innasa Master Sheet (ingredientes reales confirmados, pricing oficial $349, línea OPTICAT identificada), comunicación con Adam (escribe directo a chat INASA, esperando framing). Adult variation 100% operativa con 65u FBA. FBM zombi reapareció. Cat Treats Inactive NO se eliminan por decisión del cliente.
 - **2026-05-08** (creación inicial): post operación puntual de Variation Family. 3 children FBA agrupados bajo parent `OPTIPET_ADULT_PARENT` (`B0H12ZXVPF`). Theme `Sabor` con valores custom en inglés. Feed batch `50059020581` 4/4 successful. Pre-flight cleanup: FBM zombi `OPTIPETSKINCOATFBA` apagado. Stock FBA 0 disponibles · 72u inbound.
 
 ---

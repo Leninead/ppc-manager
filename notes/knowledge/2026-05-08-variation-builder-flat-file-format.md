@@ -1,6 +1,6 @@
 ---
 tipo: knowledge
-actualizado: 2026-05-09
+actualizado: 2026-05-12
 cliente: OPTIPET
 marca: OPTIPET
 template_version: 2026.0427
@@ -221,6 +221,56 @@ Claude debe:
 - Conseguir 3 main_image_url públicas
 - Confirmar ingredientes reales Pulmón y Pollo
 - Confirmar shelf life real (default 730d)
+
+## Caso de estudio #4 — Compliance Amazon MX bloquea listing (OPTIPET FlavorBoost Hígado, 2026-05-10)
+
+### Contexto
+Listing creado exitosamente el 2026-05-09 (caso #3) pasó a Inactive el 2026-05-10 por violación de política de producto, NO por error en flat file.
+
+### Causa raíz
+Amazon MX clasificó al producto como "nutritional supplement" y aplicó automáticamente la política `GRLKLZ6WQ9R259LC` (Pet Consumables: Food and Product Safety Issues), que exige documentación específica antes de permitir la venta.
+
+### Lección operativa nueva (gotcha #14)
+
+**Crear el listing exitosamente NO significa que esté autorizado a vender.** Categorías reguladas (Pet Food MX, suplementos, alimentos, dietary supplements) tienen una capa de compliance automática que se aplica horas o días después del feed exitoso. Si falta documentación de producto, Amazon suprime el listing.
+
+**Mitigación pre-launch**: para categorías reguladas, **antes de subir el flat file**:
+1. Identificar la política Amazon aplicable (buscar "Restricted products" + categoría en Seller Central)
+2. Validar que se tiene el paquete completo de docs ANTES de crear el listing
+3. Tener el panel "Add Compliance" identificado y los docs preparados para upload inmediato post-feed
+
+### Documentación requerida por la política GRLKLZ6WQ9R259LC
+
+Lista oficial Amazon MX para Pet food y suplementos nutricionales:
+- Nombre y dirección del fabricante, importador, distribuidor o representante autorizado
+- Etiquetas del producto (físicas, alta resolución, frente y dorso)
+- Marcas de cumplimiento visibles en empaque
+- Advertencias de peligro
+- Instrucciones y manuales del producto
+- Nombre del producto
+- Lista de ingredientes
+- Código de autorización SAGARPA de 8 dígitos (CRÍTICO, visible en empaque)
+
+Si producto es **desregulado clase III "venta libre"**: justificar citando el "ACUERDO por el que se especifican los productos no medicados para uso o consumo animal que se desregulan" (publicado en DOF 29/11/2010) + Dictamen de Verificación SENASICA del fabricante.
+
+### Ruta de navegación al panel de upload
+
+Seller Central → Manage Inventory → buscar SKU → click "Edit" del listing → tab **Safety & Compliance** → panel "Add Compliance" → opción "Add compliance for this product" (Not started) abre wizard guiado.
+
+### Documentos válidos en el caso OPTIPET (validados al 2026-05-12)
+
+Documentación corporativa (cubre fabricante + titular de marca):
+- Aviso SENASICA de Inicio de Funcionamiento del fabricante (PETSA del Bajío, expediente 11685)
+- Dictamen de Verificación SENASICA (folio KU0842, vigente 1 año)
+- Constancia Fiscal SAT del titular de marca (INASA)
+- Carta declaración fabricante-titular firmada por ambos CEOs
+- Acuse IMPI del registro de marca (clase 5 para suplementos animales)
+
+Documentación específica de producto (pendiente del cliente al cierre):
+- COA del producto
+- Etiqueta física alta resolución
+- Ficha técnica con análisis garantizado
+- Certificación Non-GMO formal (si título tiene claim Non-GMO)
 
 ## Wikilinks
 
