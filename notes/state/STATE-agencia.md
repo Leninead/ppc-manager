@@ -1,6 +1,6 @@
 ---
 tipo: state
-actualizado: 2026-05-09
+actualizado: 2026-05-12
 ---
 
 # STATE Agencia — Capybaras
@@ -116,6 +116,44 @@ Detalle completo en `notes/daily/2026-05-08.md` (sección "Sesión 2026-05-08 (D
 **Riesgos a vigilar**: el compromiso público de timeline crea presión sobre las próximas sesiones. Si S3 se desborda, comunicar al canal Slack ANTES del 17-18 de mayo (no después del deadline). Status check informal mid-week recomendado.
 
 Detalle completo en [[daily/2026-05-12]] y [[brands/agency-os]] (sección 2026-05-12).
+
+---
+
+## Última sesión — 2026-05-12 (Setex)
+
+**Instrucciones Tati**: recuperar badge B081GB8F89 + focus PPC familia Thin (B0F3PSP82K, 1,839u stock).
+
+**Ejecutado**: 9 bulks, 275 cambios, 100% Success en Amazon Ads Console.
+- #1 RevivirFantasmas (43 filas, UUID `3624deb3-e466-4fe2-864a-519db8693ab8`)
+- #2 PausarB086H3TZ6B (19 filas, UUID `afde8719-00dd-476f-9c48-364bd625bf64`) — pausa preventiva 19 Product Ads (1u stock, child del badge)
+- #3 ActivarUltraThinEXACTs (6 filas, UUID `4ee7ccd1-28f5-4311-a1eb-170b65acb914`)
+- #4 EscalarThin (19 filas, UUID `1cfa06e7-0db9-42fa-b4a0-c2e22cb19766`) — incluye DEFENSIVE OWN Thin PDPs (ROAS 211× → bid +100%)
+- #5 FixAntideslizante (1 fila, UUID `f1062364-670e-421a-8889-d63db0646803`) — bug fix bid $21.80 → $7.50
+- #6 NegativosCross (154 filas, UUID `4e33ffb2-8a76-4994-b0df-0ddf0af921db`) — 11 terms × 14-16 camps anti-canibalización
+- #7 BorderlineOptimize (5 filas, UUID `71d75edb-37d7-4748-86f6-409f2795e5cd`)
+- #8 PausasYArchivado (3 filas, UUID `99ab9b63-2a4e-4cea-9b53-3b7c0e34b913`) — archivado campaña typo "almoadillas"
+- #9 Crear5EXACTThin (25 filas, UUID `39f88428-3780-451e-8d1d-2357a5903bb7`) — 5 EXACT nuevas SKU XG9G515 (B08PZF22R1, 1317u stock) portfolio 06mm Nose Pads (ID 197371337016358), +$145/d
+
+**Impacto esperado 4 semanas**: ACoS cuenta 19.5% → 16-17%, ROAS 5.12× → 5.8-6.0×, Thin sales $12k → $22-25k MXN/mes, recuperación waste +$1,500/mes.
+
+**Hallazgos críticos**:
+- Bid set `antideslizante para lentes` $21.80 (no $9.41 CPC efectivo) → ACoS 73.6% — bug oculto.
+- B086H3TZ6B (1u) estaba como advertised product en 19 ad groups Setex 1mm — riesgo perder badge.
+- Brand surge post-badge confirmado: `setex` IS 67.9%, `setex nosepads`/`setex gecko grip` PS 100%.
+- Canibalización 9 query winners → AUTOs robaban 25-30% del tráfico a EXACT dedicadas.
+- Leak listing inglés B081GB8F89: SQP muestra PS 0% en queries anglo con CS 60% (`nose pads for glasses`, `nose pads`).
+
+**Urgencias Tati pendientes (Slack enviado 12/05)**:
+1. Restock B086H3TZ6B (1u, child badge, 19 ads pausados)
+2. Restock B0F63LTD92 (1u, Ear Hook, -3u vs 4u del 29/04)
+3. ETA Temple Tips (B0C7WPFVGV + B0B94KBY8H, OOS desde 18-23 abril)
+4. Audit listing EN B081GB8F89 (PS 0% queries anglo)
+
+**Próximas evaluaciones**: 15/05 (día 3 impressions), 19/05 (día 7 performance), 26/05 (día 14 review).
+
+**Sin invocación de sub-agentes**: ejecución manual con análisis Lenin + Claude chat. 275 cambios en bulks XLSX generados localmente, validados contra BulkSheetExport 5,749 filas antes de subir.
+
+Detalle completo en [[daily/2026-05-12]] (sección "Sesión Setex 12/05/2026") y [[setex]] (sección "2026-05-12").
 
 ---
 
@@ -251,7 +289,7 @@ Detalle completo en `daily/2026-05-08.md`.
 | Dermaglos | Amazon USA 🇺🇸 | 58.0% (↓ de 76.1%) | Meta ≤55%, escalar vitamin A + allantoin + tattoo ES | Rufus analysis 4 heroes + confirmación equipo Atom11 ejecutó entregable | [[DERMAGLOS]] · [[DERMAGLOS_DATA]] · [[atom11-rules]] |
 | Mott & Bow | Amazon US 🇺🇸 | 11.7% (sano) | Full-Funnel Women — Fase 2 (SBV White Tee + SP Exact Premium Cotton) | Video creativo + Brand Store Women actualizado para lanzar Fase 2 26-30 abril | [[MB (2)]] |
 | Love To Dream | Amazon MX 🇲🇽 | 16.1% | Plan 6 Fases ejecutado (5 de 6) — Fase 6 pendiente esta semana (Adam→Aaron, Agustín→cliente) | Mismatch producto/KW sistémico — auditoría dedicada esta semana · B09MG1J3LC sigue OOS · 5 EXACT heroes Delivering desde hoy | [[LTD]] |
-| Setex Technologies | Amazon MX 🇲🇽 | 20.9% (↓ de 25.5%) | 🏆 Best Seller badge en B081GB8F89 — lock-in del badge + protección B086H3TZ6B (1u stock, child) + reactivación post-restock Temple/Ear Hook | ETA reposición FBA Temple Tips + Ear Hooks · B086H3TZ6B URGENTE 1u · portfolios manuales 9 nuevas | [[setex]] · [[PENDIENTES_RESTOCK]] |
+| Setex Technologies | Amazon MX 🇲🇽 | 20.5% (↓ proyectado 16-17% post-bulks 12/05) | 🏆 Best Seller badge B081GB8F89 (lock-in) + push estratégico familia Thin (B0F3PSP82K, 1839u) — 5 EXACT nuevas SKU XG9G515 +$145/d · 154 negativos cross-camp anti-canibalización · pausa preventiva B086H3TZ6B (1u, 19 ads) | 4 urgencias Tati Slack 12/05: B086H3TZ6B 1u · B0F63LTD92 1u · Temple Tips OOS · audit listing EN B081GB8F89 (PS 0% queries anglo) | [[setex]] · [[PENDIENTES_RESTOCK]] |
 | 360 Essentials | Amazon USA 🇺🇸 | 23.0% (✅ target 35%) | SBV FreedomPlus branded + test incrementalidad + relanzar SD bid $1 | Video creativo FreedomPlus para SBV (3 camps) | [[360ESSENTIALS]] |
 | Pura Vida Moringa | Amazon MX 🇲🇽 | 45.5% marzo (proyectado 48-52% post-opt) | Bajar ACoS a 40-45% · consolidar rank orgánico top 2-5 | Sin crédito Atom11 — optimización manual | [[Puravidamoringa]] |
 
@@ -306,7 +344,7 @@ Todos commiteados a `main`, pendientes de push.
 - **Dermaglos**: ✅ Sesión 28/04 cierre completo — análisis cruzado + plan maestro + 3 bulks ejecutados (93/94 + 46/46 + 7/10 success) + 10 campañas P0 pausadas ($932 net waste detenido / $132/d budget liberado). 7 campañas nuevas live ($200/d budget). ⏳ Pendientes manuales próxima sesión (ver [[2026-04-28]]): Portfolio ID assignment a las 7 nuevas, allantoin 0.5% cream resolver, bid SD Views Retargeting 30D ($1→$0.50), budget B0CYLDSQ5L SP ASIN Related ($5→$15), mensaje corregido a Neha, listing opt Tattoo + Cleanser + Body Cream, restock B0F6V para activar push diferido. Atom11 v2026.2 EN REVISIÓN — Neha trabajando en v2026.3 con 4 fixes (1 corregido en diagnóstico hoy: bug del comma era falso positivo, problema real es rule HARD-STOP que no dispara). Cambio de status: B0F548KTXD sale de heroes (ROAS 0.61×). Estrella oculta identificada: B0F6VZMF2V (ROAS 6.20× OOS desde 09/04).
 - **LTD progreso 25/04 cierre completo**: ✅ Fases 1+3+4+5 ejecutadas (sesiones 1+2 mismo día) · ⏳ Fase 6 pendiente esta semana — delegada a equipo (Adam con Aaron compliance B005ULUZIQ, Agustín con cliente ETA restock B09MG1J3LC + summary + lista heroes 3ra solicitud). Push Heroes Fase 4: 5 EXACT Delivering desde hoy +$200/d. Brand Defense expandido a 5 ad groups. Auditoría sistémica match producto/KW pendiente esta semana sin owner asignado. Outputs: bulk xlsx + HTML internal brief para Adam y Agustín.
 - **M&B Fase 2 bloqueada (escalada pendiente)**: ventana original 26-30 abril vencida. Mensaje gate AM con pregunta cerrada (Brand Store Women + video SBV listos sí/no) NO se hizo hoy — primera tarea próxima sesión. Mientras: las 3 EXACT HW non-branded ($30/d) cubren funnel mid sin esperar al cliente. Eval 11/05.
-- **Setex pendientes post-29/04**: ✅ Sesión 29/04 cierre completo — 141 movimientos en 5 bulks (todos UUIDs registrados) · Best Seller badge confirmado en B081GB8F89 · framework Decomposición orgánico vs paid descubierto. ⏳ Pendientes: (1) **B086H3TZ6B URGENTE — 1u stock, child del Best Seller, riesgo perder badge** · (2) ETA reposición FBA Temple Tips (B0C7WPFVGV + B0B94KBY8H, OOS desde 18-23/04) · (3) ETA reposición Ear Hooks B0F63LTD92 (4u runway 3-4d) · (4) Asignación manual portfolios RANKING/CONQUEST/DEFENSIVE a las 9 campañas nuevas · (5) Subir bid Brand Hub Heroes $3→$5 post-badge · (6) Crear KWs "best nose pads", "amazon choice nose pads" · (7) Listing optimization B081GB8F89 lock-in del badge · (8) Coordinar con Nicki: 5 SKUs duplicados Closed · (9) SBV B08PZF22R1 sin owner (heredado 15/04). Diferidos hasta restock: 5 campañas nuevas Temple/Ear Hook + 12 KWs harvest documentados en [[PENDIENTES_RESTOCK]]. Ver detalle completo en [[2026-04-29]] y [[setex]].
+- **Setex pendientes post-12/05** (actualizado, supersedes 29/04): ✅ Sesión 12/05 cierre completo — 9 bulks, 275 cambios, 100% Success · cambio estratégico Thin push activo · pausa preventiva 19 ads B086H3TZ6B · bug fix bid `antideslizante para lentes` ($21.80 → $7.50) · 154 negativos cross-campaign anti-canibalización · 5 EXACT nuevas Thin SKU XG9G515 (+$145/d). Brand Hub Heroes ya subido $3→$5 en Bulk #1 (cierra pendiente del 29/04). ⏳ Pendientes activos: (1) **4 urgencias Tati Slack 12/05**: restock B086H3TZ6B (1u, child badge), restock B0F63LTD92 (1u, Ear Hook), ETA Temple Tips OOS, audit listing EN B081GB8F89 · (2) Verificación visual post-bulks en Amazon Ads (que se aplicaron los 275 cambios) · (3) Asignación manual portfolios a 4 RANKING revividas + 5 nuevas Thin · (4) **Atom11 rules file para Neha** — Setex ya añadido a Atom pero sin rules (sesión dedicada próxima) · (5) **SBV B08PZF22R1 — owner Adam** (heredado 15/04, push Thin family cobra urgencia) · (6) Si llega restock B086H3TZ6B → reactivar 19 Product Ads pausados (Bulk #2 UUID `afde8719`) · (7) Coordinar con Nicki: 5 SKUs duplicados Closed (heredado 29/04) · (8) Listing opt B081GB8F89 lock-in del badge (lleva pendiente desde 29/04). Diferidos hasta restock: 5 campañas nuevas Temple/Ear Hook + 12 KWs harvest documentados en [[PENDIENTES_RESTOCK]]. Próximas evals: 15/05 (día 3 impressions 5 EXACT Thin) · 19/05 (día 7 performance) · 26/05 (día 14 review completo). Ver detalle completo en [[2026-05-12]] (sección "Sesión Setex 12/05/2026") y [[setex]].
 - **360 Essentials SBV**: espera video creativo FreedomPlus para lanzar 3 campañas SBV ($45/d).
 - **Git**: 2 commits locales sin push (`fbae212`, `3f04fb1`) + los que se agreguen hoy. Push manual al cerrar sesión.
 - **Repo deuda técnica**: `INTELLIGENCE-INDEX.md` stale (dice 1 nota, M&B listado como MX en vez de US, sin 360 Essentials ni PVM).
@@ -501,6 +539,20 @@ Detalle completo en `notes/daily/2026-05-12.md`.
 
 Detalle completo en `notes/daily/2026-05-12.md` (sección "Continuación del día — OPTIPET").
 
+### 13. Gotchas operativos Setex sesión 12/05 (prioridad MEDIA, actualizar SOPs)
+
+**Contexto (2026-05-12)**: Durante la sesión exhaustiva Setex con 9 bulks ejecutados se descubrieron 2 gotchas operativos nuevos que ameritan actualización de SOPs.
+
+- **[bulk-upload] Bid set vs CPC efectivo pueden diferir 100%+**. En Setex el keyword `antideslizante para lentes` tenía bid set $21.80 vs CPC efectivo $9.41 — confusión que veníamos arrastrando interpretando el problema como bid bajo en lugar de bid inflado. **Regla**: SIEMPRE verificar bid en BulkSheetExport, NO asumir desde STR CPC. Actualizar [[amazon-bulk-upload-guide]] con este learning.
+
+- **[bulk-upload] Portfolio ID numérico se puede incluir directo en bulk de CREATE**. Validado en Bulk #9 Setex con `Portfolio ID = 197371337016358` (06mm Nose Pads) — 5 campañas Success. **Esto contradice el SOP anterior** que decía "siempre dejar Portfolio ID vacío al crear y asignarlo manualmente después". Actualizar [[amazon-bulk-upload-guide]] con la regla nueva: si conocés el Portfolio ID numérico real (extraído de Campaign Manager o BulkSheetExport), podés incluirlo en CREATE.
+
+**Bonus gotcha (validar próxima sesión)**: typos en keyword interna pueden propagarse silenciosamente. Campaña fantasma de Setex tenía keyword `almoadillas para lentes` (sin la 'h'), 0 impresiones, archivada el 12/05. Patrón: verificar campañas con 0 imp + nombre raro contra typos en KW interna. Si se confirma como patrón cross-cliente, agregar al SOP.
+
+**Trigger para atacar**: próxima sesión donde se toque [[amazon-bulk-upload-guide]] (probablemente la del Atom11 rules Setex). Bajo riesgo de regresión si se difiere — los 2 gotchas son aditivos, no breaking.
+
+Detalle completo en `notes/daily/2026-05-12.md` (sección "Sesión Setex 12/05/2026" — Bugs/gotchas nuevos descubiertos).
+
 ---
 
 ## Próximos pasos inmediatos
@@ -528,4 +580,4 @@ Detalle completo en `notes/daily/2026-05-12.md` (sección "Continuación del dí
 14. **Repo** — decidir Sprint 2 (Campaign Builder Modo B, ~4-5h) vs Sprint 3 (DaypartingApp, ~2h) según prioridad. Actualizar [[INTELLIGENCE-INDEX]] stale (1 nota reportada, falta incluir 360 Essentials + PVM + corregir MB → US). Push de commits locales + cambios de hoy. Branch `feat/agency-os-rebrand` merged-not-deleted (24h+ post-merge sin issues, pendiente purga cuando Lenin decida).
 15. **Outputs LTD sesión 25/04**: Bulk `LTD_Fase4_Bulk_M4_Push_Heroes_25Abr2026.xlsx` subido a Amazon (Batch UUID 10d5a6ef). HTML internal brief `LTD_Sesion_25Abr2026_InternalBrief.html` generado para distribución interna Adam+Agustín. Ambos en /mnt/user-data/outputs (compartidos con Lenin desde Claude chat).
 16. **Biblioteca de prompts v5 (2026-04-27)** — refrescar 7 archivos en proyecto Claude vía "Add content from GitHub". Después validar `cierre-meta` en sesión real durante esta misma conversación. Crear archivos de `codigo/` cuando aparezca el primer módulo nuevo. Actualizar [[CLAUDE]] del vault + [[Biblioteca]] con la nueva carpeta.
-17. **Setex** — (1) Esperar respuesta Tati con ETA reposición FBA Temple Tips + Ear Hooks + B086H3TZ6B. (2) Asignación manual portfolios RANKING/CONQUEST/DEFENSIVE a las 9 nuevas en Campaign Manager. (3) 06/05 chequeo impressions de las 9 nuevas (4d). (4) 09/05 review performance EXACT iniciales (1sem). (5) Cuando llegue restock: ejecutar [[PENDIENTES_RESTOCK]] playbook (5 campañas + 12 KWs + bid +25-30%). (6) Próxima sesión también: subir bid Brand Hub Heroes $3→$5 + crear KWs "best nose pads" + listing opt B081GB8F89 + conectar Atom11 con Guille (pre-requisito ✓ cumplido).
+17. **Setex** (post 12/05) — (1) Esperar respuesta Tati Slack 12/05 con las 4 urgencias: restock B086H3TZ6B + B0F63LTD92, ETA Temple Tips, audit listing EN B081GB8F89. (2) Verificación visual post-bulks en Campaign Manager (275 cambios). (3) Asignación manual portfolios a 4 RANKING revividas + 5 nuevas Thin (9 campañas total). (4) **Atom11 rules file para Neha — sesión dedicada próxima** (Setex ya añadido a Atom pero sin rules). (5) **SBV B08PZF22R1 — owner Adam** (heredado 15/04, push Thin family cobra urgencia). (6) Evaluaciones programadas: 15/05 día 3 (impressions 5 EXACT Thin, si KWs PS 100% <300 imp → bid $3→$4) · 19/05 día 7 (performance EXACT iniciales + decisión escalar/pausar) · 26/05 día 14 (review completo + plan v2). (7) Si llega restock B086H3TZ6B → reactivar 19 Product Ads pausados (Bulk #2 UUID `afde8719-00dd-476f-9c48-364bd625bf64`). (8) Si llega restock Temple/Ear Hook → ejecutar [[PENDIENTES_RESTOCK]] playbook (5 campañas + 12 KWs + bid +25-30%). (9) Listing opt B081GB8F89 lock-in del badge (sigue heredado de 29/04). (10) Coordinar con Nicki: 5 SKUs duplicados Closed (heredado 29/04).

@@ -4,8 +4,8 @@ cliente: setex
 mercado: Amazon MX
 account_manager: Tatiana Velasquez
 status: cuenta madura post-Perpetua takeover
-ultima_sesion: 2026-04-29
-actualizado: 2026-05-05
+ultima_sesion: 2026-05-12
+actualizado: 2026-05-12
 ---
 
 # 🏢 Setex Technologies — Amazon MX
@@ -253,3 +253,95 @@ Si se pierde el badge, recuperarlo es difícil — Amazon premia performance his
 
 ### Notas
 ASIN usado en test #5 de la sesión Apify para validar si el bloqueo de reviews de Amazon también aplica a marketplace MX. Resultado: status 500 — MX también bloqueado. Detalle en [[daily/2026-05-05]].
+
+---
+
+## 2026-05-12 — Sesión análisis exhaustivo + 9 bulks ejecutados (cambio estratégico Thin push)
+
+### Foco de sesión
+Tati definió nueva dirección estratégica: recuperar badge B081GB8F89 + diversificar ingreso vía push familia Thin Nose Pad Parent (B0F3PSP82K). Stock Thin: 1,839u total (B08PZF22R1 1317u + B08SMSBFG9 394u + B08SP1JFZ8 105u + B08SNXF8HP 23u).
+
+### KPIs cuenta pre-sesión (período 11 abr – 10 may)
+- Spend: $20,815 MXN
+- Sales: $101,401 MXN
+- ACoS: 20.5%
+- ROAS: 4.87×
+- % Waste: 41%
+- 91/181 campañas enabled (50%)
+- 36 fantasmas (40% del enabled sin spend)
+
+### Hallazgos críticos
+1. **antideslizante para lentes EXACT**: bid set $21.80 → CPC inflado a $9.41 → ACoS 73.6%. Bug oculto que veníamos confundiendo con problema de bid bajo.
+2. **B086H3TZ6B (1u)** estaba en 19 ad groups Setex 1mm activos. Riesgo de quemar última unidad y perder child del Best Seller.
+3. **Brand surge post-badge confirmado**: SQP muestra `setex`/`setex nosepads`/`setex gecko grip` con IS 57-68% y PS 100%. Valida la inversión en brand defense.
+4. **Canibalización 9 query winners**: AUTOs roban 25-30% del tráfico que debería ir a EXACT dedicadas creadas el 29/04.
+5. **Leak listing inglés**: PS 0% en `nose pads for glasses` / `nose pads` esta semana con CS 60% y 25% respectivamente. Funnel break click → compra para compradores EN.
+
+### Stock crítico al 12/05 (sin cambios vs 29/04 excepto Ear Hook)
+- B086H3TZ6B: 1u (igual)
+- B0F63LTD92: 1u (-3u vs 4u del 29/04)
+- B0C7WPFVGV + B0B94KBY8H: 0u (Temple Tips OOS desde 18-23 abril)
+- B09F7YB74Y: 4u (igual)
+
+### 9 bulks ejecutados — 275 cambios, 100% Success
+
+| # | Bulk | Filas | UUID Amazon |
+|---|---|---|---|
+| 1 | RevivirFantasmas | 43 | 3624deb3-e466-4fe2-864a-519db8693ab8 |
+| 2 | PausarB086H3TZ6B | 19 | afde8719-00dd-476f-9c48-364bd625bf64 |
+| 3 | ActivarUltraThinEXACTs | 6 | 4ee7ccd1-28f5-4311-a1eb-170b65acb914 |
+| 4 | EscalarThin | 19 | 1cfa06e7-0db9-42fa-b4a0-c2e22cb19766 |
+| 5 | FixAntideslizante | 1 | f1062364-670e-421a-8889-d63db0646803 |
+| 6 | NegativosCross | 154 | 4e33ffb2-8a76-4994-b0df-0ddf0af921db |
+| 7 | BorderlineOptimize | 5 | 71d75edb-37d7-4748-86f6-409f2795e5cd |
+| 8 | PausasYArchivado | 3 | 99ab9b63-2a4e-4cea-9b53-3b7c0e34b913 |
+| 9 | Crear5EXACTThin | 25 | 39f88428-3780-451e-8d1d-2357a5903bb7 |
+
+### Familia Thin — nueva arquitectura PPC
+Pre-sesión: solo PAT defensives + 4 PAT competidor + 2 EXACT durmientes.
+Post-sesión:
+- 10 campañas existentes Thin escaladas (incluyendo `DEFENSIVE OWN Thin PDPs` con ROAS 211× → bid +100%)
+- 2 Ultra Thin EXACTs durmientes activadas (bids +100%)
+- 5 EXACT KW nuevas creadas con queries validadas en SQP
+
+Naming convention nuevas: `Setex Ultra Thin 5p Transp | MX | SP-KWS | EXACT | THIN-PUSH | [keyword]` (Atom11-friendly).
+
+### 5 EXACT nuevas Thin (Bulk #9)
+Portfolio: 06mm Nose Pads (ID 197371337016358). SKU principal: XG9G515 (B08PZF22R1).
+
+| KW | SQP PS% | Bid | Bud/día |
+|---|---|---|---|
+| sujetadores para lentes | 100% | $3.00 | $40 |
+| gomas antideslizantes para lentes | 100% | $3.00 | $30 |
+| sostenedor de lentes | 0% | $2.00 | $25 |
+| gomas para lentes nariz | 50% | $2.50 | $25 |
+| almohadillas para lentes nariz | 33% | $2.50 | $25 |
+
+Total nuevo spend: +$145/día (~$4,350 MXN/mes).
+
+### Mensaje al team
+Slack enviado 12/05 con resumen + 4 urgencias Tati:
+1. Restock B086H3TZ6B (1u, child badge)
+2. Restock B0F63LTD92 (1u, Ear Hook)
+3. ETA Temple Tips (OOS desde 18-23 abril)
+4. Audit listing EN B081GB8F89
+
+### Bid strategy actualizada
+- 1mm (badge): target ACoS 15-18% — mature, mantener
+- Thin (push): target ACoS 25% — learning period, agresivo controlado
+- Brand defense: target ACoS 8-10% — cheap, alta conversión
+- Break-even ACoS Setex: ~58%
+
+### Update Atom11 status
+Setex ya añadido a Atom (Neha), pero sin rules creadas todavía. Próxima sesión dedicada: armar rules file similar al de Dermaglos/LTD y enviar.
+
+### Próximas evaluaciones
+- 15/05 (día 3): impressions 5 EXACT nuevas Thin
+- 19/05 (día 7): performance EXACT iniciales + ajuste bids
+- 26/05 (día 14): review completo, decisión escalar/pausar
+
+### Owners pendientes
+- Tati: 4 urgencias arriba + asignar portfolios manuales a 9 campañas (4 RANKING + 5 nuevas Thin)
+- Nicki: ticket 5 SKUs Closed duplicados (heredado 29/04)
+- Adam: SBV B08PZF22R1 owner (heredado 15/04)
+- Sesión próxima: Atom11 rules file
