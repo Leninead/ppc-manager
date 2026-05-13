@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M&B Off-Amazon Research · Capybaras Agency</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --orange: #E84000;
+    --orange-dim: #B83400;
+    --bg: #0E0E0E;
+    --bg-card: #161616;
+    --bg-card-hi: #1E1E1E;
+    --border: #2A2A2A;
+    --border-hi: #3A3A3A;
+    --text: #F0F0F0;
+    --text-dim: #A0A0A0;
+    --text-muted: #6A6A6A;
+    --green: #4ADE80;
+    --yellow: #F5C518;
+    --red: #FF4444;
+    --blue: #5DA8FF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Barlow', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    font-size: 15px;
+    padding: 32px 24px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  code, .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.92em; }
+
+  .header {
+    border-bottom: 2px solid var(--orange);
+    padding-bottom: 20px;
+    margin-bottom: 32px;
+  }
+  .header-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; flex-wrap: wrap; gap: 12px;
+  }
+  .brand {
+    font-family: 'Barlow Condensed', sans-serif;
+    color: var(--orange);
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: 2px;
+  }
+  .internal-badge {
+    background: rgba(232, 64, 0, 0.12);
+    color: var(--orange);
+    padding: 4px 12px;
+    border: 1px solid var(--orange-dim);
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+  }
+  h1 {
+    font-size: 42px;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 17px;
+    font-weight: 400;
+  }
+  .meta-line {
+    display: flex; gap: 24px; flex-wrap: wrap;
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-top: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .meta-line span strong { color: var(--text-dim); }
+
+  section { margin-bottom: 40px; }
+  .section-header {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--orange);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  h2 { font-size: 26px; }
+  h3 { font-size: 18px; margin-bottom: 12px; margin-top: 22px; color: var(--text-dim); }
+  h4 { font-size: 15px; color: var(--text); margin-bottom: 8px; }
+
+  p { margin-bottom: 12px; }
+
+  /* KPI / STAT CARDS */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .stat {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 6px;
+  }
+  .stat-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 1.2px;
+    margin-bottom: 6px;
+  }
+  .stat-value {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .stat-meta {
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  /* CALLOUTS */
+  .callout {
+    background: var(--bg-card);
+    border-left: 3px solid;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.urgent { border-color: var(--red); background: rgba(255, 68, 68, 0.05); }
+  .callout.warn { border-color: var(--yellow); background: rgba(245, 197, 24, 0.04); }
+  .callout.good { border-color: var(--green); background: rgba(74, 222, 128, 0.04); }
+  .callout.info { border-color: var(--blue); background: rgba(93, 168, 255, 0.04); }
+  .callout.brand { border-color: var(--orange); background: rgba(232, 64, 0, 0.04); }
+  .callout-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 1px;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  .callout.urgent .callout-title { color: var(--red); }
+  .callout.warn .callout-title { color: var(--yellow); }
+  .callout.good .callout-title { color: var(--green); }
+  .callout.info .callout-title { color: var(--blue); }
+  .callout.brand .callout-title { color: var(--orange); }
+
+  /* TABLES */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 14px;
+    margin-bottom: 14px;
+  }
+  th {
+    background: var(--bg-card-hi);
+    text-align: left;
+    padding: 10px 14px;
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-hi);
+  }
+  td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255, 255, 255, 0.02); }
+  td.mono, td.num { font-family: 'JetBrains Mono', monospace; }
+  td.num { text-align: right; }
+  td.center { text-align: center; }
+  .flag-good { color: var(--green); }
+  .flag-warn { color: var(--yellow); }
+  .flag-bad { color: var(--red); }
+
+  /* TWO-COLUMN comparison */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+  .col-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px;
+  }
+  .col-card.pos { border-left: 3px solid var(--green); }
+  .col-card.neg { border-left: 3px solid var(--red); }
+  .col-card h4 {
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  .col-card.pos h4 { color: var(--green); }
+  .col-card.neg h4 { color: var(--red); }
+  .col-card ul { list-style: none; padding-left: 0; }
+  .col-card li {
+    padding: 6px 0 6px 16px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+  .col-card li:last-child { border-bottom: none; }
+  .col-card li::before {
+    content: '·';
+    position: absolute;
+    left: 4px;
+    color: var(--text-muted);
+    font-weight: bold;
+  }
+  @media (max-width: 768px) {
+    .two-col { grid-template-columns: 1fr; }
+    .stat-value { font-size: 24px; }
+    h1 { font-size: 30px; }
+    body { padding: 20px 14px; }
+  }
+
+  /* VERBATIM quote box */
+  .verbatim {
+    background: var(--bg-card-hi);
+    border-left: 2px solid var(--orange-dim);
+    padding: 10px 14px;
+    margin: 8px 0;
+    font-style: italic;
+    color: var(--text-dim);
+    font-size: 13px;
+    border-radius: 0 4px 4px 0;
+  }
+  .verbatim-source {
+    display: block;
+    font-style: normal;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* CITATIONS / SOURCES */
+  .sources-list {
+    list-style: none;
+    padding-left: 0;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .sources-list li {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .sources-list li:last-child { border-bottom: none; }
+
+  /* HYPOTHESIS BLOCK */
+  .hypothesis {
+    background: linear-gradient(180deg, rgba(93, 168, 255, 0.06) 0%, var(--bg-card) 100%);
+    border: 1px solid rgba(93, 168, 255, 0.3);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .hypothesis h3 { color: var(--blue); margin-top: 0; }
+
+  /* CONCLUSION block */
+  .conclusion {
+    background: linear-gradient(180deg, rgba(232, 64, 0, 0.08) 0%, var(--bg-card) 100%);
+    border: 1px solid var(--orange-dim);
+    border-radius: 8px;
+    padding: 28px;
+    margin-top: 32px;
+  }
+  .conclusion h2 {
+    color: var(--orange);
+    margin-bottom: 16px;
+  }
+  .conclusion h3 { color: var(--orange); }
+
+  footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .tag {
+    display: inline-block;
+    background: var(--bg-card-hi);
+    color: var(--text-dim);
+    padding: 2px 8px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    border-radius: 3px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div class="brand">▸ CAPYBARAS AGENCY</div>
+    <div class="internal-badge">Internal Research · Not for client distribution</div>
+  </div>
+  <h1>Mott & Bow — Off-Amazon Customer Feedback</h1>
+  <div class="subtitle">¿Los problemas de reviews en Amazon son específicos del canal o estructurales de la marca?</div>
+  <div class="meta-line">
+    <span><strong>Cliente:</strong> Mott & Bow USA</span>
+    <span><strong>Fuentes:</strong> Trustpilot · BBB · Blogs · Reviews</span>
+    <span><strong>Generado:</strong> 11/05/2026</span>
+    <span><strong>Por:</strong> Lenin Acosta</span>
+  </div>
+</div>
+
+<!-- ========== HEADLINE ========== -->
+<section>
+  <div class="callout urgent">
+    <div class="callout-title">⚠ Headline — los mismos problemas existen off-Amazon, pero amplificados en Amazon</div>
+    <p>La marca tiene los <strong>mismos issues</strong> en su web propia que en Amazon: t-shirts thin, sizing inconsistente entre tallas iguales, defectos esporádicos (holes, zippers rotos), y una política de returns que es la queja #1 a nivel global. La diferencia es que <strong>off-Amazon esos issues quedan amortiguados</strong> por (a) base de clientes repeat que ya sabe qué esperar, (b) home try-on program, (c) marketing direct-to-consumer fuerte. En Amazon esos mismos issues pegan más duro porque el comprador es one-and-done, no tiene try-on, y es más vocal con reviews negativas. <strong>Conclusión:</strong> los ratings bajos de Amazon (3.0-3.7) son una versión amplificada de problemas reales que la marca ya tiene en su canal directo. NO es un problema de Amazon — es un problema de calidad estructural que en Amazon se vuelve visible.</p>
+  </div>
+</section>
+
+<!-- ========== 1. VOLUMEN GLOBAL ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>Volumen de feedback off-Amazon</h2>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat">
+      <div class="stat-label">Trustpilot</div>
+      <div class="stat-value">13,028</div>
+      <div class="stat-meta">reviews · ~4 stars</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">BBB complaints</div>
+      <div class="stat-value">94</div>
+      <div class="stat-meta">últimos 3 años</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">BBB closed/12m</div>
+      <div class="stat-value">67-68</div>
+      <div class="stat-meta">tasa resolución alta</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">BBB accredited</div>
+      <div class="stat-value flag-warn">NO</div>
+      <div class="stat-meta">flag negativo</div>
+    </div>
+  </div>
+
+  <div class="callout info">
+    <div class="callout-title">▸ Lectura del volumen</div>
+    <p>13K+ reviews en Trustpilot es muy alto para una D2C apparel brand — refleja agresividad de email post-purchase pidiendo review (algo que también es queja en algunos reviews). El sentimiento general es mayoría algo conformes con la experiencia general según el resumen propio de Trustpilot. Las 94 complaints BBB son significativas pero proporcionalmente bajas vs el volumen total.</p>
+  </div>
+</section>
+
+<!-- ========== 2. JEANS ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>👖 Jeans — el producto core de la marca</h2>
+  </div>
+
+  <p>Mott & Bow nació como brand de denim (fundada 2013 por Alejandro Chahin, family company en Honduras). Los jeans son el producto más visible, más reviewed y mejor valorado off-Amazon. Pero también el que tiene los problemas más documentados de QC.</p>
+
+  <div class="two-col">
+    <div class="col-card pos">
+      <h4>✓ Lo que aman los clientes</h4>
+      <ul>
+        <li><strong>Comodidad y stretch:</strong> mencionado en casi todos los reviews positivos. Comparado favorablemente vs Levi's, Paige, J-Brand, rag & bone</li>
+        <li><strong>Soft denim:</strong> casi todos los modelos tienen 2% Elastane, se sienten broken-in desde el día 1</li>
+        <li><strong>Punching above price point:</strong> $96-$160 vs designer denim $200-300, calidad similar percibida</li>
+        <li><strong>Variedad de washes y fits:</strong> Wooster, Crosby, Mercer, Mosco, Benson, Laight, Jane (W), Jamie (W)</li>
+        <li><strong>Try-on program (web only):</strong> 2 sizes por el precio de 1, retornás la que no usás free</li>
+        <li><strong>Repeat customers fuertes:</strong> múltiples reviewers dicen tener más de 20 pares acumulados a lo largo de años, otros 10+, 4+</li>
+        <li><strong>Stitching density buena:</strong> aguanta wear repetido, raras menciones de seam failures</li>
+        <li><strong>No fake whiskering / fades exagerados:</strong> apreciado por gente que busca denim limpio</li>
+      </ul>
+    </div>
+    <div class="col-card neg">
+      <h4>✗ Las quejas recurrentes</h4>
+      <ul>
+        <li><strong>QC inconsistente — issue #1:</strong> mismo style, mismo size, fit diferente. Un reviewer reportó 4 jeans del mismo size 34×32 con waists midiendo entre 44.5 cm y 47 cm</li>
+        <li><strong>Inseam inconsistente:</strong> a veces 32 leg viene corto, a veces largo. Diferencias 0.5+ inch entre mismo modelo/size</li>
+        <li><strong>Seat fit variable:</strong> a veces muy ajustado, a veces suelto en el mismo size</li>
+        <li><strong>Zippers que rompen:</strong> un reviewer técnico apuntó que usan YKK pero downsized de 5 a 4</li>
+        <li><strong>Holes / defectos esporádicos:</strong> jeans llegando con agujeros, manchas, "feeling worn"</li>
+        <li><strong>Sin inseams cortos:</strong> 32"+ obligatorio, gente baja tiene que hemming</li>
+        <li><strong>Naming confuso:</strong> Stone, Mercer, Mosco, Benson, todos "slim"</li>
+        <li><strong>Stretch demasiado:</strong> a algunos les molesta el extremo "jegging-like" en algunos modelos</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="verbatim">
+    Un reviewer canadiense con 1+ año de experiencia escribió que después de mucho ensayo y error finalmente abandonó la marca pese a buen return policy, porque los inconsistent fits y los problemas de quality control se hicieron insostenibles.
+    <span class="verbatim-source">Fuente: Honest Brand Reviews · Comments</span>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">▸ Veredicto jeans</div>
+    <p>Producto core sólido, pero la <strong>inconsistencia entre lotes</strong> es estructural. Reviewers loyal tolerantes (compran 5-20 pares, asumen el "tax" del retorno ocasional). Reviewers casuales o cliente Amazon de 1 compra van a estar frustrados con la lottery del fit.</p>
+  </div>
+</section>
+
+<!-- ========== 3. T-SHIRTS ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>👕 T-shirts — el producto secundario, donde está el daño Amazon</h2>
+  </div>
+
+  <p>Las remeras son el producto secundario pero clave para entender los problemas Amazon. Los principales modelos:</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Modelo</th>
+        <th>Composición</th>
+        <th>Peso</th>
+        <th>Origen</th>
+        <th>Comentario común</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Driggs</strong> (Men) — Classic Crew / V-Neck / LS</td>
+        <td>100% combed cotton</td>
+        <td class="num flag-warn">140g / 5oz 🪶</td>
+        <td>Peru y Vietnam (mixto)</td>
+        <td>Soft pero <strong>thin / lightweight</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Marcy</strong> (Women) — Fitted Crew / V-Neck</td>
+        <td>50% Pima cotton + 50% Modal</td>
+        <td class="num">~150g</td>
+        <td>Peru / Honduras</td>
+        <td>"Buttery soft", elogiada</td>
+      </tr>
+      <tr>
+        <td><strong>Carlton / Heavyweight Pocket</strong></td>
+        <td>100% Peruvian combed cotton</td>
+        <td class="num flag-good">235g / 8.3oz 💪</td>
+        <td>Peru</td>
+        <td>Premium feel</td>
+      </tr>
+      <tr>
+        <td><strong>Luxe Stretch / Tech</strong></td>
+        <td>Cotton+Modal+Spandex / Poly+Spandex</td>
+        <td class="num">variable</td>
+        <td>variable</td>
+        <td>Performance, menos reviewed</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>El problema "Driggs" — patrón claro en reviews</h3>
+
+  <p>El Driggs (140g / 5oz, 100% combed cotton) es el t-shirt más vendido pero también el más criticado por <strong>ser thin</strong>. Esto se repite en blogs, Trustpilot y Amazon. Es la misma queja, en todos los canales.</p>
+
+  <div class="two-col">
+    <div class="col-card pos">
+      <h4>✓ Lo que dicen los fans</h4>
+      <ul>
+        <li>Soft hand, "buttery feel"</li>
+        <li>Tagless collar (apreciado)</li>
+        <li>Color options abundantes (12+ shades)</li>
+        <li>Preshrunk — no shrink significativo</li>
+        <li>Versión 2023 actualizada considerada un upgrade (slightly thicker)</li>
+        <li>Carlton heavyweight 235g recibe mejor feedback que Driggs</li>
+        <li>Marcy (women) tiene fan base sólido</li>
+      </ul>
+    </div>
+    <div class="col-card neg">
+      <h4>✗ Las quejas recurrentes</h4>
+      <ul>
+        <li><strong>Demasiado thin / sheer:</strong> "see-through" en white especialmente. Mujeres reportan necesidad de nude bra debajo</li>
+        <li><strong>"Solo sirve como undershirt":</strong> reviewer femenina dijo no usaría más que como base layer</li>
+        <li><strong>Durabilidad cuestionada:</strong> reviewer del Adult Man dijo que probablemente no podría sacar muchos repeat wears de los tees por el fabric tan delgado</li>
+        <li><strong>Shrinkage inconsistente</strong> pese al "preshrunk":</li>
+        <li><strong>Tone variation entre batches:</strong> Driggs hechos en Peru vs Vietnam reportados con tonos diferentes en mismo color</li>
+        <li><strong>Sizing inconsistente:</strong> "Marcy too long y form fitting", "Driggs XS substantially longer than Uniqlo XS"</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="verbatim">
+    Un cliente loyal compró 10 Driggs hechos en Peru (primera batch) muy contento, luego compró 6 más hechos en Vietnam (segunda batch) y notó un tono ligeramente diferente — más amarillento — en la misma referencia de color.
+    <span class="verbatim-source">Fuente: Trustpilot page 3 · Diciembre 2025</span>
+  </div>
+
+  <div class="callout urgent">
+    <div class="callout-title">▸ Este es el insight clave para el cliente</div>
+    <p>El problema de "t-shirts thin" reportado en Amazon (Driggs 3.0 ★, refunds 33%) <strong>NO es un fenómeno Amazon</strong>. Es la misma queja que tiene la marca en Trustpilot, blogs, Reddit. Lo que cambia es el comprador: en Amazon, el cliente compra una vez, no tiene relación con la marca, y un t-shirt thin a $25-30 le parece estafa. En su web propia, el cliente loyal ya conoce el peso y compra Driggs sabiendo qué espera (o compra Carlton heavyweight si quiere más cuerpo).</p>
+  </div>
+</section>
+
+<!-- ========== 4. RETURN POLICY — LA QUEJA #1 GLOBAL ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>🚨 Return policy — la queja #1 off-Amazon</h2>
+  </div>
+
+  <p>Este es el patrón más claro y consistente en Trustpilot y BBB. <strong>No afecta directamente a Amazon</strong> (que tiene su propia política de returns), pero ayuda a entender la relación cliente-marca y por qué las reviews on-Amazon pueden ser tan duras.</p>
+
+  <h3>Política actual de Mott & Bow (mottandbow.com)</h3>
+  <table>
+    <thead>
+      <tr><th>Aspecto</th><th>Detalle</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Ventana de retorno</td><td class="num">30 días desde delivery</td></tr>
+      <tr><td>Tipo de refund</td><td><strong>Solo store credit (Gift Card)</strong> — NO refund a tarjeta</td></tr>
+      <tr><td>Processing fee</td><td>$9 mail-in · $5 Happy Returns</td></tr>
+      <tr><td>Shipping costs</td><td>No reembolsables</td></tr>
+      <tr><td>Final sale items</td><td>No retornables</td></tr>
+      <tr><td>Exchanges</td><td>One-time only</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Lo que dicen los clientes</h3>
+
+  <div class="verbatim">
+    Un cliente describió la política como predatoria y engañosa, oculta en letra chica del checkout. Muchas reviews comparten la misma queja: esperaban un refund a su tarjeta y recibieron una gift card que no quieren porque ya no confían en la marca.
+    <span class="verbatim-source">Fuente: BBB complaints · 2024-2025</span>
+  </div>
+
+  <p>Hay un caso especialmente fuerte: un cliente flaggeó que Mott & Bow estaría en violación de <strong>California Section 1723(c)(1)</strong> al no mostrar la política conspicuamente cerca del botón Place Order (la enterraron en un hyperlink). La política, según ese cliente, también violaría reglas de algunos card networks que prohíben enterrar return policies negativas en hyperlinks.</p>
+
+  <div class="callout warn">
+    <div class="callout-title">▸ Patrón BBB</div>
+    <p>De las 94 complaints BBB en 3 años, la mayoría siguen el mismo patrón: cliente pide refund por fit/calidad, Mott & Bow ofrece gift card, cliente escala a BBB, Mott & Bow eventualmente concede el refund como "one-time courtesy". La marca <strong>sí cede</strong> cuando hay BBB de por medio, pero no proactivamente. Tasa de resolution: 67-68/94 closed.</p>
+  </div>
+
+  <div class="callout info">
+    <div class="callout-title">▸ Implicación para Amazon</div>
+    <p>El cliente Amazon NO sufre esto directamente (Amazon refunds funcionan normales) — PERO mucha gente que probó M&B en su web propia y se quemó con el store-credit, después dice <strong>"never again"</strong>. Eso reduce el pool de loyal repeat customers que podrían apoyar la marca en Amazon. Y los que sí compran en Amazon ya vienen sesgados negativamente por la reputación off-Amazon.</p>
+  </div>
+</section>
+
+<!-- ========== 5. MARKETING AGGRESIVE ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>📣 Marketing agresivo — confirma la tesis del 04/05</h2>
+  </div>
+
+  <p>Esto es directamente relevante para la lectura PPC y la meet 04/05 (Agustín / Adam). En reviews off-Amazon hay un patrón claro: <strong>la marca depende fuertemente de Meta ads (Facebook + Instagram) para captar tráfico nuevo</strong>, y muchos reviewers mencionan haber descubierto la marca por anuncios repetidos en redes.</p>
+
+  <div class="two-col">
+    <div class="col-card neg">
+      <h4>✗ Quejas sobre el marketing</h4>
+      <ul>
+        <li><strong>Spam social media:</strong> reviewers mencionan haber comprado después de ser bombardeados por la marca en su feed hasta el punto de comprar por agotamiento</li>
+        <li><strong>Popups en checkout confusos:</strong> "garbage ads" que opt-in accidental al "Customer Program" con annual fee</li>
+        <li><strong>Email blast post-purchase:</strong> múltiples reviewers se quejaron de la cantidad de marketing followup tras comprar</li>
+        <li><strong>SMS marketing agresivo:</strong> mencionado en quejas BBB</li>
+        <li><strong>Reminders de review constantes:</strong> aunque la persona no haya comprado ese item</li>
+      </ul>
+    </div>
+    <div class="col-card pos">
+      <h4>✓ Lo que sí funciona del marketing</h4>
+      <ul>
+        <li><strong>Brand awareness alto:</strong> hablado por The Daily Beast, Vogue, Forbes, Business Insider</li>
+        <li><strong>Reviewed by 50+ blogs</strong> con compensación gratis de producto</li>
+        <li><strong>Storytelling fundacional:</strong> Alejandro Chahin, family company Honduras, "denim science"</li>
+        <li><strong>Affiliate program activo</strong> (códigos de descuento blogger)</li>
+        <li><strong>Influencer outreach</strong> a fashion editors</li>
+        <li><strong>Home try-on diferenciador</strong> (USP fuerte vs Levi's/Gap)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout brand">
+    <div class="callout-title">▸ Conexión directa con la meet 04/05</div>
+    <p>La tesis interna de la meet del 04/05 era: "<em>el cliente vende 165K unidades vía tráfico orgánico/externo Meta</em>". La research off-Amazon <strong>confirma esa tesis</strong>: M&B es una marca <strong>"performance marketing nativa"</strong>. Su DNA es Meta + email + influencer. PPC en Amazon es un canal incremental, no el motor. Cuando Agustín hable con Adam sobre la restructuración de tarifa (% sobre PPC sales, no sobre Meta-driven sales), este research apoya el argumento.</p>
+  </div>
+</section>
+
+<!-- ========== 6. MANUFACTURING ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>🏭 Manufacturing — el root cause de la inconsistencia</h2>
+  </div>
+
+  <p>Una pieza clave del puzzle: Mott & Bow fabrica en <strong>múltiples países</strong> y eso parece estar detrás de la variabilidad reportada.</p>
+
+  <table>
+    <thead>
+      <tr><th>Producto</th><th>País principal</th><th>Notas</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Jeans</td>
+        <td>🇭🇳 Honduras (family-owned facility)</td>
+        <td>Founder Alejandro Chahin viene de family denim manufacturing en Honduras, 32 años de experiencia. Fortaleza histórica de la marca</td>
+      </tr>
+      <tr>
+        <td>T-shirts (Driggs Peru)</td>
+        <td>🇵🇪 Peru</td>
+        <td>100% Peruvian combed cotton. Considerado el "original good" Driggs por loyal customers</td>
+      </tr>
+      <tr>
+        <td>T-shirts (Driggs Vietnam)</td>
+        <td>🇻🇳 Vietnam (newer)</td>
+        <td><strong>Reviewer flaggeó tonos diferentes entre batches Peru vs Vietnam</strong> — mismo color name, distinto resultado visual</td>
+      </tr>
+      <tr>
+        <td>Denim fabric</td>
+        <td>🇹🇷 Turquía (Orta Andalu, Orfa Anadolu)</td>
+        <td>Misma fábrica que provee a Levi's, 7 For All Mankind, Uniqlo, Burberry. Calidad base buena</td>
+      </tr>
+      <tr>
+        <td>Fabric specialty</td>
+        <td>🇮🇹 Italia (Albiate 1830 para shirts)</td>
+        <td>Premium component</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <div class="callout-title">▸ Hipótesis: manufacturing split = QC variable</div>
+    <p>La marca creció rápido y abrió producción en múltiples países. Eso explica:</p>
+    <ul style="margin-left:20px; margin-top:8px; color:var(--text-dim)">
+      <li>Tone variation Driggs entre batches Peru vs Vietnam</li>
+      <li>Sizing inconsistente entre lotes mismo style</li>
+      <li>Variabilidad de feel/peso reportada por loyal customers que llevan años</li>
+      <li>Algunos reviewers diciendo "la primera tanda fue increíble, las siguientes bajaron calidad"</li>
+    </ul>
+    <p style="margin-top:8px"><strong>Implicación:</strong> el problema de calidad en Amazon (refunds 33%, ratings 3.0-3.7) probablemente correlaciona con lotes específicos que llegaron a Amazon FBA. No es la marca como tal — son los lotes que Amazon tiene.</p>
+  </div>
+</section>
+
+<!-- ========== 7. COMPARACIÓN ON vs OFF AMAZON ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>🆚 Comparación Amazon vs Off-Amazon — el meollo de la pregunta</h2>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Métrica / Aspecto</th>
+        <th>Amazon (lo que vemos)</th>
+        <th>Off-Amazon (research)</th>
+        <th>Lectura</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Rating V-Neck Marcy (W)</strong></td>
+        <td class="flag-warn">3.4 ★</td>
+        <td class="flag-good">4+ ★ Trustpilot · "buttery soft"</td>
+        <td>Mismo producto, percepción diferente</td>
+      </tr>
+      <tr>
+        <td><strong>Rating Crew Neck Driggs (M)</strong></td>
+        <td class="flag-warn">3.7 ★ / 3.0 Driggs x3</td>
+        <td class="flag-warn">Mixed — "thin" es queja consistente</td>
+        <td>Queja es la MISMA</td>
+      </tr>
+      <tr>
+        <td><strong>Refund rate</strong></td>
+        <td class="flag-bad">33% (abril)</td>
+        <td class="flag-warn">Múltiples returns reportados por user</td>
+        <td>Amazon amplifica returns por demografía</td>
+      </tr>
+      <tr>
+        <td><strong>Queja principal</strong></td>
+        <td>T-shirts thin, sizing off</td>
+        <td>Return policy + sizing inconsistente</td>
+        <td>Sizing es queja transversal</td>
+      </tr>
+      <tr>
+        <td><strong>Sentimiento general</strong></td>
+        <td>Negativo dominante en negative reviews</td>
+        <td class="flag-good">Mayoritariamente positivo</td>
+        <td>Cliente off-Amazon es repeat & loyal</td>
+      </tr>
+      <tr>
+        <td><strong>Try-on program</strong></td>
+        <td class="flag-bad">NO disponible</td>
+        <td class="flag-good">SÍ (2 sizes, 1 price)</td>
+        <td>Amazon pierde el USP que mitiga sizing</td>
+      </tr>
+      <tr>
+        <td><strong>Reviews del producto</strong></td>
+        <td>One-and-done shoppers</td>
+        <td>Repeat customers ya validados</td>
+        <td>Sesgo de muestra diferente</td>
+      </tr>
+      <tr>
+        <td><strong>Price expectation</strong></td>
+        <td>Amazon = expectativa "low price"</td>
+        <td>Web = expectativa premium D2C</td>
+        <td>Discordancia con $40 t-shirt</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== 8. HIPÓTESIS ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">08</span>
+    <h2>💡 Hipótesis explicativa</h2>
+  </div>
+
+  <div class="hypothesis">
+    <h3>Por qué Amazon tiene 3.0-3.7 ★ y Trustpilot tiene 4.x ★ con la misma marca</h3>
+
+    <h4 style="margin-top:14px">1. Sesgo de demografía del comprador</h4>
+    <p style="color:var(--text-dim)">Amazon attractúa al comprador "premium accidental" — alguien que busca <em>"men's t-shirt 3 pack"</em>, ve M&B, compra esperando Gap/Hanes a precio Amazon, y recibe un t-shirt de 140g a $25-30. Resultado: review negativa por mismatch de expectativa. El comprador Trustpilot llegó vía Meta ad, ya estuvo expuesto a la narrativa "premium D2C", y compra sabiendo qué esperar.</p>
+
+    <h4 style="margin-top:14px">2. Pérdida del USP try-on</h4>
+    <p style="color:var(--text-dim)">El home try-on (2 sizes por el precio de 1) es el diferenciador principal de M&B para mitigar el problema sizing-inconsistente. En Amazon ese USP <strong>NO existe</strong>. El cliente recibe el size que pidió y si la lottery del QC le pegó, se queja.</p>
+
+    <h4 style="margin-top:14px">3. One-and-done vs Repeat customer</h4>
+    <p style="color:var(--text-dim)">Off-Amazon, el reviewer típico tiene 4-20 pares acumulados y entiende que <em>un par puede no ajustar</em>, pero los siguientes sí. En Amazon, una mala primera experiencia = una review negativa = goodbye. La asimetría es brutal.</p>
+
+    <h4 style="margin-top:14px">4. Inventario Amazon = lotes específicos</h4>
+    <p style="color:var(--text-dim)">Si Amazon FBA recibió un lote específico con QC débil (caso Driggs Vietnam vs Peru, o un batch de Marcy mal escalado), TODO el inventario Amazon tiene ese defecto durante meses. Off-Amazon, M&B puede rotar lotes y diluir el efecto. Esto explica por qué Driggs x3 quedó en 1★ tras una sola review mala — todo el lote que vendió compartía probablemente el defecto.</p>
+
+    <h4 style="margin-top:14px">5. Compradores Amazon más vocales con negativas</h4>
+    <p style="color:var(--text-dim)">Comportamiento conocido del shopper Amazon: los disconformes dejan review (a veces incentivados por Amazon a hacerlo), los conformes pasan. Genera ratings asimétricamente bajos en productos con QC inconsistente. Off-Amazon, los happy customers son los que dejan review post-email del founder pidiendo feedback (incentivo positivo).</p>
+  </div>
+</section>
+
+<!-- ========== 9. IMPLICACIONES ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">09</span>
+    <h2>📌 Implicaciones para Capybaras + cliente</h2>
+  </div>
+
+  <h3>Para la conversación con cliente (Agustín → Alejandro)</h3>
+  <ul style="margin-left:20px; color:var(--text-dim)">
+    <li style="margin-bottom:8px"><strong>El problema NO es Amazon ni es PPC.</strong> Los ratings bajos reflejan issues de calidad reales que la marca ya tiene en su canal directo, amplificados por características del marketplace.</li>
+    <li style="margin-bottom:8px"><strong>El cliente debe trabajar en QC, no en bidear más PPC.</strong> Subir bids no mejora un Driggs 1★. La acción es: validar lotes que llegan a Amazon FBA con mayor estándar que web propia, posiblemente reservar el batch Peru para Amazon y Vietnam para web (o viceversa, según data).</li>
+    <li style="margin-bottom:8px"><strong>Considerar cambiar el mix de productos en Amazon.</strong> Carlton heavyweight (235g) tiene mejor feedback que Driggs (140g). Quizás Amazon debería liderar con Carlton — t-shirt heavier alinea mejor con la expectativa Amazon premium-but-substantial.</li>
+    <li style="margin-bottom:8px"><strong>Política de returns Amazon ya está limpia</strong> — no es el problema. La queja off-Amazon de store-credit no aplica acá.</li>
+  </ul>
+
+  <h3>Para PPC (lo que esto cambia)</h3>
+  <ul style="margin-left:20px; color:var(--text-dim)">
+    <li style="margin-bottom:8px"><strong>Confirmar la pausa de non-branded en t-shirts thin/dañados.</strong> Mandar cold traffic a un Driggs 3.0★ es regalar dinero — confirmado por research que el problema es real, no percepción.</li>
+    <li style="margin-bottom:8px"><strong>Brand defense sigue siendo no-negociable.</strong> Los repeat customers off-Amazon (loyal) buscan la marca por nombre cuando ven Meta ads — capturarlos en Amazon en branded queries es plata segura.</li>
+    <li style="margin-bottom:8px"><strong>Jeans tienen mejor reputación off-Amazon que t-shirts.</strong> Si M&B vendiera jeans en Amazon (queries fugaban 60-70% en research previo), ese sería un canal con mejor unit economics que las t-shirts. <strong>Recomendación de catálogo:</strong> evaluar abrir jeans en Amazon antes de pelear más con t-shirts.</li>
+    <li style="margin-bottom:8px"><strong>Heavyweight Pocket Carlton (si existe en Amazon)</strong> debería tener mejor unit economics que Driggs. Validar en catálogo.</li>
+  </ul>
+
+  <h3>Para Cuki (handoff)</h3>
+  <ul style="margin-left:20px; color:var(--text-dim)">
+    <li style="margin-bottom:8px">Este documento te da el contexto que ningún brand doc tiene: <strong>por qué</strong> la cuenta opera como opera. No es Amazon problemático, es que la marca tiene QC variable y Amazon expone eso.</li>
+    <li style="margin-bottom:8px">Si el cliente vuelve a presionar por "más PPC", podés contestar con data: el problema upstream es calidad, no canal. PPC no es la palanca correcta hasta que listings tengan mejor base.</li>
+    <li style="margin-bottom:8px">Si el cliente eventualmente lanza jeans en Amazon, considéralo como categoría de mayor potencial — la marca tiene mejor reputación ahí.</li>
+  </ul>
+</section>
+
+<!-- ========== 10. FUENTES ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">10</span>
+    <h2>📚 Fuentes consultadas</h2>
+  </div>
+
+  <h3>Aggregadores principales</h3>
+  <ul class="sources-list">
+    <li><strong>Trustpilot</strong> — trustpilot.com/review/www.mottandbow.com · 13,028 reviews · ~4 estrellas global</li>
+    <li><strong>Better Business Bureau</strong> — bbb.org · 94 complaints / 67-68 closed últimos 12m · NO accredited</li>
+    <li><strong>Scam Detector</strong> — scam-detector.com/validator/mottandbow-com-review · Verdict: legit pero quejas</li>
+    <li><strong>Highya</strong> — múltiples customer reviews verificadas</li>
+  </ul>
+
+  <h3>Blogs de review (con y sin sponsoring)</h3>
+  <ul class="sources-list">
+    <li><strong>The Adult Man</strong> — sponsored, men's review jeans + t-shirts (Driggs flag thin)</li>
+    <li><strong>He Spoke Style</strong> — unsponsored men's review (polos + tees)</li>
+    <li><strong>The Modest Man</strong> — unsponsored, 5'7" perspective, sizing flags</li>
+    <li><strong>Honest Brand Reviews</strong> — neutral, women's perspective + critique comments</li>
+    <li><strong>Glamour and Gains</strong> — sponsored women's review</li>
+    <li><strong>Running in Heels</strong> — long-term women's customer (2018+)</li>
+    <li><strong>Paisley & Sparrow</strong> — sponsored couple review</li>
+    <li><strong>Feeling Good As Hail</strong> — sponsored women's jeans + Marcy</li>
+    <li><strong>Half Half Home</strong> — long-term women's repeat customer review</li>
+    <li><strong>Gentleman Within</strong> — affiliate, Driggs deep-dive con 2023 update</li>
+    <li><strong>Chic Everywhere</strong> — curvy women perspective t-shirts</li>
+    <li><strong>Bemytravelmuse</strong> — gifted travel review (jeans + Marcy)</li>
+    <li><strong>Cool Mom Picks</strong> — affiliate, women's size finder feature</li>
+    <li><strong>Review My Closet</strong> — unsponsored detailed scam-check</li>
+    <li><strong>Reviewed (USA Today)</strong> — affiliate review</li>
+    <li><strong>The Daily Beast</strong> — affiliate, men's + women's jeans</li>
+    <li><strong>Styleforum</strong> — gratis-product review thread</li>
+    <li><strong>The Modest Man (2025 update)</strong> — short-man review</li>
+    <li><strong>Lemon8</strong> — Mott & Bow Jamie skinny review</li>
+    <li><strong>Toplist.info</strong> — branding overview</li>
+  </ul>
+
+  <h3>Mott & Bow oficiales (para contexto política)</h3>
+  <ul class="sources-list">
+    <li><strong>mottandbow.com/pages/returns</strong> · mottandbow.com/pages/contact-us</li>
+    <li>Field Notes (blog propio): you-might-be-wearing-the-wrong-size</li>
+  </ul>
+
+  <h3>Contexto adicional</h3>
+  <ul class="sources-list">
+    <li>AARP + CBS News — sobre litigios Meta/Facebook re: scam ads (contexto del ecosistema de ads donde opera M&B, no acusación directa)</li>
+  </ul>
+</section>
+
+<!-- ========== CIERRE ========== -->
+<div class="conclusion">
+  <div class="section-header" style="border-bottom-color: var(--orange-dim)">
+    <span class="section-num">▸▸</span>
+    <h2>Cierre — 3 ideas para llevarse</h2>
+  </div>
+
+  <h3>1. El problema NO es Amazon</h3>
+  <p style="color:var(--text-dim); margin-bottom:14px">Los issues que vemos en ratings Amazon (t-shirts thin, sizing inconsistente, refunds altos) están confirmados en TODOS los canales off-Amazon. La marca tiene un problema de QC y manufacturing split estructural que en Amazon se hace visible.</p>
+
+  <h3>2. La marca off-Amazon es más fuerte que su rating Amazon sugiere</h3>
+  <p style="color:var(--text-dim); margin-bottom:14px">13K+ reviews Trustpilot mayoritariamente positivas. Customer base loyal con 5-20 pares acumulados. Producto reconocido en prensa fashion. Pero el motor real es Meta + email + influencer, no Amazon. <strong>Capybaras está vendiendo en el peor canal para esta marca</strong> — pero brand defense ahí sigue valiendo porque captura el tráfico Meta hot.</p>
+
+  <h3>3. Jeans &gt; t-shirts en perspectiva off-Amazon</h3>
+  <p style="color:var(--text-dim); margin-bottom:0">La reputación off-Amazon de jeans es claramente superior a la de t-shirts. Cuando el cliente reabra la conversación sobre catálogo, jeans en Amazon = mejor apuesta que seguir invirtiendo en t-shirts que tienen QC en el límite. <strong>Recomendación:</strong> incluir esta data en la próxima propuesta de expansión de catálogo cuando Alejandro/Agustín la pidan.</p>
+</div>
+
+<footer>
+  ▸ Capybaras Agency · Off-Amazon research · 11/05/2026 · Lenin Acosta · Internal · Not for client distribution
+</footer>
+
+</body>
+</html>

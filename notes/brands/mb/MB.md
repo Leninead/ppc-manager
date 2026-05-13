@@ -644,3 +644,72 @@ Wikilinks: [[STATE-agencia]] [[daily/2026-04-27]] [[amazon-bulk-upload-guide]]
 
 ### Notas
 Marketplace previamente documentado incorrectamente como MX. Corregido el [[daily/2026-05-05]].
+
+---
+
+## 2026-05-11 — Traspaso a Cuki + análisis SQP + research off-Amazon
+
+### Cambio de owner
+
+Owner saliente: **Lenin Acosta**. Owner entrante: **Cuki**. Lenin disponible para handoff calls primera semana, después escalations vía Adam/Agustín. Documento de traspaso completo en `TRASPASO_MottBow.md` (root del repo, 20 secciones).
+
+### Descubrimiento crítico — SQP Abril 2026
+
+Brand Analytics Search Query Performance procesado para el mes completo:
+- 64,857 búsquedas en queries branded
+- Purchase Brand Share: **77.3%** → **23% de compras branded se fugan a competencia** con brand defense activa (~$2,800/mes)
+- Impression Brand Share branded: 40.6% (capturamos 4 de cada 10 impresiones)
+- **Gap masivo identificado: jeans branded** — 14,070 vol/mes con 11.8% imp share / 27.3% purchase share (no hay catálogo)
+- "mott and bow mens jeans" sola: 3,546 vol/mes con 0% purchase share
+- Core "mott and bow" puro: 92% purchase share (dominamos donde defendemos)
+- T-shirts branded: 84.5% purchase share (robusto)
+
+Conclusión: la incrementalidad branded NO es baja. Brand defense es contención necesaria, no over-spend. La verdadera palanca de crecimiento es abrir catálogo jeans en Amazon.
+
+### Headline WoW (PW 19-25 abr / TW 26 abr-2 may revisado)
+
+Sales totales **+9.6%** ($32,886 → $36,030) pero Ad Sales **-6.8%** ($14,902 → $13,886). La cuenta crece pero el PPC bajó en ventas atribuidas. Crecimiento 100% orgánico/Meta — confirma tesis 04/05.
+
+Performance limpia post-cleanup 27/04:
+- WTC: 28.1% (marzo) → 9% ACoS
+- WTV: 15% (marzo) → 8.6% ACoS
+- SCAVENGER: 58.9% → 32.5% (sigue lejos del 3.4% histórico, audit pendiente)
+
+Estrella oculta: `WTV B005ULUZIQ · SP-PR · EXACT · DEFEND BRAND ASINS` — $90 / $2,542 / 3.5% ACoS / 64 orders / ROAS 28x.
+
+### Research off-Amazon (Trustpilot + BBB + blogs)
+
+Los problemas que vemos en Amazon (ratings 3.0-3.7, refund 33%) están confirmados en todos los canales. NO es problema del canal Amazon — es calidad estructural visible. Hallazgos clave:
+- Driggs (140g) thin en TODOS los reviews off-Amazon, no es percepción Amazon
+- QC inconsistente jeans documentado (4 pares mismo size con waist 44.5-47 cm)
+- Manufacturing split Honduras/Peru/Vietnam = probable root cause variabilidad
+- Trustpilot 13K+ reviews mayoritariamente positivos pero el comprador es repeat loyal
+- **Carlton heavyweight 235g** recibe mejor feedback que Driggs → evaluar como hero Amazon
+- Jeans con mejor reputación off-Amazon que t-shirts → refuerza caso apertura catálogo
+
+### Respuesta a consulta de Santi (incrementalidad branded)
+
+Vía Agustín. Pack de 3 bloques entregado. Premisa de Santi (baja incrementalidad) refutada con SQP. Movimiento alternativo recomendado: $700-1000/mes recoverable sin tocar branded (audit SCAVENGER + bid down SD remarketing + pausa ASINs sangrando).
+
+### Pendientes activos (priorizados)
+
+1. 🔥 Mensaje gate AM Fase 2 (sigue pendiente desde 27/04)
+2. 🎯 Eval día 14 NB HW (venció 11/05)
+3. 📅 Eval PAT Premium atrasada (vencía 05/05)
+4. 🔍 Audit profundo SCAVENGER (32.5% ACoS)
+5. 🩹 Pausar 2 ASINs 3-Pack VN sangrando (B0FY3X2KCT + B0FXBTNRT9)
+6. ⚙ Bid down SD Remarketing WTV B005ULUZIQ (45.9% ACoS)
+7. 🏭 Investigar push externo Meta no declarado
+8. 📈 Validar escalada budget WTV EXACT DEFEND BRAND ASINS
+9. 🛡 Proponer al cliente apertura catálogo jeans Amazon (caso respaldado por SQP)
+10. 🧹 Audit unificación naming convention (requisito M11)
+
+### Heroes oficiales (sin cambios)
+
+- CR M White B0F6LCGH2L — recuperado esta semana ($1,662 / 42 units)
+- VN M Crimson B0F6LDGCDS — vende orgánico (18 units 100% orgánico TW)
+- Sleeper: Black Women (~$3K+/sem orgánico, futuro hero candidato)
+
+### Atom11 status
+
+Activa (corregido 04/05 — siempre la tuvo). Coverage exacto / rules / tier asignado pendiente de pedir a Neha en primer touchpoint Cuki.

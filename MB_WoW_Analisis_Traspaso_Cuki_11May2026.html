@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M&B — Análisis WoW + Traspaso · Capybaras Agency</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --orange: #E84000;
+    --orange-dim: #B83400;
+    --bg: #0E0E0E;
+    --bg-card: #161616;
+    --bg-card-hi: #1E1E1E;
+    --border: #2A2A2A;
+    --border-hi: #3A3A3A;
+    --text: #F0F0F0;
+    --text-dim: #A0A0A0;
+    --text-muted: #6A6A6A;
+    --green: #4ADE80;
+    --yellow: #F5C518;
+    --red: #FF4444;
+    --blue: #5DA8FF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Barlow', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    font-size: 15px;
+    padding: 32px 24px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  code, .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.92em; }
+
+  /* HEADER */
+  .header {
+    border-bottom: 2px solid var(--orange);
+    padding-bottom: 20px;
+    margin-bottom: 32px;
+  }
+  .header-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; flex-wrap: wrap; gap: 12px;
+  }
+  .brand {
+    font-family: 'Barlow Condensed', sans-serif;
+    color: var(--orange);
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: 2px;
+  }
+  .internal-badge {
+    background: rgba(232, 64, 0, 0.12);
+    color: var(--orange);
+    padding: 4px 12px;
+    border: 1px solid var(--orange-dim);
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+  }
+  h1 {
+    font-size: 42px;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 17px;
+    font-weight: 400;
+  }
+  .meta-line {
+    display: flex; gap: 24px; flex-wrap: wrap;
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-top: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .meta-line span strong { color: var(--text-dim); }
+
+  /* SECTIONS */
+  section { margin-bottom: 40px; }
+  .section-header {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--orange);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  h2 { font-size: 26px; }
+  h3 { font-size: 18px; margin-bottom: 12px; margin-top: 18px; color: var(--text-dim); }
+
+  /* KPI GRID */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .kpi {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 6px;
+  }
+  .kpi-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 1.2px;
+    margin-bottom: 6px;
+  }
+  .kpi-value {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .kpi-delta {
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .delta-up { color: var(--green); }
+  .delta-down { color: var(--red); }
+  .delta-flat { color: var(--text-dim); }
+  .delta-warn { color: var(--yellow); }
+
+  /* ALERTAS / CALLOUTS */
+  .callout {
+    background: var(--bg-card);
+    border-left: 3px solid;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.urgent { border-color: var(--red); background: rgba(255, 68, 68, 0.05); }
+  .callout.warn { border-color: var(--yellow); background: rgba(245, 197, 24, 0.04); }
+  .callout.good { border-color: var(--green); background: rgba(74, 222, 128, 0.04); }
+  .callout.info { border-color: var(--blue); background: rgba(93, 168, 255, 0.04); }
+  .callout.brand { border-color: var(--orange); background: rgba(232, 64, 0, 0.04); }
+  .callout-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 1px;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  .callout.urgent .callout-title { color: var(--red); }
+  .callout.warn .callout-title { color: var(--yellow); }
+  .callout.good .callout-title { color: var(--green); }
+  .callout.info .callout-title { color: var(--blue); }
+  .callout.brand .callout-title { color: var(--orange); }
+
+  /* TABLES */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 14px;
+  }
+  th {
+    background: var(--bg-card-hi);
+    text-align: left;
+    padding: 10px 14px;
+    font-family: 'Barlow Condensed', sans-serif;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-hi);
+  }
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255, 255, 255, 0.02); }
+  td.mono, td.num { font-family: 'JetBrains Mono', monospace; }
+  td.num { text-align: right; }
+  td.center { text-align: center; }
+  .flag-good { color: var(--green); }
+  .flag-warn { color: var(--yellow); }
+  .flag-bad { color: var(--red); }
+  .flag-info { color: var(--blue); }
+
+  /* TWO-COLUMN */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 768px) {
+    .two-col { grid-template-columns: 1fr; }
+    .kpi-value { font-size: 24px; }
+    h1 { font-size: 30px; }
+    body { padding: 20px 14px; }
+  }
+
+  /* LISTS */
+  ul.bullet-list { list-style: none; padding-left: 0; margin-top: 8px; }
+  ul.bullet-list li {
+    padding: 6px 0 6px 22px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+  ul.bullet-list li:last-child { border-bottom: none; }
+  ul.bullet-list li::before {
+    content: '▸';
+    position: absolute;
+    left: 4px;
+    color: var(--orange);
+    font-weight: bold;
+  }
+
+  /* PRIORITY BLOCKS */
+  .priority-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 16px 20px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+  }
+  .priority-block.p1 { border-left: 4px solid var(--red); }
+  .priority-block.p2 { border-left: 4px solid var(--yellow); }
+  .priority-block.p3 { border-left: 4px solid var(--blue); }
+  .priority-tag {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-bottom: 8px;
+  }
+  .p1 .priority-tag { background: rgba(255, 68, 68, 0.15); color: var(--red); }
+  .p2 .priority-tag { background: rgba(245, 197, 24, 0.15); color: var(--yellow); }
+  .p3 .priority-tag { background: rgba(93, 168, 255, 0.15); color: var(--blue); }
+  .priority-block h4 {
+    font-size: 15px;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  .priority-block p {
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  /* TRASPASO box */
+  .traspaso {
+    background: linear-gradient(180deg, rgba(232, 64, 0, 0.08) 0%, var(--bg-card) 100%);
+    border: 1px solid var(--orange-dim);
+    border-radius: 8px;
+    padding: 28px;
+    margin-top: 32px;
+  }
+  .traspaso h2 {
+    color: var(--orange);
+    margin-bottom: 16px;
+  }
+  .traspaso h3 { color: var(--orange); }
+
+  /* FOOTER */
+  footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div class="brand">▸ CAPYBARAS AGENCY</div>
+    <div class="internal-badge">Internal · Not for client distribution</div>
+  </div>
+  <h1>M&B Análisis WoW + Traspaso</h1>
+  <div class="subtitle">Weekly Report — Mott & Bow USA · Lectura PPC + handoff a Cuki</div>
+  <div class="meta-line">
+    <span><strong>Cliente:</strong> Mott & Bow</span>
+    <span><strong>Marketplace:</strong> Amazon.com (USA)</span>
+    <span><strong>Período TW:</strong> última semana</span>
+    <span><strong>Generado:</strong> 11/05/2026</span>
+    <span><strong>Por:</strong> Lenin Acosta</span>
+  </div>
+</div>
+
+<!-- ========== HEADLINE ========== -->
+<section>
+  <div class="callout urgent">
+    <div class="callout-title">⚠ Headline crítico — la cuenta crece, el PPC no</div>
+    <p>Sales totales <strong style="color:var(--green)">+9.6%</strong> WoW ($32,886 → $36,030). Pero <strong style="color:var(--red)">Ad Sales bajó -6.8%</strong> ($14,902 → $13,886). El crecimiento viene 100% de orgánico / tráfico externo (Meta). PPC bajó en ventas atribuidas pese a mantener spend ($1,499 → $1,469, -2%). Esto valida exactamente la lectura de la meet 04/05: Meta es el motor del crecimiento, PPC es defensa de marca. Útil cuando Agustín hable con Adam sobre restructuración de tarifa.</p>
+  </div>
+</section>
+
+<!-- ========== 1. KPIs ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>KPIs Cuenta WoW</h2>
+  </div>
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-label">Sales totales</div>
+      <div class="kpi-value">$36,030</div>
+      <div class="kpi-delta delta-up">▲ +9.6% vs PW ($32,886)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Units</div>
+      <div class="kpi-value">825</div>
+      <div class="kpi-delta delta-up">▲ +13.6% vs PW (726)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Sessions</div>
+      <div class="kpi-value">7,977</div>
+      <div class="kpi-delta delta-up">▲ +8.4% vs PW (7,360)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">CVR</div>
+      <div class="kpi-value">10.79%</div>
+      <div class="kpi-delta delta-up">▲ +7.7% vs PW (10.02%)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Buy Box (cuenta)</div>
+      <div class="kpi-value">99.6%</div>
+      <div class="kpi-delta delta-flat">— sólido</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Ad Sales</div>
+      <div class="kpi-value">$13,886</div>
+      <div class="kpi-delta delta-down">▼ -6.8% vs PW ($14,902)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Ad Spend</div>
+      <div class="kpi-value">$1,469</div>
+      <div class="kpi-delta delta-flat">▼ -2% vs PW ($1,499)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">ACoS</div>
+      <div class="kpi-value">10.6%</div>
+      <div class="kpi-delta delta-up">▲ levemente vs 10.2% PW</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">TACoS</div>
+      <div class="kpi-value">4.1%</div>
+      <div class="kpi-delta delta-up">▲ mejor — refleja crecimiento orgánico</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">ROAS</div>
+      <div class="kpi-value">9.45x</div>
+      <div class="kpi-delta delta-up">▲ vs 9.94x PW (leve baja)</div>
+    </div>
+  </div>
+  <div class="callout info">
+    <div class="callout-title">▸ Lectura</div>
+    <p>Cuenta sigue muy sana. Sessions y CVR ambos subiendo = combinación rara y buena (volumen + calidad de tráfico). El gap entre crecimiento total (+9.6%) y caída paid (-6.8%) son <strong>~$1,000 USD/semana</strong> de revenue incremental orgánico. Hipótesis principal: nuevo push de Meta (validar con cliente vía Agustín).</p>
+  </div>
+</section>
+
+<!-- ========== 2. PORTFOLIOS ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>Performance por Portfolio</h2>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Portfolio</th>
+        <th class="num">Spend</th>
+        <th class="num">Sales</th>
+        <th class="num">ACoS</th>
+        <th>Lectura</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>MTC</strong> (Men Classic)</td>
+        <td class="num">$1,246</td>
+        <td class="num">$9,876</td>
+        <td class="num flag-good">12.6%</td>
+        <td>Motor #1. ACoS estable. Sin cambios.</td>
+      </tr>
+      <tr>
+        <td><strong>WTV</strong> (Women V-Neck Marcy)</td>
+        <td class="num">$602</td>
+        <td class="num">$6,988</td>
+        <td class="num flag-good">8.6%</td>
+        <td>Mejora vs 15% marzo. Cleanup 27/04 rindiendo.</td>
+      </tr>
+      <tr>
+        <td><strong>WTC</strong> (Women Classic Crew)</td>
+        <td class="num">$402</td>
+        <td class="num">$4,466</td>
+        <td class="num flag-good">9%</td>
+        <td>Gran salto vs 28.1% marzo. ✅</td>
+      </tr>
+      <tr>
+        <td><strong>Scavenger</strong></td>
+        <td class="num">$380</td>
+        <td class="num">$3,340</td>
+        <td class="num flag-warn">11.4%</td>
+        <td>Cuenta total. Auto SCAVENGER bajó de 58% → 32.5% pero sigue alto vs 3.4% histórico marzo.</td>
+      </tr>
+      <tr>
+        <td><strong>MTC-DRIGGS-HB</strong></td>
+        <td class="num">$234</td>
+        <td class="num">$3,394</td>
+        <td class="num flag-good">6.9%</td>
+        <td>Hard Bundles defense — muy eficiente. No tocar.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== 3. HEROES ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>Status Heroes Oficiales</h2>
+  </div>
+  <div class="two-col">
+    <div class="callout good">
+      <div class="callout-title">🏆 CR M White — B0F6LCGH2L · RECUPERADO</div>
+      <p><strong>Sales:</strong> $1,662 · <strong>Units:</strong> 42 · <strong>CVR:</strong> 17.43% · <strong>ACoS:</strong> 17.2% · <strong>BB:</strong> 100%</p>
+      <p style="margin-top:8px"><em>Contexto:</em> el 04/05 estaba enfriado (-33% sales, 6 orders). Esta semana volvió fuerte con 42 units. Hero re-validado.</p>
+    </div>
+    <div class="callout warn">
+      <div class="callout-title">🏆 VN M Crimson — B0F6LDGCDS · ORGÁNICO PURO</div>
+      <p><strong>Sales:</strong> $708 · <strong>Units:</strong> 18 · <strong>CVR:</strong> 10.78% · <strong>ACoS:</strong> 0% (ad_sales $0) · <strong>BB:</strong> 100%</p>
+      <p style="margin-top:8px"><em>Lectura:</em> vende 18 units sin atribución paid esta semana. Las NB VN HW A/B no impresionan (bid floor &gt; $1.50). Hero confirmado en orgánico — falta destrabar paid.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 4. TOP CAMPAÑAS ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>Top 10 Campañas por Spend</h2>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Campaña</th>
+        <th class="num">Spend</th>
+        <th class="num">Sales</th>
+        <th class="num">ACoS</th>
+        <th class="num">Orders</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">MTC B0F844CHFY · SP-KW · BROAD M · DEFEND +mott+bow</td>
+        <td class="num">$771</td>
+        <td class="num">$6,350</td>
+        <td class="num flag-good">12.1%</td>
+        <td class="num">134</td>
+      </tr>
+      <tr>
+        <td class="mono">ALL · SP-KW · AUTO · SCAVENGER ⚠</td>
+        <td class="num">$293</td>
+        <td class="num">$900</td>
+        <td class="num flag-warn">32.5%</td>
+        <td class="num">24</td>
+      </tr>
+      <tr>
+        <td class="mono">MTC B0F844CHFY · SP-PR · EXACT · DEFEND BRAND ASINS</td>
+        <td class="num">$178</td>
+        <td class="num">$1,040</td>
+        <td class="num flag-good">17.1%</td>
+        <td class="num">25</td>
+      </tr>
+      <tr>
+        <td class="mono">MTC HB · SP-KW · BROAD M · DEFEND +mott+bow</td>
+        <td class="num">$173</td>
+        <td class="num">$2,648</td>
+        <td class="num flag-good">6.5%</td>
+        <td class="num">34</td>
+      </tr>
+      <tr>
+        <td class="mono">WTV B005ULUZIQ · SP-KW · BROAD · shirts KWS</td>
+        <td class="num">$145</td>
+        <td class="num">$848</td>
+        <td class="num flag-warn">17.1%</td>
+        <td class="num">23</td>
+      </tr>
+      <tr>
+        <td class="mono">WTC B0F84637MJ · SP-KW · BROAD · shirts KWS</td>
+        <td class="num">$131</td>
+        <td class="num">$720</td>
+        <td class="num flag-warn">18.2%</td>
+        <td class="num">18</td>
+      </tr>
+      <tr>
+        <td class="mono">WTV B005ULUZIQ · SD-IMG · CVR REMARKETING ADV PR V ⚠</td>
+        <td class="num">$92</td>
+        <td class="num">$200</td>
+        <td class="num flag-bad">45.9%</td>
+        <td class="num">5</td>
+      </tr>
+      <tr>
+        <td class="mono">WTV B0F84474KS · SP-KW · EXACT · DEFEND mott and bow</td>
+        <td class="num">$91</td>
+        <td class="num">$964</td>
+        <td class="num flag-good">9.5%</td>
+        <td class="num">25</td>
+      </tr>
+      <tr>
+        <td class="mono">⭐ WTV B005ULUZIQ · SP-PR · EXACT · DEFEND BRAND ASINS</td>
+        <td class="num">$90</td>
+        <td class="num">$2,542</td>
+        <td class="num flag-good">3.5%</td>
+        <td class="num">64</td>
+      </tr>
+      <tr>
+        <td class="mono">MTC HB · SBV · BROAD +mott+bow</td>
+        <td class="num">$88</td>
+        <td class="num">$724</td>
+        <td class="num flag-good">12.2%</td>
+        <td class="num">9</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout good" style="margin-top:14px">
+    <div class="callout-title">⭐ Estrella oculta de la semana</div>
+    <p><span class="mono">WTV B005ULUZIQ · SP-PR · EXACT · DEFEND BRAND ASINS</span> — $90 spend / <strong>$2,542 sales</strong> / ACoS 3.5% / 64 orders. ROAS 28x. Mismo formato que el del MTC. Validar si tiene budget cap para escalar.</p>
+  </div>
+</section>
+
+<!-- ========== 5. BLEEDERS / INEFICIENTES ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>Bleeders e Ineficiencias</h2>
+  </div>
+
+  <h3>5.1 — ASINs sangrando (spend &gt; $10, ad_sales &lt; spend)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>ASIN</th>
+        <th>Producto</th>
+        <th class="num">Spend</th>
+        <th class="num">Ad Sales</th>
+        <th class="num">ACoS</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">B0F6LCKZP7</td>
+        <td>Men's L Navy</td>
+        <td class="num">$18</td>
+        <td class="num">$0</td>
+        <td class="num flag-bad">∞</td>
+        <td>Total sales $994 (orgánico funciona). Revisar match KW/producto.</td>
+      </tr>
+      <tr>
+        <td class="mono">B0F6LCL6G4</td>
+        <td>Men's XXL Black</td>
+        <td class="num">$27</td>
+        <td class="num">$80</td>
+        <td class="num flag-warn">34%</td>
+        <td>Talla XXL low conversion. Bajar bid -30%.</td>
+      </tr>
+      <tr>
+        <td class="mono">B0FY3X2KCT</td>
+        <td>3-Pack Women VN (S)</td>
+        <td class="num">$12</td>
+        <td class="num">$0</td>
+        <td class="num flag-bad">∞</td>
+        <td>Ya flagueado en sesión 04/05. Pausar campaña.</td>
+      </tr>
+      <tr>
+        <td class="mono">B0FXBTNRT9</td>
+        <td>3-Pack Women VN (XL)</td>
+        <td class="num">$12</td>
+        <td class="num">$0</td>
+        <td class="num flag-bad">∞</td>
+        <td>Nuevo sangrado. Misma familia 3-Pack Women VN.</td>
+      </tr>
+      <tr>
+        <td class="mono">B0FR2GTBQF</td>
+        <td>Men's XL Baltic Blue</td>
+        <td class="num">$13</td>
+        <td class="num">$40</td>
+        <td class="num flag-warn">33%</td>
+        <td>En el límite. Monitorear próxima semana.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>5.2 — Campañas con ACoS alto vs target</h3>
+  <ul class="bullet-list">
+    <li><strong>WTV B005ULUZIQ · SD-IMG · CVR REMARKETING ADV PR V</strong> — $92 spend / 45.9% ACoS / 5 orders. Bajo. Posible audiencia chica + premium bid. <em>Acción:</em> revisar bid SD (probable bajar $0.50 → $0.30) o limitar a Purchases:90 (que sí convierte 80%).</li>
+    <li><strong>SCAVENGER</strong> — 32.5% ACoS. Muy lejos del 3.4% histórico de marzo. Audit profundo pendiente: ¿qué search terms entraron? ¿match types cambiaron? ¿target ASINs nuevos?</li>
+    <li><strong>WTC + WTV BROAD shirts KWS</strong> — 17-18% ACoS. Discovery non-branded sigue caro por bid floor + listings dañados. Mantener budgets actuales reducidos ($5/d).</li>
+  </ul>
+</section>
+
+<!-- ========== 6. BUYBOX ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>BuyBox Críticos (4 ASINs &lt; 80%)</h2>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>ASIN</th>
+        <th>Producto</th>
+        <th class="num">BuyBox</th>
+        <th class="num">Sales TW</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">B0FXBSRHFH</td>
+        <td>3-Pack Men's S White</td>
+        <td class="num flag-bad">50.0%</td>
+        <td class="num">$0</td>
+        <td>Sin ventas TW. Probable OOS o pricing off.</td>
+      </tr>
+      <tr>
+        <td class="mono">B0FVPMX2D5</td>
+        <td>3-Pack Men's XXXL White</td>
+        <td class="num flag-bad">66.7%</td>
+        <td class="num">$0</td>
+        <td>Sin ventas. Mismo patrón.</td>
+      </tr>
+      <tr>
+        <td class="mono">B0FXBSRM8M</td>
+        <td>3-Pack Men's L Black</td>
+        <td class="num flag-bad">66.7%</td>
+        <td class="num">$0</td>
+        <td>Sin ventas. Mismo patrón.</td>
+      </tr>
+      <tr>
+        <td class="mono">B0FV8ZSDMG</td>
+        <td>3-Pack Men's S Baltic Blue</td>
+        <td class="num flag-warn">75.0%</td>
+        <td class="num">$0</td>
+        <td>Sin ventas. Mismo patrón.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout warn">
+    <div class="callout-title">▸ Patrón</div>
+    <p>Los 4 críticos son todos <strong>3-Packs Men</strong>. Combinación BuyBox bajo + sales $0 TW = probable OOS reciente o competencia 3P de pricing. Pedir a Agustín revisar inventory + check seller competitor por ASIN. No es problema de PPC.</p>
+  </div>
+</section>
+
+<!-- ========== 7. ACCIONES RECOMENDADAS ========== -->
+<section>
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>Acciones Recomendadas Próximos 7 días</h2>
+  </div>
+
+  <div class="priority-block p1">
+    <span class="priority-tag">P1 · URGENTE</span>
+    <h4>1. Pausar 2 bleeders 3-Pack Women VN sangrando</h4>
+    <p>B0FY3X2KCT + B0FXBTNRT9 — $24 spend acumulado / $0 ad_sales. Identificar campañas que los tienen como ad y pausar las ads específicas o las campañas. Tiempo estimado: 20 min.</p>
+  </div>
+
+  <div class="priority-block p1">
+    <span class="priority-tag">P1 · URGENTE</span>
+    <h4>2. Mensaje gate AM Fase 2 (sigue pendiente desde 27/04)</h4>
+    <p>Brand Store Women + video SBV listos sí/no, fecha estimada. Llevar pregunta cerrada a Agustín. Destraba lanzamiento de $40/d White Tee + Premium Cotton. 14+ días arrastrando.</p>
+  </div>
+
+  <div class="priority-block p1">
+    <span class="priority-tag">P1 · URGENTE — HOY 11/05</span>
+    <h4>3. Eval día 14 NB HW (las 3 EXACT non-branded)</h4>
+    <p>Pedir reporte de impresiones/clicks/orders de las 3 EXACT NB HW lanzadas 27/04. Si siguen en 0 impresiones (probable, bid floor &gt; $1.50): <strong>bid up a $1.50</strong>. Si siguen muertas a $1.50 en 72h → revisar creative y re-validar 12 ASINs DataDive.</p>
+  </div>
+
+  <div class="priority-block p2">
+    <span class="priority-tag">P2 · ALTA</span>
+    <h4>4. Audit profundo SCAVENGER</h4>
+    <p>ACoS bajó de 58.9% → 32.5% pero sigue lejos del 3.4% histórico marzo. Recuperación potencial $130-150/sem. Pull search terms TW, identificar terms con ACoS &gt; 50% y negativizar. Si hay producto/KW mismatch, agregar al negative list base.</p>
+  </div>
+
+  <div class="priority-block p2">
+    <span class="priority-tag">P2 · ALTA</span>
+    <h4>5. Revisar SD CVR Remarketing WTV (45.9% ACoS)</h4>
+    <p>Bid actual probable $1.00. Bajar a $0.50 o limitar audiencia a Purchases:90 (que sí convierte 80% CVR). $92/sem en una sola campaña justifica acción.</p>
+  </div>
+
+  <div class="priority-block p2">
+    <span class="priority-tag">P2 · ALTA</span>
+    <h4>6. Eval atrasada PAT Premium (vencía 05/05)</h4>
+    <p>Bid $1.10 con $16/d. Decisión: escalada $1.50, revisar creative, re-validar 12 ASINs DataDive. Mismo bid floor que NB HW.</p>
+  </div>
+
+  <div class="priority-block p3">
+    <span class="priority-tag">P3 · MEDIA</span>
+    <h4>7. Revisar 4 BuyBox críticos 3-Pack Men</h4>
+    <p>Vía Agustín pedir status inventory + check seller competitor. No es problema PPC pero impacta sales potenciales.</p>
+  </div>
+
+  <div class="priority-block p3">
+    <span class="priority-tag">P3 · MEDIA</span>
+    <h4>8. Investigar push externo Meta</h4>
+    <p>Sales orgánicas +9.6% sin push declarado por cliente. Pedir a Agustín que el cliente avise con anticipación para escalar bids/budgets defensivos en tiempo real.</p>
+  </div>
+
+  <div class="priority-block p3">
+    <span class="priority-tag">P3 · MEDIA</span>
+    <h4>9. Validar escalada budget WTV EXACT DEFEND BRAND ASINS</h4>
+    <p>ROAS 28x con $90/sem. Revisar si está budget-capped — si lo está, subir +30%. Estrella oculta de la semana.</p>
+  </div>
+</section>
+
+<!-- ========== TRASPASO CUKI ========== -->
+<div class="traspaso">
+  <div class="section-header" style="border-bottom-color: var(--orange-dim)">
+    <span class="section-num">▸▸</span>
+    <h2>Mini-Traspaso para Cuki</h2>
+  </div>
+
+  <p style="font-size:16px; color:var(--text-dim); margin-bottom:18px">
+    Resumen ejecutivo de la cuenta para tomar control. El documento completo de handoff está en <span class="mono">TRASPASO_MottBow.md</span>.
+  </p>
+
+  <h3>Lo que tenés que saber en 60 segundos</h3>
+  <ul class="bullet-list">
+    <li><strong>M&B = brand defense en USA.</strong> 159 ASINs, 90%+ revenue de branded queries. Motor #1: <span class="mono">MTC BROAD M DEFEND +mott+bow</span> ($771/sem, ACoS 12.1%). No tocar.</li>
+    <li><strong>El cliente vende mayormente vía Meta</strong>, no vía PPC. PPC captura ese tráfico hot a costo mínimo. Útil saberlo cuando el cliente pida "más ventas vía PPC".</li>
+    <li><strong>Ratings bajos (3.0-3.7) + 33% refund rate</strong> son drag estructural en non-branded. Cualquier campaña que mande tráfico cold a estos listings va a fallar conversion. Confirmado empíricamente con 9 campañas non-branded fantasmas que pausamos el 27/04.</li>
+    <li><strong>Bid floor apparel Women US &gt; $1.50.</strong> No lanzar nada con bid efectivo bajo $1.50 — no impresiona. Aprendizaje caro.</li>
+    <li><strong>Atom11 está activa</strong> (Neha es la owner). Pedir el export de coverage + rules como primer touchpoint.</li>
+    <li><strong>Tarifa en restructuración</strong> — Adam habla con cliente Alejandro sobre cambiar base de cálculo (% sobre PPC sales, no Meta). Ser conservador con propuestas que requieran budget incremental hasta cerrar.</li>
+  </ul>
+
+  <h3>Heroes oficiales</h3>
+  <ul class="bullet-list">
+    <li><span class="mono">B0F6LCGH2L</span> · <strong>CR M White</strong> — Crew Neck. Hero #1 absoluto. Esta semana recuperado tras enfriarse en abril.</li>
+    <li><span class="mono">B0F6LDGCDS</span> · <strong>VN M Crimson</strong> — V-Neck. Hero categoría. Vende 18 units esta semana <em>sin</em> atribución paid — destrabar el non-branded VN es la siguiente palanca.</li>
+    <li><strong>Sleeper:</strong> Black Women (~$3K+/sem orgánico). Futuro hero candidato cuando se abra ad group dedicado.</li>
+  </ul>
+
+  <h3>Equipo</h3>
+  <ul class="bullet-list">
+    <li><strong>Agustín Favano</strong> · Account Manager — conversación día a día con el cliente. Owner relación.</li>
+    <li><strong>Adam Pixler</strong> · Sales Director — escalations + restructuración tarifa.</li>
+    <li><strong>Alejandro</strong> · contacto cliente principal.</li>
+    <li><strong>Neha</strong> · Atom11 lead (rules).</li>
+  </ul>
+
+  <h3>Primera sesión sugerida</h3>
+  <ol style="list-style:decimal; padding-left:24px; margin-top:8px; color:var(--text-dim)">
+    <li style="margin-bottom:8px">Leer el doc completo <span class="mono">TRASPASO_MottBow.md</span> + último daily MB.</li>
+    <li style="margin-bottom:8px">Pedir a Agustín: status mensaje gate Fase 2, status restructuración tarifa, acceso seller central + reporting.</li>
+    <li style="margin-bottom:8px">Pedir a Neha: export Atom11 coverage + rules activas + tier asignado.</li>
+    <li style="margin-bottom:8px">Atacar en orden: <strong>(a)</strong> pausar 2 bleeders 3-Pack VN, <strong>(b)</strong> eval día 14 NB HW (hoy 11/05), <strong>(c)</strong> audit SCAVENGER.</li>
+    <li>No tocar sin contexto: MTC BROAD M DEFEND, HB SP EXACT DEFEND, SD Purchases:90 retargeting (80% CVR), SBV que explotó positivamente.</li>
+  </ol>
+
+  <h3>Lectura final</h3>
+  <p style="color:var(--text-dim); margin-top:8px">
+    Cuenta madura, brand-dominant, en buen estado operativo. Las ganancias marginales están en: <em>(1)</em> non-branded controlado con bid floor respetado, <em>(2)</em> brand defense gaps cerrados (Jeans + V-neck + Pocket), <em>(3)</em> Atom11 mapeada y aprovechada. Lo que NO conviene hacer ahora: propuestas grandes que requieran budget incremental — la relación comercial está en restructuración y el cliente está sensible. Modo conservador hasta que Adam cierre el deal.
+  </p>
+</div>
+
+<!-- ========== FOOTER ========== -->
+<footer>
+  ▸ Capybaras Agency · Generado 11/05/2026 por Lenin Acosta · Internal · Not for client distribution
+</footer>
+
+</body>
+</html>
