@@ -1084,6 +1084,126 @@ def _tab_nuevo() -> None:
         })
 
 
+def _render_blocks_section(proposal: dict) -> None:
+    """Render listado readonly de TODOS los blocks de la propuesta.
+
+    Cada block muestra: tier color border, module_id, título bilingüe,
+    descripción, y badge de editabilidad (S3-B3 editable / S4 placeholder /
+    locked / unknown).
+
+    S3-B2: solo lista visual. Los forms editables llegan en B3-B4.
+    """
+    blocks = proposal.get("blocks", [])
+    language = proposal.get("language", "es")
+    catalog_lookup = _catalog_module_lookup()
+
+    if not blocks:
+        st.warning("⚠️ La propuesta no tiene bloques. Algo raro pasó al instanciarla.")
+        return
+
+    st.markdown(
+        f"<div style='font-size:1.05rem;font-weight:700;color:{_NEGRO};"
+        f"margin-bottom:0.8rem;'>Bloques de la propuesta "
+        f"<span style='font-size:0.8rem;color:{_GRIS_TXT};font-weight:400;'>"
+        f"({len(blocks)} en total)</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # Render cada block en orden (NO reordenar — respetar orden del template)
+    for idx, block in enumerate(blocks, start=1):
+        mid = block.get("module_id", "")
+        mod_def = catalog_lookup.get(mid)
+
+        # Edge case: module_id no existe en catálogo
+        if mod_def is None:
+            st.markdown(
+                f"<div style='border:1px solid #F44336;border-left:4px solid #F44336;"
+                f"border-radius:6px;padding:0.7rem 1rem;margin-bottom:0.5rem;"
+                f"background:#FFF5F5;'>"
+                f"<div style='display:flex;align-items:center;justify-content:space-between;'>"
+                f"<div>"
+                f"<div style='font-size:0.7rem;color:#F44336;font-weight:700;'>"
+                f"#{idx} · MÓDULO DESCONOCIDO</div>"
+                f"<div style='font-family:monospace;font-size:0.85rem;color:{_NEGRO};'>"
+                f"{mid or '(sin module_id)'}</div>"
+                f"</div>"
+                f"<span style='background:#F44336;color:white;font-size:0.7rem;"
+                f"padding:3px 10px;border-radius:4px;font-weight:700;'>⚠️ DESCONOCIDO</span>"
+                f"</div></div>",
+                unsafe_allow_html=True,
+            )
+            continue
+
+        # Resolver datos del catálogo
+        tier = mod_def.get("tier", "unknown")
+        status = mod_def.get("status", "active")
+        tier_meta = _TIER_META.get(tier, {})
+        tier_color = tier_meta.get("color", "#9E9E9E")
+        tier_label = tier_meta.get("label", tier.upper())
+
+        title = mod_def.get("title", {}).get(language) or mod_def.get("title", {}).get("es") or mid
+        desc = mod_def.get("description", {}).get(language) or mod_def.get("description", {}).get("es") or "—"
+        if len(desc) > 180:
+            desc = desc[:177] + "..."
+
+        # Decidir badge de editabilidad
+        if status == "placeholder_coming_soon":
+            badge_bg = "#FFC107"
+            badge_color = "#5D4037"
+            badge_text = "⏳ Próximamente (S4)"
+            card_opacity = "0.7"
+        elif tier == "core_variable" and status == "active":
+            badge_bg = _NARANJA
+            badge_color = "white"
+            badge_text = "✏️ Editable en S3-B3"
+            card_opacity = "1"
+        else:
+            badge_bg = "#9E9E9E"
+            badge_color = "white"
+            badge_text = "🔒 Solo lectura"
+            card_opacity = "1"
+
+        st.markdown(
+            f"<div style='border:1px solid #E0E0E0;border-left:4px solid {tier_color};"
+            f"border-radius:6px;padding:0.7rem 1rem;margin-bottom:0.5rem;"
+            f"background:#FFFFFF;opacity:{card_opacity};'>"
+            f"<div style='display:flex;align-items:center;justify-content:space-between;gap:1rem;'>"
+            f"<div style='flex:1;min-width:0;'>"
+            f"<div style='display:flex;align-items:center;gap:0.4rem;margin-bottom:0.2rem;'>"
+            f"<span style='font-size:0.65rem;color:{_GRIS_TXT};font-weight:600;'>"
+            f"#{idx:02d}</span>"
+            f"<span style='background:{tier_color}15;color:{tier_color};"
+            f"font-size:0.6rem;padding:1px 6px;border-radius:3px;font-weight:700;'>"
+            f"{tier_label}</span>"
+            f"<span style='font-family:monospace;font-size:0.7rem;color:{_GRIS_TXT};'>"
+            f"{mid}</span>"
+            f"</div>"
+            f"<div style='font-size:0.95rem;font-weight:700;color:{_NEGRO};"
+            f"margin-bottom:0.15rem;'>{title}</div>"
+            f"<div style='font-size:0.75rem;color:#666;line-height:1.4;'>{desc}</div>"
+            f"</div>"
+            f"<span style='background:{badge_bg};color:{badge_color};font-size:0.7rem;"
+            f"padding:4px 10px;border-radius:4px;font-weight:600;white-space:nowrap;'>"
+            f"{badge_text}</span>"
+            f"</div></div>",
+            unsafe_allow_html=True,
+        )
+
+    # Footer info: qué pasa en cada tier
+    st.markdown(
+        f"<div style='margin-top:1.2rem;padding:0.7rem 1rem;background:#FFF8F0;"
+        f"border-left:3px solid {_NARANJA};border-radius:4px;font-size:0.78rem;"
+        f"color:#555;line-height:1.6;'>"
+        f"💡 En <strong>S3-B3</strong> vas a poder editar los bloques marcados como "
+        f"<strong>✏️ Editable</strong> (los 6 CORE). "
+        f"En <strong>S4</strong> se habilita 'Marcar como interesado' para los "
+        f"<strong>⏳ Próximamente</strong>. "
+        f"Los <strong>🔒 Solo lectura</strong> se manejan desde el template (no por propuesta)."
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_detail_screen() -> None:
     """Pantalla de vista detalle de una propuesta. Reemplaza los tabs cuando está activa.
 
@@ -1168,15 +1288,8 @@ def _render_detail_screen() -> None:
 
     st.divider()
 
-    # ── Placeholder B1 ───────────────────────────────────────────────────
-    st.info(
-        "🚧 **Sesión 3 — Bloque 1 (state machine) operativo.**\n\n"
-        "Próximos bloques:\n"
-        "- **B2**: listado readonly de todos los blocks con indicador editable/locked\n"
-        "- **B3-B4**: forms editables para los 6 bloques CORE (V1-V6)\n"
-        "- **B5**: guardar cambios → version bump automático\n"
-        "- **B6**: cerrar deuda autocomplete=\"off\""
-    )
+    # ── Listado de blocks de la propuesta ────────────────────────────────
+    _render_blocks_section(proposal)
 
     with st.expander("🔍 Ver propuesta cruda (debug)", expanded=False):
         st.code(json.dumps(proposal, indent=2, ensure_ascii=False), language="json")
