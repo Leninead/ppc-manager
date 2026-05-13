@@ -1,6 +1,6 @@
 ---
 tipo: state
-actualizado: 2026-05-12
+actualizado: 2026-05-13
 ---
 
 # STATE Agencia — Capybaras
@@ -64,7 +64,69 @@ Detalle completo en `notes/daily/2026-05-08.md` (sección "Sesión 2026-05-08 (D
 
 ---
 
-## Última sesión — 2026-05-12 (día completo)
+## Última sesión — 2026-05-13
+
+**Foco principal**: M29 Proposal Studio Sesión 3 (parcial) — B1 routing vista
+detalle + B2 listado readonly de blocks con badges por tier.
+
+**Output principal**:
+- `modules/pages/proposal_studio.py`: 274 LOC nuevas (139 B1 + 135 B2).
+  6 helpers nuevos: `_init_detail_state`, `_open_detail`, `_close_detail`,
+  `_is_detail_active`, `_render_detail_screen`, `_render_blocks_section`.
+  Branch S3 inyectado en `render()`.
+- Sin nuevos archivos creados. Sin imports nuevos.
+
+**Commits del día**: `6b0f2dc` (S3-B1) + `5cc0fd3` (S3-B2). Ambos en `main`,
+SIN push (acumulando hasta B6).
+
+**Sub-bloques ejecutados** (2 de 6 del plan S3):
+- B1 routing vista detalle (state machine + skeleton + branch en render)
+- B2 listado readonly con badges editable/locked/coming-soon + border-left
+  por tier
+
+**Smoke test E2E**: 3 propuestas demo abiertas (Launch/CVR/Scale+SEO) →
+header completo + 15-18 blocks renderizados correctamente → badges por tier
+visibles + 4 colores de border-left + placeholders S4 con opacity reducida
+→ Volver al listado + abrir otra propuesta → state machine resetea
+correctamente. Sin warnings ni errores en consola.
+
+**Hallazgos de catálogo**: composición CORE varía por arquetipo. B3 obliga
+a iterar sobre CORE PRESENTES en cada propuesta, no sobre 6 hardcodeados.
+Primera aparición de tier COMMON (V13, V14, V16) y de 3 placeholders S4
+(V27, V28, V29). Render correcto para 4 tiers × 2 status combinables.
+
+**Decisiones cerradas**:
+- Routing vista detalle: opción B (reemplazo de pantalla), no tab nuevo ni
+  expander inline. Consistencia con patrón del wizard.
+- Buffer híbrido en `ps_detail_buffer` + save explícito. Confirmación
+  2-clicks al Volver con cambios pendientes (a implementar en B5).
+- Bilingüe en edición: solo idioma activo + expander colapsado para el otro.
+- B3 partido en sub-bloques B3-b a B3-f: V1 end-to-end primero para validar
+  el patrón antes de replicarlo a V2-V6. V6 último por complejidad (array
+  anidado de fases bilingüe).
+
+**Lección aprendida (CC vs chat)**: hallazgo crítico del CC en el prompt de
+descubrimiento: `pp.load_proposal` NO existe — la función real es
+`pp.get_proposal(proposal_id, version=None)` y devuelve `None` cuando no
+encuentra (no raisea). Sin ese catch del CC, B1 fallaba al primer test.
+Refuerza el patrón de "CC primero descubre, chat después diseña".
+
+**Pendientes para próxima sesión** (S3 continuación):
+- B3-b: V1_brand_overview form completo + save funcional → valida patrón
+- B3-c a B3-f: replicar patrón a V2, V3, V4, V5, V6 (V6 último)
+- B5: botón "Guardar cambios" activo + version bump automático +
+  confirmación 2-clicks al Volver con buffer no vacío
+- B6: polish (autocomplete=off + fix badge "Sesión 2 (skeleton)" +
+  info-box dinámico "los N CORE" + git renormalize por deuda recurrente #5)
+- B6 final: push acumulado a `origin/main` (3 commits acumulados como
+  mínimo: B1 + B2 + B3-B6)
+
+Detalle completo en `notes/daily/2026-05-13.md` y `notes/brands/agency-os.md`
+(sección 2026-05-13).
+
+---
+
+## Sesión anterior — 2026-05-12 (día completo)
 
 **Foco principal**: M29 Proposal Studio Sesión 2/6 — UI completa (Listado + Wizard 3 pasos).
 
@@ -316,7 +378,19 @@ Detalle completo en `daily/2026-05-08.md`.
 
 Todos commiteados a `main`, pendientes de push.
 
-- **M29 Proposal Studio (Sales Director module)** — Sesión 2/6 completada + bug fix Duplicar (commit 28a6d69) + primer update público a la agencia. Branch `main`, últimos commits: `aa2d873` código S2, `5a1a575` docs S2, `28a6d69` fix Duplicar. Módulo `modules/pages/proposal_studio.py` (~923 LOC, 25 funciones) wired al Agency OS. Smoke test E2E + 3 propuestas demo persistidas (Marca LATAM Premium / US Wellness Brand / Tech Accessories Co). **Compromiso público de timeline** post-Slack: fases 3+4 esta semana (13-18 may), fases 5+6 próxima (19-25 may). Próximo: Sesión 3 — Vista detalle (botón Abrir funcional) + edición de los 6 CORE Variables (V1-V6) con form dinámico desde schema. Owner: Lenin (dev) + Sales Directors (validación). Ver [[brands/agency-os]] y [[daily/2026-05-12]].
+- **M29 Proposal Studio (Sales Director module)** — Sesión 3 en curso
+  (B1+B2 cerrados, B3-B6 pendientes). Commits hoy: `6b0f2dc` (S3-B1 routing
+  vista detalle + state machine + skeleton) + `5cc0fd3` (S3-B2 listado
+  readonly de blocks con badges por tier). Ambos en `main`, SIN push —
+  acumulando hasta cierre de B6 según patrón S2 (3 commits sin push).
+  Click "🔎 Abrir" desde Listado ahora abre vista detalle funcional con
+  todos los blocks de la propuesta visibles, badges por tier
+  (editable/locked/próximamente). Smoke test E2E con las 3 propuestas
+  demo: composición CORE varía por arquetipo (Launch=4, CVR=3,
+  Scale+SEO=5). Próximo: Sesión 3 — B3-b V1 Brand Overview end-to-end con
+  save funcional → si valida patrón, replicar a V2-V6 → B5 botón Guardar
+  → B6 polish + push acumulado. Compromiso Slack (12/05): fases 3+4 esta
+  semana. Owner: Lenin (dev). Ver [[brands/agency-os]] y [[daily/2026-05-13]].
 - **Variation Builder M26 (2026-04-26 en curso)**. Módulo nuevo Account Manager para generar flat files Amazon (1 parent + N children). `modules/pages/variation_builder.py` (929L). 4 tabs: Parent / Children+Theme / Preview / Descargar. Tema Variation (Sabor, Tamano, Scent, etc). Bug abierto: `data_editor` requiere doble entrada para persistir — fix diseñado (3 keys pattern) pendiente de aplicar. End-to-end validado con template cliente `PET_FOOD__1_.xlsm`. **Casos de éxito acumulados (3)**: VITALPET 27/04 (4/4), OPTIPET_ADULT 08/05 (4/4), OPTIPET_FLAVORBOOST 09/05 PARCIAL (2/4 — primer caso "listing rico desde cero", 7 hallazgos técnicos nuevos VB-004 a VB-011). Knowledge: `notes/knowledge/2026-05-08-variation-builder-flat-file-format.md`.
 - **Sprint 1 Campaign Builder v2.0 — SB rewrite (cerrado 2026-04-23)**. `_render_sb()` reescrito 864→1121 líneas en `modules/pages/campaign_builder.py`. Selector SBV/SBH. Brand Entity ID obligatorio. 29 columnas bulk SB 2026. Validaciones estrictas. Naming Capybaras hardcoded preservado (contrato con M11 Atom11 Rules Builder).
 - **Gamboa Generator M25 (integrado 2026-04-22)**. Módulo Account para reportes HTML integrales (SQP mensual + BR semanal). 5 archivos en `modules/gamboa/` + `modules/pages/gamboa_generator.py` (383L). Live en producción.

@@ -1,7 +1,7 @@
 ---
 tipo: brand-history
 brand: Capybaras Agency OS
-actualizado: 2026-05-12
+actualizado: 2026-05-13
 ---
 
 # Capybaras Agency OS — Brand History
@@ -103,3 +103,78 @@ Módulo de la sección **Sales Director** del Agency OS. Reemplaza el workflow m
 3. **Garland Rug (May 2026)** — nueva marca rugs, foco launching plan modular (Amazon + Shopify + Meta + Marketplaces)
 4. **Nandog (Apr 2026)** — dog beds, foco market trend + price sweet spot
 5. **Nobl Travel (Apr 2026)** — luggage US, foco branded terms + defensive campaigns
+
+---
+
+## 2026-05-13 — M29 Proposal Studio Sesión 3 parcial (B1+B2)
+
+**Status:** Vista detalle de propuestas funcional en modo readonly. Botón
+"Abrir" del Listado ahora abre una pantalla detalle que reemplaza los tabs y
+muestra todos los blocks de la propuesta con badges por tier (editable/locked/
+próximamente). Edición real de los CORE Variables queda para B3-B6.
+
+Construido en branch `main`. Commits: `6b0f2dc` (S3-B1 routing + state
+machine + skeleton) + `5cc0fd3` (S3-B2 listado readonly de blocks con badges
+por tier). Ambos sin push — acumulando hasta cierre de B6 según patrón S2.
+
+### Qué se agregó al Agency OS
+
+- **Vista detalle de propuestas** en `modules/pages/proposal_studio.py`. Click
+  en "🔎 Abrir" desde el Listado reemplaza la pantalla por una vista dedicada
+  con header completo (cliente, version, arquetipo, status, idioma, count de
+  blocks, timestamps) + listado de los 15-18 blocks de la propuesta +
+  expander de debug con el JSON crudo.
+- **Badges visuales por tier + status**: los 6 CORE editables se destacan en
+  naranja Capybaras, los placeholders S4 en amarillo con opacity reducida,
+  el resto (FIXED + COMMON + SPECIALIZED active) en gris solo-lectura.
+  Border-left de cada card pintado con el color del tier.
+- **State machine de vista detalle** independiente de la del wizard:
+  `ps_detail_active` (UUID o None) + `ps_detail_buffer` (dict para los edits
+  pendientes de B3). Inicialización en `render()` con `_init_detail_state()`.
+  Conviven sin interferencias con la state machine del wizard de creación.
+
+### Hallazgos del smoke test
+
+La validación visual con las 3 propuestas demo confirmó que **la composición
+de CORE Variables varía por arquetipo**:
+
+- Launch (18 blocks): V1, V2, V3, V4
+- CVR (15 blocks): V1, V2, V5
+- Scale+SEO (16 blocks): V1, V2, V3, V5, V6
+
+Eso obliga a que B3 (forms editables) itere sobre los CORE PRESENTES en cada
+propuesta, no sobre los 6 hardcodeados. Dispatch por `module_id`.
+
+Primera aparición visible de COMMON tier (V13, V14, V16) y de placeholders
+S4 (V27, V28, V29). Render correcto para los 4 tiers + 2 status combinables.
+
+### Roadmap actualizado de las 6 sesiones
+
+- ✅ S1: Schema + persistencia + templates + parser (2026-05-11)
+- ✅ S2: UI Streamlit completa — Listado + Wizard 3 pasos + Save (2026-05-12)
+- 🔄 S3: Vista detalle + 6 CORE Variables editables (en curso)
+  - ✅ B1: routing vista detalle (2026-05-13)
+  - ✅ B2: listado readonly de blocks (2026-05-13)
+  - ⏳ B3-b: V1 Brand Overview end-to-end (próxima sesión)
+  - ⏳ B3-c a B3-f: V2, V3, V4, V5, V6
+  - ⏳ B5: botón Guardar funcional + version bump
+  - ⏳ B6: polish + push acumulado
+- ⏳ S4: 23 placeholders Tier 2-3 con toggle "Marcar como interesado"
+- ⏳ S5: Templates Jinja2 + renderer HTML
+- ⏳ S6: Playwright PDF + polish + smoke test E2E + update READMEs
+
+### Por qué importa este hito
+
+Con B1+B2 cerrados, el Sales Director ya puede **abrir y explorar** cualquier
+propuesta del Listado. La pantalla detalle hace visible toda la información
+del template aplicado: qué bloques tiene, en qué orden, de qué tier, qué se
+puede editar y qué no. Es la transición de "lista opaca" a "explorador
+funcional". B3 (la siguiente) es donde la herramienta empieza a "escribir
+hacia atrás" y permite customizar el contenido por cliente.
+
+### Compromiso público de timeline
+
+El compromiso de Slack del 12/05 sigue en pie: fases 3+4 esta semana
+(13-18 may). Sesión 3 está en curso dentro de plazo. Si B3-B6 no termina
+antes del fin de semana (17-18 may), avisar al canal con reset de
+expectativas.
