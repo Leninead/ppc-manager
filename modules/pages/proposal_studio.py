@@ -242,10 +242,8 @@ def _render_proposal_row_actions(proposal: dict) -> None:
 
     with col_open:
         if st.button("🔎 Abrir", key=f"open_{pid}", use_container_width=True):
-            st.info(
-                f"🚧 Vista detalle pendiente para Sesión 3.\n\n"
-                f"Propuesta: **{cliente}** (v{pversion}) — id: `{pid[:8]}...`"
-            )
+            _open_detail(pid)
+            st.rerun()
 
     with col_dup:
         if st.button("📋 Duplicar", key=f"dup_{pid}", use_container_width=True):
@@ -459,6 +457,36 @@ def _go_to_step(step: int) -> None:
     """Navega a un paso específico del wizard (1, 2 o 3). Sin validación de datos."""
     if step in (1, 2, 3):
         st.session_state["ps_wizard_step"] = step
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vista Detalle (S3) — state machine
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _init_detail_state() -> None:
+    """Inicializa keys de session_state de la vista detalle. Idempotente."""
+    if "ps_detail_active" not in st.session_state:
+        st.session_state["ps_detail_active"] = None
+    if "ps_detail_buffer" not in st.session_state:
+        st.session_state["ps_detail_buffer"] = {}
+
+
+def _open_detail(proposal_id: str) -> None:
+    """Activa la vista detalle para una propuesta. Resetea el buffer de edits."""
+    st.session_state["ps_detail_active"] = proposal_id
+    st.session_state["ps_detail_buffer"] = {}
+
+
+def _close_detail() -> None:
+    """Cierra la vista detalle y descarta cambios en buffer."""
+    st.session_state["ps_detail_active"] = None
+    st.session_state["ps_detail_buffer"] = {}
+
+
+def _is_detail_active() -> bool:
+    """True si hay una propuesta abierta en vista detalle."""
+    return st.session_state.get("ps_detail_active") is not None
 
 
 def _render_wizard_progress() -> None:
@@ -1056,6 +1084,104 @@ def _tab_nuevo() -> None:
         })
 
 
+def _render_detail_screen() -> None:
+    """Pantalla de vista detalle de una propuesta. Reemplaza los tabs cuando está activa.
+
+    Sesión 3 B1: solo skeleton con header + botón Volver + debug expander.
+    La edición de blocks CORE (V1-V6) llega en B3-B4.
+    """
+    pid = st.session_state.get("ps_detail_active")
+    if not pid:
+        # Defensa: si el state quedó inconsistente, cerrar y volver al listado
+        _close_detail()
+        st.rerun()
+        return
+
+    # Cargar propuesta desde disco (siempre última versión)
+    try:
+        proposal = pp.get_proposal(pid)
+        if proposal is None:
+            raise FileNotFoundError(f"Propuesta {pid} no existe en disco")
+    except FileNotFoundError:
+        st.error(
+            f"❌ Propuesta `{pid[:8]}...` no encontrada. "
+            f"Puede haber sido archivada o borrada desde otra pestaña."
+        )
+        if st.button("← Volver al listado", key="detail_back_error"):
+            _close_detail()
+            st.rerun()
+        return
+    except Exception as e:
+        st.error(f"❌ Error al cargar propuesta: {type(e).__name__}: {e}")
+        if st.button("← Volver al listado", key="detail_back_exc"):
+            _close_detail()
+            st.rerun()
+        return
+
+    # ── Top bar: Volver + título + acciones ──────────────────────────────
+    col_back, col_title, col_save = st.columns([1, 4, 1])
+
+    with col_back:
+        if st.button("← Volver", key="detail_back", use_container_width=True):
+            _close_detail()
+            st.rerun()
+
+    cliente = proposal.get("client_name", "—")
+    pversion = proposal.get("version", 1)
+    archetype = proposal.get("archetype", "—")
+    arq_meta = _ARQUETIPOS.get(archetype, {})
+    arq_label = arq_meta.get("label", archetype)
+    arq_color = arq_meta.get("color", "#9E9E9E")
+    status = proposal.get("status", "draft")
+    status_label, status_color = _STATUS_META.get(status, (status, "#9E9E9E"))
+    language = proposal.get("language", "—")
+    lang_label = _LANG_META.get(language, language)
+    block_count = len(proposal.get("blocks", []))
+    updated = proposal.get("updated_at", "")
+
+    with col_title:
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;'>"
+            f"<div style='font-size:1.3rem;font-weight:800;color:{_NEGRO};'>{cliente}</div>"
+            f"<span style='font-size:0.75rem;color:{_GRIS_TXT};font-weight:400;'>v{pversion}</span>"
+            f"<span style='background:{arq_color}15;color:{arq_color};border:1px solid {arq_color};"
+            f"font-size:0.7rem;padding:2px 8px;border-radius:4px;font-weight:600;'>{arq_label}</span>"
+            f"<span style='background:{status_color}15;color:{status_color};border:1px solid {status_color};"
+            f"font-size:0.7rem;padding:2px 8px;border-radius:4px;font-weight:600;'>{status_label}</span>"
+            f"<span style='font-size:0.7rem;color:{_GRIS_TXT};'>{lang_label}</span>"
+            f"<span style='font-size:0.7rem;color:{_GRIS_TXT};'>{block_count} bloques</span>"
+            f"</div>"
+            f"<div style='font-size:0.72rem;color:{_GRIS_TXT};margin-top:0.2rem;'>"
+            f"Editada {_format_relative_time(updated)} · id: <code>{pid[:8]}...</code>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    with col_save:
+        st.button(
+            "💾 Guardar",
+            key="detail_save",
+            use_container_width=True,
+            disabled=True,
+            help="Edición funcional llega en S3-B4/B5.",
+        )
+
+    st.divider()
+
+    # ── Placeholder B1 ───────────────────────────────────────────────────
+    st.info(
+        "🚧 **Sesión 3 — Bloque 1 (state machine) operativo.**\n\n"
+        "Próximos bloques:\n"
+        "- **B2**: listado readonly de todos los blocks con indicador editable/locked\n"
+        "- **B3-B4**: forms editables para los 6 bloques CORE (V1-V6)\n"
+        "- **B5**: guardar cambios → version bump automático\n"
+        "- **B6**: cerrar deuda autocomplete=\"off\""
+    )
+
+    with st.expander("🔍 Ver propuesta cruda (debug)", expanded=False):
+        st.code(json.dumps(proposal, indent=2, ensure_ascii=False), language="json")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1064,6 +1190,15 @@ def _tab_nuevo() -> None:
 def render() -> None:
     """Entry point del módulo Proposal Studio (M29)."""
     _render_header()
+
+    # Inicializar state machines (idempotente).
+    _init_wizard_state()
+    _init_detail_state()
+
+    # Branch S3: si hay una propuesta abierta en vista detalle, reemplazar la pantalla.
+    if _is_detail_active():
+        _render_detail_screen()
+        return
 
     tab_listado, tab_nuevo = st.tabs(["📋 Mis propuestas", "✨ Nueva propuesta"])
 
