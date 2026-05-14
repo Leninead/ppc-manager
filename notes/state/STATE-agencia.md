@@ -126,6 +126,29 @@ Detalle completo en `notes/daily/2026-05-13.md` y `notes/brands/agency-os.md`
 
 ---
 
+### Última sesión — 2026-05-14 (M29 Proposal Studio B3-b + Sesión A)
+
+**Trabajo realizado:**
+- B3-b Plan D completado: editor V1_brand_overview funcional end-to-end con buffer mutable en session_state
+- Skip-save guard implementado (Sesión A.1): evita versiones duplicadas en disco
+- 3 fixes fallidos antes de Plan D — anti-patterns Streamlit 1.43.2 documentados en notes/daily/2026-05-14.md
+- 39 tests verdes (3 nuevos round-trip de data/copy_overrides + anti-regresión multi-block)
+
+**Estado del proyecto Proposal Studio:**
+- 1 de 6 editores CORE implementado (V1_brand_overview) ✅
+- Infraestructura Plan D lista para drop-in de V2-V6 (helpers genéricos + dispatcher)
+- Test manual real: v44.json con `brand_name='test es F'` confirma persistencia + rehidratación
+- Skip-save guard valida payload normalizado pre-write
+
+**Deuda activa:**
+- Tests pytest del Plan D con monkeypatch `st.session_state` pendientes (A.2)
+- Polish UX (badge completitud, resumen cerrado) pendiente
+- Sin tests E2E con `streamlit.testing.v1.AppTest` (deuda mediano plazo)
+
+**Próxima sesión:** B3-c — editor del segundo block CORE (V2 o el que sigue en orden).
+
+---
+
 ## Sesión anterior — 2026-05-12 (día completo)
 
 **Foco principal**: M29 Proposal Studio Sesión 2/6 — UI completa (Listado + Wizard 3 pasos).

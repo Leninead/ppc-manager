@@ -106,6 +106,17 @@ Módulo de la sección **Sales Director** del Agency OS. Reemplaza el workflow m
 
 ---
 
+## 2026-05-14 — M29 Proposal Studio B3-b cerrado + Sesión A.1 (skip-save guard)
+
+### M29 Proposal Studio — B3-b cerrado (sesión PM)
+- Editor V1_brand_overview funcional con Plan D (buffer mutable)
+- 4to intento de fix fue el bueno — Streamlit 1.43.2 tiene anti-patterns documentados
+- Skip-save guard suma capa de control: no se escriben versiones idénticas
+- 39 tests verdes
+- Pattern listo para B3-c (drop-in con `elif module_id == "V2_xxx"`)
+
+---
+
 ## 2026-05-13 — M29 Proposal Studio Sesión 3 parcial (B1+B2)
 
 **Status:** Vista detalle de propuestas funcional en modo readonly. Botón
