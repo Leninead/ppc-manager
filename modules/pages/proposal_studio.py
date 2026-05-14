@@ -474,12 +474,20 @@ def _init_detail_state() -> None:
 
 def _open_detail(proposal_id: str) -> None:
     """Activa la vista detalle para una propuesta. Resetea el buffer de edits."""
+    # Plan D: si había otra propuesta abierta, invalidar su buffer antes del switch
+    old_pid = st.session_state.get("ps_detail_active")
+    if old_pid and old_pid != proposal_id:
+        _invalidate_proposal_buffer(old_pid)
     st.session_state["ps_detail_active"] = proposal_id
     st.session_state["ps_detail_buffer"] = {}
 
 
 def _close_detail() -> None:
     """Cierra la vista detalle y descarta cambios en buffer."""
+    # Plan D: invalidar buffer de la propuesta que se cierra
+    pid = st.session_state.get("ps_detail_active")
+    if pid:
+        _invalidate_proposal_buffer(pid)
     st.session_state["ps_detail_active"] = None
     st.session_state["ps_detail_buffer"] = {}
 
@@ -1084,6 +1092,402 @@ def _tab_nuevo() -> None:
         })
 
 
+def _render_block_editor(block, proposal, lang):
+    """
+    Dispatcher. Devuelve True si renderizó un editor (caso en que el
+    caller NO debe renderizar la card readonly). Devuelve False si
+    el módulo no tiene editor implementado (caller cae a readonly).
+    """
+    module_id = block.get("module_id")
+    if module_id == "V1_brand_overview":
+        _render_v1_brand_overview_editor(block, proposal, lang)
+        return True
+    return False
+
+
+_V1_MARKETS_CHOICES = ["US", "MX", "CA", "BR", "ES", "DE", "UK", "FR", "IT", "JP", "AU"]
+
+_V1_ACCOUNT_TYPE_CHOICES = ["", "vendor", "seller_fba", "seller_fbm", "hybrid"]
+
+_V1_REVENUE_BAND_CHOICES = [
+    "", "0-10k USD", "10k-50k USD", "50k-100k USD",
+    "100k-500k USD", "500k-1M USD", "1M+ USD", "N/A",
+]
+
+_V1_ACOS_BAND_CHOICES = [
+    "", "0-15%", "15-25%", "25-40%", "40-60%", "60%+", "N/A",
+]
+
+_V1_MATURITY_CHOICES = ["", "none", "basic", "intermediate", "advanced"]
+
+
+def _render_v1_brand_overview_editor(block, proposal, lang):
+    """
+    B3-b Plan D: editor de V1_brand_overview basado en buffer mutable en
+    session_state. Sin st.form, sin widget keys, sin setdefault adyacente.
+
+    Patrón:
+      1. _ensure_block_buffer hidrata el sub-dict del block (lazy, una vez).
+      2. Cada widget recibe value=<lectura del buffer> SIN key=.
+      3. El retorno del widget se asigna inmediatamente de vuelta al buffer.
+      4. Click Guardar → _commit_v1_to_disk + invalidate del sub-dict.
+      5. Click Descartar → invalidate del sub-dict.
+    """
+    import streamlit as st
+
+    buf_block = _ensure_block_buffer(proposal, block, lang)
+    bd = buf_block["data"]
+    bc = buf_block["copy_overrides"][lang]
+    bid = block["id"]
+
+    st.markdown("### 📝 V1 Brand Overview")
+    st.caption(f"Idioma de la propuesta: {lang}")
+
+    # === Sección 1: Identificación de marca ===
+    st.markdown("**Identificación**")
+    col1, col2 = st.columns(2)
+    with col1:
+        v = st.text_input("Nombre de marca", value=bd["brand_name"])
+        bd["brand_name"] = v
+    with col2:
+        v = st.number_input(
+            "Cantidad de SKUs",
+            min_value=0,
+            step=1,
+            value=int(bd.get("sku_count") or 0),
+        )
+        bd["sku_count"] = v
+
+    v = st.text_area(
+        "Categorías (una por línea)",
+        value=bd["_raw_categories"],
+        height=80,
+    )
+    bd["_raw_categories"] = v
+
+    v = st.multiselect(
+        "Mercados",
+        options=_V1_MARKETS_CHOICES,
+        default=[m for m in bd["markets"] if m in _V1_MARKETS_CHOICES],
+    )
+    bd["markets"] = list(v)
+
+    # === Sección 2: Setup técnico Amazon ===
+    st.markdown("**Setup Amazon**")
+    col3, col4 = st.columns(2)
+    with col3:
+        _curr = bd["amazon_account_type"] if bd["amazon_account_type"] in _V1_ACCOUNT_TYPE_CHOICES else ""
+        v = st.selectbox(
+            "Tipo de cuenta",
+            options=_V1_ACCOUNT_TYPE_CHOICES,
+            index=_V1_ACCOUNT_TYPE_CHOICES.index(_curr),
+        )
+        bd["amazon_account_type"] = v
+    with col4:
+        _curr = bd["ppc_maturity"] if bd["ppc_maturity"] in _V1_MATURITY_CHOICES else ""
+        v = st.selectbox(
+            "Madurez PPC",
+            options=_V1_MATURITY_CHOICES,
+            index=_V1_MATURITY_CHOICES.index(_curr),
+        )
+        bd["ppc_maturity"] = v
+
+    v = st.text_area(
+        "Hero ASINs (uno por línea)",
+        value=bd["_raw_hero_asins"],
+        height=80,
+    )
+    bd["_raw_hero_asins"] = v
+
+    # === Sección 3: Bandas financieras ===
+    st.markdown("**Bandas financieras**")
+    col5, col6 = st.columns(2)
+    with col5:
+        _curr = bd["monthly_revenue_band"] if bd["monthly_revenue_band"] in _V1_REVENUE_BAND_CHOICES else ""
+        v = st.selectbox(
+            "Ingresos mensuales (banda)",
+            options=_V1_REVENUE_BAND_CHOICES,
+            index=_V1_REVENUE_BAND_CHOICES.index(_curr),
+        )
+        bd["monthly_revenue_band"] = v
+    with col6:
+        _curr = bd["current_acos_band"] if bd["current_acos_band"] in _V1_ACOS_BAND_CHOICES else ""
+        v = st.selectbox(
+            "ACoS actual (banda)",
+            options=_V1_ACOS_BAND_CHOICES,
+            index=_V1_ACOS_BAND_CHOICES.index(_curr),
+        )
+        bd["current_acos_band"] = v
+
+    # === Sección 4: Copy editable (i18n) ===
+    st.markdown(f"**Copy editorial — idioma {lang}**")
+
+    v = st.text_area("Descripción de marca", value=bc["brand_description"], height=100)
+    bc["brand_description"] = v
+    v = st.text_area("Posicionamiento", value=bc["positioning"], height=80)
+    bc["positioning"] = v
+    v = st.text_area("Objetivos del cliente", value=bc["goals"], height=80)
+    bc["goals"] = v
+    v = st.text_area("Restricciones / no-gos", value=bc["constraints"], height=80)
+    bc["constraints"] = v
+
+    st.divider()
+    col_save, col_discard, _spacer = st.columns([1, 1, 2])
+    with col_save:
+        if st.button(
+            "💾 Guardar cambios",
+            key=f"v1_save_{bid}",
+            type="primary",
+        ):
+            _save_v1_brand_overview(block, proposal, lang)
+    with col_discard:
+        if st.button(
+            "↩️ Descartar cambios",
+            key=f"v1_discard_{bid}",
+        ):
+            _discard_v1_brand_overview(proposal, block)
+
+
+def _proposal_buffer_key(proposal_id: str) -> str:
+    """Key de session_state donde vive el buffer mutable de una propuesta."""
+    return f"ps_buffer__{proposal_id}"
+
+
+def _ensure_block_buffer(proposal: dict, block: dict, lang: str) -> dict:
+    """Garantiza que el sub-dict del block existe en el buffer.
+
+    Si no existe, lo hidrata desde block["data"] + block["copy_overrides"][lang].
+    Si existe, lo preserva (mantiene edits pendientes del usuario).
+    Devuelve referencia mutable al sub-dict.
+    """
+    import streamlit as st
+    pid = proposal["id"]
+    bid = block["id"]
+    buf_key = _proposal_buffer_key(pid)
+    if buf_key not in st.session_state:
+        st.session_state[buf_key] = {
+            "version": proposal.get("version", 0),
+            "blocks": {},
+        }
+    blocks = st.session_state[buf_key]["blocks"]
+    if bid not in blocks:
+        data_src = block.get("data") or {}
+        overrides_all = block.get("copy_overrides") or {}
+        overrides_lang = overrides_all.get(lang) or {}
+        blocks[bid] = {
+            "data": {
+                "brand_name": data_src.get("brand_name", "") or "",
+                "sku_count": data_src.get("sku_count"),
+                "_raw_categories": "\n".join(data_src.get("categories") or []),
+                "markets": list(data_src.get("markets") or []),
+                "amazon_account_type": data_src.get("amazon_account_type", "") or "",
+                "ppc_maturity": data_src.get("ppc_maturity", "") or "",
+                "_raw_hero_asins": "\n".join(data_src.get("hero_asins") or []),
+                "monthly_revenue_band": data_src.get("monthly_revenue_band", "") or "",
+                "current_acos_band": data_src.get("current_acos_band", "") or "",
+            },
+            "copy_overrides": {
+                lang: {
+                    "brand_description": overrides_lang.get("brand_description", ""),
+                    "positioning": overrides_lang.get("positioning", ""),
+                    "goals": overrides_lang.get("goals", ""),
+                    "constraints": overrides_lang.get("constraints", ""),
+                },
+            },
+            "dirty": False,
+        }
+    return blocks[bid]
+
+
+def _block_buffer(proposal_id: str, block_id: str):
+    """Lee el sub-dict de un block del buffer. None si no existe."""
+    import streamlit as st
+    buf_key = _proposal_buffer_key(proposal_id)
+    buf = st.session_state.get(buf_key)
+    if buf is None:
+        return None
+    return buf.get("blocks", {}).get(block_id)
+
+
+def _invalidate_block_buffer(proposal_id: str, block_id: str) -> None:
+    """Pop selectivo del sub-dict de un block. No toca otros blocks."""
+    import streamlit as st
+    buf_key = _proposal_buffer_key(proposal_id)
+    buf = st.session_state.get(buf_key)
+    if buf is None:
+        return
+    buf.get("blocks", {}).pop(block_id, None)
+
+
+def _invalidate_proposal_buffer(proposal_id: str) -> None:
+    """Pop de la key entera del buffer de una propuesta."""
+    import streamlit as st
+    st.session_state.pop(_proposal_buffer_key(proposal_id), None)
+
+
+def _build_v1_payload(buf_block: dict, lang: str):
+    """Aplica transformaciones diferidas y devuelve (new_data, new_copy_lang).
+
+    Función pura: no toca disco, no toca session_state, no rerun.
+    Reutilizable para skip-save check y para commit.
+
+    Transformaciones:
+      - _raw_categories (string multilínea) → categories (lista filtrada, trim)
+      - _raw_hero_asins (string multilínea) → hero_asins (lista trim + upper)
+      - sku_count: 0 / None / negativos / no-numéricos → None
+    """
+    buf_data = buf_block["data"]
+
+    raw_cats = buf_data.get("_raw_categories", "") or ""
+    categories = [c.strip() for c in raw_cats.split("\n") if c.strip()]
+
+    raw_asins = buf_data.get("_raw_hero_asins", "") or ""
+    hero_asins = [a.strip().upper() for a in raw_asins.split("\n") if a.strip()]
+
+    sku_raw = buf_data.get("sku_count")
+    if sku_raw is None:
+        sku_count = None
+    else:
+        try:
+            sku_int = int(sku_raw)
+            sku_count = sku_int if sku_int > 0 else None
+        except (TypeError, ValueError):
+            sku_count = None
+
+    new_data = {
+        "brand_name": (buf_data.get("brand_name", "") or "").strip(),
+        "sku_count": sku_count,
+        "categories": categories,
+        "markets": list(buf_data.get("markets") or []),
+        "amazon_account_type": buf_data.get("amazon_account_type", "") or "",
+        "ppc_maturity": buf_data.get("ppc_maturity", "") or "",
+        "hero_asins": hero_asins,
+        "monthly_revenue_band": buf_data.get("monthly_revenue_band", "") or "",
+        "current_acos_band": buf_data.get("current_acos_band", "") or "",
+    }
+
+    new_copy_lang = dict(buf_block.get("copy_overrides", {}).get(lang, {}))
+
+    return new_data, new_copy_lang
+
+
+def _v1_payload_matches_disk(buf_block: dict, block: dict, lang: str) -> bool:
+    """True si el payload del buffer es idéntico al block actual en disco.
+
+    Compara new_data y new_copy_lang contra block['data'] y
+    block['copy_overrides'][lang]. Si todo coincide, no hay nada para guardar.
+
+    Nota: la comparación es estricta con ==. Si en disco hay un dict con
+    menos keys que el payload nuevo (caso del primer save sobre un block
+    con data={}), devuelve False — queremos escribir aunque los valores
+    nuevos sean defaults, porque el shape cambia.
+    """
+    new_data, new_copy_lang = _build_v1_payload(buf_block, lang)
+
+    disk_data = block.get("data") or {}
+    disk_overrides_all = block.get("copy_overrides") or {}
+    disk_overrides_lang = disk_overrides_all.get(lang) or {}
+
+    if new_data != disk_data:
+        return False
+    if new_copy_lang != disk_overrides_lang:
+        return False
+    return True
+
+
+def _commit_v1_to_disk(buf_block: dict, proposal: dict, block: dict, lang: str) -> dict:
+    """Persiste el sub-dict del buffer V1 al disco vía pp.save_proposal.
+
+    NO toca session_state. NO llama st.rerun. NO llama st.toast.
+    Devuelve el dict saved con version bumpeada.
+    """
+    import copy as _copy
+    import core.proposal_persistence as pp
+
+    new_data, new_copy_lang = _build_v1_payload(buf_block, lang)
+
+    cloned = _copy.deepcopy(proposal)
+    target_block_id = block["id"]
+    mutated = False
+    for b in cloned.get("blocks", []):
+        if b.get("id") == target_block_id:
+            b["data"] = new_data
+            current_overrides = b.get("copy_overrides") or {}
+            current_overrides[lang] = new_copy_lang
+            other_lang = "en" if lang == "es" else "es"
+            if other_lang not in current_overrides:
+                current_overrides[other_lang] = {
+                    "brand_description": "",
+                    "positioning": "",
+                    "goals": "",
+                    "constraints": "",
+                }
+            b["copy_overrides"] = current_overrides
+            mutated = True
+            break
+
+    if not mutated:
+        raise ValueError(f"Block id={target_block_id} no encontrado en proposal")
+
+    saved = pp.save_proposal(cloned)
+    return saved
+
+
+def _save_v1_brand_overview(block, proposal, lang):
+    """Persiste cambios del editor V1 (Plan D: buffer → disco).
+
+    Flow:
+      1. Lee buf_block del session_state.
+      2. _commit_v1_to_disk aplica transformaciones diferidas y persiste.
+      3. Invalida solo el sub-dict del block commiteado (otros blocks sobreviven).
+      4. Actualiza version snapshot en el buffer global.
+      5. Toast + rerun.
+    """
+    import streamlit as st
+
+    pid = proposal["id"]
+    bid = block["id"]
+    buf_block = _block_buffer(pid, bid)
+    if buf_block is None:
+        st.error("Estado inconsistente: el buffer del bloque V1 no existe. Cambios NO guardados.")
+        return
+
+    # Skip-save guard: si el payload del buffer es idéntico al disco,
+    # no escribimos una versión nueva idéntica.
+    if _v1_payload_matches_disk(buf_block, block, lang):
+        st.toast("Sin cambios para guardar", icon="ℹ️")
+        _invalidate_block_buffer(pid, bid)
+        st.rerun()
+        return
+
+    try:
+        saved = _commit_v1_to_disk(buf_block, proposal, block, lang)
+    except ValueError as e:
+        st.error(f"❌ No se pudo guardar: {e}")
+        return
+
+    _invalidate_block_buffer(pid, bid)
+
+    # Actualizar version snapshot en el buffer global (si todavía existe)
+    buf = st.session_state.get(_proposal_buffer_key(pid))
+    if buf is not None:
+        buf["version"] = saved.get("version", buf.get("version", 0))
+
+    st.toast(
+        f"💾 V1 Brand Overview guardado (v{saved.get('version')})",
+        icon="✅",
+    )
+    st.rerun()
+
+
+def _discard_v1_brand_overview(proposal, block):
+    """Descarta cambios del editor V1 invalidando solo su sub-dict del buffer."""
+    import streamlit as st
+    _invalidate_block_buffer(proposal["id"], block["id"])
+    st.toast("↩️ Cambios descartados", icon="🗑️")
+    st.rerun()
+
+
 def _render_blocks_section(proposal: dict) -> None:
     """Render listado readonly de TODOS los blocks de la propuesta.
 
@@ -1111,6 +1515,9 @@ def _render_blocks_section(proposal: dict) -> None:
 
     # Render cada block en orden (NO reordenar — respetar orden del template)
     for idx, block in enumerate(blocks, start=1):
+        # B3-b: probar primero el editor (dispatcher). Si renderiza, saltear card readonly.
+        if _render_block_editor(block, proposal, language):
+            continue
         mid = block.get("module_id", "")
         mod_def = catalog_lookup.get(mid)
 

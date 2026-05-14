@@ -463,3 +463,96 @@ def test_log_vote_with_proposal_id_context():
 def test_get_seed_proposal_returns_none_if_missing():
     # Aún si _seed/ existe con archivos reales, un id falso debe devolver None.
     assert pp.get_seed_proposal("this-seed-does-not-exist-xyz") is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# V1_brand_overview — round-trip de data y copy_overrides (B3-b Step 4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_save_proposal_persists_v1_brand_overview_data():
+    """data de V1_brand_overview persiste idéntico tras save + get."""
+    p = _make_minimal_proposal_from_launch_template()
+    v1 = next(b for b in p["blocks"] if b["module_id"] == "V1_brand_overview")
+    v1["data"] = {
+        "brand_name": "Love To Dream",
+        "sku_count": 12,
+        "categories": ["Sleep accessories", "Babywear"],
+        "markets": ["US", "MX"],
+        "amazon_account_type": "seller_fba",
+        "ppc_maturity": "intermediate",
+        "hero_asins": ["B005ULUZIQ", "B07XYZ1234"],
+        "monthly_revenue_band": "100k-500k USD",
+        "current_acos_band": "15-25%",
+    }
+
+    saved = pp.save_proposal(p)
+    assert saved["version"] == 1
+
+    loaded = pp.get_proposal(saved["id"])
+    assert loaded is not None
+    loaded_v1 = next(b for b in loaded["blocks"] if b["module_id"] == "V1_brand_overview")
+
+    assert loaded_v1["data"] == v1["data"]
+
+
+def test_save_proposal_persists_v1_brand_overview_copy_overrides_es_en():
+    """copy_overrides con ambos idiomas persiste y respeta el contrato i18n."""
+    p = _make_minimal_proposal_from_launch_template()
+    v1 = next(b for b in p["blocks"] if b["module_id"] == "V1_brand_overview")
+    v1["copy_overrides"] = {
+        "es": {
+            "brand_description": "Marca australiana de sleep solutions.",
+            "positioning": "Premium en sueño infantil.",
+            "goals": "Crecer 30% YoY en MX.",
+            "constraints": "Restock irregular en B005ULUZIQ.",
+        },
+        "en": {
+            "brand_description": "Australian sleep solutions brand.",
+            "positioning": "Premium in infant sleep.",
+            "goals": "Grow 30% YoY in MX.",
+            "constraints": "Irregular restock on B005ULUZIQ.",
+        },
+    }
+
+    saved = pp.save_proposal(p)
+    loaded = pp.get_proposal(saved["id"])
+    loaded_v1 = next(b for b in loaded["blocks"] if b["module_id"] == "V1_brand_overview")
+
+    assert loaded_v1["copy_overrides"]["es"] == v1["copy_overrides"]["es"]
+    assert loaded_v1["copy_overrides"]["en"] == v1["copy_overrides"]["en"]
+    assert set(loaded_v1["copy_overrides"].keys()) == {"es", "en"}
+
+
+def test_save_proposal_v2_preserves_other_blocks_unchanged():
+    """Anti-regresión: al guardar v2 mutando solo V1, los otros blocks quedan idénticos."""
+    import copy as _copy
+
+    p = _make_minimal_proposal_from_launch_template()
+
+    # Save inicial (v1) — capturar estado de blocks no-V1
+    saved_v1 = pp.save_proposal(p)
+    v1_id = saved_v1["id"]
+    other_blocks_snapshot = [
+        dict(b) for b in saved_v1["blocks"]
+        if b["module_id"] != "V1_brand_overview"
+    ]
+
+    # Mutar solo V1 en una copia y guardar v2
+    mutated = _copy.deepcopy(saved_v1)
+    v1 = next(b for b in mutated["blocks"] if b["module_id"] == "V1_brand_overview")
+    v1["data"] = {"brand_name": "Test Brand", "markets": ["US"]}
+
+    saved_v2 = pp.save_proposal(mutated)
+    assert saved_v2["version"] == 2
+
+    # Verificar que los blocks no-V1 quedaron idénticos
+    loaded_v2 = pp.get_proposal(v1_id)
+    loaded_others = [
+        b for b in loaded_v2["blocks"]
+        if b["module_id"] != "V1_brand_overview"
+    ]
+
+    assert len(loaded_others) == len(other_blocks_snapshot)
+    for original, after in zip(other_blocks_snapshot, loaded_others):
+        assert original == after, f"Block {original.get('module_id')} cambió entre v1 y v2"
