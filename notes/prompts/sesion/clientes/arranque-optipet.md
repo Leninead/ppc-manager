@@ -2,13 +2,14 @@
 tipo: prompt-arranque-cliente
 cliente: optipet
 nivel: cargado
-actualizado: 2026-05-12
+actualizado: 2026-05-14
 proxima_actualizacion: cierre próxima sesión OPTIPET
 parent_asin: B0H12ZXVPF
 flavorboost_parent_asin: B0H16N6SHP
-status_catalogo: Adult variation family 100% operativa (51u FBA, Buy Box ganado) | FlavorBoost variation family 1 child Inactive por compliance, 2 children pendientes UPCs nuevos
-status_ppc: sin historial al 2026-05-12 — agregar cuando se inicien campañas
+status_catalogo: Adult variation family 100% operativa (65u FBA, Buy Box ganado) | FlavorBoost variation family 1 child Inactive por compliance, 2 children pendientes lock UPC (esperando respuesta Mario al mensaje del 2026-05-14)
+status_ppc: sin historial al 2026-05-14 — agregar cuando se inicien campañas
 status_compliance: Hígado bloqueado por política GRLKLZ6WQ9R259LC Pet Consumables MX — esperando docs cliente
+status_upcs_flavorboost: 4 UPCs nuevos disponibles en pool ADAM REQUEST master sheet (610655663064 / 610655848478 / 610655951536 / 610655934935) — codebars físicos generados Drive folder ADAM CODEBARS, asignación final pendiente respuesta Mario
 ---
 
 # Arranque Sesión — OPTIPET
@@ -127,7 +128,7 @@ Si saltás cualquier paso de los 3 primeros, el próximo chat lee data stale y t
 
 > Esta sección se actualiza al cierre de cada sesión.
 
-### Snapshot al cierre 2026-05-12
+### Snapshot al cierre 2026-05-14
 
 #### Variation Family #1 — Adult (creada 2026-05-08, 100% operativa)
 | Child | ASIN | Stock FBA | Estado |
@@ -140,13 +141,21 @@ Total 65u FBA · Precio MXN $649 · Parent B0H12ZXVPF (OPTIPET_ADULT_PARENT)
 
 ⚠️ FBM zombi OPTIPETSKINCOATFBA reapareció Active el 2026-05-06 (15u, mismo ASIN B0G6TW7G12) — pendiente apagar con Close listing real.
 
-#### Variation Family #2 — Flavor Boost (iniciada 2026-05-09, BLOQUEADA)
+#### Variation Family #2 — Flavor Boost (iniciada 2026-05-09, ESPERANDO LOCK UPC)
 | SKU | ASIN | Estado |
 |---|---|---|
 | OPTIPET_FLAVORBOOST_PARENT | B0H16N6SHP | Inactive (consecuencia compliance del Hígado) |
-| OPTIPETFLAVORHIGADO (Hígado y Espirulina) | B0H16T5H18 | Inactive — Review blocked reason (compliance MAVERiCK MX) |
-| OPTIPETFLAVORPULMON (Pulmón y Melena de León) | — | Sin crear — bloqueado por UPC collision permanente |
-| OPTIPETFLAVORPOLLO (Pollo y Cúrcuma) | — | Sin crear — bloqueado por UPC collision permanente |
+| OPTIPETFLAVORHIGADO (Hígado y Espirulina) | B0H16T5H18 | Inactive — Review blocked reason (compliance MAVERiCK MX) — track separado |
+| OPTIPETFLAVORPULMON (Pulmón y Melena de León) | — | Sin crear — UPC nuevo disponible en pool, esperando lock Mario |
+| OPTIPETFLAVORPOLLO (Pollo y Cúrcuma) | — | Sin crear — UPC nuevo disponible en pool, esperando lock Mario |
+
+**Pool de UPCs nuevos disponibles** (master sheet rows 21-24, al 2026-05-14):
+- 610655663064 (codebars en Drive folder asignado)
+- 610655848478
+- 610655951536
+- 610655934935
+
+Codebars físicos: Drive folder "ADAM CODEBARS" (4 formatos × 4 UPCs, generados por Mario 18 sept 2025).
 
 Compliance issue activo:
 - Policy: `GRLKLZ6WQ9R259LC` Pet Consumables: Food and Product Safety Issues
@@ -159,51 +168,94 @@ Compliance issue activo:
 
 > Esta sección se actualiza al cierre de cada sesión.
 
-### Bloqueantes absolutos (sin esto no avanza nada)
+### Bloqueantes — esperan respuesta Mario (mensaje enviado 2026-05-14)
 
-1. **UPCs nuevos del fabricante** para Pulmón y Pollo (cliente confirmó NO eliminar Cat Treats Inactive — única vía es UPCs nuevos PETSA)
-2. **Compliance docs Hígado** — esperando del cliente:
+1. **Lock de asignación UPC → sabor** (2 de los 4 UPCs nuevos disponibles)
+2. **Estado de cajas físicas Flavor Boost** (información necesaria para coordinar inbound)
+3. **Update GS1 platform** por parte de Mario (corre tras lock UPC)
+4. **Update master sheet rows 13/15** con UPCs nuevos (corre tras lock UPC)
+
+### Bloqueantes del lado cliente (sin cambio)
+
+5. **Compliance docs Hígado** — esperando del cliente:
    - COA del producto
    - Etiqueta física alta resolución (frente + dorso de los 3 sabores)
    - Ficha técnica con análisis garantizado
    - Status regulatorio (¿desregulado clase III o código SAGARPA 8 dígitos?)
    - Certificación Non-GMO formal (sin esto, sacar claim del título)
 
-### Operativos no bloqueantes pero importantes
+### Operativos no bloqueantes
 
-3. **Peso bruto paquete**: confirmar 297g (master sheet) vs 360g (intento v4)
-4. **Imágenes en URLs públicas**: re-hostear desde Drive a host directo (.jpg/.png)
-5. **OPTICAT roadmap Amazon**: confirmar si los 3 SKUs nuevos para gatos entran al pipeline
-6. **FBM zombi OPTIPETSKINCOATFBA**: Close listing real (reapareció 2026-05-06)
-
-### Variation Family Adult (sin cambios esta sesión)
-
-7. Definir fecha launch oficial
-8. Definir hero del variation (default en search results)
-9. Validar bullets / A+ Content de cada child post-agrupación
-10. Decidir Brand Store / A+ específico del parent
-
-### PPC (cuando arranque)
-
-11. Definir naming convention propio (NO aplica estándar Capybaras)
-12. Decidir arquitectura: campañas por child vs apuntando al parent
-
-### Diferidos
-
-13. M26 refactor (10 bloques VB-001 a VB-011) — post 3 casos validados Variation Builder
-14. Si Amazon notifica template nuevo flat file → bajar `.xlsm` actual y regenerar knowledge entry
+6. **Imágenes Flavor Boost en URLs públicas**: re-hostear desde Drive a host directo (.jpg/.png)
+7. **OPTICAT roadmap Amazon**: Mario manda fotos 14/05; decidir si entra al pipeline
+8. **FBM zombi OPTIPETSKINCOATFBA**: Close listing real (reapareció 2026-05-06)
+9. **Variation Family Adult**: fecha launch oficial, hero del variation, A+ Content por child, Brand Store
+10. **PPC greenfield**: sin historial al 2026-05-14, definir naming convention + arquitectura
 
 ---
 
-## 📅 Próxima evaluación
+## ⏭️ Próximas evaluaciones
 
-> Esta sección lista los milestones esperados con fechas concretas.
+- **Cuando responda Mario al mensaje del 2026-05-14** → confirmar asignación UPC final, generar v5 flat file local, subir a Amazon
+- **+24-72h post upload v5** → verificar ASINs asignados a OPTIPETFLAVORPULMON + OPTIPETFLAVORPOLLO en Seller Central
+- **Cuando lleguen fotos OPTICAT** (Mario, esperadas 14/05) → revisar y decidir si entra al pipeline Amazon
+- **Cuando lleguen docs compliance Hígado** (cliente) → upload al panel "Add Compliance" del listing OPTIPETFLAVORHIGADO
+- **48h sin respuesta de Mario** → follow-up vía Adam o directo
 
-- **Inmediato (esperando respuesta de Adam vía WhatsApp)**: framing de presentación para chat INASA + ¿Lenin pregunta directo a Mario los UPCs nuevos, o lo maneja Adam?
-- **TBD (cuando responda Adam)**: Lenin escribe directo a Mario y Abraham en chat INASA con los 5 pedidos concretos (UPCs nuevos, peso, imágenes, Non-GMO, OPTICAT)
-- **TBD (cuando lleguen UPCs nuevos)**: armar borrador v5 flat file en local (NO subir hasta Hígado Active)
-- **TBD (cuando lleguen compliance docs)**: upload paquete completo al panel "Add Compliance" del Hígado
-- **TBD (24-72h post-upload)**: Amazon review compliance → si pasa Active, validar si "child SKU not setup correctly" persiste
+---
+
+## 🎯 Prompt para la próxima sesión
+
+> Esta sección la actualiza Claude al cierre. El próximo chat la lee como parte del archivo al arrancar.
+
+**Estado al arrancar**: esperando respuesta de Mario (PETSA) al mensaje enviado 2026-05-14 al chat INASA. El mensaje tiene 3 preguntas abiertas sobre:
+
+1. Preferencia de asignación UPC → sabor (de 4 UPCs nuevos disponibles en pool ADAM REQUEST master sheet rows 21-24)
+2. Estado actual de cajas físicas Flavor Boost (información necesaria para coordinar inbound)
+3. Confirmación de update GS1 + master sheet rows 13/15 una vez locked la asignación
+
+### Cuando Mario responda — flujo previsto
+
+1. **Si Mario tiene preferencia de asignación UPC→sabor** → tomar esa.
+   **Si dice que son intercambiables** → asignación sugerida (queda a decisión Lenin al momento):
+   - `610655663064` → OPTIPETFLAVORPULMON (Pulmón y Melena de León)
+   - `610655848478` → OPTIPETFLAVORPOLLO (Pollo y Cúrcuma)
+   - Pool sobrante (ADAM REQUEST): `610655951536` + `610655934935`
+
+2. **Generar v5 flat file** en local con estos cambios respecto al v4:
+   - UPCs nuevos asignados a Pulmón y Pollo
+   - `package_weight = 297 GR` (era `360 GR` en v4 — confirmado por master sheet col 31)
+   - Resto idéntico al v4 (Hígado se omite — ya creado, sigue su propio track de compliance)
+   - Guardar snapshot en `notes/clients/optipet/flat-files/OPTIPET_FlavorBoost_2026-05-XX_v5.txt`
+
+3. **Subir v5 a Amazon** vía panel "Add Products via Upload" (mismo flujo que v1-v4).
+
+4. **+24-72h post upload** → verificar ASINs asignados a Pulmón y Pollo. Capturar y agregar como hito a `optipet.md` + caso de éxito completo al knowledge `2026-05-08-variation-builder-flat-file-format.md`.
+
+5. **Coordinar inbound** según respuesta de Mario sobre estado de cajas.
+
+### Información clave que necesita estar a mano
+
+- **4 UPCs nuevos en pool**: 610655663064, 610655848478, 610655951536, 610655934935
+- **Codebars físicos**: Drive folder "ADAM CODEBARS" (4 formatos × 4 UPCs)
+- **Peso bruto paquete**: 297g (confirmado master sheet col 31, rows 13-15)
+- **Peso neto producto**: 270g
+- **Dimensiones**: 9.26 × 9.26 × 9.46 cm
+- **Pricing**: $349 MXN Amazon (sin IVA $303.48)
+- **Parent existente**: OPTIPET_FLAVORBOOST_PARENT · ASIN B0H16N6SHP
+- **Sabores reales (master sheet)**: "lung y melena de leon" / "Chicken y curcuma"
+- **UPCs viejos colisionantes** (reservados permanentemente a Cat Treats Inactive): 613365694298 (Tuna Bites B0GPPR1ZGC) + 613365971085 (Chicken Bites B0GPPXWPB1)
+
+### Reglas duras heredadas (no romper)
+
+- **NO asumir nada que no haya dicho Mario explícitamente** (decisión epistemológica 2026-05-14). En particular: no asumir estado de cajas físicas, no asumir asignación de UPC, no asumir timing de inbound. Preguntar primero.
+- **NO esperar Hígado compliance** para subir Pulmón y Pollo — tracks separados.
+- **Subir v5 a Amazon es seguro sin esperar update GS1** — Amazon no valida la asociación producto-específica de GS1 en tiempo real. El update GS1 corre en paralelo.
+
+### Trigger para arrancar la próxima sesión
+
+- Llegó respuesta de Mario al WhatsApp / chat INASA, **o**
+- Pasaron 48h sin respuesta y hay que hacer follow-up
 
 ---
 
@@ -235,6 +287,7 @@ Compliance issue activo:
 
 > Una línea por sesión. Más reciente arriba.
 
+- **2026-05-14**: respuesta Mario (4 UPCs nuevos en pool ADAM REQUEST master sheet rows 21-24, codebars físicos en Drive folder ADAM CODEBARS), peso bruto paquete CONFIRMADO 297g (resuelve pendiente vs 360g v4), mensaje a Mario enviado en formato pregunta abierta (no asumir estado cajas), decisión epistemológica "no asumir nada", hallazgo lateral UPC duplicado VITALPET. Esperando respuesta Mario sobre asignación UPC + estado packaging.
 - **2026-05-12**: diagnóstico compliance Hígado (policy GRLKLZ6WQ9R259LC), análisis Innasa Master Sheet (ingredientes reales confirmados, pricing oficial $349, línea OPTICAT identificada), comunicación con Adam (escribe directo a chat INASA, esperando framing). Adult variation 100% operativa con 65u FBA. FBM zombi reapareció. Cat Treats Inactive NO se eliminan por decisión del cliente.
 - **2026-05-08** (creación inicial): post operación puntual de Variation Family. 3 children FBA agrupados bajo parent `OPTIPET_ADULT_PARENT` (`B0H12ZXVPF`). Theme `Sabor` con valores custom en inglés. Feed batch `50059020581` 4/4 successful. Pre-flight cleanup: FBM zombi `OPTIPETSKINCOATFBA` apagado. Stock FBA 0 disponibles · 72u inbound.
 

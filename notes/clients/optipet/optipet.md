@@ -7,7 +7,7 @@ marketplace: MX
 categoria: petfood
 cuenta: gestionada directamente por Lenin
 ppc_status: sin historial — PPC futuro
-actualizado: 2026-05-12
+actualizado: 2026-05-14
 ---
 
 # OPTIPET
@@ -62,6 +62,12 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
   - Pricing oficial Flavor Boost confirmado: $349 MXN Amazon / $303.48 MXN real
   - Identificada línea OPTICAT nueva (3 SKUs para gatos, 80g, $299 MXN)
   - UPCs originales de Pulmón y Pollo confirmados como bloqueados permanentemente (cliente no elimina Cat Treats Inactive)
+- **2026-05-14** — Respuesta de Mario al pedido del 2026-05-12.
+  - 4 UPCs nuevos agregados al pool ADAM REQUEST en master sheet (filas 21-24)
+  - UPCs disponibles: 610655663064 · 610655848478 · 610655951536 · 610655934935
+  - Codebars físicos generados por Mario en Drive folder "ADAM CODEBARS" (4 formatos × 4 UPCs)
+  - Master sheet confirma peso bruto del paquete Flavor Boost: **297g** (resuelve pendiente vs 360g del v4)
+  - Mensaje enviado a Mario en formato pregunta abierta (no asumir nada sobre cajas) — esperando respuesta sobre asignación UPC + estado packaging
 
 ## Pendientes activos
 
@@ -89,7 +95,7 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
     - Ficha técnica con análisis garantizado
     - Status regulatorio (¿desregulado clase III o código SAGARPA 8 dígitos?)
     - Certificación Non-GMO formal (sin esto, sacar claim del título)
-13. **Peso bruto del paquete**: confirmar 297g (master sheet) vs 360g (intento v4 anterior)
+13. ✅ **RESUELTO 2026-05-14**: peso bruto del paquete = 297g (confirmado master sheet col 31 rows 13-15)
 14. **Imágenes finales en URLs públicas**: las del master sheet están en Drive (no aceptado por Amazon main_image_url) — hay que re-hostear
 15. **OPTICAT roadmap Amazon**: confirmar si entra al pipeline (3 SKUs nuevos para gatos identificados en master sheet)
 16. **FBM zombi `OPTIPETSKINCOATFBA` reapareció Active el 2026-05-06** — apagar con Close listing real
@@ -109,6 +115,10 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 - **Línea OPTICAT** (3 SKUs para gatos, 80g, $299 MXN): identificada en master sheet 2026-05-12, NO lanzada en Amazon todavía. UPCs: 610655906857 (Chicken), 610655895748 (Liver), 610655814770 (Tuna).
 - **Política compliance Amazon MX Pet Food**: `GRLKLZ6WQ9R259LC`. URL: https://sellercentral.amazon.com/help/hub/reference/GRLKLZ6WQ9R259LC
 - **Decisión cliente 2026-05-12**: NO eliminar Cat Treats Inactive (Tuna Bites + Chicken Bites). UPCs originales 613365694298 + 613365971085 quedan reservados permanentemente.
+- **Peso bruto paquete Flavor Boost CONFIRMADO 297g** (master sheet col 31, rows 13-15, validado 2026-05-14). Aplicar `package_weight = 297 GR` en futuros flat files (corrección sobre `360 GR` usado en v4).
+- **4 UPCs nuevos disponibles en pool ADAM REQUEST** (master sheet rows 21-24 al 2026-05-14): `610655663064`, `610655848478`, `610655951536`, `610655934935`. Codebars físicos en Drive folder "ADAM CODEBARS" (4 formatos × 4 UPCs). Intercambiables operativamente hasta que Mario confirme preferencia o lockee asignación en GS1.
+- **Hallazgo lateral master sheet 2026-05-14**: VITALPET row 6 (Chicken Based Adult) y row 11 (Chicken Cookie) comparten UPC `613365632764`. Duplicado interno VITALPET, no problema OPTIPET. Documentado por si Mario lo plantea más adelante.
+- **Regla epistemológica 2026-05-14 (Lenin)**: no asumir nada que no haya sido dicho explícitamente por la contraparte. En particular: no asumir estado de cajas físicas, no asumir asignación de UPC, no asumir timing de inbound. Preguntar primero, actuar después.
 
 ## Wikilinks
 
