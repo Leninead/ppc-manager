@@ -1,5 +1,11 @@
 {
   "version": 1,
+  "_meta": {
+    "status": "documentation",
+    "binding": "non-contract",
+    "updated": "2026-05-15",
+    "note": "Schemas declarados acá son referencia humana, no validados por código. Cada editor define su shape real. Reconsiderar contract-binding en S5 según necesidades del renderer."
+  },
   "updated_at": "2026-05-11",
   "description": "Catálogo canónico de módulos del sistema Sales Proposals. 37 módulos: 8 FIXED + 6 CORE_VARIABLE + 10 COMMON_VARIABLE + 13 SPECIALIZED_VARIABLE. Versionado en git. Toda referencia a module_id desde Blocks o Templates debe existir acá. Why Capybaras v3 con pilar 'Proprietary Operating System' como diferenciador real del Agency OS.",
   "tiers": {
@@ -226,11 +232,21 @@
         "es": "Historia de la marca, contexto fundacional y propuestas de valor."
       },
       "schema": {
-        "founded_year": {"dtype": "int", "required": false},
-        "founder": {"dtype": "string", "required": false},
-        "country": {"dtype": "string", "required": false},
-        "mission_statement": {"dtype": "string", "required": false},
-        "value_props": {"dtype": "array<string>", "required": true, "max_items": 5}
+        "brand_name":          {"dtype": "string", "required": true},
+        "sku_count":           {"dtype": "int", "required": false, "description": "Cantidad total de SKUs activos en Amazon"},
+        "categories":          {"dtype": "array<string>", "required": false, "description": "Categorías Amazon donde vende el cliente"},
+        "markets":             {"dtype": "array<string>", "required": false, "description": "Códigos de país: US, MX, CA, BR, ES, DE, UK, FR, IT, JP, AU"},
+        "amazon_account_type": {"dtype": "string", "required": false, "description": "vendor / seller_fba / seller_fbm / hybrid"},
+        "ppc_maturity":        {"dtype": "string", "required": false, "description": "none / basic / intermediate / advanced"},
+        "hero_asins":          {"dtype": "array<string>", "required": false, "description": "ASINs principales (top revenue/strategic) — case upper"},
+        "monthly_revenue_band":{"dtype": "string", "required": false, "description": "Banda: 0-10k / 10k-50k / 50k-100k / 100k-500k / 500k-1M / 1M+ USD"},
+        "current_acos_band":   {"dtype": "string", "required": false, "description": "Banda: 0-15% / 15-25% / 25-40% / 40-60% / 60%+"}
+      },
+      "copy_overrides_schema": {
+        "brand_description": {"dtype": "string", "i18n": true},
+        "positioning":       {"dtype": "string", "i18n": true},
+        "goals":             {"dtype": "string", "i18n": true},
+        "constraints":       {"dtype": "string", "i18n": true}
       },
       "applicable_archetypes": ["scale_seo", "defense", "cvr", "launch", "custom"],
       "status": "active",
@@ -246,14 +262,18 @@
         "es": "Resumen de mercado: revenue total, ventas totales, precio mediano, reviews medianos, fuerza de competencia (SV + KW), distribución de debilidades."
       },
       "schema": {
-        "category_name": {"dtype": "string", "required": true},
-        "total_revenue": {"dtype": "float", "required": false},
-        "total_sales": {"dtype": "int", "required": false},
-        "median_price": {"dtype": "float", "required": false},
-        "median_reviews": {"dtype": "int", "required": false},
-        "competition_sv_strength_pct": {"dtype": "float", "required": false, "description": "0-100"},
-        "competition_kw_strength_pct": {"dtype": "float", "required": false, "description": "0-100"},
-        "weakness_distribution": {"dtype": "array<object>", "required": false, "description": "Cada objeto: {weakness, pct}"}
+        "category_name":         {"dtype": "string", "required": true},
+        "category_size_band":    {"dtype": "string", "required": false, "description": "Banda revenue total mercado: <$1M / $1-10M / $10-100M / $100M+ / N/A"},
+        "competition_density":   {"dtype": "string", "required": false, "description": "low / medium / high / saturated"},
+        "median_price_band":     {"dtype": "string", "required": false, "description": "Banda precio mediano top sellers: <$10 / $10-25 / $25-50 / $50-100 / $100+ / N/A"},
+        "median_reviews_band":   {"dtype": "string", "required": false, "description": "Banda reviews mediana top sellers: <100 / 100-500 / 500-2k / 2k+ / N/A"},
+        "top_competitors":       {"dtype": "array<string>", "required": false, "description": "Nombres de marcas o ASINs competidores principales"},
+        "weaknesses":            {"dtype": "array<string>", "required": false, "description": "Debilidades identificadas en la categoría (listing, pricing, ratings, etc.)"}
+      },
+      "copy_overrides_schema": {
+        "category_summary":      {"dtype": "string", "i18n": true},
+        "competitive_landscape": {"dtype": "string", "i18n": true},
+        "key_opportunities":     {"dtype": "string", "i18n": true}
       },
       "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],
       "status": "active",

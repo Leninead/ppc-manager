@@ -1102,6 +1102,9 @@ def _render_block_editor(block, proposal, lang):
     if module_id == "V1_brand_overview":
         _render_v1_brand_overview_editor(block, proposal, lang)
         return True
+    elif module_id == "V2_category_overview":
+        _render_v2_category_overview_editor(block, proposal, lang)
+        return True
     return False
 
 
@@ -1119,6 +1122,12 @@ _V1_ACOS_BAND_CHOICES = [
 ]
 
 _V1_MATURITY_CHOICES = ["", "none", "basic", "intermediate", "advanced"]
+
+# V2_category_overview — choices hardcoded (paradigma discovery-PPC, coherente con V1)
+_V2_CATEGORY_SIZE_CHOICES       = ["", "<$1M", "$1-10M", "$10-100M", "$100M+", "N/A"]
+_V2_COMPETITION_DENSITY_CHOICES = ["", "low", "medium", "high", "saturated"]
+_V2_PRICE_BAND_CHOICES          = ["", "<$10", "$10-25", "$25-50", "$50-100", "$100+", "N/A"]
+_V2_REVIEWS_BAND_CHOICES        = ["", "<100", "100-500", "500-2k", "2k+", "N/A"]
 
 
 def _render_v1_brand_overview_editor(block, proposal, lang):
@@ -1485,6 +1494,318 @@ def _discard_v1_brand_overview(proposal, block):
     import streamlit as st
     _invalidate_block_buffer(proposal["id"], block["id"])
     st.toast("↩️ Cambios descartados", icon="🗑️")
+    st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B3-c — Editor V2_category_overview (Plan D, fiel al patrón B3-b)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _render_v2_category_overview_editor(block, proposal, lang):
+    """
+    B3-c Plan D: editor de V2_category_overview basado en buffer mutable en
+    session_state. Réplica fiel del patrón V1 (B3-b).
+
+    Patrón:
+      1. _ensure_block_buffer_v2 hidrata el sub-dict del block (lazy, una vez).
+      2. Cada widget recibe value=<lectura del buffer> SIN key=.
+      3. El retorno del widget se asigna inmediatamente de vuelta al buffer.
+      4. Click Guardar → _save_v2_category_overview.
+      5. Click Descartar → _discard_v2_category_overview.
+    """
+    import streamlit as st
+
+    buf_block = _ensure_block_buffer_v2(proposal, block, lang)
+    bd = buf_block["data"]
+    bc = buf_block["copy_overrides"][lang]
+    bid = block["id"]
+
+    st.markdown("### 📊 V2 Category Overview")
+    st.caption(f"Idioma de la propuesta: {lang}")
+
+    # === Sección 1: Identificación de categoría ===
+    st.markdown("**Identificación de categoría**")
+    v = st.text_input("Nombre de categoría *", value=bd["category_name"])
+    bd["category_name"] = v
+
+    # === Sección 2: Bandas de mercado ===
+    st.markdown("**Bandas de mercado**")
+    col1, col2 = st.columns(2)
+    with col1:
+        _curr = bd["category_size_band"] if bd["category_size_band"] in _V2_CATEGORY_SIZE_CHOICES else ""
+        v = st.selectbox(
+            "Tamaño de mercado",
+            options=_V2_CATEGORY_SIZE_CHOICES,
+            index=_V2_CATEGORY_SIZE_CHOICES.index(_curr),
+        )
+        bd["category_size_band"] = v
+    with col2:
+        _curr = bd["competition_density"] if bd["competition_density"] in _V2_COMPETITION_DENSITY_CHOICES else ""
+        v = st.selectbox(
+            "Densidad competitiva",
+            options=_V2_COMPETITION_DENSITY_CHOICES,
+            index=_V2_COMPETITION_DENSITY_CHOICES.index(_curr),
+        )
+        bd["competition_density"] = v
+
+    col3, col4 = st.columns(2)
+    with col3:
+        _curr = bd["median_price_band"] if bd["median_price_band"] in _V2_PRICE_BAND_CHOICES else ""
+        v = st.selectbox(
+            "Banda de precio mediano",
+            options=_V2_PRICE_BAND_CHOICES,
+            index=_V2_PRICE_BAND_CHOICES.index(_curr),
+        )
+        bd["median_price_band"] = v
+    with col4:
+        _curr = bd["median_reviews_band"] if bd["median_reviews_band"] in _V2_REVIEWS_BAND_CHOICES else ""
+        v = st.selectbox(
+            "Banda de reviews mediano",
+            options=_V2_REVIEWS_BAND_CHOICES,
+            index=_V2_REVIEWS_BAND_CHOICES.index(_curr),
+        )
+        bd["median_reviews_band"] = v
+
+    # === Sección 3: Competidores y debilidades ===
+    st.markdown("**Competidores y debilidades**")
+    v = st.text_area(
+        "Top competidores (uno por línea)",
+        value=bd["_raw_top_competitors"],
+        height=80,
+    )
+    bd["_raw_top_competitors"] = v
+
+    v = st.text_area(
+        "Debilidades de la categoría (una por línea)",
+        value=bd["_raw_weaknesses"],
+        height=80,
+    )
+    bd["_raw_weaknesses"] = v
+
+    # === Sección 4: Copy editable (i18n) ===
+    st.markdown(f"**Copy editorial — idioma {lang}**")
+
+    v = st.text_area("Resumen de categoría", value=bc["category_summary"], height=100)
+    bc["category_summary"] = v
+    v = st.text_area("Panorama competitivo", value=bc["competitive_landscape"], height=80)
+    bc["competitive_landscape"] = v
+    v = st.text_area("Oportunidades clave", value=bc["key_opportunities"], height=80)
+    bc["key_opportunities"] = v
+
+    st.divider()
+    col_save, col_discard, _spacer = st.columns([1, 1, 2])
+    with col_save:
+        if st.button(
+            "💾 Guardar V2",
+            key=f"v2_save_{bid}",
+            type="primary",
+        ):
+            _save_v2_category_overview(block, proposal, lang)
+    with col_discard:
+        if st.button(
+            "↩️ Descartar",
+            key=f"v2_discard_{bid}",
+        ):
+            _discard_v2_category_overview(proposal, block)
+
+
+def _ensure_block_buffer_v2(proposal: dict, block: dict, lang: str) -> dict:
+    """Garantiza que el sub-dict del block V2 existe en el buffer.
+
+    Paralelo a _ensure_block_buffer (V1) — defaults distintos por shape.
+    Refactor a genérico postponed a B3-d (regla N=3).
+
+    Si no existe, lo hidrata desde block["data"] + block["copy_overrides"][lang].
+    Si existe, lo preserva (mantiene edits pendientes del usuario).
+    Devuelve referencia mutable al sub-dict.
+    """
+    import streamlit as st
+    pid = proposal["id"]
+    bid = block["id"]
+    buf_key = _proposal_buffer_key(pid)
+    if buf_key not in st.session_state:
+        st.session_state[buf_key] = {
+            "version": proposal.get("version", 0),
+            "blocks": {},
+        }
+    blocks = st.session_state[buf_key]["blocks"]
+    if bid not in blocks:
+        data_src = block.get("data") or {}
+        overrides_all = block.get("copy_overrides") or {}
+        overrides_lang = overrides_all.get(lang) or {}
+        blocks[bid] = {
+            "data": {
+                "category_name": data_src.get("category_name", "") or "",
+                "category_size_band": data_src.get("category_size_band", "") or "",
+                "competition_density": data_src.get("competition_density", "") or "",
+                "median_price_band": data_src.get("median_price_band", "") or "",
+                "median_reviews_band": data_src.get("median_reviews_band", "") or "",
+                "_raw_top_competitors": "\n".join(data_src.get("top_competitors") or []),
+                "_raw_weaknesses": "\n".join(data_src.get("weaknesses") or []),
+                "top_competitors": list(data_src.get("top_competitors") or []),
+                "weaknesses": list(data_src.get("weaknesses") or []),
+            },
+            "copy_overrides": {
+                lang: {
+                    "category_summary": overrides_lang.get("category_summary", ""),
+                    "competitive_landscape": overrides_lang.get("competitive_landscape", ""),
+                    "key_opportunities": overrides_lang.get("key_opportunities", ""),
+                },
+            },
+            "dirty": False,
+        }
+    return blocks[bid]
+
+
+def _build_v2_payload(buf_block: dict, lang: str):
+    """Aplica transformaciones diferidas y devuelve (new_data, new_copy_lang).
+
+    Función pura: no toca disco, no toca session_state, no rerun.
+    Reutilizable para skip-save check y para commit.
+
+    Transformaciones:
+      - _raw_top_competitors (string multilínea) → top_competitors (lista filtrada, trim)
+      - _raw_weaknesses      (string multilínea) → weaknesses      (lista filtrada, trim)
+      - strings con strip() para evitar whitespace leak
+      - NO mete _raw_* en el dict final (son solo de UI)
+    """
+    buf_data = buf_block["data"]
+
+    raw_competitors = buf_data.get("_raw_top_competitors", "") or ""
+    top_competitors = [c.strip() for c in raw_competitors.split("\n") if c.strip()]
+
+    raw_weaknesses = buf_data.get("_raw_weaknesses", "") or ""
+    weaknesses = [w.strip() for w in raw_weaknesses.split("\n") if w.strip()]
+
+    new_data = {
+        "category_name": (buf_data.get("category_name", "") or "").strip(),
+        "category_size_band": buf_data.get("category_size_band", "") or "",
+        "competition_density": buf_data.get("competition_density", "") or "",
+        "median_price_band": buf_data.get("median_price_band", "") or "",
+        "median_reviews_band": buf_data.get("median_reviews_band", "") or "",
+        "top_competitors": top_competitors,
+        "weaknesses": weaknesses,
+    }
+
+    new_copy_lang = dict(buf_block.get("copy_overrides", {}).get(lang, {}))
+
+    return new_data, new_copy_lang
+
+
+def _v2_payload_matches_disk(buf_block: dict, block: dict, lang: str) -> bool:
+    """True si el payload del buffer V2 es idéntico al block actual en disco.
+
+    Compara new_data y new_copy_lang contra block['data'] y
+    block['copy_overrides'][lang]. Si todo coincide, no hay nada para guardar.
+
+    Nota: la comparación es estricta con ==. Si en disco hay un dict con
+    menos keys que el payload nuevo (caso del primer save sobre un block
+    con data={}), devuelve False — queremos escribir aunque los valores
+    nuevos sean defaults, porque el shape cambia.
+    """
+    new_data, new_copy_lang = _build_v2_payload(buf_block, lang)
+
+    disk_data = block.get("data") or {}
+    disk_overrides_all = block.get("copy_overrides") or {}
+    disk_overrides_lang = disk_overrides_all.get(lang) or {}
+
+    if new_data != disk_data:
+        return False
+    if new_copy_lang != disk_overrides_lang:
+        return False
+    return True
+
+
+def _commit_v2_to_disk(buf_block: dict, proposal: dict, block: dict, lang: str) -> dict:
+    """Persiste el sub-dict del buffer V2 al disco vía pp.save_proposal.
+
+    NO toca session_state. NO llama st.rerun. NO llama st.toast.
+    Devuelve el dict saved con version bumpeada.
+    """
+    import copy as _copy
+    import core.proposal_persistence as pp
+
+    new_data, new_copy_lang = _build_v2_payload(buf_block, lang)
+
+    cloned = _copy.deepcopy(proposal)
+    target_block_id = block["id"]
+    mutated = False
+    for b in cloned.get("blocks", []):
+        if b.get("id") == target_block_id:
+            b["data"] = new_data
+            current_overrides = b.get("copy_overrides") or {}
+            current_overrides[lang] = new_copy_lang
+            other_lang = "en" if lang == "es" else "es"
+            if other_lang not in current_overrides:
+                current_overrides[other_lang] = {
+                    "category_summary": "",
+                    "competitive_landscape": "",
+                    "key_opportunities": "",
+                }
+            b["copy_overrides"] = current_overrides
+            mutated = True
+            break
+
+    if not mutated:
+        raise ValueError(f"Block id={target_block_id} no encontrado en proposal")
+
+    saved = pp.save_proposal(cloned)
+    return saved
+
+
+def _save_v2_category_overview(block, proposal, lang):
+    """Persiste cambios del editor V2 (Plan D: buffer → disco).
+
+    Flow:
+      1. Lee buf_block del session_state.
+      2. _commit_v2_to_disk aplica transformaciones diferidas y persiste.
+      3. Invalida solo el sub-dict del block commiteado (otros blocks sobreviven).
+      4. Actualiza version snapshot en el buffer global.
+      5. Toast + rerun.
+    """
+    import streamlit as st
+
+    pid = proposal["id"]
+    bid = block["id"]
+    buf_block = _block_buffer(pid, bid)
+    if buf_block is None:
+        st.error("Estado inconsistente: el buffer del bloque V2 no existe. Cambios NO guardados.")
+        return
+
+    # Skip-save guard: si el payload del buffer es idéntico al disco,
+    # no escribimos una versión nueva idéntica.
+    if _v2_payload_matches_disk(buf_block, block, lang):
+        st.toast("Sin cambios para guardar", icon="ℹ️")
+        _invalidate_block_buffer(pid, bid)
+        st.rerun()
+        return
+
+    try:
+        saved = _commit_v2_to_disk(buf_block, proposal, block, lang)
+    except ValueError as e:
+        st.error(f"❌ No se pudo guardar: {e}")
+        return
+
+    _invalidate_block_buffer(pid, bid)
+
+    # Actualizar version snapshot en el buffer global (si todavía existe)
+    buf = st.session_state.get(_proposal_buffer_key(pid))
+    if buf is not None:
+        buf["version"] = saved.get("version", buf.get("version", 0))
+
+    st.toast(
+        f"💾 V2 Category Overview guardado (v{saved.get('version')})",
+        icon="✅",
+    )
+    st.rerun()
+
+
+def _discard_v2_category_overview(proposal, block):
+    """Descarta cambios del editor V2 invalidando solo su sub-dict del buffer."""
+    import streamlit as st
+    _invalidate_block_buffer(proposal["id"], block["id"])
+    st.toast("↩️ Cambios V2 descartados", icon="🗑️")
     st.rerun()
 
 
