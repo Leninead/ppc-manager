@@ -1,11 +1,35 @@
 ---
 tipo: state
-actualizado: 2026-05-13
+actualizado: 2026-05-15
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-05-15
+
+Sesión multi-frente. Logros, bloqueos y plan próxima semana:
+
+**M27 — Cerrado v2 con extensión Strategy 3.5 (113→256)**
+- Tabla `_STRUCTURED_ALIASES` (40 entradas) agregada a `flat_file_migrator.py`
+- Cobertura Apparel/Coat USA: 41% → 50.7%, críticos 7/9 → 9/9
+- Validado offline con archivos reales de Marcos
+- Pendiente: Marcos prueba local + feedback
+
+**M29 — Bug crítico botones Guardar V1 y V2 (sin resolver)**
+- Regresión V1 introducida en commit `9a3eaad` (15/05)
+- Auditoría forense ejecutada, pendiente de leer
+- Compromiso público Slack en riesgo (fases 3+4 vencen domingo 18/05)
+
+**Atom11 MCP — Diferido a próxima semana**
+- 25 tools custom disponibles via `api.atom11.co/mcp`
+- Sesión dedicada ~45 min planificada
+- No bloquea ningún cliente urgente
+
+Detalle: [[2026-05-15]] · [[2026-05-15-m27-strategy-3-5-structured]] · [[2026-05-15-m29-bug-save-buttons]] · [[2026-05-15-atom11-mcp-integration]]
 
 ---
 
@@ -656,7 +680,74 @@ Detalle completo en `notes/daily/2026-05-12.md` (sección "Sesión Setex 12/05/2
 
 ---
 
+### 14. Tests E2E con `streamlit.testing.v1.AppTest` para M29 (prioridad ALTA)
+
+**Hallazgo (2026-05-15):** El bug de botones Guardar V1+V2 que se introdujo en commit `9a3eaad` y rompió V1 (regresión real) pasó por encima de 42/42 tests pytest verdes. Los tests ejercitan `save_proposal()` y normalización de payloads a nivel de API, pero NO el dispatch de botones de Streamlit ni el lifecycle de session_state entre reruns.
+
+**Por qué sube de prioridad MEDIANO PLAZO → ALTA:** caso real ya ocurrido. Cada vez que se toca código compartido entre editores V1-V6 hay riesgo de regresión silenciosa hasta que un humano haga smoke test manual.
+
+**Plan**: agregar tests AppTest E2E que cubran al menos:
+1. Abrir editor V1 → editar `brand_name` → click "💾 Guardar V1" → verificar que `data/sales/proposals/<uuid>__vN+1.json` existe con el cambio
+2. Mismo flujo para V2 cuando esté estable
+3. Round-trip: cerrar y reabrir → cambios persisten
+
+**Trigger inmediato**: incluir en Sesión A.2 ya planificada (tests pytest con monkeypatch + tests AppTest E2E juntos).
+
+Detalle: [[2026-05-15-m29-bug-save-buttons]]
+
+---
+
+### 15. `_STRUCTURED_ALIASES` de M27 validado solo para Apparel/Coat USA (prioridad BAJA, on-demand)
+
+**Hallazgo (2026-05-15):** La tabla `_STRUCTURED_ALIASES` (40 mappings) que habilita Strategy 3.5 de M27 v2 fue diseñada y validada **solo** con flat files de Apparel/Coat USA. Otras categorías (electrónica, comida/grocery, beauty, supplements, pet food) usan nombres de subfields distintos en feedType 256 que NO están en la tabla.
+
+**Hoy no rompe nada**: M27 cae graceful a Strategy 4 (base) o Strategy 5 (header) cuando el mapping estructurado no existe. La cobertura puede bajar a ~40% en otras categorías pero el módulo no falla.
+
+**Plan de extensión bajo demanda** (no preventivo):
+1. Cliente reporta caso 113→256 en otra categoría
+2. Lenin inspecciona los 2 archivos con script offline (template: `tests/test_m27_v2_structured.py`)
+3. Agregar entradas faltantes a `_STRUCTURED_ALIASES`
+4. Test fixture nueva + commit + actualizar [[2026-05-15-m27-strategy-3-5-structured]]
+
+**No se debe atacar preventivamente**: cubrir los ~250 productTypes de Amazon sería 1-2 semanas de trabajo sin ROI confirmado. El módulo cumple su función con Apparel hoy.
+
+Detalle: [[2026-05-15-m27-strategy-3-5-structured]]
+
+---
+
 ## Próximos pasos inmediatos
+
+### Próxima semana (18-24/05) — orden de prioridad
+
+**1. M29 fix bug Guardar V1/V2 — sábado 16 o domingo 17/05 (URGENTE)**
+- Leer output de auditoría forense
+- Implementar fix
+- Smoke test ambos editores
+- Si toma >2h sin progreso → mensaje preventivo Slack ajustando deadline 18/05
+
+**2. M29 continuar S3-B3-c, B3-d, B3-e — semana 18-24/05**
+- 5 editores CORE pendientes después del fix del bug
+- Cierre fases 3+4 (compromiso público)
+- Sesión A.2 tests pytest con monkeypatch (deuda activa)
+
+**3. M27 closing loop con Marcos — lunes 18/05**
+- Mensaje Slack: "M27 v2 listo, probá local con tus 2 archivos"
+- Esperar feedback visual del output v2
+- Decisión post-feedback: ¿extender a otras categorías o queda en Apparel?
+
+**4. Atom11 MCP discovery — semana 18-25/05 (sesión dedicada ~45 min)**
+- No bloquea M29 ni M27
+- Alcance acotado: documentar workflows en `notes/knowledge/`
+- Hipótesis previa: NO reemplaza M14, NO necesita módulo nuevo
+- Trigger: cuando M29 fases 3+4 estén cerradas
+
+Detalle Atom11: [[2026-05-15-atom11-mcp-integration]]
+Detalle M27: [[2026-05-15-m27-strategy-3-5-structured]]
+Detalle M29 bug: [[2026-05-15-m29-bug-save-buttons]]
+
+---
+
+### Backlog general
 
 1. **Validar otros agentes con model fix en operación real**: `ppc-module-builder`, `atom11-specialist`, `excel-export-builder`, `ui-designer`, `testing-agent`, `client-onboarding`. Los 2 agentes Opus 4.7 nuevos (`data-persistence-specialist`, `html-to-streamlit-porter`) ya fueron validados al primer intento (Caso 1 en sesión 2026-05-07, Caso 2 en sesión 2026-05-08). `code-reviewer` validado en sesion 2026-05-09 (detalle en `notes/daily/2026-05-09.md`).
 
