@@ -556,3 +556,124 @@ def test_save_proposal_v2_preserves_other_blocks_unchanged():
     assert len(loaded_others) == len(other_blocks_snapshot)
     for original, after in zip(other_blocks_snapshot, loaded_others):
         assert original == after, f"Block {original.get('module_id')} cambió entre v1 y v2"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B3-c — Tests V2_category_overview (round-trip + anti-regresión cross-block)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_save_proposal_persists_v2_category_overview_data():
+    """data de V2_category_overview persiste idéntico tras save + get."""
+    p = _make_minimal_proposal_from_launch_template()
+    v2 = next(b for b in p["blocks"] if b["module_id"] == "V2_category_overview")
+    v2["data"] = {
+        "category_name": "Pet supplements",
+        "category_size_band": "$10-100M",
+        "competition_density": "high",
+        "median_price_band": "$25-50",
+        "median_reviews_band": "500-2k",
+        "top_competitors": ["Brand A", "Brand B", "Brand C"],
+        "weaknesses": ["Listings sin A+", "Reviews bajos en top 10"],
+    }
+
+    saved = pp.save_proposal(p)
+    assert saved["version"] == 1
+
+    loaded = pp.get_proposal(saved["id"])
+    assert loaded is not None
+    loaded_v2 = next(b for b in loaded["blocks"] if b["module_id"] == "V2_category_overview")
+
+    assert loaded_v2["data"] == v2["data"]
+
+
+def test_save_proposal_persists_v2_category_overview_copy_overrides_es_en():
+    """copy_overrides V2 con ambos idiomas persiste y respeta el contrato i18n."""
+    p = _make_minimal_proposal_from_launch_template()
+    v2 = next(b for b in p["blocks"] if b["module_id"] == "V2_category_overview")
+    v2["copy_overrides"] = {
+        "es": {
+            "category_summary": "Mercado fragmentado de pet supplements.",
+            "competitive_landscape": "3 marcas dominan el top 10 con presencia inconsistente.",
+            "key_opportunities": "Hueco en sub-segmento natural y reviews bajos en competidores.",
+        },
+        "en": {
+            "category_summary": "Fragmented pet supplements market.",
+            "competitive_landscape": "3 brands dominate top 10 with inconsistent presence.",
+            "key_opportunities": "Gap in natural sub-segment and weak reviews in competitors.",
+        },
+    }
+
+    saved = pp.save_proposal(p)
+    loaded = pp.get_proposal(saved["id"])
+    loaded_v2 = next(b for b in loaded["blocks"] if b["module_id"] == "V2_category_overview")
+
+    assert loaded_v2["copy_overrides"]["es"] == v2["copy_overrides"]["es"]
+    assert loaded_v2["copy_overrides"]["en"] == v2["copy_overrides"]["en"]
+    assert set(loaded_v2["copy_overrides"].keys()) == {"es", "en"}
+
+
+def test_save_v2_category_overview_does_not_corrupt_v1_brand_overview():
+    """Anti-regresión cross-block: poblar V1 → save → poblar V2 → save. V1 sobrevive intacto.
+
+    Valida que el flow Plan D de V2 (commit deepcopy + mutación selectiva por block id)
+    no pisa state de otros blocks editables. Es el test más importante porque protege
+    contra regresiones del dispatcher y del commit_v2_to_disk.
+    """
+    import copy as _copy
+
+    p = _make_minimal_proposal_from_launch_template()
+
+    # Paso 1: poblar V1 con data real, save (v1).
+    v1 = next(b for b in p["blocks"] if b["module_id"] == "V1_brand_overview")
+    v1_payload = {
+        "brand_name": "TestBrand",
+        "sku_count": 42,
+        "categories": ["Skincare", "Wellness"],
+        "markets": ["US", "MX"],
+        "amazon_account_type": "seller_fba",
+        "ppc_maturity": "intermediate",
+        "hero_asins": ["B01ABCDE", "B02FGHIJ"],
+        "monthly_revenue_band": "100k-500k USD",
+        "current_acos_band": "15-25%",
+    }
+    v1["data"] = v1_payload
+
+    saved_v1 = pp.save_proposal(p)
+    assert saved_v1["version"] == 1
+
+    # Paso 2: cargar la propuesta, poblar V2 con data real, save (v2).
+    loaded_after_v1 = pp.get_proposal(saved_v1["id"])
+    mutated = _copy.deepcopy(loaded_after_v1)
+    v2 = next(b for b in mutated["blocks"] if b["module_id"] == "V2_category_overview")
+    v2_payload = {
+        "category_name": "Pet supplements",
+        "category_size_band": "$10-100M",
+        "competition_density": "high",
+        "median_price_band": "$25-50",
+        "median_reviews_band": "500-2k",
+        "top_competitors": ["Brand A", "Brand B"],
+        "weaknesses": ["Listings sin A+", "Reviews bajos"],
+    }
+    v2["data"] = v2_payload
+
+    saved_v2 = pp.save_proposal(mutated)
+    assert saved_v2["version"] == 2
+
+    # Paso 3: load final, assert cross-block preservation.
+    loaded_final = pp.get_proposal(saved_v1["id"])
+    loaded_v1 = next(b for b in loaded_final["blocks"] if b["module_id"] == "V1_brand_overview")
+    loaded_v2 = next(b for b in loaded_final["blocks"] if b["module_id"] == "V2_category_overview")
+
+    assert loaded_v1["data"] == v1_payload, "V1 data fue corrompida por el save de V2"
+    assert loaded_v2["data"] == v2_payload, "V2 data no persistió correctamente"
+
+    # Bonus: el resto de los blocks NO debe tener data poblada accidentalmente.
+    other_blocks = [
+        b for b in loaded_final["blocks"]
+        if b["module_id"] not in ("V1_brand_overview", "V2_category_overview")
+    ]
+    for b in other_blocks:
+        assert b["data"] == {}, (
+            f"Block {b['module_id']} se llenó accidentalmente: {b['data']}"
+        )
