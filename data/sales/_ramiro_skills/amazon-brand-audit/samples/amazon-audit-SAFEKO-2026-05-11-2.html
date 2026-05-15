@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Amazon Brand Audit — SAFEKO | Capybaras Agency</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --black: #0E0E0E;
+      --dark: #000000;
+      --orange: #FF3300;
+      --orange-light: #E85B03;
+      --white: #FFFFFF;
+      --gray-1: #1A1A1A;
+      --gray-2: #2A2A2A;
+      --gray-3: #3D3D3D;
+      --gray-text: #888888;
+      --green: #22C55E;
+      --red: #EF4444;
+      --amber: #F59E0B;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--black);
+      color: var(--white);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
+    .section { padding: 64px 0; border-bottom: 1px solid var(--gray-2); }
+
+    /* HEADER */
+    .report-header {
+      background: var(--dark);
+      border-bottom: 3px solid var(--orange);
+      padding: 48px 0 40px;
+    }
+    .agency-tag {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 13px;
+      letter-spacing: 4px;
+      color: var(--orange);
+      margin-bottom: 16px;
+    }
+    .report-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(42px, 6vw, 72px);
+      letter-spacing: 2px;
+      line-height: 1;
+      color: var(--white);
+    }
+    .report-title span { color: var(--orange); }
+    .report-meta {
+      margin-top: 20px;
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+    .meta-item {
+      font-size: 13px;
+      color: var(--gray-text);
+      letter-spacing: 1px;
+    }
+    .meta-item strong { color: var(--white); }
+
+    /* SECTION LABELS */
+    .section-label {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 11px;
+      letter-spacing: 5px;
+      color: var(--orange);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+    .section-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(28px, 4vw, 42px);
+      letter-spacing: 1px;
+      color: var(--white);
+      margin-bottom: 24px;
+    }
+
+    /* EXEC SUMMARY */
+    .exec-summary {
+      background: var(--gray-1);
+      border-left: 4px solid var(--orange);
+      padding: 28px 32px;
+      border-radius: 0 8px 8px 0;
+      font-size: 16px;
+      line-height: 1.8;
+      color: #DDDDDD;
+    }
+
+    /* STAT CARDS */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+    .stat-card {
+      background: var(--gray-1);
+      border: 1px solid var(--gray-2);
+      border-radius: 8px;
+      padding: 24px;
+    }
+    .stat-label {
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--gray-text);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .stat-value {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 34px;
+      color: var(--white);
+      line-height: 1;
+    }
+    .stat-value.orange { color: var(--orange); }
+    .stat-sub {
+      font-size: 12px;
+      color: var(--gray-text);
+      margin-top: 4px;
+    }
+
+    /* COMPARISON TABLE */
+    .compare-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 24px;
+    }
+    .compare-table th {
+      text-align: left;
+      padding: 12px 16px;
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--gray-text);
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--gray-2);
+    }
+    .compare-table th.highlight { color: var(--orange); }
+    .compare-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--gray-2);
+      font-size: 14px;
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table .metric-name { color: var(--gray-text); font-size: 13px; }
+    .compare-table .lead-val { color: var(--white); font-weight: 600; }
+    .compare-table .median-val { color: var(--gray-text); }
+    .compare-table .top-val { color: var(--gray-text); }
+    .badge-bad { color: var(--red); font-size: 11px; font-weight: 600; letter-spacing: 1px; }
+    .badge-ok { color: var(--amber); font-size: 11px; font-weight: 600; letter-spacing: 1px; }
+    .badge-good { color: var(--green); font-size: 11px; font-weight: 600; letter-spacing: 1px; }
+
+    /* GRADE CARDS */
+    .grade-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-top: 24px;
+    }
+    @media (max-width: 700px) { .grade-row { grid-template-columns: repeat(2, 1fr); } }
+    .grade-card {
+      background: var(--gray-1);
+      border: 1px solid var(--gray-2);
+      border-radius: 8px;
+      padding: 20px 16px;
+      text-align: center;
+    }
+    .grade-card .lane-name {
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--gray-text);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .grade-letter {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 56px;
+      line-height: 1;
+    }
+    .grade-A { color: var(--green); }
+    .grade-B { color: #84CC16; }
+    .grade-C { color: var(--amber); }
+    .grade-D { color: #F97316; }
+    .grade-F { color: var(--red); }
+
+    /* LANE BREAKDOWNS */
+    .lane-section {
+      margin-top: 48px;
+      padding-top: 48px;
+      border-top: 1px solid var(--gray-2);
+    }
+    .lane-section:first-child { margin-top: 24px; padding-top: 0; border-top: none; }
+    .lane-header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+    .lane-grade-badge {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 48px;
+      line-height: 1;
+      min-width: 56px;
+    }
+    .lane-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 28px;
+      letter-spacing: 1px;
+    }
+    .findings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+    @media (max-width: 600px) { .findings-grid { grid-template-columns: 1fr; } }
+    .findings-box {
+      background: var(--gray-1);
+      border-radius: 8px;
+      padding: 20px 24px;
+    }
+    .findings-box.working { border-top: 3px solid var(--green); }
+    .findings-box.opportunities { border-top: 3px solid var(--orange); }
+    .findings-label {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+    .findings-box.working .findings-label { color: var(--green); }
+    .findings-box.opportunities .findings-label { color: var(--orange); }
+    .finding-item {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #CCCCCC;
+    }
+    .finding-item:last-child { margin-bottom: 0; }
+    .finding-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-top: 7px;
+      flex-shrink: 0;
+    }
+    .working .finding-dot { background: var(--green); }
+    .opportunities .finding-dot { background: var(--orange); }
+
+    /* KEYWORD GAP TABLE */
+    .kw-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 24px;
+    }
+    .kw-table th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--gray-text);
+      border-bottom: 1px solid var(--gray-2);
+      text-transform: uppercase;
+    }
+    .kw-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--gray-2);
+      font-size: 14px;
+    }
+    .kw-table tr:last-child td { border-bottom: none; }
+    .kw-absent { color: var(--red); font-weight: 600; font-size: 12px; letter-spacing: 1px; }
+    .kw-rank { color: var(--gray-text); font-size: 13px; }
+    .kw-sv { color: var(--white); font-weight: 500; }
+
+    /* NEXT STEPS */
+    .next-steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 24px;
+    }
+    @media (max-width: 700px) { .next-steps-grid { grid-template-columns: 1fr; } }
+    .next-step-card {
+      background: var(--gray-1);
+      border: 1px solid var(--gray-2);
+      border-radius: 8px;
+      padding: 24px;
+    }
+    .step-number {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 48px;
+      color: var(--orange);
+      line-height: 1;
+      margin-bottom: 12px;
+      opacity: 0.4;
+    }
+    .step-title {
+      font-weight: 600;
+      font-size: 15px;
+      margin-bottom: 8px;
+      color: var(--white);
+    }
+    .step-body {
+      font-size: 13px;
+      color: var(--gray-text);
+      line-height: 1.6;
+    }
+
+    /* FOOTER */
+    .report-footer {
+      background: var(--dark);
+      border-top: 1px solid var(--gray-2);
+      padding: 32px 0;
+      text-align: center;
+    }
+    .footer-brand {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 20px;
+      letter-spacing: 4px;
+      color: var(--orange);
+    }
+    .footer-tagline {
+      font-size: 12px;
+      color: var(--gray-text);
+      margin-top: 6px;
+      letter-spacing: 1px;
+    }
+
+    /* ALERT BANNER */
+    .alert-banner {
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+    .alert-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .alert-text {
+      font-size: 14px;
+      color: #CCCCCC;
+      line-height: 1.6;
+    }
+    .alert-text strong { color: var(--red); }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="report-header">
+    <div class="container">
+      <div class="agency-tag">CAPYBARAS AGENCY — AMAZON BRAND AUDIT</div>
+      <h1 class="report-title">BRAND DIAGNOSTIC<br><span>SAFEKO</span></h1>
+      <div class="report-meta">
+        <span class="meta-item">ASIN: <strong>B0CR4ZMPBF</strong></span>
+        <span class="meta-item">CATEGORY: <strong>Health &amp; Household</strong></span>
+        <span class="meta-item">NICHE: <strong>Nitrile Gloves (XXL/Disposable)</strong></span>
+        <span class="meta-item">DATE: <strong>May 11, 2026</strong></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- EXECUTIVE SUMMARY -->
+  <section class="section">
+    <div class="container">
+      <div class="section-label">Overview</div>
+      <h2 class="section-title">Executive Summary</h2>
+      <div class="exec-summary">
+        SAFEKO is a legitimate brand with real products and a solid 4.8-star rating — but on Amazon, they are effectively invisible. This specific ASIN (B0CR4ZMPBF) generated just $3,185 in revenue over the last 30 days in a niche worth <strong>$22.4 million per month</strong>, capturing a fraction of a percent of available demand. They rank on zero keywords on page 1, run zero advertising, and are selling FBM in a category where FBA is table stakes. The infrastructure to compete is mostly absent: no organic footprint, no paid visibility, and a review count of 41 against a niche median of 7,457. The silver lining is that the brand has multiple SKUs, competitive pricing right at the niche median, a 75-year legacy in PPE they can lean on — and a category with massive, proven demand. Everything that's broken here can be fixed. The opportunity cost of staying on the current path is significant.
+      </div>
+    </div>
+  </section>
+
+  <!-- NICHE SNAPSHOT -->
+  <section class="section">
+    <div class="container">
+      <div class="section-label">Market Context</div>
+      <h2 class="section-title">Niche at a Glance</h2>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Niche Revenue (30d)</div>
+          <div class="stat-value">$22.4M</div>
+          <div class="stat-sub">8 tracked competitors</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Median BSR</div>
+          <div class="stat-value">2,326</div>
+          <div class="stat-sub">Health &amp; Household</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Median Review Count</div>
+          <div class="stat-value">7,457</div>
+          <div class="stat-sub">4.7 / 5 median rating</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Median Price</div>
+          <div class="stat-value">$65.73</div>
+          <div class="stat-sub">Large standard &amp; bulky sizing</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Effective Search Volume</div>
+          <div class="stat-value orange">1.8M</div>
+          <div class="stat-sub">Total niche SV: 5.9M</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Top Competitor (30d Revenue)</div>
+          <div class="stat-value">MED PRIDE</div>
+          <div class="stat-sub">$12.76M / month</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LEAD VS NICHE -->
+  <section class="section">
+    <div class="container">
+      <div class="section-label">Competitive Benchmark</div>
+      <h2 class="section-title">SAFEKO vs The Market</h2>
+
+      <div class="alert-banner">
+        <div class="alert-icon">⚠️</div>
+        <div class="alert-text">
+          <strong>Critical gap across every revenue metric.</strong> SAFEKO is priced competitively and has a good rating — but has zero organic presence and zero advertising, which makes both irrelevant to their actual sales performance.
+        </div>
+      </div>
+
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th class="highlight">SAFEKO</th>
+            <th>Niche Median</th>
+            <th>MED PRIDE (Top)</th>
+            <th>Signal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="metric-name">30d Revenue</td>
+            <td class="lead-val">$3,185</td>
+            <td class="median-val">$144K–$3.1M</td>
+            <td class="top-val">$12,760,543</td>
+            <td><span class="badge-bad">CRITICAL</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">30d Sales (Units)</td>
+            <td class="lead-val">49</td>
+            <td class="median-val">5,460–43,671</td>
+            <td class="top-val">154,692</td>
+            <td><span class="badge-bad">CRITICAL</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Review Count</td>
+            <td class="lead-val">41</td>
+            <td class="median-val">7,457</td>
+            <td class="top-val">103,636</td>
+            <td><span class="badge-bad">CRITICAL</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Rating</td>
+            <td class="lead-val">4.8 ⭐</td>
+            <td class="median-val">4.7</td>
+            <td class="top-val">4.7</td>
+            <td><span class="badge-good">STRONG</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Price</td>
+            <td class="lead-val">$64.99</td>
+            <td class="median-val">$65.73</td>
+            <td class="top-val">$79.00</td>
+            <td><span class="badge-ok">AT MEDIAN</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Keywords on Page 1</td>
+            <td class="lead-val">0</td>
+            <td class="median-val">194</td>
+            <td class="top-val">233</td>
+            <td><span class="badge-bad">CRITICAL</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Share of Voice (SV on P1%)</td>
+            <td class="lead-val">0%</td>
+            <td class="median-val">30%</td>
+            <td class="top-val">83%</td>
+            <td><span class="badge-bad">CRITICAL</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Fulfillment</td>
+            <td class="lead-val">FBM</td>
+            <td class="median-val">Mostly FBA</td>
+            <td class="top-val">FBA</td>
+            <td><span class="badge-bad">DISADVANTAGE</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Variations</td>
+            <td class="lead-val">15</td>
+            <td class="median-val">14.5</td>
+            <td class="top-val">8</td>
+            <td><span class="badge-good">STRONG</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Advertised Keywords</td>
+            <td class="lead-val">0</td>
+            <td class="median-val">0</td>
+            <td class="top-val">0</td>
+            <td><span class="badge-ok">NICHE NORM</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Outlier Search Volume</td>
+            <td class="lead-val">0</td>
+            <td class="median-val">86,640</td>
+            <td class="top-val">4,185,207</td>
+            <td><span class="badge-bad">CRITICAL</span></td>
+          </tr>
+          <tr>
+            <td class="metric-name">Listing Age</td>
+            <td class="lead-val">3 yrs 9 mos</td>
+            <td class="median-val">4 yrs 3 mos</td>
+            <td class="top-val">10 yrs 9 mos</td>
+            <td><span class="badge-ok">NEAR MEDIAN</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SCORECARD -->
+  <section class="section">
+    <div class="container">
+      <div class="section-label">Scorecard</div>
+      <h2 class="section-title">Performance by Lane</h2>
+      <div class="grade-row">
+        <div class="grade-card">
+          <div class="lane-name">Listing &amp; Content</div>
+          <div class="grade-letter grade-C">C</div>
+        </div>
+        <div class="grade-card">
+          <div class="lane-name">Visual Content</div>
+          <div class="grade-letter grade-C">C</div>
+        </div>
+        <div class="grade-card">
+          <div class="lane-name">Social Proof</div>
+          <div class="grade-letter grade-D">D</div>
+        </div>
+        <div class="grade-card">
+          <div class="lane-name">Competitive Position</div>
+          <div class="grade-letter grade-F">F</div>
+        </div>
+        <div class="grade-card">
+          <div class="lane-name">Advertising &amp; Visibility</div>
+          <div class="grade-letter grade-F">F</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LANE BREAKDOWNS -->
+  <section class="section">
+    <div class="container">
+      <div class="section-label">Detailed Analysis</div>
+      <h2 class="section-title">Lane Breakdown</h2>
+
+      <!-- Lane 1: Listing & Content -->
+      <div class="lane-section">
+        <div class="lane-header">
+          <div class="lane-grade-badge grade-C">C</div>
+          <div>
+            <div class="lane-title">Listing &amp; Content</div>
+            <div style="font-size:13px; color:var(--gray-text);">Title · Bullet Points · A+ Content</div>
+          </div>
+        </div>
+        <div class="findings-grid">
+          <div class="findings-box working">
+            <div class="findings-label">What's Working</div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>SAFEKO's brand copy across their catalog is clear and professional — "75 years of experience in PPE" is a credibility anchor that competitors can't claim.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>Bullets cover the core product attributes (latex-free, powder-free, textured fingertips, ambidextrous, multipurpose) and are present across the catalog.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>Competitive price at $64.99 — right at the niche median of $65.73 — removes price as a friction point for conversion.</span>
+            </div>
+          </div>
+          <div class="findings-box opportunities">
+            <div class="findings-label">Opportunities</div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>The title needs a full keyword overhaul. The niche is dominated by size-specific searches (XXL, XXXL, 2XL) — the title must lead with the primary keyword and size variant to index properly.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>Bullets are feature-led rather than benefit-led. Top performers frame around the buyer's use case ("mechanic work," "food prep," "medical environments") — this ASIN needs that reframe.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>A+ Content, if not yet present, is a direct upgrade to conversion rate. In Health &amp; Household, A+ with comparison modules and credentialing visuals is standard for top competitors.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lane 2: Visual Content -->
+      <div class="lane-section">
+        <div class="lane-header">
+          <div class="lane-grade-badge grade-C">C</div>
+          <div>
+            <div class="lane-title">Visual Content</div>
+            <div style="font-size:13px; color:var(--gray-text);">Images · Video</div>
+          </div>
+        </div>
+        <div class="findings-grid">
+          <div class="findings-box working">
+            <div class="findings-label">What's Working</div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>SAFEKO's brand identity is clean and consistent across their Amazon store, suggesting a baseline visual quality that can be built on.</span>
+            </div>
+          </div>
+          <div class="findings-box opportunities">
+            <div class="findings-label">Opportunities</div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>No brand video detected. In a high-volume niche where buyers are choosing between multiple near-identical products, a product demo video showing durability, thickness, and fit dramatically improves conversion — and is absent for this ASIN.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>The image stack for this ASIN needs infographic-style slides: a mil-thickness callout, a glove construction cross-section, FDA/chemo approval badges, and a lifestyle shot (mechanic/medical context). Pure product shots don't compete with MED PRIDE or GLOVEWORKS visually.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>A comparison infographic positioning SAFEKO's 75+ years vs. newer brands is a direct conversion tool that no other competitor in this niche appears to be using.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lane 3: Social Proof -->
+      <div class="lane-section">
+        <div class="lane-header">
+          <div class="lane-grade-badge grade-D">D</div>
+          <div>
+            <div class="lane-title">Social Proof</div>
+            <div style="font-size:13px; color:var(--gray-text);">Reviews · Rating · Velocity</div>
+          </div>
+        </div>
+        <div class="findings-grid">
+          <div class="findings-box working">
+            <div class="findings-label">What's Working</div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>4.8-star rating is the highest in the niche — above the median of 4.7 and tied for best-in-class. When buyers do land on the listing, the product itself earns their trust.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>The product quality signal is real — this is not a listing with quality problems hiding behind low volume. The ceiling is high if review count is accelerated.</span>
+            </div>
+          </div>
+          <div class="findings-box opportunities">
+            <div class="findings-label">Opportunities</div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>41 reviews against a niche median of 7,457 is not a gap — it's a chasm. At current velocity, SAFEKO would need years to reach competitive review territory without a structured acceleration strategy.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>Amazon Vine enrollment is the immediate play. With a 4.8-star product and a listings overhaul, Vine reviews will land strong and build the social proof floor needed to convert PPC traffic.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>Review velocity is directly tied to units sold — which is tied to visibility. The only sustainable fix is a parallel track: Vine for baseline, PPC for traffic, and organic ranking for long-term review accumulation.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lane 4: Competitive Position -->
+      <div class="lane-section">
+        <div class="lane-header">
+          <div class="lane-grade-badge grade-F">F</div>
+          <div>
+            <div class="lane-title">Competitive Position</div>
+            <div style="font-size:13px; color:var(--gray-text);">Revenue · Share of Voice · Fulfillment · Variations</div>
+          </div>
+        </div>
+        <div class="findings-grid">
+          <div class="findings-box working">
+            <div class="findings-label">What's Working</div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>15 variations — right at the niche median of 14.5 and well above the top competitor MED PRIDE's 8. SAFEKO has broader size/format coverage than most competitors, which is a structural advantage when leveraged correctly.</span>
+            </div>
+          </div>
+          <div class="findings-box opportunities">
+            <div class="findings-label">Opportunities</div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>0% Share of Voice. Zero keywords ranking on page 1. The listing exists on Amazon but is effectively undiscoverable — buyers searching for nitrile gloves in any volume have no path to finding this ASIN organically.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>FBM fulfillment is a structural handicap in this niche. All top performers use FBA. Without the Prime badge and the fulfillment speed it implies, SAFEKO loses the default trust filter most Amazon buyers apply automatically.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>$3,185 in 30-day revenue vs. a niche generating $22.4M means SAFEKO is capturing 0.014% of available revenue. Converting even 1% of niche demand would represent a 70x increase. The ceiling here is not a product problem — it's a visibility problem.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lane 5: Advertising & Visibility -->
+      <div class="lane-section">
+        <div class="lane-header">
+          <div class="lane-grade-badge grade-F">F</div>
+          <div>
+            <div class="lane-title">Advertising &amp; Visibility</div>
+            <div style="font-size:13px; color:var(--gray-text);">PPC · TOS Presence · Outlier Keywords</div>
+          </div>
+        </div>
+        <div class="findings-grid">
+          <div class="findings-box opportunities">
+            <div class="findings-label">Opportunities</div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>Zero advertised keywords. Zero TOS (Top of Search) ads. In a niche with 1.8M effective search volume, SAFEKO is generating no paid impressions — leaving the entire category to competitors who are also running light on PPC (only Inspire runs meaningful ads). This is actually an opening: the paid landscape isn't saturated.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>Zero outlier search volume — meaning SAFEKO has no "halo" keywords where they outperform expectation. MED PRIDE has 4.2M in outlier SV; Inspire has 4.4M. Building toward even a modest outlier footprint requires organic ranking momentum and brand-specific search volume, both of which start with reviews and PPC.</span>
+            </div>
+            <div class="finding-item">
+              <div class="finding-dot"></div>
+              <span>This ASIN is not running any campaigns — but the broader competitive data shows that even the two biggest players in the niche (MED PRIDE and Venom Steel) run zero ads. Inspire runs 51 advertised keywords and is the #2 player by revenue. The correlation is direct and actionable.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- KEYWORD GAPS -->
+  <section class="section">
+    <div class="container">
+      <div class="section-label">Visibility Gaps</div>
+      <h2 class="section-title">Keywords SAFEKO Is Missing</h2>
+      <p style="color:var(--gray-text); font-size:14px; margin-bottom:8px;">All 10 keywords below have ≥2 competitors ranking on page 1. SAFEKO does not rank for any of them.</p>
+      <table class="kw-table">
+        <thead>
+          <tr>
+            <th>Keyword</th>
+            <th>Search Volume</th>
+            <th>SAFEKO Rank</th>
+            <th>Top Competitor Rank</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="kw-sv">xxl nitrile gloves</td>
+            <td class="kw-sv">6,330</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">MED PRIDE #15</td>
+          </tr>
+          <tr>
+            <td class="kw-sv">nitrile gloves xxl</td>
+            <td class="kw-sv">3,073</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">GLOVEWORKS #7</td>
+          </tr>
+          <tr>
+            <td class="kw-sv">xxl gloves</td>
+            <td class="kw-sv">2,895</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">MED PRIDE #15</td>
+          </tr>
+          <tr>
+            <td class="kw-sv">xxl gloves disposable</td>
+            <td class="kw-sv">2,185</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">Inspire #3</td>
+          </tr>
+          <tr>
+            <td class="kw-sv">xxl nitrile gloves for men big hands</td>
+            <td class="kw-sv">1,183</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">Inspire #8</td>
+          </tr>
+          <tr>
+            <td class="kw-sv">xxl disposable gloves</td>
+            <td class="kw-sv">1,157</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">Inspire #2</td>
+          </tr>
+          <tr>
+            <td class="kw-sv">xxxl nitrile gloves</td>
+            <td class="kw-sv">978</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">MED PRIDE #20</td>
+          </tr>
+          <tr>
+            <td class="kw-sv">disposable gloves xxl</td>
+            <td class="kw-sv">744</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">Inspire #6</td>
+          </tr>
+          <tr>
+            <td class="kw-sv">raven nitrile gloves large</td>
+            <td class="kw-sv">713</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">GLOVEWORKS #12</td>
+          </tr>
+          <tr>
+            <td class="kw-sv">xxl latex gloves for men</td>
+            <td class="kw-sv">700</td>
+            <td><span class="kw-absent">NOT RANKING</span></td>
+            <td class="kw-rank">Inspire #20</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- NEXT STEPS -->
+  <section class="section">
+    <div class="container">
+      <div class="section-label">Roadmap</div>
+      <h2 class="section-title">What We'd Fix First</h2>
+      <div class="next-steps-grid">
+        <div class="next-step-card">
+          <div class="step-number">01</div>
+          <div class="step-title">FBA Conversion + Listing Rebuild</div>
+          <div class="step-body">Transitioning this ASIN to FBA is the single highest-leverage structural move — it unlocks the Prime badge, improves Buy Box eligibility, and signals trust. In parallel, the listing gets a full content rewrite: title optimized for XXL/XXXL size keywords, benefit-led bullets, and A+ Content with the brand's 75-year credential front and center.</div>
+        </div>
+        <div class="next-step-card">
+          <div class="step-number">02</div>
+          <div class="step-title">Vine Enrollment + PPC Launch</div>
+          <div class="step-body">With only 41 reviews, no PPC campaign will convert profitably without social proof. We enroll immediately in Vine to build a baseline of verified reviews, then launch a structured PPC strategy targeting the 10+ high-volume keyword gaps where SAFEKO is currently absent. Sponsored Products first, then TOS (Top of Search) campaigns for the primary keywords once review count climbs.</div>
+        </div>
+        <div class="next-step-card">
+          <div class="step-number">03</div>
+          <div class="step-title">Visual Overhaul + Brand Store</div>
+          <div class="step-body">A complete image suite refresh — hero, infographics, mil-thickness callout, lifestyle context, and certification badges. Plus a brand video demonstrating product quality. This is paired with activating or rebuilding the SAFEKO Brand Store on Amazon, which creates a destination for branded search traffic and supports DSP campaigns at scale once the organic base is established.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="report-footer">
+    <div class="container">
+      <div class="footer-brand">CAPYBARAS AGENCY</div>
+      <div class="footer-tagline">Full-service marketplace management · capybaras.agency</div>
+    </div>
+  </footer>
+
+</body>
+</html>

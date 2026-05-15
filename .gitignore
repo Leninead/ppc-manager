@@ -1,6 +1,5 @@
 ﻿__pycache__/
 *.pyc
-
 # ── Capa de persistencia (data/) ──────────────────────
 # Por default ignoramos todo data/, pero permitimos versionar:
 #   - _README.md y _schemas/ (estructura del directorio)
@@ -21,9 +20,8 @@ data/account-health/flat-file-migrator/*
 !data/account-health/flat-file-migrator/*.json
 !data/account-health/flat-file-migrator/_examples/
 !data/account-health/flat-file-migrator/_examples/**
-
 # ── Sales Proposals ────────────────────────────────────
-# Versionamos: catálogo, templates, seeds (referencia histórica), README, .gitkeep.
+# Versionamos: catálogo, templates, seeds, skills de Ramiro (source of truth), README, .gitkeep.
 # NO versionamos: propuestas reales (data de cliente), votes log (operacional).
 !data/sales/
 data/sales/*
@@ -32,12 +30,13 @@ data/sales/*
 !data/sales/_templates/**
 !data/sales/_seed/
 !data/sales/_seed/**
+!data/sales/_ramiro_skills/
+!data/sales/_ramiro_skills/**
 !data/sales/_README.md
 !data/sales/proposals/
 data/sales/proposals/*
 !data/sales/proposals/.gitkeep
 data/sales/interested-votes.parquet
-
 *.csv
 app_backup.py
 notes/*
@@ -62,7 +61,6 @@ notes/*
 .env
 # ── Agregado por setup_deploy.py ──────────────────
 .streamlit/secrets.toml
-
 # ── Carpeta porting-sources/ ──────────────────────
 # HTMLs fuente que se portean a módulos Streamlit. Los archivos .html
 # son data del compañero (privacidad + tamaño) y NO se versionan.
