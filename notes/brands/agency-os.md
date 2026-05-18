@@ -189,3 +189,64 @@ El compromiso de Slack del 12/05 sigue en pie: fases 3+4 esta semana
 (13-18 may). Sesión 3 está en curso dentro de plazo. Si B3-B6 no termina
 antes del fin de semana (17-18 may), avisar al canal con reset de
 expectativas.
+
+---
+
+## 2026-05-18 — M27 v1.1 cross-schema (B1-B3) + M29 B3-c validation + B3-d V3 readonly + pivot dual-mode
+
+### M27 v1.1 cross-schema — 3 sub-bloques cerrados
+
+3 commits sobre `flat_file_migrator.py` (+220 LOC, 5 helpers nuevos + 1 constante):
+- B1 schema detector (fptcustom vs PTD)
+- B2 Data Definitions parser (164 old fields, 225 new fields)
+- B3 cross-schema field mapper (69/164 = 42% cobertura con _LABEL_ALIASES iterativo)
+
+Decisión estratégica: v1 same-schema descartado, pivot a v1.1 cross-schema (PTD migration). MX fuera de v1. B4 dividido en B4a (valid values parser, schema-agnostic) + B4b (enum translator, hardcoded).
+
+### M29 Proposal Studio — Sesión 4 cerrada con pivot estratégico
+
+**Estado de los 6 CORE editores** (actualizado):
+- ✅ V1_brand_overview (Plan D, B3-b, 14/05)
+- ✅ V2_category_overview (Plan D, B3-c, validado E2E hoy 18/05 con propuesta `01fbf5c2` v1→v5)
+- ✅ V3_seo_opportunity (READONLY B3-d, viene de importer B7 — implementado hoy, fix Int64 visual con bug pendiente)
+- ⏳ V4_listing_improvements_current_state (B3-e, próxima sesión, descubrimiento schema pendiente)
+- ⏳ V5_listing_comparison_competitor
+- ⏳ V6_growth_plan_phases (último por complejidad — array anidado de fases bilingüe)
+
+**Pivot dual-mode confirmado** post-reunión con Ramiro 13/05:
+
+M29 tendrá DOS planos de entrada por propuesta:
+1. **Manual** — editores Plan D (V1, V2, V4-V6 cuando estén).
+2. **Importer HTML B7** — drag-drop de HTMLs generados por skills `amazon-brand-audit` y `digital-presence-audit` de Ramiro, autohidrata `ps_buffer__{pid}`. Bloque nuevo en roadmap.
+
+Las dos rutas terminan en el mismo commit pipeline (`_build_v*_payload` → `_commit_v*_to_disk` → `pp.save_proposal`).
+
+**Clasificación de blocks** descubierta:
+- **Class A — campos planos** (V1, V2, probablemente V4): pattern Plan D actual.
+- **Class B — arrays<object> importados** (V3, posiblemente V6): readonly hasta B7, prefilled por importer.
+
+Próxima reunión Ramiro: viernes 22 a las 3 PM. Para esa fecha hay que tener: V4 cerrado, contrato `data-*` mini-doc para Ramiro, plan B7 timeline.
+
+### Por qué importa este hito
+
+Con B3-c validado E2E y B3-d como readonly architecturally-honest, el bucle "editar manual → guardar versionado → render visible" está cerrado para Class A. La ruta del importer queda definida como bloque futuro con contrato técnico claro, no como vapor estratégico.
+
+### Roadmap actualizado M29
+
+- ✅ S1: Schema + persistencia + templates + parser (11/05)
+- ✅ S2: UI Streamlit completa — Listado + Wizard 3 pasos + Save (12/05)
+- 🔄 S3: Vista detalle + 6 CORE Variables editables (en curso, 3 de 6)
+  - ✅ B1+B2: routing + listado readonly (13/05)
+  - ✅ B3-b: V1 Plan D (14/05)
+  - ✅ A.1: skip-save guard (14/05)
+  - ✅ B3-c: V2 Plan D validación E2E (18/05)
+  - ✅ B3-d: V3 readonly + Int64 fix (18/05, visual bug pendiente)
+  - ⏳ B3-e: V4 (próxima sesión)
+  - ⏳ B3-f: V5
+  - ⏳ B3-g: V6 (último)
+  - ⏳ B5: botón Guardar global + confirmación 2-clicks
+  - ⏳ B6: polish + push acumulado
+- 🆕 B7: HTML importer (post-B6, contrato `data-*` con Ramiro como dependencia)
+- ⏳ S4: 23 placeholders Tier 2-3 con toggle "Marcar como interesado"
+- ⏳ S5: Templates Jinja2 + renderer HTML
+- ⏳ S6: Playwright PDF + polish + smoke test E2E + READMEs

@@ -150,26 +150,50 @@ Detalle completo en `notes/daily/2026-05-13.md` y `notes/brands/agency-os.md`
 
 ---
 
-### Última sesión — 2026-05-14 (M29 Proposal Studio B3-b + Sesión A)
+### Última sesión — 2026-05-18 (M27 v1.1 cross-schema B1-B3 + M29 B3-c validation + B3-d V3 readonly)
 
-**Trabajo realizado:**
-- B3-b Plan D completado: editor V1_brand_overview funcional end-to-end con buffer mutable en session_state
-- Skip-save guard implementado (Sesión A.1): evita versiones duplicadas en disco
-- 3 fixes fallidos antes de Plan D — anti-patterns Streamlit 1.43.2 documentados en notes/daily/2026-05-14.md
-- 39 tests verdes (3 nuevos round-trip de data/copy_overrides + anti-regresión multi-block)
+**Trabajo realizado (2 chats paralelos coordinados):**
 
-**Estado del proyecto Proposal Studio:**
-- 1 de 6 editores CORE implementado (V1_brand_overview) ✅
-- Infraestructura Plan D lista para drop-in de V2-V6 (helpers genéricos + dispatcher)
-- Test manual real: v44.json con `brand_name='test es F'` confirma persistencia + rehidratación
-- Skip-save guard valida payload normalizado pre-write
+**M27 Flat File Migrator v1.1 cross-schema (chat paralelo):**
+- 3 commits sobre `modules/pages/flat_file_migrator.py` (+220 LOC):
+  - 58ba985 — B1 `_detect_schema` (fptcustom vs PTD)
+  - 519f221 — B2 `_parse_data_definitions` (164→225 fields)
+  - e3234dd — B3 `_LABEL_ALIASES` + `_normalize_label` + `_build_field_map` (42% cobertura)
+- Pivot v1 same-schema → v1.1 cross-schema. MX fuera de v1.
+- Próximo: B4a valid values parser (prompt YA armado en chat M27, listo para pegar mañana).
 
-**Deuda activa:**
-- Tests pytest del Plan D con monkeypatch `st.session_state` pendientes (A.2)
-- Polish UX (badge completitud, resumen cerrado) pendiente
-- Sin tests E2E con `streamlit.testing.v1.AppTest` (deuda mediano plazo)
+**M29 Proposal Studio (este chat):**
+- B3-c V2_category_overview validado E2E con propuesta `01fbf5c2` (5 versiones, 3 casos verdes: primer save, skip-save, anti-regresión cross-block V1↔V2).
+- B3-d V3_seo_opportunity implementado como READONLY (commit a80b676, +114 LOC). Banner naranja + tabla missing_keywords + tabla launch_score_table + expander JSON. Justificación: V3 schema = 3 arrays<object> diseñados para importer B7 (skill amazon-brand-audit de Ramiro), no edición manual.
+- Fix Int64 nullable aplicado dentro del mismo commit a80b676.
+- Smoke runtime: bonus int sin `.0` funcionó ✅; render de `<NA>` como vacío FALLÓ — sigue mostrando "None" literal. Bug visual NO bloquea avanzar a B3-e, agendado como deuda B3-d-bis.
+- `scripts/inject_v3_demo.py` creado como utility de validación E2E (simula payload futuro de importer B7).
 
-**Próxima sesión:** B3-c — editor del segundo block CORE (V2 o el que sigue en orden).
+**Pivot estratégico cerrado (reunión Ramiro 13/05):**
+- M29 tendrá modo dual: editor manual (Plan D) + importer HTML B7 (drag-drop HTMLs de Ramiro).
+- Próxima reunión Ramiro: viernes 22 a las 3 PM.
+- Goal pre-viernes 22: V4 cerrado + contrato `data-*` mini-doc + plan B7 timeline.
+
+**Estado del proyecto al cierre:**
+
+| Módulo | Status |
+|---|---|
+| M27 v1.1 | 3/N sub-bloques cerrados (B1+B2+B3). B4a-B6 pendientes. |
+| M29 Proposal Studio | 3/6 CORE editores cerrados (V1 ✅, V2 ✅, V3 readonly ✅). V4-V6 pendientes. |
+| M29 B7 importer | Roadmapeado, post-B6. Dependencia: contrato `data-*` con Ramiro. |
+
+**Deuda activa actualizada:**
+
+- **B3-d-bis (NUEVO, prioridad media)**: fix visual del "None" en celdas NaN de V3. Estrategia próxima sesión: Opción B (None → `""` pre-DataFrame) o Opción C (`column_config.NumberColumn`).
+- **Bug recurrente `ppc-module-builder`** (#4 hits, último hoy en B3-d). Otros agentes (`data-persistence-specialist`, `code-reviewer`) funcionan OK. Auditoría post-M29 pendiente.
+- **B6 polish heredados**: badge skeleton, info-box dinámico, refactor genérico N=3, toast persistente.
+- **Tests pytest del Plan D con monkeypatch `st.session_state`** (heredado 14/05).
+
+**Próxima sesión M29:** B3-e V4_listing_improvements_current_state. Pre-flight = descubrimiento schema V4 en catálogo + decisión Class A vs Class B.
+
+**Próxima sesión M27:** B4a `_parse_valid_values` (prompt ya armado en chat M27 último mensaje pre-cierre).
+
+Detalle completo en `notes/daily/2026-05-18.md` y `notes/brands/agency-os.md` sección 2026-05-18.
 
 ---
 
