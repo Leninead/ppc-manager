@@ -5,6 +5,10 @@ para garantizar JSON sin BOM, version bump correcto, y validación de schema.
 
 Uso: python scripts/inject_v3_demo.py
 """
+import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
 import core.proposal_persistence as pp
 
 PROPOSAL_ID = "01fbf5c2-1fd9-44dd-9806-742e5deb8f71"
