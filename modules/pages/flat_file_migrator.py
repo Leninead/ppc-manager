@@ -124,6 +124,33 @@ _ALIASES = {
 
 # ── Helpers — sheet/row inspection (porteados de las funciones JS) ──────
 
+def _detect_schema(wb) -> str:
+    """Detecta el schema del template Amazon a partir de la hoja Template.
+
+    Heurística sobre el valor de la celda A1 de la hoja 'Template':
+    - "fptcustom": substring 'TemplateType=fptcustom' presente
+    - "ptd": substring 'feedType=256' presente (Product Type Definition schema)
+    - "unknown": ninguna firma reconocida, hoja 'Template' ausente, o A1 vacío
+
+    Args:
+        wb: openpyxl Workbook ya abierto. Caller responsable de abrir/cerrar.
+
+    Returns:
+        Uno de: "fptcustom", "ptd", "unknown".
+    """
+    if "Template" not in wb.sheetnames:
+        return "unknown"
+    a1 = wb["Template"].cell(row=1, column=1).value
+    if not a1:
+        return "unknown"
+    a1_str = str(a1)
+    if "TemplateType=fptcustom" in a1_str:
+        return "fptcustom"
+    if "feedType=256" in a1_str:
+        return "ptd"
+    return "unknown"
+
+
 def _cell_value_or_blank(ws, row_idx_0: int, col_idx_0: int):
     """Devuelve el valor de la celda en posición 0-indexed, '' si vacía. Equivalente a sheet[encode_cell({r,c})]."""
     cell = ws.cell(row=row_idx_0 + 1, column=col_idx_0 + 1)
