@@ -121,6 +121,17 @@ _ALIASES = {
     "seasons": ["seasons1", "seasons2", "seasons3", "seasons4", "seasons5"],
 }
 
+# Cross-schema label aliases: labels que cambiaron entre fptcustom (old) y PTD (new).
+# Formato: {label_old_normalizado: label_new_normalizado}.
+# Match es bidireccional — el helper _build_field_map lo aplica en ambas direcciones.
+# Mantener corto y conservador: solo agregar aliases que hayan sido empíricamente
+# observados, no especular.
+_LABEL_ALIASES: dict[str, str] = {
+    "seller sku": "sku",                 # old "Seller SKU" → new "SKU"
+    "update delete": "listing action",   # old "Update Delete" → new "Listing Action"
+    "product name": "item name",         # old "Product Name" → new "Item Name"
+}
+
 
 # ── Helpers — sheet/row inspection (porteados de las funciones JS) ──────
 
@@ -231,6 +242,106 @@ def _parse_data_definitions(wb) -> dict[str, dict[str, str]]:
                 "required": _safe(row, c_required),
             }
     return out
+
+
+def _normalize_label(label: str) -> str:
+    """Normaliza un Local Label Name para matching cross-schema.
+
+    Lowercased, stripped, espacios internos colapsados, paréntesis y su contenido
+    eliminados (ej: "Price (USD)" → "price").
+
+    No reutiliza _normalize_field_id (opera sobre field IDs Amazon con brackets/
+    hash/sufijos numéricos) ni _ALIASES (mapea field_names, no labels humanos).
+
+    Args:
+        label: valor crudo de la columna 'Local Label Name' (puede ser None).
+
+    Returns:
+        String normalizado. "" si label es falsy.
+    """
+    if not label:
+        return ""
+    s = str(label)
+    s = re.sub(r"\s*\([^)]*\)", "", s)
+    s = s.strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _build_field_map(
+    old_dd: dict[str, dict[str, str]],
+    new_dd: dict[str, dict[str, str]],
+) -> tuple[dict[str, str], list[str]]:
+    """Construye mapping {old_field_name: new_field_name} match por Local Label Name.
+
+    Estrategia:
+    1. Indexar new_dd por _normalize_label(label) → list[new_field_name].
+       Lista porque puede haber colisión (ej. los "Other Image URL" 1..N que
+       comparten label).
+    2. Para cada old_field: normalizar su label, probar match directo, luego
+       _LABEL_ALIASES en ambas direcciones.
+    3. Si hay >1 candidato → tomar el primero y agregar warning de colisión.
+       Si no hay match → agregar warning "sin correspondencia".
+
+    Args:
+        old_dd: output de _parse_data_definitions sobre el workbook OLD.
+        new_dd: output de _parse_data_definitions sobre el workbook NEW.
+
+    Returns:
+        (mapping, warnings):
+        - mapping: dict {old_field_name: new_field_name}. Solo entries con match.
+        - warnings: list[str] human-readable.
+    """
+    new_by_label: dict[str, list[str]] = {}
+    for new_field, info in new_dd.items():
+        nl = _normalize_label(info.get("label", ""))
+        if not nl:
+            continue
+        new_by_label.setdefault(nl, []).append(new_field)
+
+    mapping: dict[str, str] = {}
+    warnings: list[str] = []
+
+    for old_field, old_info in old_dd.items():
+        old_label = old_info.get("label", "")
+        old_label_norm = _normalize_label(old_label)
+        if not old_label_norm:
+            warnings.append(f"old field '{old_field}' tiene label vacío, skip")
+            continue
+
+        candidates: list[str] = []
+        # (a) match directo por label normalizado
+        if old_label_norm in new_by_label:
+            candidates = new_by_label[old_label_norm]
+        else:
+            # (b) old → new via alias forward
+            aliased = _LABEL_ALIASES.get(old_label_norm)
+            if aliased and aliased in new_by_label:
+                candidates = new_by_label[aliased]
+            else:
+                # (c) inverse: encontrar key cuyo valor sea old_label_norm,
+                # luego buscar la key en new_by_label
+                for k, v in _LABEL_ALIASES.items():
+                    if v == old_label_norm and k in new_by_label:
+                        candidates = new_by_label[k]
+                        break
+
+        if not candidates:
+            warnings.append(
+                f"old field '{old_field}' (label='{old_label}') sin correspondencia en new"
+            )
+            continue
+
+        mapping[old_field] = candidates[0]
+        if len(candidates) > 1:
+            extras = ", ".join(candidates[1:])
+            warnings.append(
+                f"colisión: old field '{old_field}' (label='{old_label}') matchea "
+                f"contra {len(candidates)} new fields, se usó '{candidates[0]}' "
+                f"(otros: {extras})"
+            )
+
+    return mapping, warnings
 
 
 def _cell_value_or_blank(ws, row_idx_0: int, col_idx_0: int):
