@@ -1105,6 +1105,9 @@ def _render_block_editor(block, proposal, lang):
     elif module_id == "V2_category_overview":
         _render_v2_category_overview_editor(block, proposal, lang)
         return True
+    elif module_id == "V3_seo_opportunity":
+        _render_v3_seo_opportunity_readonly(block, proposal, lang)
+        return True
     return False
 
 
@@ -1807,6 +1810,117 @@ def _discard_v2_category_overview(proposal, block):
     _invalidate_block_buffer(proposal["id"], block["id"])
     st.toast("↩️ Cambios V2 descartados", icon="🗑️")
     st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B3-d — V3_seo_opportunity (READONLY — viene de importer B7)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# V3 NO es editor manual. Su schema (arrays de objects con keyword/sv/rank/score)
+# está diseñado para ser autohidratado por la skill `amazon-brand-audit` de
+# Ramiro vía el módulo importer B7 (HTML drag-drop, pendiente).
+#
+# Hasta que B7 exista, este renderer muestra:
+#  - Banner explicando que la edición manual no aplica
+#  - Tabla readonly con missing_keywords si hay data
+#  - JSON colapsado para auditoría (launch_score_table, page1_domination_chart_data)
+#
+# Cuando B7 inyecte data, este renderer la muestra sin tocar nada del flow.
+
+
+def _render_v3_seo_opportunity_readonly(block, proposal, lang):
+    """
+    Renderer readonly para V3_seo_opportunity.
+
+    Justificación arquitectónica:
+      - Schema V3 = 3 arrays de objects (missing_keywords, launch_score_table,
+        page1_domination_chart_data).
+      - missing_keywords es required, los otros 2 son optional.
+      - V3 NO declara copy_overrides_schema → 0 campos i18n.
+      - Caso de uso real: data viene de Data Dive vía skill amazon-brand-audit
+        de Ramiro, parseada por importer B7 (drag-drop HTML). No es para tipear
+        a mano por un Sales Director.
+
+    Por eso este renderer es READONLY:
+      - Banner informativo: edición manual no soportada, viene de B7.
+      - Tabla compacta de missing_keywords (si hay data).
+      - JSON colapsado para auditoría de los 3 arrays.
+
+    NO usa _ensure_block_buffer ni el patrón Plan D — no hay edits ni save.
+    Cuando B7 inyecte data al block via importer, este renderer la rinde tal cual.
+    """
+    import streamlit as st
+    import pandas as pd
+
+    bid = block["id"]
+    data = block.get("data") or {}
+    missing_kw = data.get("missing_keywords") or []
+    launch_score = data.get("launch_score_table") or []
+    p1_chart = data.get("page1_domination_chart_data") or []
+
+    st.markdown("### 🔍 V3 SEO Opportunity")
+    st.caption(f"Idioma de la propuesta: {lang}")
+
+    # Banner explicativo (siempre visible)
+    st.markdown(
+        f"<div style='background:#FFF8F0;border-left:3px solid {_NARANJA};"
+        f"padding:0.7rem 1rem;border-radius:4px;font-size:0.82rem;"
+        f"color:#555;line-height:1.5;margin-bottom:1rem;'>"
+        f"⏳ <strong>Edición manual no soportada</strong> — este bloque se popula "
+        f"automáticamente vía el importer HTML del módulo <strong>B7</strong> "
+        f"(pendiente). Hasta entonces, la data se inyecta directamente al JSON "
+        f"de la propuesta vía script o se deja vacío."
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    has_any_data = bool(missing_kw or launch_score or p1_chart)
+
+    if not has_any_data:
+        st.info(
+            "ℹ️ Sin data poblada en este block. Cuando B7 esté listo, "
+            "arrastrá un HTML de Amazon Brand Audit para autollenar."
+        )
+        return
+
+    # ── Sección 1: missing_keywords como tabla ──────────────────────────────
+    if missing_kw:
+        st.markdown("**Missing Keywords**")
+        st.caption(f"{len(missing_kw)} keywords de alto volumen donde no rankeamos")
+        try:
+            df = pd.DataFrame(missing_kw)
+            # Forzar Int64 nullable en current_rank: evita render "None" literal
+            # cuando hay NaN mezclado con ints (quirk de st.dataframe con float64).
+            # Bonus: muestra "18" en vez de "18.0".
+            if "current_rank" in df.columns:
+                df["current_rank"] = pd.to_numeric(
+                    df["current_rank"], errors="coerce"
+                ).astype("Int64")
+            # Ordenar columnas si vienen con el schema canónico
+            canonical_cols = ["keyword", "sv", "current_rank", "opportunity_score"]
+            cols_in_df = [c for c in canonical_cols if c in df.columns]
+            other_cols = [c for c in df.columns if c not in canonical_cols]
+            df = df[cols_in_df + other_cols]
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        except Exception as e:
+            # Defensive: si el shape no calza con DataFrame, mostrar JSON
+            st.warning(f"⚠️ No se pudo renderizar como tabla: {e}")
+            st.json(missing_kw)
+
+    # ── Sección 2: launch_score_table como tabla ────────────────────────────
+    if launch_score:
+        st.markdown("**Launch Score Table**")
+        try:
+            df_ls = pd.DataFrame(launch_score)
+            st.dataframe(df_ls, use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo renderizar como tabla: {e}")
+            st.json(launch_score)
+
+    # ── Sección 3: page1_domination_chart_data como JSON colapsado ──────────
+    if p1_chart:
+        with st.expander(f"Brand Page 1 Domination chart data ({len(p1_chart)} entries)"):
+            st.json(p1_chart)
 
 
 def _render_blocks_section(proposal: dict) -> None:
