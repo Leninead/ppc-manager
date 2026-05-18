@@ -151,6 +151,88 @@ def _detect_schema(wb) -> str:
     return "unknown"
 
 
+def _parse_data_definitions(wb) -> dict[str, dict[str, str]]:
+    """Parsea la hoja 'Data Definitions' del template Amazon.
+
+    Funciona idéntico para fptcustom y PTD porque ambos schemas usan la misma
+    estructura: row 2 con headers, row 3+ con filas que pueden ser separadores
+    de grupo (solo 'Group Name' lleno) o fields (con 'Field Name' lleno).
+
+    Args:
+        wb: openpyxl Workbook ya abierto. Caller responsable de abrir/cerrar.
+
+    Returns:
+        Dict {field_name: {"label": str, "group": str, "example": str,
+        "required": str}}.
+        - field_name: valor crudo de columna 'Field Name' (puede tener namespaces).
+        - label: valor de 'Local Label Name'.
+        - group: el último separador de grupo visto, asignado en cascada.
+        - example: valor de 'Example' (puede ser '' si la cell está vacía).
+        - required: valor de 'Required?' si la columna existe; '' si no existe
+          (caso fptcustom old que no tiene esa columna).
+
+        Devuelve dict vacío si la hoja 'Data Definitions' no existe en el workbook.
+    """
+    if "Data Definitions" not in wb.sheetnames:
+        return {}
+    ws = wb["Data Definitions"]
+
+    all_rows = list(ws.iter_rows(values_only=True))
+    if len(all_rows) < 3:
+        return {}
+
+    # Row 2 (index 1): header → col_map con header lowercased+stripped → col_idx 0-based.
+    header_row = all_rows[1]
+    col_map: dict[str, int] = {}
+    for col_idx, cell in enumerate(header_row):
+        if cell is None:
+            continue
+        key = str(cell).strip().lower()
+        if key and key not in col_map:
+            col_map[key] = col_idx
+
+    required_keys = ("group name", "field name", "local label name", "example")
+    if not all(k in col_map for k in required_keys):
+        # header mismatch: retorna vacío para que caller decida fallback
+        return {}
+
+    c_group = col_map["group name"]
+    c_field = col_map["field name"]
+    c_label = col_map["local label name"]
+    c_example = col_map["example"]
+    c_required = col_map.get("required?")  # opcional (fptcustom old no la tiene)
+
+    def _safe(row: tuple, col_idx: int | None) -> str:
+        if col_idx is None or col_idx >= len(row):
+            return ""
+        v = row[col_idx]
+        return str(v).strip() if v is not None else ""
+
+    out: dict[str, dict[str, str]] = {}
+    current_group = ""
+    blank_streak = 0
+    for row in all_rows[2:]:
+        group_val = _safe(row, c_group)
+        field_val = _safe(row, c_field)
+        if not group_val and not field_val:
+            blank_streak += 1
+            if blank_streak >= 3:
+                break
+            continue
+        blank_streak = 0
+        if group_val and not field_val:
+            current_group = group_val
+            continue
+        if field_val:
+            out[field_val] = {
+                "label": _safe(row, c_label),
+                "group": current_group,
+                "example": _safe(row, c_example),
+                "required": _safe(row, c_required),
+            }
+    return out
+
+
 def _cell_value_or_blank(ws, row_idx_0: int, col_idx_0: int):
     """Devuelve el valor de la celda en posición 0-indexed, '' si vacía. Equivalente a sheet[encode_cell({r,c})]."""
     cell = ws.cell(row=row_idx_0 + 1, column=col_idx_0 + 1)
