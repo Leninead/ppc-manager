@@ -289,9 +289,33 @@
         "es": "Keywords de alto volumen donde no estamos, Launch Score table, chart de Brand Page 1 Domination."
       },
       "schema": {
-        "missing_keywords": {"dtype": "array<object>", "required": true, "description": "Cada objeto: {keyword, sv, current_rank, opportunity_score}"},
-        "launch_score_table": {"dtype": "array<object>", "required": false},
-        "page1_domination_chart_data": {"dtype": "array<object>", "required": false}
+        "missing_keywords": {
+          "dtype": "array<object>",
+          "required": true,
+          "min_items": 0,
+          "description": "Keywords donde el ASIN no está rankeando o está rankeando débil.",
+          "items_schema": {
+            "keyword": {"dtype": "string", "required": true, "description": "Término de búsqueda."},
+            "sv": {"dtype": "integer", "required": false, "nullable": true, "description": "Search volume mensual."},
+            "current_rank": {"dtype": "integer", "required": false, "nullable": true, "description": "Rank actual del ASIN. null si no rankea en top 100."},
+            "opportunity_score": {"dtype": "number", "required": false, "nullable": true, "description": "Score 0-1 de oportunidad calculada por la skill."}
+          }
+        },
+        "launch_score_table": {
+          "dtype": "array<object>",
+          "required": false,
+          "description": "Tabla de scores por fase de lanzamiento. Formato libre en v1 — la skill define los campos.",
+          "items_schema": {
+            "phase": {"dtype": "string", "required": false, "description": "Nombre de la fase."},
+            "score": {"dtype": "number", "required": false, "nullable": true, "description": "Score numérico de la fase."}
+          }
+        },
+        "page1_domination_chart_data": {
+          "dtype": "array<object>",
+          "required": false,
+          "description": "Data points para chart de dominación de página 1. Formato libre en v1 — la skill define los campos.",
+          "items_schema": {}
+        }
       },
       "applicable_archetypes": ["scale_seo", "launch", "custom"],
       "status": "active",
@@ -311,7 +335,27 @@
         "items": {
           "dtype": "array<object>",
           "required": true,
-          "description": "Cada objeto: {name, status: 'missing'|'present'|'weak', notes}"
+          "min_items": 0,
+          "description": "Checklist de elementos del listing.",
+          "items_schema": {
+            "name": {
+              "dtype": "string",
+              "required": true,
+              "description": "Nombre del elemento (ej. 'Main image', 'A+ content')."
+            },
+            "status": {
+              "dtype": "string",
+              "required": true,
+              "enum": ["missing", "present", "weak"],
+              "description": "Estado del elemento. missing=ausente, present=existe y correcto, weak=existe pero subóptimo."
+            },
+            "notes": {
+              "dtype": "string",
+              "required": false,
+              "nullable": true,
+              "description": "Comentario libre sobre el estado del elemento."
+            }
+          }
         }
       },
       "applicable_archetypes": ["launch", "scale_seo", "defense", "cvr", "custom"],

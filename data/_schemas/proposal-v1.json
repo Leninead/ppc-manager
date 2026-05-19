@@ -163,7 +163,7 @@
         "schema": {
           "dtype": "object",
           "required": true,
-          "description": "Estructura de campos del .data del Block que instancia este módulo."
+          "description": "Estructura de campos del .data del Block que instancia este módulo. Cada key es un nombre de campo; el valor declara dtype, required, description. Para arrays<object>, el sub-shape se declara en items_schema (mismo formato recursivo). enum se declara como lista de valores permitidos. nullable=true permite explícitamente None. Convención introducida en 2026-05-19 pre-importer B7."
         },
         "applicable_archetypes": {
           "dtype": "array<string>",
@@ -263,6 +263,7 @@
   ],
   "evolution_notes": {
     "v1_baseline": "Schema inicial del sistema Sales Proposals. 5 entidades: Proposal versionada, Block (inline en Proposal), Catalog Module (canónico), Template (preset por arquetipo), InterestedVote (log append-only). Why Capybaras v3 con pilar Proprietary Operating System como diferenciador real.",
+    "v1_1_items_schema_convention": "2026-05-19 — Convención items_schema introducida para arrays<object> dentro de catalog_module.schema. Retrocompatible: campos extra (items_schema, min_items, nullable, enum) no rompen consumers existentes que solo leen dtype/required/description. Primeros usos: V3_seo_opportunity (missing_keywords, launch_score_table, page1_domination_chart_data) y V4_listing_improvements_current_state (items con enum cerrado de status). Motivación: cerrar contrato técnico con importer HTML B7 (skills amazon-brand-audit / digital-presence-audit de Ramiro).",
     "future_v2_candidates": [
       "translation_versioning: snapshot del texto i18n al momento del envío (para que cambios en el catálogo no muten propuestas históricas)",
       "block_assets: array de URLs/blobs de imágenes/PDFs adjuntados por block (hoy se almacenan dentro de .data)",
