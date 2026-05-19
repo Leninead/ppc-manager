@@ -1816,6 +1816,32 @@ def _discard_v2_category_overview(proposal, block):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# B3-d-bis — Helper compartido de render readonly
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Bug B3-d-bis (Streamlit 1.43.2): cuando un dict tiene un valor None, pandas
+# lo arrastra como NaN/None y al renderizar con st.dataframe la celda muestra
+# "None" literal (la serialización Arrow → JSON de Streamlit convierte pd.NA
+# a None Python en el bridge al front).
+#
+# Workaround Opción B (validado 2026-05-19): pre-procesar la lista de dicts
+# y reemplazar None por "" (string vacío) ANTES de construir el DataFrame.
+# Esto preserva dtype object y deja la celda visualmente vacía sin tocar
+# el storage canónico de la propuesta.
+#
+# Trade-off: para columnas numéricas (ej. current_rank) perdemos el formato
+# "18" vs "18.0", pero la columna pasa a object por la mezcla int|str — lo
+# cual visualmente muestra "18" porque pandas no aplica float-coerce.
+
+
+def _none_to_empty_for_render(rows):
+    """Reemplaza None por '' en values de cada dict. Preserva dtype object
+    para evitar 'None' literal en st.dataframe (workaround Arrow→JSON
+    en Streamlit 1.43.2). Aplicar pre-DataFrame.from_records."""
+    return [{k: ("" if v is None else v) for k, v in row.items()} for row in rows]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # B3-d — V3_seo_opportunity (READONLY — viene de importer B7)
 # ─────────────────────────────────────────────────────────────────────────────
 #
@@ -1891,14 +1917,9 @@ def _render_v3_seo_opportunity_readonly(block, proposal, lang):
         st.markdown("**Missing Keywords**")
         st.caption(f"{len(missing_kw)} keywords de alto volumen donde no rankeamos")
         try:
-            df = pd.DataFrame(missing_kw)
-            # Forzar Int64 nullable en current_rank: evita render "None" literal
-            # cuando hay NaN mezclado con ints (quirk de st.dataframe con float64).
-            # Bonus: muestra "18" en vez de "18.0".
-            if "current_rank" in df.columns:
-                df["current_rank"] = pd.to_numeric(
-                    df["current_rank"], errors="coerce"
-                ).astype("Int64")
+            # Fix B3-d-bis: reemplazar None → "" pre-DataFrame para evitar
+            # "None" literal en celdas (Arrow→JSON quirk Streamlit 1.43.2).
+            df = pd.DataFrame(_none_to_empty_for_render(missing_kw))
             # Ordenar columnas si vienen con el schema canónico
             canonical_cols = ["keyword", "sv", "current_rank", "opportunity_score"]
             cols_in_df = [c for c in canonical_cols if c in df.columns]
@@ -1914,7 +1935,8 @@ def _render_v3_seo_opportunity_readonly(block, proposal, lang):
     if launch_score:
         st.markdown("**Launch Score Table**")
         try:
-            df_ls = pd.DataFrame(launch_score)
+            # Fix B3-d-bis: mismo workaround None → "" preventivo.
+            df_ls = pd.DataFrame(_none_to_empty_for_render(launch_score))
             st.dataframe(df_ls, use_container_width=True, hide_index=True)
         except Exception as e:
             st.warning(f"⚠️ No se pudo renderizar como tabla: {e}")
@@ -2020,7 +2042,9 @@ def _render_v4_current_state_readonly(block, proposal, lang):
                     "notes": it.get("notes"),
                 })
             if rows:
-                df_items = pd.DataFrame(rows)
+                # Fix B3-d-bis: reemplazar None → "" pre-DataFrame para evitar
+                # "None" literal en celdas notes (Arrow→JSON quirk Streamlit 1.43.2).
+                df_items = pd.DataFrame(_none_to_empty_for_render(rows))
                 st.dataframe(df_items, use_container_width=True, hide_index=True)
             else:
                 st.warning("⚠️ items no contiene objetos válidos.")
