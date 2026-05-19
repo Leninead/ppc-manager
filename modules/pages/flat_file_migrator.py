@@ -132,6 +132,11 @@ _LABEL_ALIASES: dict[str, str] = {
     "product name": "item name",         # old "Product Name" → new "Item Name"
 }
 
+# Regex para strippear sufijo de categoría en labels de la hoja 'Valid Values'.
+# Match ' - [ CATEGORIA ]' al final del label, incluso con corchetes vacíos
+# (ej. ' - [  ]', observado empíricamente en COAT__5_.xlsm).
+_VALID_VALUES_SUFFIX_RE = re.compile(r"\s*-\s*\[\s*[^\]]*\s*\]\s*$")
+
 
 # ── Helpers — sheet/row inspection (porteados de las funciones JS) ──────
 
@@ -342,6 +347,40 @@ def _build_field_map(
             )
 
     return mapping, warnings
+
+
+def _parse_valid_values(wb) -> dict[str, list[str]]:
+    """Parsea la hoja 'Valid Values' del workbook a {label: [values]}.
+
+    Schema-agnostic: mismo formato wide en fptcustom y PTD. Las rows con
+    solo col0 poblada son section separators (skipped). Las rows de field
+    tienen label en col1 con sufijo categoría (ej. ' - [ COAT ]' o
+    ' - [ coat ]'), que se strippea con _VALID_VALUES_SUFFIX_RE.
+
+    Args:
+        wb: openpyxl Workbook abierto (caller-managed lifecycle).
+
+    Returns:
+        dict de {clean_label: [valid_value, ...]} con label sin sufijo y
+        values stringified+stripped, sin None ni vacíos.
+
+    Raises:
+        KeyError si la hoja 'Valid Values' no existe en el workbook.
+    """
+    ws = wb["Valid Values"]
+    result: dict[str, list[str]] = {}
+    for row in ws.iter_rows(values_only=True):
+        col1 = row[1] if len(row) > 1 else None
+        if not isinstance(col1, str) or not col1.strip():
+            continue
+        clean_label = _VALID_VALUES_SUFFIX_RE.sub("", col1).strip()
+        values = [
+            str(v).strip()
+            for v in row[2:]
+            if v is not None and str(v).strip()
+        ]
+        result[clean_label] = values
+    return result
 
 
 def _cell_value_or_blank(ws, row_idx_0: int, col_idx_0: int):
