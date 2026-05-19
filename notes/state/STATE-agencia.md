@@ -150,50 +150,42 @@ Detalle completo en `notes/daily/2026-05-13.md` y `notes/brands/agency-os.md`
 
 ---
 
-### Última sesión — 2026-05-18 (M27 v1.1 cross-schema B1-B3 + M29 B3-c validation + B3-d V3 readonly)
+### Última sesión — 2026-05-19 (M27 v1.1 B4 cerrado + B5-a con audit code-reviewer)
 
-**Trabajo realizado (2 chats paralelos coordinados):**
+**Trabajo realizado:**
 
-**M27 Flat File Migrator v1.1 cross-schema (chat paralelo):**
-- 3 commits sobre `modules/pages/flat_file_migrator.py` (+220 LOC):
-  - 58ba985 — B1 `_detect_schema` (fptcustom vs PTD)
-  - 519f221 — B2 `_parse_data_definitions` (164→225 fields)
-  - e3234dd — B3 `_LABEL_ALIASES` + `_normalize_label` + `_build_field_map` (42% cobertura)
-- Pivot v1 same-schema → v1.1 cross-schema. MX fuera de v1.
-- Próximo: B4a valid values parser (prompt YA armado en chat M27, listo para pegar mañana).
-
-**M29 Proposal Studio (este chat):**
-- B3-c V2_category_overview validado E2E con propuesta `01fbf5c2` (5 versiones, 3 casos verdes: primer save, skip-save, anti-regresión cross-block V1↔V2).
-- B3-d V3_seo_opportunity implementado como READONLY (commit a80b676, +114 LOC). Banner naranja + tabla missing_keywords + tabla launch_score_table + expander JSON. Justificación: V3 schema = 3 arrays<object> diseñados para importer B7 (skill amazon-brand-audit de Ramiro), no edición manual.
-- Fix Int64 nullable aplicado dentro del mismo commit a80b676.
-- Smoke runtime: bonus int sin `.0` funcionó ✅; render de `<NA>` como vacío FALLÓ — sigue mostrando "None" literal. Bug visual NO bloquea avanzar a B3-e, agendado como deuda B3-d-bis.
-- `scripts/inject_v3_demo.py` creado como utility de validación E2E (simula payload futuro de importer B7).
-
-**Pivot estratégico cerrado (reunión Ramiro 13/05):**
-- M29 tendrá modo dual: editor manual (Plan D) + importer HTML B7 (drag-drop HTMLs de Ramiro).
-- Próxima reunión Ramiro: viernes 22 a las 3 PM.
-- Goal pre-viernes 22: V4 cerrado + contrato `data-*` mini-doc + plan B7 timeline.
+**M27 Flat File Migrator v1.1 cross-schema:**
+- 5 commits sobre `modules/pages/flat_file_migrator.py` (+365 LOC):
+  - 9c85e06 — B4a `_parse_valid_values` (schema-agnostic, +39 LOC)
+  - c11faf0 — B4b `_ENUM_VALUE_MAP` + `_build_value_map` + `_DEPRECATED_OLD_ENUMS` (+130 LOC)
+  - 07e79fb — B5-a `_locate_template_headers` con D1+fallback (+191 LOC)
+  - 64f25db — fix mitigaciones post-audit B5-a (+6/-1 LOC)
+  - 7aac33c — checkpoint
+- Decisión `_ENUM_VALUE_MAP` scope conservador (A1+/B2/C1): cubre 3 enums críticos con mapping limpio, ISBN/GCID/Relationship Type/Variation Theme quedan como deprecated/schema gaps para revisión manual en B5.
+- Decisión D1+fallback en header locator: auto-detección row-by-row con cross-validation B2 + safety net hardcoded por schema. Justificado por asimetría OLD/NEW (3 vs 5 header rows).
+- Audit code-reviewer Opus 4.7 sobre B5-a: APPROVE WITH CONCERNS, 0 bugs activos, mitigaciones P2 #4 + P1 #3 aplicadas, P1 #1/P1 #2/P3 #7 documentadas como deuda blanda.
 
 **Estado del proyecto al cierre:**
 
 | Módulo | Status |
 |---|---|
-| M27 v1.1 | 3/N sub-bloques cerrados (B1+B2+B3). B4a-B6 pendientes. |
-| M29 Proposal Studio | 3/6 CORE editores cerrados (V1 ✅, V2 ✅, V3 readonly ✅). V4-V6 pendientes. |
-| M29 B7 importer | Roadmapeado, post-B6. Dependencia: contrato `data-*` con Ramiro. |
+| M27 v1.1 | 5/8 sub-bloques cerrados (B1+B2+B3+B4a+B4b+B5-a). B5-b/B5-c + B6 pendientes. Progreso 75%. |
+| M29 Proposal Studio | Chat paralelo activo. Sin cambios desde este chat (commits propios). |
+| Pricing Dashboard (HTML #3 de Marcos) | 🔴 0% sin arrancar. Bloqueado por persistencia cloud (Freddy) + slot M29 tomado por Proposal Studio. Renumeración M30 pendiente en `_README.md`. |
 
-**Deuda activa actualizada:**
+**Deuda activa actualizada (M27):**
 
-- **B3-d-bis (NUEVO, prioridad media)**: fix visual del "None" en celdas NaN de V3. Estrategia próxima sesión: Opción B (None → `""` pre-DataFrame) o Opción C (`column_config.NumberColumn`).
-- **Bug recurrente `ppc-module-builder`** (#4 hits, último hoy en B3-d). Otros agentes (`data-persistence-specialist`, `code-reviewer`) funcionan OK. Auditoría post-M29 pendiente.
-- **B6 polish heredados**: badge skeleton, info-box dinámico, refactor genérico N=3, toast persistente.
-- **Tests pytest del Plan D con monkeypatch `st.session_state`** (heredado 14/05).
+- **B5-a-bis (P3 #7)**: colisión naming `_looks_like_field_id` (singular B5-a) vs `_looks_like_field_ids` (plural porting legacy L910). Refactor estético, prioridad baja.
+- **B5-a P1 #1**: falsos positivos en `_looks_like_field_id` con display labels exóticos. Mitigado por B2 cross-validation. Refinar si aparece caso real.
+- **B5-a P1 #2**: cross-validation frágil ante sufijos PTD desalineados. Mitigación futura: aplicar `_normalize_field_id` antes de comparar.
+- **CLAUDE.md performance flag** — CC reportó >40k chars, impact performance. Sesión de limpieza vault deferrable.
+- **Deuda B3 heredada** (sigue pendiente): numbering issue `Other Image URL1..8` vs `Other Image URL + locators 1..8`, group name old con tooltip 252 chars.
 
-**Próxima sesión M29:** B3-e V4_listing_improvements_current_state. Pre-flight = descubrimiento schema V4 en catálogo + decisión Class A vs Class B.
+**Próxima sesión M27:** B5-b row extractor + initial validator. Helper que toma `wb` + headers (de B5-a) → list de dicts `{field_id: value}` por data row + warnings por Required vacíos. ~80-120 LOC esperadas. Sin discovery previo necesario (B5-a + B2 ya cubren todo el contexto).
 
-**Próxima sesión M27:** B4a `_parse_valid_values` (prompt ya armado en chat M27 último mensaje pre-cierre).
+**Pricing Dashboard (recordatorio):** 0% sin arrancar, 10 días sin respuesta de Freddy sobre Supabase Pro $25/mes (mensaje 09/05). Renumeración M30 pendiente en `.claude/porting-sources/_README.md` (sigue diciendo "M29 = Pricing Dashboard" desactualizado desde pivot 08/05).
 
-Detalle completo en `notes/daily/2026-05-18.md` y `notes/brands/agency-os.md` sección 2026-05-18.
+Detalle completo en `notes/daily/2026-05-19.md` y `notes/brands/agency-os.md` sección 2026-05-19.
 
 ---
 

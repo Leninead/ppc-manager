@@ -250,3 +250,39 @@ Con B3-c validado E2E y B3-d como readonly architecturally-honest, el bucle "edi
 - ⏳ S4: 23 placeholders Tier 2-3 con toggle "Marcar como interesado"
 - ⏳ S5: Templates Jinja2 + renderer HTML
 - ⏳ S6: Playwright PDF + polish + smoke test E2E + READMEs
+
+---
+
+## 2026-05-19 — M27 v1.1 B4 cerrado + B5-a con audit code-reviewer
+
+### M27 v1.1 cross-schema — 2 sub-bloques cerrados (B4) + 1 arrancado (B5-a)
+
+5 commits sobre `flat_file_migrator.py` (+365 LOC):
+- B4a (9c85e06) — `_parse_valid_values` schema-agnostic
+- B4b (c11faf0) — `_ENUM_VALUE_MAP` (3 enums conservador A1+) + `_build_value_map` + `_DEPRECATED_OLD_ENUMS`
+- B5-a (07e79fb) — `_locate_template_headers` con D1+fallback (auto-detección + safety net hardcoded)
+- 64f25db — mitigaciones post-audit code-reviewer (P2 #4 + P1 #3)
+
+Progreso M27 v1.1: 62% → 75% (5/8 sub-bloques). Falta B5-b/B5-c + B6 (~2-3 sesiones).
+
+### Decisiones de diseño cerradas
+
+**`_ENUM_VALUE_MAP` conservador (A1+/B2/C1)**: cubre 3 enums críticos con mapping 1:1 identidad o rewording confirmado (update_delete↔listing_action, parentage↔parentage_level, product_id_type parcial). ISBN y GCID quedan como `None` (deprecated, B5 flagea para revisión manual). `Relationship Type` y `Variation Theme` van a `_DEPRECATED_OLD_ENUMS` (PTD schema gap). Justificación: Marcos único usuario hoy + Capybaras no maneja books + mappings agresivos no escalan al equipo amplio.
+
+**D1+fallback en header locator**: justificado empíricamente — fptcustom tiene 3 rows header (data row 4), PTD tiene 5 rows header (data row 6). La asimetría prueba que Amazon NO es consistente entre schemas → auto-detección compra resiliencia a cambios futuros sin perder el safety net hardcoded.
+
+### Audit code-reviewer en uso operativo (2do hit)
+
+`code-reviewer` (Opus 4.7) invocado POST-commit sobre B5-a. Veredicto: APPROVE WITH CONCERNS — 0 bugs activos, 3 P1 robustez, 2 P2 edge cases, 2 P3 no-issues. Trazó manualmente las 3 trayectorias del helper (fptcustom auto, ptd auto, fallback) confirmando los asserts.
+
+Aplicamos 2 mitigaciones (guard banner walk-up + docstring fail-closed). Otras 2 (P1 #1, P1 #2) quedan documentadas como deuda blanda — mitigadas hoy por B2 cross-validation, especulativas hasta caso real.
+
+Patrón consolidado: audit post-commit > audit during-commit. CC ejecuta libre + reviewer audita estático en read-only + fix quirúrgico en commit separado si aplica. Validado en M28 (09/05) y replicado hoy con resultado limpio.
+
+### Coordinación chat paralelo M29
+
+Sin colisiones en este día. M29 chat paralelo committeó `2f436a0` (B3-e V4 readonly) + `2c2a36d` (B3-d-bis None fix) en su scope (`proposal_studio.py`, `scripts/inject_v4_demo.py`). Ningún archivo de los nuestros tocado.
+
+### Por qué importa este hito
+
+Con B4 cerrado y B5-a verde, las 5 piezas de "knowledge extraction" del módulo están completas: schema detector, data definitions parser, field mapper, valid values parser, value translator, header locator. B5-b/B5-c son la traducción row-level — composición de las piezas existentes con lógica row-by-row. B6 es UI Streamlit puro. La parte difícil (descubrimiento del schema cross-format) terminó.
