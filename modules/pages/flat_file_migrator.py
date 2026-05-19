@@ -581,6 +581,11 @@ def _locate_template_headers(wb) -> dict[str, int | None]:
        (snake_case, bracketed marketplace paths, :: prefix).
     2. Si auto-detección converge Y los field_ids matchean al menos
        parcialmente con Data Definitions (B2), retorna ese mapping.
+       NOTA: si _parse_data_definitions retorna dict vacío (hoja Data
+       Definitions ausente o malformada), la cross-validation matches>=3
+       falla closed → cae a fallback por schema. Decisión by-design: si
+       no podemos cruzar con B2, el fallback hardcoded es más seguro que
+       confiar solo en heurísticas string-pattern.
     3. Si no, cae a _TEMPLATE_HEADER_FALLBACK indexado por schema
        (detectado con _detect_schema).
 
@@ -676,7 +681,7 @@ def _locate_template_headers(wb) -> dict[str, int | None]:
         # tiene Title Case strings pero menos densamente que display_row.
         group_banner_row: int | None = None
         if schema == "ptd":
-            for r in range(display_row - 1, 0, -1):
+            for r in range(display_row - 1, 1, -1):  # r >= 2: skip row 1 settings/banner
                 non_empty = 0
                 title_count = 0
                 for c in range(1, 30):
