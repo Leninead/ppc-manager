@@ -137,6 +137,56 @@ _LABEL_ALIASES: dict[str, str] = {
 # (ej. ' - [  ]', observado empíricamente en COAT__5_.xlsm).
 _VALID_VALUES_SUFFIX_RE = re.compile(r"\s*-\s*\[\s*[^\]]*\s*\]\s*$")
 
+# Mapping de valid values entre schemas para enums cross-schema.
+# Estructura: {old_label: {"new_label": str, "values": {old_val: new_val_or_None}}}
+#
+# Decisión de scope (2026-05-19): conservador. Values sin mapping 1:1
+# identidad o rewording confirmado quedan como None — B5 row migrator los
+# flagea como "value deprecated, requiere revisión manual" en vez de
+# adivinar mapping. Esto previene meter data potencialmente incorrecta al
+# listing en Amazon.
+#
+# Cobertura actual: 3 enums críticos. Otros enums con <=10 values en
+# Valid Values (ver _parse_valid_values) son candidatos para expansión
+# iterativa cuando aparezca un caso real que los requiera.
+_ENUM_VALUE_MAP: dict[str, dict] = {
+    "Update Delete": {
+        "new_label": "Listing Action",
+        "values": {
+            "Delete": "Delete",
+            "Partial Update": "Edit (Partial Update)",
+            "Full Update": "Create or Replace (Full Update)",
+        },
+    },
+    "Parentage": {
+        "new_label": "Parentage Level",
+        "values": {
+            "Parent": "Parent",
+            "Child": "Child",
+        },
+    },
+    "Product ID Type": {
+        "new_label": "Product Id Type",
+        "values": {
+            "EAN": "EAN",
+            "GTIN": "GTIN",
+            "UPC": "UPC",
+            "ASIN": "ASIN",
+            "ISBN": None,  # deprecated en PTD; Capybaras no maneja books
+            "GCID": None,  # deprecated en PTD; fallback row-level vive en B5
+        },
+    },
+}
+
+# Fields OLD enteros que NO tienen contraparte en PTD schema.
+# B5 detecta estos y emite diagnóstico "schema gap, manual review" en
+# vez del genérico "unknown value". Documentado en hallazgos discovery
+# 2026-05-19.
+_DEPRECATED_OLD_ENUMS: frozenset[str] = frozenset({
+    "Relationship Type",  # PTD usa child_parent_sku_relationship + components
+    "Variation Theme",    # PTD usa variation_theme_name + structured components
+})
+
 
 # ── Helpers — sheet/row inspection (porteados de las funciones JS) ──────
 
@@ -381,6 +431,86 @@ def _parse_valid_values(wb) -> dict[str, list[str]]:
         ]
         result[clean_label] = values
     return result
+
+
+def _build_value_map(
+    old_vv: dict[str, list[str]],
+    new_vv: dict[str, list[str]],
+) -> tuple[dict[str, dict[str, str | None]], list[str]]:
+    """Cruza _ENUM_VALUE_MAP con valid values reales para sanity-check + build translator.
+
+    Para cada entry de _ENUM_VALUE_MAP valida que:
+    - El old_label existe en old_vv (= aparece en hoja Valid Values del template old).
+    - Cada old_value declarado existe en old_vv[old_label].
+    - El new_label existe en new_vv.
+    - Cada new_value no-None declarado existe en new_vv[new_label].
+
+    Acumula warnings para todas las divergencias (no raisea), permitiendo
+    que el caller decida si proceder o abortar.
+
+    Args:
+        old_vv: output de _parse_valid_values(old_wb).
+        new_vv: output de _parse_valid_values(new_wb).
+
+    Returns:
+        Tupla (mapping, warnings):
+        - mapping: {old_label: {old_value: new_value_or_None}} flatten para uso
+          directo en B5 row migrator. Solo incluye entries que pasaron sanity
+          check. Si una entry falla validación al nivel de old_label o new_label,
+          se omite del mapping y se logea como warning.
+        - warnings: list[str] de divergencias detectadas, formato human-readable.
+    """
+    mapping: dict[str, dict[str, str | None]] = {}
+    warnings: list[str] = []
+
+    for old_label, spec in _ENUM_VALUE_MAP.items():
+        new_label = spec["new_label"]
+        declared_values = spec["values"]
+
+        if old_label not in old_vv:
+            warnings.append(
+                f"_ENUM_VALUE_MAP declara old_label {old_label!r} pero no aparece "
+                f"en old Valid Values — entry omitida"
+            )
+            continue
+        if new_label not in new_vv:
+            warnings.append(
+                f"_ENUM_VALUE_MAP declara new_label {new_label!r} (para old "
+                f"{old_label!r}) pero no aparece en new Valid Values — entry omitida"
+            )
+            continue
+
+        old_actual = set(old_vv[old_label])
+        new_actual = set(new_vv[new_label])
+        entry: dict[str, str | None] = {}
+
+        for old_val, new_val in declared_values.items():
+            if old_val not in old_actual:
+                warnings.append(
+                    f"{old_label!r}: declared old_value {old_val!r} no existe en "
+                    f"old Valid Values (presentes: {sorted(old_actual)})"
+                )
+                continue
+            if new_val is not None and new_val not in new_actual:
+                warnings.append(
+                    f"{old_label!r} → {new_label!r}: declared new_value {new_val!r} "
+                    f"no existe en new Valid Values (presentes: {sorted(new_actual)})"
+                )
+                continue
+            entry[old_val] = new_val
+
+        # Detectar values old reales NO cubiertos por el map (= candidate
+        # custom values del cliente que B5 va a flaggear).
+        uncovered = old_actual - set(declared_values.keys())
+        if uncovered:
+            warnings.append(
+                f"{old_label!r}: values en old Valid Values NO mapeados: "
+                f"{sorted(uncovered)} — B5 va a flaggear unknown enum si aparecen en rows"
+            )
+
+        mapping[old_label] = entry
+
+    return mapping, warnings
 
 
 def _cell_value_or_blank(ws, row_idx_0: int, col_idx_0: int):
