@@ -189,6 +189,36 @@ Detalle completo en `notes/daily/2026-05-19.md` y `notes/brands/agency-os.md` se
 
 ---
 
+### Última sesión — 2026-05-19 (M29 cierre PM)
+
+**M29 cerrado al fin de jornada:**
+- V1+V2 editores Plan D ✅
+- V3+V4 readonly + banner B7 ✅
+- Schema canónico extendido con `items_schema` formal (commit `757292d`)
+- Propuesta demo renombrada a `_DEMO_AgencyOS` (id `01fbf5c2`)
+- Fix B3-d-bis None→'' aplicado en celdas readonly
+- Contrato Importer B7 v1.0 drafteado en `notes/sales/contrato-importer-b7-v1.md`
+
+**Commits M29 (5):**
+- `2f436a0` feat: B3-e V4 readonly + banner B7
+- `2c2a36d` fix: B3-d-bis None→'' pre-DataFrame
+- `64cf644` docs: inject scripts apuntan a _DEMO_AgencyOS
+- `757292d` feat: items_schema formal V3+V4 + convención proposal-v1
+
+**M27 chat paralelo:** cerró v1.1 B4a + B4b + B5-a + audit (detalle arriba en sub-sección M27). Sin colisiones — archivos distintos.
+
+**Próxima sesión:**
+1. B3-f V5_competitor_comparison (primera Class A real post-V1/V2)
+2. Briefing reunión Ramiro 22/05 — debe estar listo antes del jueves 21
+3. Validar fix B3-d-bis en renderers readonly futuros
+
+**Bloqueantes:** ninguno. Todo verde para arrancar B3-f cuando Lenin
+tenga sesión dedicada (~2-3h).
+
+**Reuniones agendadas:** Ramiro viernes 22/05 15:00 — lock contrato B7 v1.0.
+
+---
+
 ## Sesión anterior — 2026-05-12 (día completo)
 
 **Foco principal**: M29 Proposal Studio Sesión 2/6 — UI completa (Listado + Wizard 3 pasos).

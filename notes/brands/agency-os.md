@@ -286,3 +286,30 @@ Sin colisiones en este día. M29 chat paralelo committeó `2f436a0` (B3-e V4 rea
 ### Por qué importa este hito
 
 Con B4 cerrado y B5-a verde, las 5 piezas de "knowledge extraction" del módulo están completas: schema detector, data definitions parser, field mapper, valid values parser, value translator, header locator. B5-b/B5-c son la traducción row-level — composición de las piezas existentes con lógica row-by-row. B6 es UI Streamlit puro. La parte difícil (descubrimiento del schema cross-format) terminó.
+
+---
+
+### M29 Proposal Studio — sesión PM 2026-05-19
+
+**5 commits locales sobre main:**
+- `2f436a0` — B3-e V4_listing_improvements_current_state readonly (Class B + banner B7)
+- `2c2a36d` — B3-d-bis fix None literal en celdas readonly V3+V4
+- `64cf644` — inject scripts apuntan a _DEMO_AgencyOS (housekeeping)
+- `757292d` — items_schema formal V3+V4 + convención proposal-v1 (pre-B7 contract)
+
+**Vault deliverable:**
+- `notes/sales/contrato-importer-b7-v1.md` v1.0 (Draft pre-reunión 22/05)
+
+**Estado M29 al cierre:**
+- V1 (Plan D, 14/05) ✅
+- V2 (Plan D, B3-c, 18/05) ✅
+- V3 (readonly B3-d, 18/05) ✅
+- V4 (readonly B3-e, 19/05) ✅
+- V5+ pendientes
+- Importer B7: contrato cerrado, implementación pendiente
+
+**Pattern Class B confirmado replicable** con 2 referencias reales
+(V3+V4). Banner B7 + tabla readonly + JSON fallback + try/except defensivo.
+
+**Decisión arquitectónica:** refactor genérico de helpers V*-específicos
+postponed hasta 3 referencias reales Class A (hoy solo V1+V2).
