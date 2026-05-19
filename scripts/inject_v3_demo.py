@@ -1,10 +1,13 @@
-"""Inyecta data demo en V3_seo_opportunity de la propuesta Marca LATAM Premium.
+"""Inyecta data demo en V3_seo_opportunity de la propuesta _DEMO_AgencyOS.
 
 Simula lo que va a hacer el importer HTML B7 cuando exista. Usa pp.save_proposal
 para garantizar JSON sin BOM, version bump correcto, y validación de schema.
 
 Uso: python scripts/inject_v3_demo.py
 """
+# Target proposal: _DEMO_AgencyOS (id 01fbf5c2-1fd9-44dd-9806-742e5deb8f71)
+# Renombrada el 2026-05-19 desde "Marca LATAM Premium (copia)" para
+# evitar ambigüedad con "Marca LATAM Premium" (id 6861bbce-...).
 import sys
 import pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
