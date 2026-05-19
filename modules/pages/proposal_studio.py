@@ -1108,6 +1108,9 @@ def _render_block_editor(block, proposal, lang):
     elif module_id == "V3_seo_opportunity":
         _render_v3_seo_opportunity_readonly(block, proposal, lang)
         return True
+    elif module_id == "V4_listing_improvements_current_state":
+        _render_v4_current_state_readonly(block, proposal, lang)
+        return True
     return False
 
 
@@ -1921,6 +1924,114 @@ def _render_v3_seo_opportunity_readonly(block, proposal, lang):
     if p1_chart:
         with st.expander(f"Brand Page 1 Domination chart data ({len(p1_chart)} entries)"):
             st.json(p1_chart)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B3-e — V4_listing_improvements_current_state (READONLY — viene de importer B7)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# V4 NO es editor manual. Su schema (current_state_url string opcional + items
+# array<object> con name/status/notes) está diseñado para ser autohidratado por
+# las skills `amazon-brand-audit` y `digital-presence-audit` de Ramiro vía el
+# módulo importer B7 (HTML drag-drop, pendiente).
+#
+# Hasta que B7 exista, este renderer muestra:
+#  - Banner explicando que la edición manual no aplica
+#  - Link al screenshot del listing actual (si current_state_url existe)
+#  - Tabla readonly con items {name, status, notes} mapeando status a emoji
+#  - JSON colapsado para auditoría
+#
+# Cuando B7 inyecte data, este renderer la muestra sin tocar nada del flow.
+
+
+def _render_v4_current_state_readonly(block, proposal, lang):
+    """
+    Renderer readonly para V4_listing_improvements_current_state.
+
+    Justificación arquitectónica (paralela a V3):
+      - Schema V4 = current_state_url (string optional) + items (array<object>
+        required) con {name, status: 'missing'|'present'|'weak', notes}.
+      - V4 NO declara copy_overrides_schema → 0 campos i18n.
+      - Caso de uso real: data viene del análisis del listing actual vía skills
+        `amazon-brand-audit` / `digital-presence-audit` de Ramiro, parseada por
+        importer B7 (drag-drop HTML). No es para tipear a mano.
+
+    Por eso este renderer es READONLY:
+      - Banner informativo: edición manual no soportada, viene de B7.
+      - Link al screenshot del listing (si está provisto).
+      - Tabla compacta de items con status mapeado a emoji.
+      - JSON colapsado para auditoría.
+
+    NO usa _ensure_block_buffer ni el patrón Plan D — no hay edits ni save.
+    """
+    import streamlit as st
+    import pandas as pd
+
+    data = block.get("data") or {}
+    current_state_url = data.get("current_state_url") or ""
+    items = data.get("items") or []
+
+    st.markdown("### 🖼️ V4 Listing Current State")
+    st.caption(f"Idioma de la propuesta: {lang}")
+
+    # Banner explicativo (siempre visible)
+    st.markdown(
+        f"<div style='background:#FFF8F0;border-left:3px solid {_NARANJA};"
+        f"padding:0.7rem 1rem;border-radius:4px;font-size:0.82rem;"
+        f"color:#555;line-height:1.5;margin-bottom:1rem;'>"
+        f"⏳ <strong>Este bloque se autohidrata vía importer HTML B7</strong> "
+        f"(skills <code>amazon-brand-audit</code> / <code>digital-presence-audit</code>). "
+        f"No editar manualmente — hasta que B7 esté listo, la data se inyecta vía script."
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    try:
+        # ── Sección 1: current_state_url ────────────────────────────────────
+        st.markdown("**Screenshot del listing actual**")
+        if current_state_url and isinstance(current_state_url, str) and current_state_url.strip():
+            st.markdown(f"[Ver screenshot del listing actual]({current_state_url.strip()})")
+        else:
+            st.markdown(
+                f"<div style='color:{_GRIS_TXT};font-size:0.82rem;font-style:italic;"
+                f"margin-bottom:0.8rem;'>URL no provista</div>",
+                unsafe_allow_html=True,
+            )
+
+        # ── Sección 2: items ────────────────────────────────────────────────
+        st.markdown("**Checklist de elementos del listing**")
+
+        if not isinstance(items, list) or not items:
+            st.info(
+                "ℹ️ Sin items cargados. Cuando B7 esté listo, "
+                "arrastrá un HTML del audit para autollenar."
+            )
+        else:
+            _STATUS_EMOJI = {"missing": "🔴", "present": "🟢", "weak": "🟡"}
+            rows = []
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                status_raw = (it.get("status") or "").strip().lower()
+                emoji = _STATUS_EMOJI.get(status_raw, "⚫")
+                rows.append({
+                    "name": it.get("name") or "",
+                    "status": f"{emoji} {status_raw}" if status_raw else emoji,
+                    "notes": it.get("notes"),
+                })
+            if rows:
+                df_items = pd.DataFrame(rows)
+                st.dataframe(df_items, use_container_width=True, hide_index=True)
+            else:
+                st.warning("⚠️ items no contiene objetos válidos.")
+
+        # ── Sección 3: JSON raw fallback defensivo ──────────────────────────
+        with st.expander("Ver JSON raw del bloque", expanded=False):
+            st.json(data)
+
+    except Exception as e:
+        st.error(f"⚠️ Error al renderizar V4: {type(e).__name__}: {e}")
+        st.json(data)
 
 
 def _render_blocks_section(proposal: dict) -> None:
