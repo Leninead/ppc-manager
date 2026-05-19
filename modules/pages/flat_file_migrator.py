@@ -187,6 +187,25 @@ _DEPRECATED_OLD_ENUMS: frozenset[str] = frozenset({
     "Variation Theme",    # PTD usa variation_theme_name + structured components
 })
 
+# Tabla de fallback con header structure conocida por schema.
+# Usada si la auto-detección no converge. Documentado empíricamente
+# 2026-05-19: fptcustom data starts row 4, PTD data starts row 6.
+# Rows son 1-indexed (consistente con openpyxl).
+_TEMPLATE_HEADER_FALLBACK: dict[str, dict[str, int | None]] = {
+    "fptcustom": {
+        "display_row": 2,
+        "field_id_row": 3,
+        "data_start_row": 4,
+        "group_banner_row": None,  # fptcustom no tiene group banners
+    },
+    "ptd": {
+        "display_row": 4,
+        "field_id_row": 5,
+        "data_start_row": 6,
+        "group_banner_row": 3,  # PTD tiene Listing Identity / Variations / etc
+    },
+}
+
 
 # ── Helpers — sheet/row inspection (porteados de las funciones JS) ──────
 
@@ -511,6 +530,178 @@ def _build_value_map(
         mapping[old_label] = entry
 
     return mapping, warnings
+
+
+def _looks_like_field_id(s: str) -> bool:
+    """Heurística: el string parece un field_id interno Amazon.
+
+    True si: prefix '::', bracketed path '[...=...]', dot/hash indexing
+    ('#' o '.value'), o snake_case puro (lowercase + underscore + sin espacios).
+    False en cualquier otro caso (incluyendo None, vacío, Title Case).
+    """
+    if not isinstance(s, str):
+        return False
+    s = s.strip()
+    if not s:
+        return False
+    if s.startswith("::"):
+        return True
+    if "[" in s and "]" in s:
+        return True
+    if "#" in s or ".value" in s:
+        return True
+    if " " not in s and "_" in s and s.islower():
+        return True
+    return False
+
+
+def _looks_like_display_label(s: str) -> bool:
+    """Heurística: el string parece un display label Title Case.
+
+    True si NO matchea _looks_like_field_id Y tiene espacios (multi-word)
+    O empieza con uppercase (Title Case / acronym). False si None/vacío.
+    """
+    if not isinstance(s, str):
+        return False
+    s = s.strip()
+    if not s:
+        return False
+    if _looks_like_field_id(s):
+        return False
+    if " " in s:
+        return True
+    return s[0].isupper()
+
+
+def _locate_template_headers(wb) -> dict[str, int | None]:
+    """Identifica las rows estructurales de la hoja 'Template'.
+
+    Estrategia D1+fallback:
+    1. Auto-detección row-by-row buscando patterns de field_id internos
+       (snake_case, bracketed marketplace paths, :: prefix).
+    2. Si auto-detección converge Y los field_ids matchean al menos
+       parcialmente con Data Definitions (B2), retorna ese mapping.
+    3. Si no, cae a _TEMPLATE_HEADER_FALLBACK indexado por schema
+       (detectado con _detect_schema).
+
+    Args:
+        wb: openpyxl Workbook abierto (caller-managed lifecycle).
+
+    Returns:
+        dict con keys:
+        - 'display_row' (int, 1-indexed): row con display labels
+        - 'field_id_row' (int, 1-indexed): row con field IDs internos
+        - 'data_start_row' (int, 1-indexed): primera row de data real
+        - 'group_banner_row' (int | None): row con group banners
+          (solo PTD), None si no aplica
+        - 'detection_method' (str): 'auto' o 'fallback'
+
+    Raises:
+        KeyError si la hoja 'Template' no existe.
+        ValueError si auto-detección Y fallback ambos fallan (schema
+          desconocido en _TEMPLATE_HEADER_FALLBACK).
+    """
+    ws = wb["Template"]
+
+    # Cachear primeras 8 rows (suficiente; soporta read_only mode).
+    rows_data: list[tuple] = []
+    for i, row in enumerate(ws.iter_rows(values_only=True)):
+        if i >= 8:
+            break
+        rows_data.append(row)
+
+    def _at(row_1idx: int, col_1idx: int):
+        r = row_1idx - 1
+        c = col_1idx - 1
+        if r < 0 or r >= len(rows_data):
+            return None
+        row = rows_data[r]
+        if c < 0 or c >= len(row):
+            return None
+        return row[c]
+
+    # Heurística 1: scan rows 1..8 contando field_id-like strings en cols 1..16.
+    max_row_to_scan = min(8, len(rows_data))
+    field_id_row: int | None = None
+    max_fid_score = 0
+    for r in range(1, max_row_to_scan + 1):
+        fid_count = 0
+        for c in range(1, 17):
+            v = _at(r, c)
+            if isinstance(v, str) and _looks_like_field_id(v):
+                fid_count += 1
+        if fid_count >= 5 and fid_count > max_fid_score:
+            max_fid_score = fid_count
+            field_id_row = r
+
+    schema = _detect_schema(wb)
+    auto_ok = False
+    display_row: int | None = None
+
+    if field_id_row is not None:
+        # Cross-validation con B2: al menos 3 de los primeros 5 field_ids
+        # detectados deben aparecer como keys en _parse_data_definitions.
+        dd = _parse_data_definitions(wb)
+        dd_keys = set(dd.keys())
+        sample_ids: list[str] = []
+        for c in range(1, 17):
+            v = _at(field_id_row, c)
+            if isinstance(v, str):
+                s = v.strip()
+                if _looks_like_field_id(s):
+                    sample_ids.append(s)
+            if len(sample_ids) >= 5:
+                break
+        matches = sum(1 for f in sample_ids if f in dd_keys)
+
+        if matches >= 3:
+            # display_row: walk up desde field_id_row - 1 hasta encontrar row
+            # con >=5 Title Case strings.
+            cand = field_id_row - 1
+            while cand >= 1:
+                disp_score = 0
+                for c in range(1, 17):
+                    v = _at(cand, c)
+                    if isinstance(v, str) and _looks_like_display_label(v):
+                        disp_score += 1
+                if disp_score >= 5:
+                    display_row = cand
+                    break
+                cand -= 1
+            if display_row is not None:
+                auto_ok = True
+
+    if auto_ok:
+        # group_banner_row: solo PTD. Walk up desde display_row - 1; banner
+        # tiene Title Case strings pero menos densamente que display_row.
+        group_banner_row: int | None = None
+        if schema == "ptd":
+            for r in range(display_row - 1, 0, -1):
+                non_empty = 0
+                title_count = 0
+                for c in range(1, 30):
+                    v = _at(r, c)
+                    if isinstance(v, str) and v.strip():
+                        non_empty += 1
+                        if _looks_like_display_label(v):
+                            title_count += 1
+                if title_count >= 1 and non_empty <= 15:
+                    group_banner_row = r
+                    break
+
+        return {
+            "display_row": display_row,
+            "field_id_row": field_id_row,
+            "data_start_row": field_id_row + 1,
+            "group_banner_row": group_banner_row,
+            "detection_method": "auto",
+        }
+
+    # Fallback
+    if schema not in _TEMPLATE_HEADER_FALLBACK:
+        raise ValueError(f"Schema desconocido {schema!r} sin fallback definido")
+    fb = _TEMPLATE_HEADER_FALLBACK[schema]
+    return {**fb, "detection_method": "fallback"}
 
 
 def _cell_value_or_blank(ws, row_idx_0: int, col_idx_0: int):
