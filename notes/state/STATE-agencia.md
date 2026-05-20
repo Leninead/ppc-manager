@@ -150,6 +150,88 @@ Detalle completo en `notes/daily/2026-05-13.md` y `notes/brands/agency-os.md`
 
 ---
 
+### Última sesión — 2026-05-20 (M29 6 CORE editores cerrados + M27 v1.1 B5-b cerrado + LTD bulks + SPP submit)
+
+**M29 Proposal Studio — sesión 2026-05-20:**
+
+- Commits del día (2):
+  - `293ae74` feat(M29): B3-f V5_listing_comparison_competitor readonly + find-or-create inject script
+  - `6cf581a` feat(M29): B3-g V6_growth_plan_phases readonly + find-or-create inject script
+- Archivos modificados:
+  - `modules/pages/proposal_studio.py` +305 LOC (V5 helpers + V6 helpers + 2 elif dispatcher)
+  - `scripts/inject_v5_demo.py` (nuevo, 116 LOC, find-or-create idempotente)
+  - `scripts/inject_v6_demo.py` (nuevo, 109 LOC, find-or-create idempotente)
+- Propuesta `_DEMO_AgencyOS` (01fbf5c2): v10 → v12, 19 → 20 blocks, V1-V6 contiguos
+
+**Estado M29 al cierre:**
+
+- ✅ **6 CORE editores cerrados:** V1+V2 Plan D + V3+V4+V5+V6 readonly Class B
+- Pattern Class B replicado 4 veces (V3, V4, V5, V6) → umbral N=3 superado
+- 42/42 tests pasan, sin regresión
+- Smoke runtime visual OK (V5 + V6 verificados en `_DEMO_AgencyOS`)
+
+**Deuda activa M29 (actualización):**
+
+- **P2 nueva** — Template launch desactualizado vs catálogo: `_DEMO_AgencyOS` tiene 20 blocks vs 35 en catálogo. Faltan V7-V16 + V23-V29. Find-or-create cubre por ahora. Decisión arquitectónica pendiente post-Ramiro.
+- **P3 nueva** — Refactor genérico Class B: con 4 referencias reales (V3+V4+V5+V6) corresponde refactor a `_render_class_b_readonly(... item_renderer_fn)`. Reduce ~400 LOC duplicación a ~80. Sesión dedicada.
+- **P3 nueva** — Smoke runtime ANTES del commit: hoy commiteamos V5 sin smoke previo, debug post-commit por confusión de propuesta (Marca LATAM Premium vs _DEMO_AgencyOS). Reforzar workflow.
+- **P3 nueva** — Git ignore semantics aprendido: whitelist quirúrgico bajo `notes/*` requiere patrón "open-then-narrow" de 3 líneas (`!notes/sub/` + `notes/sub/*` + `!notes/sub/archivo`). Detectado por CC en cierre 20/05 cuando whitelist mono-línea falló silenciosa.
+- **P2 — Whitelist notes/sales/ resuelto parcial**: agregada whitelist quirúrgica solo del contrato B7 v1.0. Otros archivos sales/ siguen ignored.
+
+**Próxima sesión M29:** decisión arquitectónica V6 post-Ramiro
+(skill Capybaras manual vs skill audit Ramiro). Si manual → refactor
+V6 a Plan D editor en sesión dedicada. Discovery: revisar shape de
+V6 emisión en función del output esperado de la skill.
+
+---
+
+**M27 Flat File Migrator v1.1 — sesión 2026-05-20 (B5-b cerrado con audit code-reviewer):**
+
+- 3 commits sobre `modules/pages/flat_file_migrator.py` (+205 LOC):
+  - `fc31af8` — checkpoint pre-B5-b
+  - `dcfdc9d` — B5-b `_extract_template_rows` + initial Required validator (+180 LOC)
+  - `0f82d90` — fix mitigaciones post-audit B5-b F1+F5 (+25 LOC)
+- Discovery D3 ejecutado con script ad-hoc + 2 archivos reales Gamboa/coat (OLD fptcustom + NEW PTD). Reveló asimetría de valores Required entre schemas: OLD usa Optional/Required/Preferred; PTD agrega "Conditionally Required" (78 fields, 35% del schema PTD) y "Recommended".
+- Decisión D3 cerrada con data real: trigger Required = igualdad exacta `== "required"` lowercased. "Conditionally Required" queda como deuda futura (no scope B5-b initial validator).
+- Hallazgo crítico mid-implementación: row 6 del PTD (`['ABC123', 'SHIRT', '(Default) Create or Replace', ...]`) y banner emoji row 7 → 5 filtros en `_extract_template_rows` en vez de los 4 originalmente planeados.
+- Primera versión D4 con `_AMAZON_EXAMPLE_TYPES` causó regresión catastrófica (7/7 OLD rows filtradas porque `_AMAZON_EXAMPLE_TYPES` contiene "COAT" y coincide con `feed_product_type=coat` legítimo). Fix correcto: solo señal `"(Default)"` (valid value contractual del dropdown `::record_action`).
+- Audit code-reviewer Opus 4.7 sobre B5-b (3er hit operativo): APPROVE WITH CONCERNS, 0 bugs activos, 4 P1 + 4 P2 + 4 P3. Mitigaciones F1 (P1, fail-silent si field_ids vacío) + F5 (P2, docstring tipos no-str) aplicadas en `0f82d90`.
+
+**Estado del proyecto al cierre:**
+
+| Módulo | Status |
+|---|---|
+| M27 v1.1 | 6/8 sub-bloques cerrados (B1+B2+B3+B4a+B4b+B5-a+B5-b). B5-c + B6 pendientes. Progreso 87.5%. |
+| M29 Proposal Studio | 6/6 CORE editores cerrados. Refactor genérico Class B habilitado (4 refs). |
+| Pricing Dashboard (HTML #3 de Marcos) | 🔴 0% sin arrancar. Bloqueado por persistencia cloud + slot M29 tomado por Proposal Studio. |
+
+**Deuda activa actualizada (M27):**
+
+Nueva del audit B5-b (no aplicadas, documentadas):
+- **F2 (P1)**: `data_start_1idx > len(all_rows)` no distingue "template vacío legítimo" de error de offset.
+- **F3 (P1)**: Field IDs duplicados entre cols → última col gana sin warning. Sin saving grace si Amazon mete dups.
+- **F4 (P1)**: Trayectoria fallback emite warning informativo + procede normal — Required validation puede tener desalineaciones silenciosas.
+- **F6 (P2)**: Substring `"(Default)"` en cells legítimas (improbable). Escalar a D5 si aparece.
+- **F7 (P2)**: `ord >= 0x2600` cubre CJK/Dingbats. Mitigado por AND `rest_empty`.
+- **F8 (P2)**: Umbral `<3` cells filtra updates parciales legítimos si scope se expande.
+- **F9-F12 (P3)**: housekeeping cosmético (naming, docstring "Raises", comentarios, Required ausentes del template no warneados).
+
+Nueva descubierta no-audit:
+- **P2 — openpyxl hang con `read_only=False` sobre .xlsm Amazon**: discovery se cuelga >2min con `read_only=False`, completa <2s con `read_only=True`. Causa probable: carga de data_validations + named ranges del .xlsm. Workaround documentado en docstring del helper.
+- **P2 — Asimetría DD vs Template OLD**: fptcustom Template tiene 227 cols con field_id pero DD documenta solo 164. Los 63 extra son cols históricas sin entry en DD. Comportamiento del helper es correcto (los fids sin DD lookup no triggean Required validation). Documentable como contexto para B5-c.
+
+Heredada B5-a y previas (sigue activa):
+- B5-a-bis (P3 #7): colisión naming `_looks_like_field_id` vs `_looks_like_field_ids`.
+- B5-a P1 #1, P1 #2: mitigadas por cross-validation, sin caso real aún.
+- CLAUDE.md performance flag (>40k chars).
+- Deuda B3 heredada (Other Image URL numbering + group name old tooltip 252 chars).
+
+**Próxima sesión M27:** B5-c row-level value translator. Helper que compone B5-b output + B4b `_build_value_map` para traducir enum values OLD→NEW row-by-row, emitiendo warnings por values deprecated/sin mapping. Discovery previo recomendado: script ad-hoc que listee qué cols del template OLD contienen enum values reales (no schema-defined sino contenido del cliente Gamboa).
+
+Detalle completo en `notes/daily/2026-05-20.md` y `notes/brands/agency-os.md` sección 2026-05-20.
+
+---
+
 ### Última sesión — 2026-05-19 (M27 v1.1 B4 cerrado + B5-a con audit code-reviewer)
 
 **Trabajo realizado:**
@@ -449,6 +531,36 @@ Detalle completo en `daily/2026-05-08.md`.
 | Pura Vida Moringa | Amazon MX 🇲🇽 | 45.5% marzo (proyectado 48-52% post-opt) | Bajar ACoS a 40-45% · consolidar rank orgánico top 2-5 | Sin crédito Atom11 — optimización manual | [[Puravidamoringa]] |
 
 **Patrón cross-client**: todos los USA con cuenta madura (Dermaglos, M&B, 360 Essentials) corrieron Atom11 v2026.2 en marzo. Los MX (LTD, Setex, PVM) manuales — LTD con 38 rules vía Cowork, Setex sin Atom11, PVM sin crédito.
+
+---
+
+## LTD
+status: 5/6 fases ejecutadas (ejecución bulks completa 2026-05-20)
+last_session: 2026-05-20
+bulks_aplicados: 9 ✅ + 1 manual (PAT SwaddleMe)
+acos_actual: 15.6%
+acos_target_junio: 11-12%
+tacos_actual: 17.4%
+tacos_target_junio: 10-12%
+heroes_oficiales: 10 (pendiente update a 19 con Agustín)
+heroes_detectados_str: 19
+
+## Pendiente LTD
+- Stock alerts (Agustín): B0F8PB4NHX, B09S14W4SS, B0088HVGHS, TOG 2.5 línea
+- Validar ASINs MX para 3 PAT pausadas (Halo, Swaddelini, Kyte Baby) — próxima sesión
+- Heroes oficiales: confirmar update 10 → 19 con Agustín
+- B09MG2CVCR SBV PROBLEM: sin owner asignado
+- Seguimientos: 21/05 winners TimeInBudget, 22/05 SwaddleMe PAT impressions, 23/05 EXACT orders, 25/05 STR semanal
+
+## API Integration — SPP Case · 20/05/2026
+**Status**: SUBMITTED · esperando review Amazon
+**Owner**: Freddy (contact) + Lenin (technical)
+**Detalles**: `notes/api-integration/spp-case/README.md`
+- 12 non-Restricted roles solicitados (NO Restricted)
+- 8 use cases descritos en submission; 4 bullets de amendment listos en
+  `amendment-bullets.md` para respuesta reactiva si Amazon pregunta
+- Próxima acción: monitoring freddy@capybaras.agency
+- IRP formal vigente: `notes/sops/incident-response-plan.md`
 
 ---
 

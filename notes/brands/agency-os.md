@@ -313,3 +313,133 @@ Con B4 cerrado y B5-a verde, las 5 piezas de "knowledge extraction" del módulo 
 
 **Decisión arquitectónica:** refactor genérico de helpers V*-específicos
 postponed hasta 3 referencias reales Class A (hoy solo V1+V2).
+
+---
+
+## 2026-05-20 — M27 v1.1 B5-b cerrado con audit + M29 6 CORE editores cerrados
+
+### M29 Proposal Studio — cierre 6 CORE editores
+
+**2 commits del día sobre M29:**
+
+- `293ae74` feat: B3-f V5 readonly + find-or-create inject
+- `6cf581a` feat: B3-g V6 readonly + find-or-create inject
+
+**Helpers nuevos:**
+
+- `_render_v5_listing_comparison_readonly(block, proposal, lang)` (~95 LOC) — banner B7 + render por grupo (emoji+label, commentary, 2 cols side-by-side cliente/competidor) + JSON fallback + try/except defensivo.
+- `_render_v5_asset_list(assets)` (~40 LOC) — helper defensivo para shape indefinida de assets. 4 casos: string → link, dict con url/image_url/href → link con caption, dict sin url → JSON, else → JSON.
+- `_render_v6_growth_plan_readonly(block, proposal, lang)` (~80 LOC) — banner B7 + 3 cards apiladas por fase + dividers + JSON fallback + try/except defensivo.
+- `_v6_pick_lang(field, lang)` (~25 LOC) — campos bilingües {en, es} con cascada lang → es → primer valor → ''.
+
+**Inject scripts nuevos:**
+
+- `scripts/inject_v5_demo.py` (116 LOC) — find-or-create idempotente, inserta V5 después del último V4* presente, payload con 4 shapes de assets.
+- `scripts/inject_v6_demo.py` (109 LOC) — find-or-create idempotente, inserta V6 después del último V5* presente, payload con 3 fases bilingües.
+
+**Pattern Class B validado por 4ta vez (V3+V4+V5+V6).** Estructura idéntica:
+
+1. Banner B7 con disclaimer específico
+2. try/except global
+3. Loop por items con render por tipo + divider entre items
+4. JSON expander al final
+5. Helper defensivo para edge cases
+
+→ Refactor genérico habilitado (deuda P3 nueva).
+
+**Patrones validados:**
+
+- Find-or-create idempotente para inject scripts (cubre template launch desactualizado)
+- Smoke runtime visual ANTES del commit (aprendizaje del día, no aplicado hoy)
+- Helper defensivo para shapes indefinidas/bilingües
+
+**Estado al cierre:**
+
+- 6/6 CORE editores cerrados
+- 42/42 tests pasan
+- `_DEMO_AgencyOS` v12, 20 blocks, V1-V6 contiguos
+
+### M27 Flat File Migrator — sesión B5-b row extractor + initial validator
+
+3 commits sobre `modules/pages/flat_file_migrator.py` (+205 LOC total):
+
+- `fc31af8` — checkpoint pre-B5-b
+- `dcfdc9d` — B5-b `_extract_template_rows` (180 LOC con docstring extenso)
+- `0f82d90` — mitigaciones post-audit F1+F5 (+25 LOC)
+
+Progreso M27 v1.1: 75% → 87.5% (6/8 sub-bloques). Falta B5-c row-level value translator + B6 UI.
+
+#### Helper nuevo: `_extract_template_rows`
+
+**Signature:**
+
+```python
+def _extract_template_rows(
+    wb,
+    headers: dict[str, int | None],
+) -> tuple[list[dict[str, str]], list[str]]
+```
+
+Caller-managed-wb pattern (no abre ni cierra el workbook). Toma headers del output de `_locate_template_headers` (B5-a). Retorna tupla `(rows, warnings)`:
+
+- `rows`: list de dicts SPARSE — cada dict contiene todas las keys del field_id_row no vacías, cells vacías como `""`. Una entry por data row real (post-filtrado).
+- `warnings`: list[str] con un warning por (field_id, row) cuando un field Required tiene cell vacía. Igualdad exacta `required.lower() == "required"`.
+
+#### 5 filtros de exclusión (D1)
+
+Una row se descarta si CUALQUIERA:
+
+- (a) `_is_amazon_internal_row(row_as_list)` retorna True (helper legacy, marketplace_id, amzn1.volt., #N.value, [language_tag=, ejemplos canónicos)
+- (b) Banner unicode: col 1 string empieza con emoji codepoint >= 0x2600 Y cols 2+ todas vacías (caso real: banner ✅ del PTD COAT__5_.xlsm)
+- (c) Placeholder esparso: <3 cells no vacías en primeras 10 cols
+- (d) Row completamente vacía → skip silencioso
+- (e) Placeholder PTD Amazon: `"(Default)"` string en alguna de las primeras 10 cols. Valid value contractual del dropdown Amazon para `::record_action`
+
+**Decisión D4 (filtro e):** después de un primer intento con `_AMAZON_EXAMPLE_TYPES` que causó regresión (colisión con `feed_product_type='coat'` del cliente Gamboa), se simplificó a una sola señal `"(Default)"`. Justificación documentada en docstring + comentarios inline: `_AMAZON_EXAMPLE_TYPES` contiene categorías Amazon legítimas que colisionan con campos de producto reales.
+
+#### Validación Required (D3)
+
+Comparación de igualdad exacta lowercased contra `"required"`. Fields con `Conditionally Required` / `Optional` / `Recommended` / `Preferred` NO disparan warning. "Conditionally Required" (78 fields PTD, 35% del schema) queda como deuda futura — requeriría lógica de condicionales que excede scope initial validator.
+
+#### Patrones validados
+
+- **Discovery ad-hoc en chat antes de hardcodear decisiones**. Lección 19/05 (`_ENUM_VALUE_MAP` conservador) replicada: D3 fue cerrada con data real, NO con suposiciones del spec. Hallazgo: 4 valores Required únicos en PTD vs los 5 `{"yes", "y", "1", "true", "required"}` que asumí originalmente.
+- **CC detecta regresiones agresivas sin commitear**. Fix D4 inicial fue auto-detectado por re-test (CC corrió `test_b5b_extract.py` y vio OLD=0 cuando debería ser 7). Patrón "CC ejecuta + reporta sin asumir + Lenin decide" funcionó en tiempo real.
+- **Audit code-reviewer post-commit (3er hit operativo)**. Patrón consolidado: helper se commitea con CC libre + audit estático en read-only sobre el commit + mitigaciones quirúrgicas en commit separado. APPROVE WITH CONCERNS recurrente en helpers B5-*. Sub-agente Opus 4.7 trazó las 3 trayectorias (OLD feliz, NEW vacío legítimo, fallback informativo) y validó asserts.
+- **Defense in depth descartado cuando una señal es contractual estable**. AND `(default AND example_type)` perdía robustez vs OR; OR + 2 señales tenía colisiones. Una sola señal `"(Default)"` (valid value Amazon dropdown) ganó por simplicidad + estabilidad de contrato.
+
+#### Patrones descartados
+
+- **Combinar `_AMAZON_EXAMPLE_TYPES` para filtrar placeholders PTD**: colisión directa con `feed_product_type='coat'` (Gamboa) y futuros clientes con productos en SHIRT/DRESS/PANTS/etc. Constante diseñada para detectar ejemplos Amazon canónicos (con commas y `with_comma >= 2`), no reutilizable para PTD placeholders.
+- **read_only=False en openpyxl con .xlsm Amazon**: hang >2min. Workaround `read_only=True` obligatorio para archivos >1MB del template Amazon. Documentado en docstring.
+
+#### Lecciones para próximas sesiones
+
+- **Antes de combinar señales heurísticas con constantes existentes, verificar colisión con dominio**: `_AMAZON_EXAMPLE_TYPES` se diseñó para detectar ejemplos Amazon, no placeholders PTD. Mezclar dominios = regresiones.
+- **El docstring extenso (~48 LOC) no es ruido si documenta razonamiento de decisiones**: el helper terminó en 149 LOC (excediendo el target 80-120) pero salva el contexto de D1/D2/D3/D4 para sesiones futuras. ROI alto vs recortarlo.
+- **Test E2E con asserts numéricos contra archivos reales es el catch primario**, no el audit post-commit. CC detectó la regresión D4 antes de mí. Audit code-reviewer es la segunda red, no la primera.
+
+#### Coordinación chat paralelo M29
+
+Sin colisiones de archivo. M29 commiteó en paralelo:
+
+- `293ae74` — B3-f V5_listing_comparison_competitor readonly
+- `6cf581a` — B3-g V6_growth_plan_phases readonly
+
+Working tree de M27 quedó limpio respecto a archivos M29 al cierre del chat. `git add` con path específico en cada commit M27 evitó contaminación.
+
+#### Estado M27 al cierre
+
+| Bloque | Status | Commit |
+|---|---|---|
+| B1 schema detector | ✅ | 58ba985 |
+| B2 data definitions parser | ✅ | 519f221 |
+| B3 cross-schema field mapper | ✅ | e3234dd |
+| B4a valid values parser | ✅ | 9c85e06 |
+| B4b enum value translator | ✅ | c11faf0 |
+| B5-a header locator | ✅ | 07e79fb + 64f25db |
+| B5-b row extractor + validator | ✅ | dcfdc9d + 0f82d90 |
+| B5-c row-level value translator | ⏳ próxima sesión | — |
+| B6 UI Streamlit | ⏳ pendiente | — |
+
+Con B5-b cerrado, las 7 piezas de "knowledge extraction + data extraction" están listas. Falta solo B5-c (composición B5-b + B4b para traducción row-by-row) y B6 (UI). La parte difícil del módulo ya terminó.
