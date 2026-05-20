@@ -56,6 +56,11 @@ notes/*
 !notes/personal/**
 !notes/prompts/
 !notes/prompts/**
+!notes/sales/
+notes/sales/*
+!notes/sales/contrato-importer-b7-v1.md
+!notes/api-integration/
+!notes/api-integration/**
 !notes/Biblioteca.md
 !notes/CLAUDE.md
 .env
