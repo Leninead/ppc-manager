@@ -1111,6 +1111,9 @@ def _render_block_editor(block, proposal, lang):
     elif module_id == "V4_listing_improvements_current_state":
         _render_v4_current_state_readonly(block, proposal, lang)
         return True
+    elif module_id == "V5_listing_comparison_competitor":
+        _render_v5_listing_comparison_readonly(block, proposal, lang)
+        return True
     return False
 
 
@@ -2056,6 +2059,163 @@ def _render_v4_current_state_readonly(block, proposal, lang):
     except Exception as e:
         st.error(f"⚠️ Error al renderizar V4: {type(e).__name__}: {e}")
         st.json(data)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B3-f — V5_listing_comparison_competitor (READONLY — fuera de contrato B7 v1.0)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# V5 NO es editor manual. Su schema (comparison_groups array<object> con type
+# enum + client_assets/competitor_assets + commentary) está pensado para que
+# Capybaras lo emita vía skill de Ramiro a definir post-reunión 22/05.
+#
+# El contrato Importer B7 v1.0 (notes/sales/contrato-importer-b7-v1.md) dice
+# explícitamente: "V5+ bloques: no implementados en M29 al 2026-05-19. Se
+# cubrirán en una v2 del contrato cuando los respectivos readonly estén en
+# repo." Por eso este renderer es defensivo total respecto del shape de los
+# assets — la shape se cierra en v2 del contrato.
+
+
+def _render_v5_listing_comparison_readonly(block, proposal, lang):
+    """
+    Renderer readonly para V5_listing_comparison_competitor.
+
+    Schema canónico (catálogo v1):
+        comparison_groups: array<object>
+            Cada objeto: {
+                type: 'main_image' | 'infographics' | 'a_plus',
+                client_assets: [],
+                competitor_assets: [],
+                commentary: str
+            }
+
+    Render:
+      - Banner B7 (con disclaimer V5 fuera de contrato v1).
+      - Si no hay comparison_groups → info "vacío" + JSON expander.
+      - Si hay grupos → por grupo: emoji+label del type, commentary,
+        2 columnas side-by-side (Cliente / Competidor) con asset lists.
+      - JSON fallback expander al final.
+      - try/except global que cae a st.json.
+
+    Shape de los assets NO se asume. _render_v5_asset_list es defensivo:
+    string → link, dict con key 'url'/'image_url'/'href' → link, else JSON.
+    """
+    import streamlit as st
+
+    data = block.get("data") or {}
+    groups = data.get("comparison_groups") or []
+
+    st.markdown("### ⚖️ V5 Listing — Side-by-Side vs Competidor")
+    st.caption(f"Idioma de la propuesta: {lang}")
+
+    # Banner B7 — versión V5: aclara que está FUERA del contrato v1.0
+    st.markdown(
+        f"""<div style="background:#FFF8F0; border-left:3px solid {_NARANJA};
+        padding:12px 16px; border-radius:4px; margin:8px 0 16px;">
+        <strong>⏳ Este bloque se autohidrata vía importer HTML B7 (no implementado todavía).</strong><br>
+        Capybaras emite el comparativo cliente vs competidor mediante una skill
+        a definir. B7 va a parsear HTML con attributes <code>data-proposal-*</code>
+        y autohidratar este bloque. Hasta entonces, solo se muestra el contenido
+        pre-cargado.<br>
+        <em>Nota: V5 está fuera del contrato B7 v1.0 — la shape definitiva de
+        los assets se cierra en contrato v2 (post-reunión 22/05).</em>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    try:
+        if not groups:
+            st.info(
+                "📭 No hay grupos de comparación cargados. Cuando B7 esté listo, "
+                "se autohidrata desde la skill de Ramiro/Capybaras."
+            )
+            with st.expander("Ver JSON raw del bloque", expanded=False):
+                st.json(data)
+            return
+
+        _TYPE_EMOJI = {"main_image": "🖼️", "infographics": "📊", "a_plus": "📄"}
+        _TYPE_LABEL = {
+            "main_image": "Main Image",
+            "infographics": "Infographics",
+            "a_plus": "A+ Content",
+        }
+
+        for idx, group in enumerate(groups):
+            if not isinstance(group, dict):
+                st.warning(f"⚠️ Grupo #{idx + 1} no es un objeto válido.")
+                st.json(group)
+                continue
+
+            gtype = group.get("type") or ""
+            commentary = (group.get("commentary") or "").strip()
+            client_assets = group.get("client_assets") or []
+            competitor_assets = group.get("competitor_assets") or []
+
+            emoji = _TYPE_EMOJI.get(gtype, "📦")
+            label = _TYPE_LABEL.get(gtype, gtype or f"Grupo {idx + 1}")
+
+            st.markdown(f"#### {emoji} {label}")
+            if commentary:
+                st.markdown(f"_{commentary}_")
+
+            col_client, col_competitor = st.columns(2)
+            with col_client:
+                st.markdown("**Cliente**")
+                _render_v5_asset_list(client_assets)
+            with col_competitor:
+                st.markdown("**Competidor**")
+                _render_v5_asset_list(competitor_assets)
+
+            if idx < len(groups) - 1:
+                st.divider()
+
+        with st.expander("Ver JSON raw del bloque", expanded=False):
+            st.json(data)
+
+    except Exception as e:
+        st.error(f"⚠️ Error al renderizar V5: {type(e).__name__}: {e}")
+        st.json(data)
+
+
+def _render_v5_asset_list(assets):
+    """
+    Helper defensivo para renderizar lista de assets de V5.
+
+    Shape indefinida en contrato v1. Casos manejados:
+      - lista vacía → caption "(sin assets)"
+      - string → link markdown (truncado a 60 chars si más largo)
+      - dict con key 'url'/'image_url'/'href' → link con caption si existe
+      - dict sin url conocida → st.json
+      - otro tipo → st.json
+    """
+    import streamlit as st
+
+    if not assets:
+        st.caption("_(sin assets)_")
+        return
+
+    if not isinstance(assets, list):
+        st.warning("⚠️ Assets no es lista.")
+        st.json(assets)
+        return
+
+    for asset in assets:
+        if isinstance(asset, str):
+            label = asset if len(asset) <= 60 else asset[:57] + "..."
+            st.markdown(f"- [{label}]({asset})")
+        elif isinstance(asset, dict):
+            url = asset.get("url") or asset.get("image_url") or asset.get("href")
+            caption = asset.get("caption") or asset.get("alt") or asset.get("note")
+            if url:
+                if caption:
+                    label = caption
+                else:
+                    label = url if len(url) <= 60 else url[:57] + "..."
+                st.markdown(f"- [{label}]({url})")
+            else:
+                st.json(asset)
+        else:
+            st.json(asset)
 
 
 def _render_blocks_section(proposal: dict) -> None:
