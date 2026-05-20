@@ -1114,6 +1114,9 @@ def _render_block_editor(block, proposal, lang):
     elif module_id == "V5_listing_comparison_competitor":
         _render_v5_listing_comparison_readonly(block, proposal, lang)
         return True
+    elif module_id == "V6_growth_plan_phases":
+        _render_v6_growth_plan_readonly(block, proposal, lang)
+        return True
     return False
 
 
@@ -2216,6 +2219,148 @@ def _render_v5_asset_list(assets):
                 st.json(asset)
         else:
             st.json(asset)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B3-g — V6_growth_plan_phases (READONLY — emisión TBD, posiblemente Plan D)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# V6 schema tiene shape más rica que V3/V4/V5: 3 fases exactas (min=max=3),
+# cada una con number, name {en,es}, duration, narrative {en,es}.
+#
+# Decisión arquitectónica DEFERRED a reunión Ramiro 22/05: V6 podría NO
+# salir del importer B7 (las skills de Ramiro son amazon-brand-audit y
+# digital-presence-audit, que son AUDIT; el growth plan es decisión
+# estratégica de Capybaras, no audit). Si Ramiro confirma que no tiene
+# skill, V6 se refactoriza a Plan D editor en sesión dedicada post-Ramiro.
+#
+# HOY: readonly Class B por consistencia (cerrar los 6 CORE editores en
+# una sola jornada).
+
+
+def _render_v6_growth_plan_readonly(block, proposal, lang):
+    """
+    Renderer readonly para V6_growth_plan_phases.
+
+    Schema canónico (catálogo v1):
+        phases: array<object>, min_items=max_items=3
+            Cada objeto: {
+                number: int,
+                name: {en: str, es: str},
+                duration: str,
+                narrative: {en: str, es: str}
+            }
+
+    Render:
+      - Banner B7 (con disclaimer V6 fuera de contrato v1, emisión TBD).
+      - Si no hay phases → info "vacío" + JSON expander.
+      - Si hay phases → 3 cards apiladas (1 por fase) con:
+        header (#N + nombre[lang]), duration en caption, narrative[lang]
+        como markdown.
+      - JSON fallback expander al final.
+      - try/except global que cae a st.json.
+
+    Lang handling: cada campo bilingüe usa _v6_pick_lang(field, lang)
+    que cae a 'es' si lang no presente, después a primer valor disponible.
+    """
+    import streamlit as st
+
+    data = block.get("data") or {}
+    phases = data.get("phases") or []
+
+    st.markdown("### 🚀 V6 Growth Plan — 3 Fases")
+    st.caption(f"Idioma de la propuesta: {lang}")
+
+    # Banner B7 — V6: aclara que la emisión está TBD post-Ramiro
+    st.markdown(
+        f"""<div style="background:#FFF8F0; border-left:3px solid {_NARANJA};
+        padding:12px 16px; border-radius:4px; margin:8px 0 16px;">
+        <strong>⏳ Este bloque se autohidrata vía importer HTML B7 (no implementado todavía).</strong><br>
+        Plan de crecimiento estructurado en 3 fases (Foundations / Expansion / DSP).
+        La emisión definitiva (skill Capybaras manual vs skill de Ramiro) se decide
+        en la reunión del 22/05. Hasta entonces, solo se muestra el contenido pre-cargado.<br>
+        <em>Nota: V6 está fuera del contrato B7 v1.0 — si la decisión es "skill manual
+        Capybaras", V6 se refactoriza a Plan D editor en sesión dedicada.</em>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    try:
+        if not phases:
+            st.info(
+                "📭 No hay fases cargadas. Cuando la skill esté lista, "
+                "se autohidrata."
+            )
+            with st.expander("Ver JSON raw del bloque", expanded=False):
+                st.json(data)
+            return
+
+        if not isinstance(phases, list):
+            st.warning(f"⚠️  phases no es lista (es {type(phases).__name__}).")
+            st.json(data)
+            return
+
+        for idx, phase in enumerate(phases):
+            if not isinstance(phase, dict):
+                st.warning(f"⚠️  Fase #{idx + 1} no es un objeto válido.")
+                st.json(phase)
+                continue
+
+            number = phase.get("number", idx + 1)
+            name = _v6_pick_lang(phase.get("name"), lang)
+            duration = phase.get("duration") or ""
+            narrative = _v6_pick_lang(phase.get("narrative"), lang)
+
+            # Card con header de fase + duración + narrative
+            header_label = f"Fase {number}"
+            if name:
+                header_label += f" — {name}"
+
+            st.markdown(f"#### {header_label}")
+            if duration:
+                st.caption(f"⏱️  Duración: {duration}")
+            if narrative:
+                st.markdown(narrative)
+            else:
+                st.caption("_(sin narrative cargada para este idioma)_")
+
+            if idx < len(phases) - 1:
+                st.divider()
+
+        with st.expander("Ver JSON raw del bloque", expanded=False):
+            st.json(data)
+
+    except Exception as e:
+        st.error(f"⚠️  Error al renderizar V6: {type(e).__name__}: {e}")
+        st.json(data)
+
+
+def _v6_pick_lang(field, lang):
+    """
+    Helper defensivo para campos bilingües {en, es} de V6.
+
+    Casos manejados:
+      - field es None → ""
+      - field es str → field (legacy / mal shape, devolver tal cual)
+      - field es dict con lang → field[lang]
+      - field es dict sin lang pero con 'es' → field['es'] (fallback)
+      - field es dict sin lang ni 'es' → primer valor disponible
+      - field es dict vacío → ""
+    """
+    if field is None:
+        return ""
+    if isinstance(field, str):
+        return field
+    if isinstance(field, dict):
+        if lang in field and field[lang]:
+            return field[lang]
+        if "es" in field and field["es"]:
+            return field["es"]
+        for v in field.values():
+            if v:
+                return v
+        return ""
+    return ""
 
 
 def _render_blocks_section(proposal: dict) -> None:
