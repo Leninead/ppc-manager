@@ -38,10 +38,10 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 
 ### Variation Family #2 — OPTIPET Flavor Boost (creada 2026-05-09)
 - Parent ASIN: B0H16N6SHP · SKU: OPTIPET_FLAVORBOOST_PARENT (creado 2026-05-09)
-- Children FBA-only (3 sabores planificados, 1 creado al 2026-05-09):
-  - ✅ B0H16T5H18 · OPTIPETFLAVORHIGADO (Hígado y Espirulina) — UPC 613365967019
-  - 🔴 sin ASIN · OPTIPETFLAVORPULMON (Pulmón y Melena de León) — UPC 613365694298 BLOQUEADO
-  - 🔴 sin ASIN · OPTIPETFLAVORPOLLO (Pollo y Cúrcuma) — UPC 613365971085 BLOQUEADO
+- Children FBA-only (3 sabores planificados, 3 creados al 2026-05-19):
+  - 🟡 B0H16T5H18 · OPTIPETFLAVORHIGADO (Hígado y Espirulina) — UPC 613365967019 — Inactive por compliance, peso ahora correcto 297g
+  - 🟡 B0H2CFM37X · OPTIPETFLAVORPOLLO (Pollo y Cúrcuma) — UPC 610655848478 — en review 48h (hasta ~2026-05-21)
+  - 🔴 B00ZCVB3Z8 · OPTIPETFLAVORPULMON (Pulmón y Melena de León) — UPC 610655663064 — ASIN viejo heredado de catálogo previo, item_name pisado, requiere investigación
 - Theme variation: Sabor (valores en español)
 - Bloqueante: UPCs de Pulmón y Pollo colisionan con OPTIPET Gato Premios Inactive (B0GPPR1ZGC + B0GPPXWPB1)
 - Pendiente respuesta cliente: ¿eliminar Cat Treats Inactive para liberar UPCs?
@@ -68,6 +68,11 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
   - Codebars físicos generados por Mario en Drive folder "ADAM CODEBARS" (4 formatos × 4 UPCs)
   - Master sheet confirma peso bruto del paquete Flavor Boost: **297g** (resuelve pendiente vs 360g del v4)
   - Mensaje enviado a Mario en formato pregunta abierta (no asumir nada sobre cajas) — esperando respuesta sobre asignación UPC + estado packaging
+- **2026-05-19** — Upload v5 + v6 FlavorBoost. Hallazgos GS1 + 2 gotchas nuevas.
+  - **v5 (UPCs lockeados Mario)**: 13 issues — error 8541 confirma contaminación GS1 de los 2 UPCs que Mario asignó (951536→colisión B0GPPR1ZGC / 934935→colisión B0GPPXWPB1)
+  - **v6 (UPCs sobrantes pool)**: 7 issues — Pollo creado limpio (B0H2CFM37X, review 48h), Pulmón creado con ASIN viejo heredado (B00ZCVB3Z8, UPC 663064 ya en catálogo)
+  - **Hígado patch peso 297g aplicado** vía PartialUpdate quirúrgico (con flavor_name explícito tras gotcha 15)
+  - **Snapshots**: `flat-files/OPTIPET_FlavorBoost_2026-05-19_v5.txt` + `flat-files/OPTIPET_FlavorBoost_2026-05-19_v6.txt`
 
 ## Pendientes activos
 
@@ -119,6 +124,11 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 - **4 UPCs nuevos disponibles en pool ADAM REQUEST** (master sheet rows 21-24 al 2026-05-14): `610655663064`, `610655848478`, `610655951536`, `610655934935`. Codebars físicos en Drive folder "ADAM CODEBARS" (4 formatos × 4 UPCs). Intercambiables operativamente hasta que Mario confirme preferencia o lockee asignación en GS1.
 - **Hallazgo lateral master sheet 2026-05-14**: VITALPET row 6 (Chicken Based Adult) y row 11 (Chicken Cookie) comparten UPC `613365632764`. Duplicado interno VITALPET, no problema OPTIPET. Documentado por si Mario lo plantea más adelante.
 - **Regla epistemológica 2026-05-14 (Lenin)**: no asumir nada que no haya sido dicho explícitamente por la contraparte. En particular: no asumir estado de cajas físicas, no asumir asignación de UPC, no asumir timing de inbound. Preguntar primero, actuar después.
+- **GS1 platform contamina UPCs nuevos cuando el fabricante hace update vinculándolos a ASINs viejos** (2026-05-19). Pre-flight check: pedir al fabricante NO hacer update GS1 hasta que Amazon confirme creación del ASIN nuevo desde cero.
+- **`unit_count` + `unit_count_type` obligatorios** para petfood MX 2026 (validado v5/v6). Para 270g polvo: `270` + `gramo`.
+- **PartialUpdate en variation child requiere `flavor_name` explícito** aunque el listing ya lo tenga seteado. Sin él, error 99003.
+- **Campos vacíos en `Update` NO nulean valores previos** — Amazon retiene del feed previo. Para limpiar URLs placeholder TBD, sobreescribir con URL real.
+- **Template fptcustom Pet Food MX version actualizada a `2026.0508`** (era `2026.0427` en knowledge anterior). 220 cols upload / 222 cols processing summary.
 
 ## Wikilinks
 

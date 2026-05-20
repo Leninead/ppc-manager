@@ -1,9 +1,9 @@
 ---
 tipo: knowledge
-actualizado: 2026-05-12
+actualizado: 2026-05-19
 cliente: OPTIPET
 marca: OPTIPET
-template_version: 2026.0427
+template_version: 2026.0508
 marketplace: MX
 categoria: petfood
 ---
@@ -26,7 +26,7 @@ Si Amazon notifica al cliente que tiene que bajar un template nuevo, pedir el `.
 
 ## Estructura del archivo (.txt tab-separated, UTF-8)
 
-220 columnas, 7+ filas:
+220 columnas en el archivo upload (222 en el processing summary — Amazon agrega 2 cols `::number_of_attributes_with_errors` y `::number_of_attributes_with_other_suggestions` al inicio post-procesamiento, NO van en el archivo de upload), 7+ filas:
 
 | Fila | Contenido |
 |---|---|
@@ -91,6 +91,11 @@ col 161: condition_type           → "Nuevo" (solo parent)
 11. **Listings Inactive NO liberan UPCs** (deuda M26 → VB-011): Amazon mantiene UPCs reservados para listings en estado Inactive. Si querés reutilizar un UPC de un listing inactivo en uno nuevo, hay que ELIMINAR completamente el listing inactivo (Delete listing & product), no solo desactivarlo. Después esperar 24-48h para que Amazon refleje la liberación. Validado con caso OPTIPET Cat Treats Feb 2026 vs FlavorBoost May 2026.
 12. **Error 99001 puede ser falso positivo**: el código 99001 ("se requiere un valor para X") a veces se dispara no porque el campo sea estrictamente requerido, sino porque Amazon perdió la detección del feed_product_type. Si el campo aparece como requerido pero no debería serlo según el SOP, verificar primero la integridad del archivo (ver gotcha 9) y la columna feed_product_type antes de asumir que el campo es obligatorio.
 13. **Error 8541 (catalog conflict)**: cuando el UPC enviado ya existe en el catálogo Amazon asignado a otro ASIN. Mensaje típico: "El ean proporcionado coincide con el ASIN [X], pero algunos de los datos del listado contradicen lo que ya se encuentra en el catálogo de Amazon". Soluciones: (a) eliminar el ASIN preexistente si te pertenece, (b) usar gtin_exemption_reason=Pieza para evitar UPC, (c) conseguir UPCs nuevos.
+14. **`unit_count` + `unit_count_type` obligatorios para petfood MX 2026** (validado v5 OPTIPET FlavorBoost 2026-05-19): error 99001 si faltan. Valores válidos `unit_count_type`: `unidad`, `gramo`, `metro`, `mililitro`, `metro cuadrado`. Para productos sólidos por peso (Flavor Boost 270g polvo): `unit_count=270` + `unit_count_type=gramo`.
+15. **PartialUpdate en variation child REQUIERE `flavor_name` (o el atributo del theme) explícito** (validado v5 OPTIPET 2026-05-19): aunque PartialUpdate "respeta los campos no enviados", Amazon valida integridad del variation theme y exige el atributo del theme. Sin él, error 99003 doble (uno por variation_theme col 30, otro por flavor_name col 41).
+16. **UPCs "nuevos" del fabricante pueden venir contaminados en GS1**: si el fabricante registra los UPCs en GS1 platform vinculándolos a ASINs viejos del mismo seller (intencional o no), Amazon dispara error 8541 al subir. Pre-flight check sugerido: pedir al fabricante NO hacer update GS1 hasta que Amazon confirme creación del ASIN nuevo desde cero. Validado 2026-05-19 con OPTIPET: 2 de 4 UPCs del pool ADAM REQUEST contaminados (951536+934935 linkeados a Cat Treats Inactive B0GPPR1ZGC + B0GPPXWPB1).
+17. **Campos vacíos en `Update` NO nulean valores previos** (validado 2026-05-19): si un SKU tuvo un valor inválido en upload previo (ej: URL placeholder), mandar el campo vacío en upload posterior NO lo borra — Amazon retiene del feed previo. Para limpiar, sobreescribir con valor válido. Caso real: URLs `http://TBD-pending-image-URL-*` persistieron del v5 al v6 aunque el v6 enviaba `main_image_url` vacío.
+18. **UPCs ya en catálogo Amazon → match a ASIN existente, no creación nueva**: si el UPC enviado ya existe en el catálogo Amazon (vinculado a cualquier producto previo del seller o de otros), Amazon hace match al ASIN existente en lugar de crear uno nuevo. El SKU nuevo hereda imagen + item_name + datos del producto previo. Detectar por formato del ASIN devuelto: `B00*` (pre-2017) o `B07*` (2017-2020) cuando esperabas `B0H*` o `B0G*` (2024+). Caso 2026-05-19: OPTIPETFLAVORPULMON con UPC 610655663064 → heredó ASIN `B00ZCVB3Z8` y disparó error 90244 al rechazar el flavor_name nuevo.
 
 ## Caso de éxito #2 — OPTIPET ADULT (2026-05-08)
 
@@ -179,7 +184,7 @@ Claude debe:
 6. Guardar en `notes/clients/optipet/flat-files/`
 7. Post-upload: capturar Parent ASIN asignado y agregar como nuevo caso de éxito a esta nota
 
-## Caso de éxito #3 (parcial) — OPTIPET FlavorBoost (2026-05-09)
+## Caso de éxito #3 — OPTIPET FlavorBoost (2026-05-09 → 2026-05-19)
 
 ### Inputs
 - Cliente: OPTIPET (cliente personal de Lenin, NO Capybaras)
@@ -221,6 +226,29 @@ Claude debe:
 - Conseguir 3 main_image_url públicas
 - Confirmar ingredientes reales Pulmón y Pollo
 - Confirmar shelf life real (default 730d)
+
+### Continuación 2026-05-19 (uploads v5 + v6)
+
+**Inputs nuevos**:
+- 4 UPCs nuevos del pool ADAM REQUEST (entregados por Mario 2026-05-13):
+  - 610655663064 / 610655848478 / 610655951536 / 610655934935
+- Mario asignó en master sheet: Pulmón→951536, Pollo→934935
+- Peso paquete corregido a 297 GR (master sheet col 31, era 360 GR en v4)
+
+**v5 — primer intento (2026-05-19)**: 13 issues
+- Resultado: 4 procesados, 3 errores, 1 advertencia. Sin SKU creado.
+- Causa raíz: gotchas 14 + 15 + 16 + 17 desconocidas hasta esta sesión.
+
+**v6 — segundo intento (2026-05-19, con fixes)**: 7 issues
+- UPCs cambiados a los sobrantes (pool ADAM REQUEST no asignados por Mario): Pulmón→663064, Pollo→848478
+- Fix gotcha 14: agregado unit_count=270 + unit_count_type=gramo
+- Fix gotcha 15: flavor_name="Hígado y Espirulina" en patch Hígado
+- ASINs asignados:
+  - OPTIPETFLAVORPOLLO → **B0H2CFM37X** ✅ (review 48h, normal)
+  - OPTIPETFLAVORPULMON → **B00ZCVB3Z8** 🔴 (gotcha 18: ASIN viejo heredado)
+  - OPTIPETFLAVORHIGADO → B0H16T5H18 (patch peso 297g OK)
+
+**Estado al 2026-05-19**: 3 de 3 children "creados" pero solo 1 funcionalmente limpio (Pollo). Pulmón requiere investigación de B00ZCVB3Z8. Hígado peso corregido pero sigue Inactive por compliance.
 
 ## Caso de estudio #4 — Compliance Amazon MX bloquea listing (OPTIPET FlavorBoost Hígado, 2026-05-10)
 

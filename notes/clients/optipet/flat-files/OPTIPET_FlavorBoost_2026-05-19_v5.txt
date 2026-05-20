@@ -1,0 +1,21 @@
+# OPTIPET Flavor Boost — Flat file v5 (subido 2026-05-19, FALLÓ)
+# Resultado: 4 procesados, 3 errores, 1 advertencia, 13 issues totales
+# SKUs creados: 0 (todos rechazados por errores)
+#
+# UPCs asignados por Mario en master sheet (CONTAMINADOS en GS1):
+#   - Pulmón: 610655951536 → error 8541 (colisión con B0GPPR1ZGC Cat Treats Inactive)
+#   - Pollo:  610655934935 → error 8541 (colisión con B0GPPXWPB1 Cat Treats Inactive)
+#
+# Errores adicionales descubiertos (gotchas 14-17):
+#   - 99001 × 4: unit_count + unit_count_type obligatorios en Pulmón/Pollo
+#   - 99003 × 2: flavor_name=null en patch Hígado (variation theme integrity)
+#   - 300060 × 2: URLs placeholder TBD-pending-image-URL-* dieron 404
+#
+# Estructura: 220 cols × 7 filas, TSV UTF-8 sin BOM, 17,333 bytes
+# Template version: 2026.0508
+# Item_names editados manualmente por Lenin antes del upload:
+#   - Pulmón: "...Salud Intestinal, Reduce Estrés y Bienestar Integral..."
+#   - Pollo:  "...Piel Sana, Pelaje Brillante y Bienestar Integral..."
+#
+# Lección: ver gotchas 14, 15, 16, 17 del knowledge.
+# Archivo real (TSV 220 cols) reposa en el chat de Claude.ai sesión 2026-05-19.
