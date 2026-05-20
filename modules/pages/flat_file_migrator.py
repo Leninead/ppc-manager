@@ -709,6 +709,186 @@ def _locate_template_headers(wb) -> dict[str, int | None]:
     return {**fb, "detection_method": "fallback"}
 
 
+def _extract_template_rows(
+    wb,
+    headers: dict[str, int | None],
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Extrae rows de data de la hoja 'Template' como dicts {field_id: value}.
+
+    Lee la hoja 'Template' entre headers['data_start_row'] y ws.max_row,
+    filtra rows internas/banners/placeholders, y devuelve cada row de data
+    real como dict sparse {field_id: value_str}. Una row por SKU real del
+    cliente. _parse_data_definitions(wb) se llama UNA VEZ para validar
+    fields Required vacíos.
+
+    Filtrado de rows (D1, defensivo en B5-b — NO refactor del legacy
+    _is_amazon_internal_row). Una row se descarta si CUALQUIERA:
+      (a) _is_amazon_internal_row(row_as_list) retorna True.
+      (b) Banner PTD: col 1 es string que empieza con emoji unicode
+          (codepoint >= 0x2600) Y cols 2+ todas vacías. Detectado
+          empíricamente 2026-05-20: row 7 PTD COAT__5_.xlsm =
+          ["      ✅ We've prefilled a", '', '', '', ''].
+      (c) Placeholder esparso: cells no vacías < 3 en las primeras 10
+          cols. Detectado empíricamente: row 8 PTD = ['', 'COAT', '', '', ''].
+      (d) Row completamente vacía → skip silencioso (no warning).
+      (e) Placeholder PTD Amazon: "(Default)" string en alguna de las
+          primeras 10 cols. Valid value contractual del dropdown Amazon
+          para field ::record_action ("(Default) Create or Replace" /
+          "(Default) Patch"). Empírico discovery 2026-05-20: row 6 PTD
+          COAT__5_.xlsm = ['ABC123', 'SHIRT', '(Default) Create or Replace', ...].
+          Nota: _AMAZON_EXAMPLE_TYPES (constante L797) NO se usa aquí
+          porque colisiona con feed_product_type/product_type legítimos
+          (caso real: cliente Gamboa coat). Si Amazon introduce nuevos
+          placeholder markers no-default en el futuro, agregar señales
+          adicionales por discovery, no por especulación.
+
+    Validación Required (D3, igualdad exacta — NO `in`):
+      Para cada row no filtrada y cada field_id en field_id_row,
+      `dd.get(fid, {}).get('required', '').strip().lower() == 'required'`.
+      Si la cell está vacía → 1 warning por (field_id, row).
+
+      Fields con required='Conditionally Required' / 'Optional' /
+      'Recommended' / 'Preferred' NO disparan warning. Limitación conocida
+      v1: 'Conditionally Required' es deuda futura (discovery 2026-05-20:
+      PTD tiene 78 fields con ese estado).
+
+    Si headers['detection_method'] == 'fallback', el primer warning de la
+    list es informativo sobre el riesgo del fallback (puede haber
+    desalineación si la hoja Template cambió estructura).
+
+    Args:
+        wb: openpyxl Workbook abierto (caller-managed lifecycle, NO se cierra).
+        headers: output de _locate_template_headers(wb). Keys leídas:
+                 'field_id_row', 'data_start_row', 'detection_method'.
+
+    Returns:
+        (rows, warnings):
+        - rows: list de dicts SPARSE. Cada dict tiene como keys los
+          field_ids no vacíos del field_id_row; valores son str (cells
+          vacías → ""). Una entry por data row real (post-filtrado).
+        - warnings: list[str] por Required field vacío.
+
+    Raises:
+        KeyError si la hoja 'Template' no existe en wb.
+    """
+    ws = wb["Template"]
+    fid_row_1idx = headers["field_id_row"]
+    data_start_1idx = headers["data_start_row"]
+
+    # Cargar todas las rows una sola vez (soporta read_only mode).
+    all_rows = list(ws.iter_rows(values_only=True))
+
+    # field_ids del field_id_row (1-indexed). Cells sin valor → "" → se
+    # excluyen del dict resultado.
+    field_ids: list[str] = []
+    if 0 < fid_row_1idx <= len(all_rows):
+        for v in all_rows[fid_row_1idx - 1]:
+            if v is None:
+                field_ids.append("")
+            else:
+                s = str(v).strip()
+                field_ids.append(s if s else "")
+
+    # Parse Data Definitions UNA VEZ (no por row).
+    dd = _parse_data_definitions(wb)
+
+    warnings: list[str] = []
+
+    # Warning informativo si detection fallback.
+    if headers.get("detection_method") == "fallback":
+        schema = _detect_schema(wb)
+        warnings.append(
+            f"header detection fallback activo (schema={schema}), "
+            f"validación Required puede tener desalineación si la hoja "
+            f"Template cambió estructura"
+        )
+
+    rows: list[dict[str, str]] = []
+
+    for r_idx in range(data_start_1idx, len(all_rows) + 1):
+        row_values = list(all_rows[r_idx - 1])
+
+        # (d) Row completamente vacía → skip silencioso.
+        non_empty_count = sum(
+            1 for v in row_values
+            if v is not None and str(v).strip() != ""
+        )
+        if non_empty_count == 0:
+            continue
+
+        # (a) Filtro Amazon internal row (legacy helper).
+        if _is_amazon_internal_row(row_values):
+            continue
+
+        # (b) Banner PTD: col 1 string que empieza con emoji unicode
+        # (codepoint >= 0x2600) Y cols 2+ todas vacías.
+        if row_values:
+            first_cell = row_values[0]
+            if isinstance(first_cell, str):
+                first_str = first_cell.strip()
+                if first_str and ord(first_str[0]) >= 0x2600:
+                    rest_empty = all(
+                        v is None or str(v).strip() == ""
+                        for v in row_values[1:]
+                    )
+                    if rest_empty:
+                        continue
+
+        # (c) Placeholder esparso: <3 cells no vacías en las primeras 10 cols.
+        first_10 = row_values[:10]
+        non_empty_first_10 = sum(
+            1 for v in first_10
+            if v is not None and str(v).strip() != ""
+        )
+        if non_empty_first_10 < 3:
+            continue
+
+        # Filtro (e) — Placeholder row PTD Amazon.
+        # Señal: "(Default)" string en alguna cell de las primeras 10 cols.
+        # Justificación: "(Default) Create or Replace" / "(Default) Patch"
+        # son valid values contractuales del dropdown Amazon para el field
+        # ::record_action. Aparecen literal en rows placeholder del template
+        # PTD (ej. row 6 COAT__5_.xlsm = ['ABC123', 'SHIRT',
+        # '(Default) Create or Replace', ...]) y NUNCA en data real de
+        # cliente. Discovery 2026-05-20.
+        #
+        # Nota: NO chequear _AMAZON_EXAMPLE_TYPES en data rows: la constante
+        # contiene categorías ("COAT", "SHIRT", "DRESS", etc.) que colisionan
+        # con feed_product_type/product_type legítimos del cliente.
+        first_10_str = [
+            str(c).strip() if c is not None else ""
+            for c in row_values[:10]
+        ]
+        if any("(Default)" in c for c in first_10_str):
+            continue
+
+        # Construir row_dict sparse: una key por field_id no vacío.
+        row_dict: dict[str, str] = {}
+        for c_idx, fid in enumerate(field_ids):
+            if not fid:
+                continue
+            v = row_values[c_idx] if c_idx < len(row_values) else None
+            if v is None:
+                row_dict[fid] = ""
+            elif isinstance(v, str):
+                row_dict[fid] = v.strip()
+            else:
+                # int/float/date → str(v) sin strip (preservar valor numérico).
+                row_dict[fid] = str(v)
+
+        # Validación Required (igualdad exacta).
+        for fid, val in row_dict.items():
+            required_val = dd.get(fid, {}).get("required", "").strip().lower()
+            if required_val == "required" and val == "":
+                warnings.append(
+                    f"Required field '{fid}' vacío en row {r_idx}"
+                )
+
+        rows.append(row_dict)
+
+    return rows, warnings
+
+
 def _cell_value_or_blank(ws, row_idx_0: int, col_idx_0: int):
     """Devuelve el valor de la celda en posición 0-indexed, '' si vacía. Equivalente a sheet[encode_cell({r,c})]."""
     cell = ws.cell(row=row_idx_0 + 1, column=col_idx_0 + 1)
