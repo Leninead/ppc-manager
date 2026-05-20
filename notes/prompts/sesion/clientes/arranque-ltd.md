@@ -231,3 +231,25 @@ Al cierre, ejecutar en orden estricto:
 - `[[2026-04-25]]` — último daily LTD
 - `[[amazon-bulk-upload-guide]]` — gotchas bulk format
 - `[[STATE-agencia]]` — estado global agencia
+
+---
+
+## ✅ Validación post-ejecución 2026-05-20
+
+Este prompt fue validado en sesión completa LTD del 2026-05-20. Output observado:
+
+- Análisis 360° STR+SQP+Campaign Analyzer+Catálogo: funcional ✅
+- Generación de bulks correctivos: funcional ✅ (con caveats — ver SOP bulk upload)
+- Cruzamiento de hallazgos: funcional ✅
+- Detección de bleeders/winners: funcional ✅
+
+### Mejoras detectadas para próxima iteración del prompt
+
+1. Agregar instrucción explícita de validar marketplace antes de generar PAT vs competidores
+2. Agregar paso de validación cruzada KWs sembradas antes de generar negative keywords (evitar conflictos)
+3. Agregar template de placeholder IDs para bulks CREATE
+4. Documentar que UPDATE bulks requieren filtrar archived antes
+
+### Tiempo total sesión
+
+~6h (incluye análisis + generación + ejecución + corrección iterativa)

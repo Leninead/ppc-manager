@@ -713,3 +713,47 @@ Config global: Lookback 14d - Wait 3d - Tue+Fri 06:00 - Tier MID - Until INC $2.
 - `LTD_Atom11_Campaign_Groups_08abr2026.xlsx` — grupos Atom11 (6 hojas)
 - `LTD_Atom11_RECREAR_23rules_08abr2026.xlsx` — referencia del incidente
 - `notes/prompts/cowork_atom11_LTD_antiborrado.md` — prompt permanente anti-borrado
+
+---
+
+## 🔄 Sesión 2026-05-20 — Ejecución correctiva masiva
+
+**Sesión completa documentada en:** [[daily/2026-05-20]]
+
+### Estado fase 5/6 (Ejecución bulks)
+
+- ✅ 9 bulks aplicados exitosamente
+- ✅ Limpieza completa de bleeders ASIN y KW
+- ✅ 5 EXACT nuevas creadas para harvest + gap SQP
+- ⚠️ 1 PAT activa (SwaddleMe), 3 pausadas pendiente validación ASINs MX
+- ✅ 23 portfolios asignados → habilita Atom11 v2026.3
+
+### Heroes oficiales LTD (actualizar de 10 → 19)
+
+Agregar a lista oficial post-validación con Agustín:
+
+- B09MG3MW3H (L10 01 001 DPK S)
+- B00MJXHM48 (L10 01 001 GR NB)
+- B0081GIZ52 (L20 01 002 GR M)
+- B09S14W4SS (WHT M trans — stock crítico)
+- B0CK2C1ZJ5 (L10 01 001 DOL M)
+- B09MG1W91D
+- B0FK5323M6 (L31 PDP 6-18M sleeping bag rosa)
+- B0FK4XCJBN (L31 PDP 18-36M sleeping bag rosa)
+- B0CK2KCBLS (reapareció con 394 stock + $740 sales)
+
+### Pendiente Phase 6 — Delegaciones
+
+- Agustín: ETA restock B0F8PB4NHX, B09S14W4SS, B0088HVGHS, línea TOG 2.5
+- Agustín: validar y actualizar lista heroes oficial (10 → 19)
+- Sin owner: B09MG2CVCR SBV PROBLEM (listing/creative fix histórico)
+
+### Naming convention (deuda técnica)
+
+72 campañas con naming no-Capybaras. Documentado, no se renombran (riesgo Atom11). Lista en daily.
+
+### Proyección Junio 2026
+
+- ACoS target: 11-12% (actual 15.6%)
+- TACoS target: 10-12% (actual 17.4%)
+- Sales incrementales: +MX$18-32K/mes

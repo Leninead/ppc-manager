@@ -108,3 +108,88 @@ Recordatorio: si el archivo tiene hojas adicionales (resumen, notas, etc.), Amaz
 - Brand state Dermaglos: [[DERMAGLOS]]
 - SOP general PPC: [[PPC-SOP-Manager]]
 - Atom11 rules vigentes Dermaglos: [[atom11-rules]]
+
+---
+
+## 🎓 Aprendizajes sesión 2026-05-20 (14 nuevos)
+
+### 1. Bulk CREATE requiere placeholder IDs
+
+Amazon Ads exige Campaign ID y Ad Group ID en TODAS las entidades hijas (Ad Group, Product Ad, Keyword, Product Targeting), aún para Operation=Create. Solución: strings únicos como placeholder (ej: NEW_C1, NEW_AG1). Amazon resuelve dependencias internamente y asigna IDs reales al procesar. NO usar IDs vacíos en hijas.
+
+Estructura correcta:
+
+- Row Campaign: Campaign ID="NEW_C1", Ad Group ID=""
+- Row Ad Group: Campaign ID="NEW_C1", Ad Group ID="NEW_AG1"
+- Row Product Ad: Campaign ID="NEW_C1", Ad Group ID="NEW_AG1"
+- Row Keyword: Campaign ID="NEW_C1", Ad Group ID="NEW_AG1"
+
+### 2. "No change was applied" es engañoso en CREATE
+
+Cuando un bulk de CREATE falla por errores en filas hijas, las filas de Campaign (que crean el Campaign ID) SÍ se procesan. Resultado: Campañas creadas vacías sin Ad Group / Product Ads / Keywords.
+
+**Protocolo obligatorio antes de re-subir bulk CREATE fallido:**
+
+1. Bajar Bulk Sheet Export actualizado o verificar Campaign Manager
+2. Confirmar si las campañas/entidades parent ya existen
+3. Si existen vacías → poblar con UPDATE usando Campaign IDs reales (no re-crear)
+4. Si no existen → re-subir con técnica de placeholder IDs
+
+### 3. Amazon bloquea bulks con hojas "Invalid Headers"
+
+Solo aceptan hojas con nombres oficiales: `Sponsored Products Campaigns`, `Sponsored Brands Campaigns`, etc. Hojas auxiliares como "Referencia spend" rompen toda la validación.
+
+**Regla operativa:** nunca incluir hojas de referencia en el bulk. Generarlas como archivos `_ref_BULK_X.xlsx` separados.
+
+### 4. Conflictos KW propia vs negative
+
+No se puede negativizar (negative phrase/exact) una keyword que ya está sembrada en la misma campaña con esa misma frase. Antes de generar un Bulk 2 (negative keywords), correr validación cruzada contra Bulk Sheet Export para detectar conflictos. Si la KW propia es bleeder root → pausarla (no negativizarla).
+
+### 5. Negative Product Targeting requiere Campaign ID + Ad Group ID
+
+A diferencia de Campaign Negative Keyword (que solo requiere Campaign ID), Negative Product Targeting aplica a nivel Ad Group. Necesita ambos IDs sí o sí.
+
+### 6. Bulk Sheet Export es la fuente de verdad
+
+El Campaign CSV (Campaign Manager → Export) NO trae Campaign IDs. Solo el Bulk Sheet Export (Sponsored Ads → Bulk operations → Create custom spreadsheet) trae todos los IDs (Campaign, Ad Group, Keyword, Ad, Portfolio). Para cualquier bulk de UPDATE/PAUSE, partir siempre del Bulk Sheet Export.
+
+### 7. SearchTerm ≠ Keyword sembrada
+
+Los "search terms" del STR son matches de keywords sembradas, no keywords sembradas en sí. No se puede hacer bid update directo sobre un search term — hay que (a) negativizarlo o (b) ajustar el bid de la keyword root que lo matchea. Si el bleeder es la propia KW root → pausar la root.
+
+### 8. Bulk Portfolio Assignment SÍ funciona con Portfolio IDs
+
+**ACTUALIZA regla previa del vault.** Anteriormente se decía que asignar portfolio en bulk no funcionaba. La regla era cierta SOLO con Portfolio Names. Con Portfolio IDs numéricos (extraídos del Bulk Sheet Export, hoja "Portfolios"), el bulk de Update Campaign con Portfolio ID funciona perfectamente.
+
+### 9. Bulks de UPDATE hacen rollback TOTAL ante un error
+
+Si una sola row del bulk de UPDATE falla validación (ej: campaña archivada, KW que no existe), Amazon rechaza TODO el batch. Ninguna row se aplica.
+
+**Regla operativa:** filtrar siempre `State == 'enabled'` o `'paused'` antes de generar bulks de UPDATE. Excluir archived.
+
+### 10. Diferencia CREATE vs UPDATE en rollback
+
+- **CREATE:** procesa row a row, las válidas se aplican aunque otras fallen (de ahí campañas vacías si hijas fallan)
+- **UPDATE:** rollback total si una sola row falla
+
+### 11. ASINs son marketplace-specific (US ≠ MX)
+
+ASINs son específicos por marketplace. Un ASIN de Amazon US generalmente NO existe en Amazon MX (aunque sea el mismo producto físico). Antes de armar Product Targeting Expression con ASINs competidores, validar visualmente en el marketplace destino (amazon.com.mx para MX, amazon.com para US).
+
+### 12. "Delivering" + "Unable to load product details" = ASINs inválidos
+
+Una campaña puede estar en "Delivering" status pero los Product Targeting tener ASINs inválidos del marketplace. El indicador es ⚠️ "Unable to load product details" en el ASIN row. En ese caso la campaña NO va a servir impressions aunque esté técnicamente activa. Chequear post-launch siempre.
+
+### 13. Brands premium US no siempre operan en MX
+
+SwaddleMe (Summer Infant) sí opera en MX. Halo SleepSack sí. Swaddelini opera en MX pero catálogo limitado (~164 reviews total). Kyte Baby sí. Antes de crear PAT vs competidores, validar primero (a) si la marca opera en marketplace destino, (b) si tiene catálogo robusto.
+
+### 14. Buscador nativo Amazon Ads > búsqueda pública para ASINs targeting
+
+El buscador integrado de Product Targeting en Campaign Manager (Targeting → Add product targets → Individual products) SOLO muestra ASINs válidos del marketplace donde está la cuenta. Es la fuente más confiable para targeting por ASIN — superior a copiar ASINs de búsquedas públicas o de Helium 10.
+
+**Recomendación operativa:** para PAT vs competidores, NO armar bulk con ASINs específicos. Mejor:
+
+1. Crear campaña + ad group + product ads via bulk (sin Product Targeting)
+2. Asignar Product Targets via UI usando el buscador nativo
+3. Validar Impressions > 0 a las 24-48h
