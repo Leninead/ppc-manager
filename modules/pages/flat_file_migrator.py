@@ -768,6 +768,18 @@ def _extract_template_rows(
           vacías → ""). Una entry por data row real (post-filtrado).
         - warnings: list[str] por Required field vacío.
 
+    Notes:
+        Conversión de tipos de cell value:
+        - None → ""
+        - str → v.strip()
+        - int / float / datetime / Decimal → str(v) raw (sin format)
+
+        El helper retorna dict[str, str] por contrato. Formateo
+        específico (ISO 8601 para datetimes, fixed precision para
+        Decimals) queda como responsabilidad del caller (B6 UI o
+        exporter futuro). No invocar isoformat() ni format spec acá
+        para mantener el contrato str estable.
+
     Raises:
         KeyError si la hoja 'Template' no existe en wb.
     """
@@ -788,6 +800,19 @@ def _extract_template_rows(
             else:
                 s = str(v).strip()
                 field_ids.append(s if s else "")
+
+    # F1 mitigación (audit dcfdc9d): warning explícito si el field_id_row
+    # quedó vacío o sin field_ids válidos. Previene fail-silent cuando
+    # _locate_template_headers retorna un row corrupto (ej. fallback con
+    # schema no documentado todavía). Sin esto, el helper procedería con
+    # field_ids=[] → rows=[{}, ...] silencioso.
+    non_empty_fids = sum(1 for f in field_ids if f)
+    if non_empty_fids == 0:
+        warnings: list[str] = [
+            f"field_id_row {fid_row_1idx} sin field_ids válidos — "
+            f"no se puede extraer data. Verificar headers o schema."
+        ]
+        return [], warnings
 
     # Parse Data Definitions UNA VEZ (no por row).
     dd = _parse_data_definitions(wb)
