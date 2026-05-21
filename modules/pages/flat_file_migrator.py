@@ -1057,6 +1057,154 @@ def _extract_old_rows(
     return rows, diagnostics
 
 
+def _migrate_row(
+    old_row: dict[str, str],
+    field_map: dict[str, str],
+    value_map: dict[str, dict[str, str | None]],
+    old_dd: dict[str, dict[str, str]],
+    new_dd: dict[str, dict[str, str]],
+) -> tuple[dict[str, str], list[dict]]:
+    """Migra una row OLD a row NEW aplicando field_map + value_map (B5-c).
+
+    Toma una row del output de _extract_old_rows() (B5-b) y la traduce al
+    schema NEW usando:
+    - field_map (B3): {old_field: new_field} — qué columna del NEW recibe
+      cada valor del OLD.
+    - value_map (B4b): {old_label: {old_value: new_value_or_None}} — para
+      enums cross-schema, qué valor NEW corresponde a cada valor OLD.
+    - _DEPRECATED_OLD_ENUMS: enums OLD sin contraparte en PTD.
+
+    No filtra placeholders ni banners (a diferencia de _extract_template_rows
+    sobre el NEW); confía en que el caller ya filtró si era necesario.
+
+    5 diagnostic codes emitidos:
+    - "unmapped_field": old_field no está en field_map (data se pierde).
+    - "deprecated_enum_no_target": old_label en _DEPRECATED_OLD_ENUMS
+      (Relationship Type, Variation Theme) → revisión manual.
+    - "deprecated_value": value mapea a None en value_map (ej. ISBN/GCID
+      en Product ID Type) → revisión manual.
+    - "unknown_enum_value": value no está en value_map[old_label] →
+      pasthrough crudo al NEW (decisión: preservar data > silenciar).
+    - "missing_required_in_new": new_field es Required en PTD pero no se
+      migró valor.
+
+    Args:
+        old_row: una entrada de _extract_old_rows()[0]. Dict
+            {old_field_id: value_str}. Cells vacías ya vienen como "".
+        field_map: output de _build_field_map(old_dd, new_dd)[0]. Sólo
+            entries con match cross-schema.
+        value_map: output de _build_value_map(old_vv, new_vv)[0]. Dict de
+            enum translators con shape {old_label: {old_val: new_val|None}}.
+        old_dd: output de _parse_data_definitions(old_wb). Para resolver
+            old_label por field (índice del value_map).
+        new_dd: output de _parse_data_definitions(new_wb). Para validar
+            Required en el schema NEW post-migración.
+
+    Returns:
+        Tupla (new_row, diagnostics):
+        - new_row: dict {new_field_id: value_str}. Sparse: sólo incluye
+          fields que recibieron valor. Fields NEW no escritos quedan
+          implícitamente vacíos (caller los rellena con "" al armar el
+          output Excel).
+        - diagnostics: list[dict] con shape {level, field, code, message}.
+          NO incluye row_index — el caller lo agrega cuando ensambla el
+          batch (B5-b ya devuelve row_index por separado).
+    """
+    new_row: dict[str, str] = {}
+    diagnostics: list[dict] = []
+
+    # Paso 1: migración field-by-field.
+    for old_field, value in old_row.items():
+        # Skip vacíos sin diagnostic.
+        if value == "":
+            continue
+
+        # Unmapped field.
+        if old_field not in field_map:
+            diagnostics.append({
+                "level": "warning",
+                "field": old_field,
+                "code": "unmapped_field",
+                "message": (
+                    f"old field {old_field!r} sin correspondencia en new "
+                    f"schema — data se pierde"
+                ),
+            })
+            continue
+
+        new_field = field_map[old_field]
+        old_label = old_dd.get(old_field, {}).get("label", "")
+
+        # (a) Deprecated enum sin target (Relationship Type, Variation Theme).
+        if old_label in _DEPRECATED_OLD_ENUMS:
+            diagnostics.append({
+                "level": "warning",
+                "field": old_field,
+                "code": "deprecated_enum_no_target",
+                "message": (
+                    f"old field {old_field!r} (label={old_label!r}) es un "
+                    f"enum deprecated en PTD — value {value!r} requiere "
+                    f"revisión manual"
+                ),
+            })
+            continue  # NO escribir en new_row
+
+        # (b) Enum cross-schema con mapping.
+        if old_label in value_map:
+            old_to_new = value_map[old_label]
+            if value in old_to_new:
+                new_val = old_to_new[value]
+                if new_val is None:
+                    diagnostics.append({
+                        "level": "warning",
+                        "field": old_field,
+                        "code": "deprecated_value",
+                        "message": (
+                            f"old value {value!r} en field {old_field!r} "
+                            f"mapea a None (deprecated) — requiere revisión "
+                            f"manual"
+                        ),
+                    })
+                    # NO escribir en new_row
+                else:
+                    new_row[new_field] = new_val
+            else:
+                # Pasthrough con flag (decisión: preservar data > silenciar).
+                diagnostics.append({
+                    "level": "warning",
+                    "field": old_field,
+                    "code": "unknown_enum_value",
+                    "message": (
+                        f"old value {value!r} en field {old_field!r} "
+                        f"(label={old_label!r}) no está en _ENUM_VALUE_MAP — "
+                        f"pasthrough crudo a new schema"
+                    ),
+                })
+                new_row[new_field] = value
+            continue
+
+        # (c) Pasthrough no-enum.
+        new_row[new_field] = value
+
+    # Paso 2: validación Required del NEW schema.
+    for new_field, info in new_dd.items():
+        required_val = info.get("required", "").strip().lower()
+        if required_val not in {"yes", "required"}:
+            continue
+        if new_row.get(new_field, "") == "":
+            diagnostics.append({
+                "level": "warning",
+                "field": new_field,
+                "code": "missing_required_in_new",
+                "message": (
+                    f"new field {new_field!r} es Required en PTD pero no se "
+                    f"migró valor (no había old_field mapeado o value vacío)"
+                ),
+            })
+
+    return new_row, diagnostics
+
+
 def _cell_value_or_blank(ws, row_idx_0: int, col_idx_0: int):
     """Devuelve el valor de la celda en posición 0-indexed, '' si vacía. Equivalente a sheet[encode_cell({r,c})]."""
     cell = ws.cell(row=row_idx_0 + 1, column=col_idx_0 + 1)
