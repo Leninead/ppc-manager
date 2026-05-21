@@ -914,6 +914,149 @@ def _extract_template_rows(
     return rows, warnings
 
 
+def _extract_old_rows(
+    wb,
+    headers: dict[str, int | None],
+    dd: dict[str, dict[str, str]],
+) -> tuple[list[dict[str, str]], list[dict]]:
+    """Extrae rows de data del Template old + valida Required (B5-b).
+
+    Helper del flujo cross-schema OLD→NEW. A diferencia de
+    _extract_template_rows() (que aplica filtrado defensivo de banners y
+    placeholders Amazon sobre el Template NEW), este helper procesa el
+    Template del OLD file con un end-of-data guard simple (2 blank rows
+    consecutivas → break) y emite diagnósticos estructurados (dicts), no
+    strings.
+
+    El caller debe haber invocado _parse_data_definitions(wb) UNA VEZ y
+    pasarlo como argumento `dd` (evita re-parse por row).
+
+    Args:
+        wb: openpyxl Workbook abierto (caller-managed lifecycle).
+        headers: output de _locate_template_headers(wb). Usa keys
+            'field_id_row' (1-indexed) y 'data_start_row' (1-indexed).
+        dd: output de _parse_data_definitions(wb). Usa key 'required' por
+            field para validación. Si la schema OLD no tiene columna
+            Required (caso fptcustom), todos los fields salen con
+            required="" → NUNCA emite warning (el filtro
+            `.lower() in {"yes", "required"}` lo cubre naturalmente).
+
+    Returns:
+        Tupla (rows, diagnostics):
+        - rows: list[dict[field_id, value_str]]. Una entrada por row real
+          de data (post end-of-data guard). Cells None → "". Cells no-str
+          (datetime, Decimal, int, float) → str(v).strip(). Sparse: sólo
+          incluye keys cuyas cols del field_id_row tenían field_id no
+          vacío.
+        - diagnostics: list[dict] con shape {row_index, level, field,
+          code, message}. row_index es 1-indexed real del Template
+          (data_start_row + offset). Si field_id_row no tiene field_ids
+          útiles → retorna ([], [{level:"error", code:"no_field_ids", ...}])
+          en vez de raisear.
+
+    Raises:
+        KeyError si la hoja 'Template' no existe en wb.
+        ValueError si headers['field_id_row'] o headers['data_start_row']
+            es None (defensa contra B5-a corrupto; en práctica no debería
+            ocurrir porque _locate_template_headers cae a fallback antes).
+    """
+    field_id_row = headers.get("field_id_row")
+    data_start_row = headers.get("data_start_row")
+    if field_id_row is None or data_start_row is None:
+        raise ValueError(
+            f"headers requiere field_id_row y data_start_row no-None "
+            f"(got field_id_row={field_id_row!r}, "
+            f"data_start_row={data_start_row!r})"
+        )
+
+    ws = wb["Template"]
+
+    # Paso 1: mapear col_idx (0-based) → field_id desde field_id_row.
+    field_id_row_cells = next(
+        ws.iter_rows(
+            min_row=field_id_row,
+            max_row=field_id_row,
+            values_only=True,
+        ),
+        None,
+    )
+    col_to_fid: dict[int, str] = {}
+    if field_id_row_cells:
+        for c_idx, v in enumerate(field_id_row_cells):
+            if v is None:
+                continue
+            s = str(v).strip()
+            if s:
+                col_to_fid[c_idx] = s
+
+    if not col_to_fid:
+        return [], [{
+            "row_index": field_id_row,
+            "level": "error",
+            "field": "",
+            "code": "no_field_ids",
+            "message": (
+                f"field_id_row {field_id_row} sin field_ids útiles — "
+                f"no se puede extraer data del Template old"
+            ),
+        }]
+
+    # Pasos 2-4: iterar rows de data con end-of-data guard + validación.
+    rows: list[dict[str, str]] = []
+    diagnostics: list[dict] = []
+    blank_streak = 0
+
+    for offset, row_values in enumerate(
+        ws.iter_rows(min_row=data_start_row, values_only=True)
+    ):
+        # Normalizar cells: None → "", no-str → str(v).strip().
+        normalized: list[str] = []
+        for v in row_values:
+            if v is None:
+                normalized.append("")
+            elif isinstance(v, str):
+                normalized.append(v.strip())
+            else:
+                normalized.append(str(v).strip())
+
+        # End-of-data guard: 2 blank rows consecutivas → break.
+        if all(s == "" for s in normalized):
+            blank_streak += 1
+            if blank_streak >= 2:
+                break
+            continue
+        blank_streak = 0
+
+        # Construir row_dict por col_to_fid (sparse).
+        row_dict: dict[str, str] = {}
+        for c_idx, fid in col_to_fid.items():
+            if c_idx < len(normalized):
+                row_dict[fid] = normalized[c_idx]
+            else:
+                row_dict[fid] = ""
+
+        # Validación Required (row_index 1-indexed real del Template).
+        row_index_1idx = data_start_row + offset
+        for fid, value in row_dict.items():
+            required_val = (
+                dd.get(fid, {}).get("required", "").strip().lower()
+            )
+            if required_val in {"yes", "required"} and value == "":
+                diagnostics.append({
+                    "row_index": row_index_1idx,
+                    "level": "warning",
+                    "field": fid,
+                    "code": "missing_required_in_old",
+                    "message": (
+                        f"Required field {fid!r} vacío en row {row_index_1idx}"
+                    ),
+                })
+
+        rows.append(row_dict)
+
+    return rows, diagnostics
+
+
 def _cell_value_or_blank(ws, row_idx_0: int, col_idx_0: int):
     """Devuelve el valor de la celda en posición 0-indexed, '' si vacía. Equivalente a sheet[encode_cell({r,c})]."""
     cell = ws.cell(row=row_idx_0 + 1, column=col_idx_0 + 1)
