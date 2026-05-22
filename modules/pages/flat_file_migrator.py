@@ -980,6 +980,21 @@ def _extract_old_rows(
         ),
         None,
     )
+
+    # P1-2: distinguir row inexistente (None) de row sin field_ids ([]).
+    # Si next() devolvió None, field_id_row está fuera de ws.max_row.
+    if field_id_row_cells is None:
+        return [], [{
+            "row_index": field_id_row,
+            "level": "error",
+            "field": "",
+            "code": "field_id_row_out_of_range",
+            "message": (
+                f"field_id_row={field_id_row} excede ws.max_row del sheet "
+                f"'Template' — header locator devolvió row inexistente"
+            ),
+        }]
+
     col_to_fid: dict[int, str] = {}
     if field_id_row_cells:
         for c_idx, v in enumerate(field_id_row_cells):
@@ -1020,9 +1035,21 @@ def _extract_old_rows(
                 normalized.append(str(v).strip())
 
         # End-of-data guard: 2 blank rows consecutivas → break.
+        # P2-3: emit diagnostic informativo al activar guard (observabilidad).
         if all(s == "" for s in normalized):
             blank_streak += 1
             if blank_streak >= 2:
+                diagnostics.append({
+                    "row_index": data_start_row + offset,
+                    "level": "info",
+                    "field": "",
+                    "code": "end_of_data_reached",
+                    "message": (
+                        f"end-of-data guard activado en row "
+                        f"{data_start_row + offset} tras 2 blank rows "
+                        f"consecutivas — extracción detenida"
+                    ),
+                })
                 break
             continue
         blank_streak = 0
@@ -1112,6 +1139,21 @@ def _migrate_row(
     """
     new_row: dict[str, str] = {}
     diagnostics: list[dict] = []
+
+    # P1-1: early-exit si field_map vacío (evita ~N warnings ruidosos
+    # unmapped_field si B3 no encontró matches). Diagnostic único informa
+    # la causa raíz.
+    if not field_map:
+        diagnostics.append({
+            "level": "error",
+            "field": "",
+            "code": "empty_field_map",
+            "message": (
+                "field_map vacío — _build_field_map no encontró matches "
+                "cross-schema. Imposible migrar ninguna row."
+            ),
+        })
+        return new_row, diagnostics
 
     # Paso 1: migración field-by-field.
     for old_field, value in old_row.items():
