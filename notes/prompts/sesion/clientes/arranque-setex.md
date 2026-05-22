@@ -1,192 +1,126 @@
 ---
-tipo: prompt-arranque-cliente
+tipo: prompt-sesion
+actualizado: 2026-05-22
 cliente: setex
-nivel: post-badge
-actualizado: 2026-04-29
-sesion_origen: cierre completo 5 bulks + Best Seller badge confirmado
-heroes_oficiales: B081GB8F89 (Best Seller #1)
-status_atom11: pre-requisitos cumplidos (naming OK, portfolios pending manual)
 ---
 
-# Arranque Sesión — Setex (post-badge 29/04)
-
-> Prompt customizado para arrancar cualquier sesión del cliente Setex.
-> Pegar el bloque XML del primer code block en chat nuevo de Claude.ai.
-
-## 🚀 Bloque para pegar al chat (estable)
-
-```xml
-<arranque_sesion cliente="setex" contexto="post-badge-29abr">
+<arranque_sesion cliente="setex">
 
 Hola Claude. Soy Lenin, Capybaras Agency. Vengo a trabajar sesión Setex.
 
-Última sesión fue el 29/04/2026 — cierre completo histórico (141 movimientos en 5 bulks · Best Seller badge confirmado en B081GB8F89). Hay pendientes URGENTES esperando respuesta del cliente.
-
 <contexto_proyecto>
-Repo local: C:\proyectos\ppc-manager (rama main, conectado a GitHub Leninead/ppc-manager).
+Repo local: C:\proyectos\ppc-manager (rama main, GitHub Leninead/ppc-manager).
 Vault Obsidian: notes/ dentro del repo, sincronizado vía GitHub a este proyecto Claude.
-Cliente: Setex Technologies — Amazon MX, accesorios anteojos + thumbstick gaming.
-Account Manager: Tatiana Velasquez.
+Cliente: Setex Technologies — Amazon México (MXN), nose pads/ear hook/thumbstick.
+Equipo interno: Tatiana Velasquez (Listings/Producto), Cleimery Bravo (Mercado Libre),
+Adam Pixler (Sales Director).
 </contexto_proyecto>
 
 <lectura_obligatoria_en_orden>
-1. notes/CLAUDE.md (convenciones del vault)
-2. notes/state/STATE-agencia.md (estado global + sección Setex post-29/04)
-3. notes/brands/setex/setex.md (brand note completa con sesión 29/04 + Best Seller badge)
-4. notes/brands/setex/PENDIENTES_RESTOCK.md (playbook reactivación condicional)
-5. notes/brands/setex/reports/2026-04-29-WoW-organic-vs-paid-decomp.md (framework descubierto)
-6. notes/daily/2026-04-29.md (sesión completa con UUIDs de los 5 bulks)
-7. notes/sops/amazon-bulk-upload-guide.md (gotchas bulk format)
+notes/CLAUDE.md (estado general agencia)
+notes/state/STATE-agencia.md (qué cambió + bloqueos abiertos)
+notes/brands/setex/setex.md (sesiones recientes, fases ejecutadas, pendientes)
+notes/brands/setex/atom11-rules.md (rules v2026.3 status Neha)
+notes/daily/2026-05-22.md (último daily Setex)
+notes/sops/amazon-bulk-upload-guide.md (16 learnings — gotchas de bulk format)
 </lectura_obligatoria_en_orden>
-
-<contexto_critico_post_29abr>
-
-## 🏆 Best Seller badge confirmado
-B081GB8F89 (1mm 5p Transparentes) tiene Best Seller #1 en categoría "Kits de Reparación para Lentes y Anteojos" Amazon MX. Toda decisión de PPC debería pasar por "¿esto protege/aprovecha el badge?".
-
-## 5 bulks subidos el 29/04 (UUIDs registrados)
-- Bulk #1 Defensivo (39 filas): UUID 7096ec9c-9528-4c22-a18f-328d56cb2a29
-- Bulk #2 Ofensivo (12 filas): UUID 5944afce-052e-4c7c-9084-545195cd8929
-- Bulk #5 Negativos (9 filas): UUID 23877dc3-80de-489a-bbb1-12d35ff16385
-- Bulk #4 Campañas Nuevas (75 filas): UUID ad5d988d-a835-43a1-912e-0bdb79991a2a
-- Bulk #3 Reducir (6 filas): UUID 426473c9-8e81-4b57-92c6-8817be3012fa
-
-Net cuenta: ~MX$23k/mes redirigidos.
-
-## Pendientes URGENTES esperando Tati
-1. ETA reposición FBA Temple Tips (B0C7WPFVGV + B0B94KBY8H, OOS desde 18-23/04)
-2. ETA reposición FBA Ear Hooks B0F63LTD92 (4u disponibles, runway ~3-4 días)
-3. **B086H3TZ6B URGENTE** — 1u stock, child del Best Seller, riesgo perder badge
-4. ¿Qué disparó el récord del 1mm el 03/05? (review viral, cobertura, algoritmo)
-
-## Pendientes IMPORTANTES próxima sesión
-- Asignación manual portfolios RANKING/CONQUEST/DEFENSIVE a las 9 nuevas
-- Subir bid Brand Hub Heroes $3→$5
-- Crear campañas con KWs "best nose pads", "amazon choice nose pads"
-- Listing optimization B081GB8F89
-- Coordinar con Nicki: 5 SKUs duplicados Closed
-- Conectar Setex a Atom11 con Guille (pre-requisitos cumplidos)
-- SBV B08PZF22R1 — definir owner (heredado desde 15/04)
-
-## Próximas evaluaciones
-- 06/05: chequeo impressions de las 9 nuevas (4d)
-- 09/05: review performance EXACT iniciales (1 sem)
-- 13/05: review completo (10d) — decidir si escalar budgets
-- 20/05: review WoW completo (3 sem)
-- Día restock Temple/Ear Hook: ejecutar PENDIENTES_RESTOCK
-
-## Framework descubierto el 29/04
-"Decomposición orgánico vs paid" — cuando AM atribuye caída a PPC, primero descomponer total gap = ad gap + organic gap. Si organic gap > 50% → no es PPC, es operativo. Reusable cross-client.
-
-</contexto_critico_post_29abr>
 
 <conocimiento_operativo_setex>
 
-## Heroes oficiales (post 29/04)
-- **B081GB8F89** (1mm 5p Transp) — 🏆 Best Seller #1, hero absoluto. 497u stock. 47% del récord histórico (14u/$3,358 el 03/05).
-- **B08C2T72ND** (1mm 5p Negros) — secundario. 67u stock.
-- **B0DK7PHXXC** (Nano 0.6mm 5p Negros) — 27u stock. Variante premium en Brand Hub.
-- **B09HW4VWQR** (Thick 1.8mm 5p Negros) — 71u stock. Variante thick en Brand Hub.
+**Estado post 22/05 (snapshot tras 5 bulks)**
 
-## ASINs riesgo crítico
-- **B086H3TZ6B** (1mm 15p Transp) — 1u stock, child del Best Seller. URGENTE.
-- **B09F7YB74Y** (1mm 5p Rojos) — 4u stock, riesgo OOS.
-- **B0F63LTD92** (Ear Hooks) — 5u stock, runway 3-4d.
-- **B0C7WPFVGV + B0B94KBY8H** (Temple Tips) — 0u, OOS.
+KPIs cuenta:
+- ACoS cuenta pre-bulks: 19.4% · TACoS 14% (target 18% confirmado meet 20/05)
+- ROAS 5.15x · 393 orders / 30d · CVR 10.46%
+- Net esperado post-bulks: -$400/mo spend / +$25k/mo sales
 
-## Atom11 status
-NO conectado todavía. Pre-requisitos cumplidos el 29/04:
-- ✅ Naming Capybaras-friendly en las 9 nuevas
-- ⏳ Asignación manual de portfolios pendiente (RANKING/CONQUEST/DEFENSIVE)
-- ⏳ Gestión con Guille pendiente
+5 bulks ejecutados 22/05 (UUIDs):
+- Bulk 1 Pausas+Archive (7): `cb02fff2-3421-48cb-8a22-724f12d745b9`
+- Bulk 2 Bid Up (15): `cc7bb7a9-f6bf-4c78-a79c-2157ee72ec90`
+- Bulk 3 Bid Down (4): `9e7cad37-24ed-4879-9b31-f09b2c0cda09`
+- Bulk 4 Escalar (5): `92e33b06-dd4c-4d19-85da-68638ede73bd`
+- Bulk 5 Negativos (126): `cd9c099c-bcbd-41dd-9b9a-cc111aae38cc`
 
-## Naming convention Setex (post 29/04)
+Atom11 status:
+- 🟡 ENVIADO A NEHA 22/05 — esperando confirmación de:
+  - Prefix STX (alternativa SETEX)
+  - Schedule Tue+Fri 06:00 ART
+  - Timeline Fase 1 (22 rules RANKING + DEFENSIVE)
+- 52 rules diseñadas v2026.3 con coverage 100% (86/86 ENABLED clasificadas)
+- Archivo: `Setex_Atom11_Rules_v2026_3_22May.xlsx`
+
+Heroes Setex actuales:
+- B081GB8F89 (1mm 5p Transp $240) — Best Seller badge, 253u/30d ($50,672 sales)
+- B08C2T72ND (1mm 5p Negro $240) — 113u/30d ($22,032)
+- B0F3PSP82K (Thin family parent, 5 EXACT THIN-PUSH activas con bid $6 nuevo)
+- B0DK7PHXXC + B0DK7Q4ZTY (Nano Gen2) — ROAS 11x
+- B09HW4VWQR + B09HVXDH7M (Thick 1.8mm 5p) — ROAS 10x
+
+Pendientes Tati (mensaje posteado 22/05):
+- Listing audit B081GB8F89 ES (8 EXACT funnel break SQP)
+- Audit listing EN B081GB8F89 (queries EN PS 0%)
+- Confirmar ETAs inbound: B0F63LTD92 / B0C7WPFVGV / B0B94KBY8H
+
+Flags Seller Central activas 22/05:
+- B09F7YB74Y (1mm Rojos): 3u + 10u inbound → riesgo OOS
+- B0DW9Z2H2W (Nano 15p Negros): Missing offer + 0u stock
+- B0CC6THCDS (Kids 15p Transp $530): 1u en 30d con 33u stock — eval precio
+
+Naming convention Setex post-22/05:
 Patrón Atom11: `Setex | <PORTFOLIO> | SP | <MATCH> - <CATEGORÍA> - <ASIN> - <CLUSTER>`
-Las campañas legacy de marzo usan naming distinto. No reescribir.
+Campañas legacy de marzo siguen naming distinto — no reescribir.
 
-## Bid strategy Setex
-- Dynamic bids - down only en RANKING + CONQUEST (default)
-- Fixed bid en DEFENSIVE Brand Hub
-- Bid keyword-level promedio: $1.50-3.00 según cluster
-- Placement Top of Search: +20% (default) hasta +50% (Brand Hub Heroes)
+Bid strategy:
+- Dynamic bids - down only en mayoría
+- Fixed bid en DEFENSIVE Brand Hub Heroes
+- TOS +50% para 5 THIN-PUSH (post-22/05) y Brand Hub Heroes
+- TOS +20% para el resto
 
-## Listings con flag actual
-- B08SNXF8HP — BuyBox 91.18% (heredado, monitorear)
-- B086H3TZ6B — 1u stock, child del Best Seller (URGENTE post 29/04)
-- 5 SKUs Closed duplicados (heredado, ticket Nicki pendiente)
+Targets ACoS por objetivo (cascade):
+- DISCOVERY 30% / RANKING 25% / PROFIT 17.5% / CONQUEST 15% / DEFENSIVE 10%
 
 </conocimiento_operativo_setex>
 
 <bugs_y_gotchas_bulk_format>
-Aplican los 8 learnings de la sesión Dermaglos 28/04 + nuevos del 29/04:
-- AdGroup ID en bulk export viene con `.0` (float) — al generar bulks de creación hacer `str(agid).split('.')[0]`
-- 8 zombies del plan original 23/04 confirmaron por segunda vez gotcha del Campaign Analyzer
-- Plan de negativos preventivos sin evidencia STR = ruido + deuda técnica
-
-Ver detalle completo en notes/sops/amazon-bulk-upload-guide.md.
+Aplican los 16 learnings del SOP. Últimos 5 críticos (post-22/05):
+12. Bug módulo M4 STR_analizado solo procesa KW campaigns (70% business out)
+13. Cross-client ASIN safety check pre-mensajes operativos
+14. Cruce Seller Central obligatorio pre-mensajes Tati
+15. Orden CREATE vs UPDATE en secuencia bulks (CREATE último, más tolerante)
+16. Validación cruzada 7 checks pre-bulk harvest EXACT
 </bugs_y_gotchas_bulk_format>
 
 <flujo_de_arranque>
-1. Confirmá brevemente entendimiento de:
-   - Estado post 29/04 (5 bulks ejecutados + badge confirmado)
-   - Pendientes URGENTES esperando Tati
-   - Status del badge (¿sigue activo?)
-   - Si hay respuesta de Tati con ETAs
+Confirmá brevemente entendimiento de:
+- Estado post-bulks 22/05 (5 bulks aplicados / +$223/d budget winners)
+- Status Atom11 (esperando Neha)
+- Pendientes Tati (3 items posteados)
+- Flags nuevas Seller Central
 
-2. Recordame correr al inicio:
-   git status
-   git pull
-   git add . && git commit -m "checkpoint: pre-trabajo Setex [fecha]"
+Recordame correr al inicio:
+git status
+git pull
+git add . && git commit -m "checkpoint: pre-trabajo Setex [fecha]"
 
-3. Preguntame qué atacamos hoy. Opciones probables:
-   - (a) Ejecutar PENDIENTES_RESTOCK si llegó reposición
-   - (b) Optimizaciones post-badge (bid Brand Hub, KWs nuevas, listing opt)
-   - (c) Asignación manual portfolios + Atom11 con Guille
-   - (d) Review performance 9 nuevas (si ya pasaron 4-7 días)
-   - (e) Otro tema específico
+Preguntame qué atacamos hoy. Opciones probables:
+(a) Eval día 7 post-bulks 22/05 (impressions + winners + KW post-bid-down)
+(b) Arranque Fase 1 Atom11 si Neha confirmó (22 rules RANKING + DEFENSIVE)
+(c) Reevaluar harvest EXACT con SQP fresco post-optimización
+(d) Consolidar duplicados brand defense (7 camps duplicadas)
+(e) CLUSTER Core ES case-by-case (6 KWs uniformes $13.10)
+(f) Otro tema específico
 
-4. Si involucra bulks → repasar gotchas primero
+Si involucra bulks → revisar gotchas (especialmente learning 12 del módulo M4)
 </flujo_de_arranque>
 
 <rituales_obligatorios>
-Al cierre: usar [[notes/prompts/sesion/cierre-meta]] para generar el mega prompt para Claude Code que actualiza el vault, hace git commit + push, y recuerda el refresh del proyecto Claude.
+Al cierre: usar notes/prompts/sesion/cierre-meta.md para generar el mega-prompt
+para CC que actualiza el vault, hace git commit + push, y recuerda el refresh
+del proyecto Claude.
+
+NUEVO POST-22/05:
+- Validar ASINs no pertenecen a otra cuenta antes de mensajes
+- Cruzar con Seller Central para flags abiertas
 </rituales_obligatorios>
 
 </arranque_sesion>
-```
-
-## 📊 Estado actual del cliente
-
-**Sesión 29/04/2026** — cierre completo (141 movimientos, 5 bulks).
-
-### Última actividad documentada
-Ver [[2026-04-29]] · [[2026-04-29-WoW-organic-vs-paid-decomp]] · [[setex]] · [[PENDIENTES_RESTOCK]]
-
-### KPIs (post-bulks proyección)
-- ACoS cuenta: 20.9% → target 15-18%
-- TACOS: 17.5% → target 14-16%
-- ROAS: 4.8× → target 6.0×+
-
-## ⏰ Pendientes activos
-
-### Bloqueos urgentes
-1. **B086H3TZ6B 1u stock** (child del Best Seller, riesgo perder badge)
-2. ETA reposición Temple Tips (B0C7WPFVGV + B0B94KBY8H)
-3. ETA reposición Ear Hooks (B0F63LTD92)
-
-### Diferidos hasta restock
-Ver [[PENDIENTES_RESTOCK]] — 5 campañas + 12 KWs preparadas con bid +25-30% para reactivación.
-
-## 🔗 Referencias cruzadas
-
-- [[setex]] — brand note principal
-- [[2026-04-29]] — daily de la sesión cierre completo
-- [[2026-04-29-WoW-organic-vs-paid-decomp]] — framework descubierto
-- [[PENDIENTES_RESTOCK]] — playbook reactivación
-- [[STATE-agencia]] — estado global agencia
-- [[amazon-bulk-upload-guide]] — gotchas bulk format
-
-## 📜 Historial de actualizaciones
-
-- **2026-04-29**: actualizado post sesión cierre completo. Pasó de stub a fully populated. Heroes confirmados, Atom11 status definido, pendientes urgentes registrados.
-- **2026-04-28**: stub creado con contexto mínimo.

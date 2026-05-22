@@ -345,3 +345,98 @@ Setex ya añadido a Atom (Neha), pero sin rules creadas todavía. Próxima sesi�
 - Nicki: ticket 5 SKUs Closed duplicados (heredado 29/04)
 - Adam: SBV B08PZF22R1 owner (heredado 15/04)
 - Sesión próxima: Atom11 rules file
+
+## 📅 Sesión 21-22/05/2026 — Análisis 360° + 5 bulks + Atom11 setup
+
+### Contexto del día
+Rotación semanal LTD→Dermaglos→Setex sufrió delay (LTD se extendió a 2 días
+19-20/05). Sesión Setex partida en 2: 21/05 análisis preparatorio + 22/05
+ejecución completa. Aprovechamos las 3-4hrs del viernes 22/05 para cerrar todo.
+
+### Sesión 21/05 (análisis preparatorio)
+- STR 30d (1,687 rows / 1,040 search terms únicos) + SQP semana 10-16/05 (199 queries
+  relevantes) + Campaign Analyzer + cruce M4 formal
+- ACoS cuenta 19.4% / TACoS 14% (vs target 18%) / Waste 40.9%
+- 8 EXACT funnel break SQP identificadas + 20 funnel break total (clicks brand sin convertir)
+- Validación cruzada 7 checks descartó Bulk 6 (Harvest EXACT) — riesgo fantasma
+- Bug módulo M4 detectado (mismo patrón Dermaglos 08/05) — patch pendiente con Ramiro
+
+### Sesión 22/05 (ejecución completa)
+**5 bulks subidos 11:37-11:43 ART, todos en Success:**
+
+| Bulk | Filas | UUID |
+|------|-------|------|
+| 1 — Pausas + Archive | 7 | `cb02fff2-3421-48cb-8a22-724f12d745b9` |
+| 2 — Bid Up | 15 | `cc7bb7a9-f6bf-4c78-a79c-2157ee72ec90` |
+| 3 — Bid Down | 4 | `9e7cad37-24ed-4879-9b31-f09b2c0cda09` |
+| 4 — Escalar | 5 | `92e33b06-dd4c-4d19-85da-68638ede73bd` |
+| 5 — Negativos | 126 | `cd9c099c-bcbd-41dd-9b9a-cc111aae38cc` |
+
+**Net efecto: 157 cambios / 33 camps afectadas / +$223/d budget winners**
+
+### Highlights cambios
+- 5 THIN-PUSH (12/05) bids $2-3 → $6 + TOS +20% → +50% (rescate eval día 9 vencida)
+- Ultra Thin 5p Transp AUTO: $140 → **$250/d** (momentum +33% sales meet 20/05)
+- Thumbstick XG9J821 AUTO: $50 → $70 (descubrimiento de validación — TIB 99.9%)
+- 4 KWs bid down agresivo (retenedores -50% / almohadillas -49% / gomas -25% / Thick AUTO -40%)
+- 126 negativos en 33 camps non-brand (50 ASINs + 18 genéricos + 32 gaming + 12 propios fuera scope)
+- 4 archivos limpieza vault (Temple OOS + neon pads fantasma)
+
+### Decisiones técnicas tomadas en validación
+- ❌ NO Bulk 6 Harvest EXACT — SQV insuficiente, riesgo fantasma como THIN-PUSH 12/05
+- ❌ NO pausa Thumbstick línea entera — meet 20/05 reportó ACoS 57% en uno específico
+  pero 30d real muestra 5 AUTOs Thumbstick en target 30%
+- ❌ NO escalar Brand defense esta sesión — consolidar 7 camps duplicadas antes
+- ❌ NO incluir BRAND `setex almohadillas` (Camp 109236070351461) en bid up —
+  bid actual $12 no es el problema
+- ❌ NO tocar CLUSTER Core ES (6 KWs uniformes $13.10) — case-by-case próxima sesión
+- ⏸️ Monitorear `antideslizante para lentes` EXACT 7d más (bid bajó 12/05 $21.80→$7.50,
+  STR refleja sesgo 24/30 días pre-fix)
+
+### Atom11 Rules v2026.3 setup completo
+52 rules / 5 sheets / 100% coverage 86/86 ENABLED. Excel + mensaje en inglés
+enviado a Neha. Esperando confirmación de prefix STX + schedule + timeline.
+
+**Ver detalle completo en**: [[atom11-rules]]
+
+### Comunicación posteada
+- Slack interno team: mensaje completo con summary + tag @Tati (3 items + flags adicionales)
+- Slack/Email Neha: mensaje + Excel adjunto
+
+### Hallazgos críticos no-PPC delegados a Tati
+1. *Listing audit B081GB8F89* (1mm 5pares — del badge, $240): 8 EXACT funnel break
+   SQP. 5-pack alineado mercado ($240 vs $150 mediana, premium real +60%), pero
+   15-pack ($480) sí es premium alto. Hipótesis: listing no resuelve objeción premium.
+2. *Audit listing EN B081GB8F89*: queries EN con IS alto pero PS 0%. `anti slip
+   glasses nose pads` con CS 100% PS 0% — caso más diagnóstico.
+3. *Confirmar ETAs inbound*: B0F63LTD92 (100u desde 13/05), B0C7WPFVGV (50u desde
+   18/04), B0B94KBY8H (100u desde 23/04). Problema logística no decisión.
+
+### Flags adicionales detectadas en cruce Seller Central 22/05
+- B09F7YB74Y (1mm Rojos): 3u + 10u inbound → riesgo OOS inmediato
+- B0DW9Z2H2W (Nano 15p Negros): Missing offer + 0u stock — listing roto?
+- B0CC6THCDS (Kids 15p Transp $530): 1u en 30d con 33u stock — evaluar precio
+
+### Items removidos por validación Seller Central
+- ~~B086H3TZ6B urgente~~ — Tati actualizó 19/05, 50u inbound activo (resuelto)
+- ~~B08SNXF8HP BuyBox 91%~~ — hoy 100% Featured offer $530 sin Match (resuelto)
+
+### Lecciones del día (para SOP)
+1. **Cross-client ASIN safety**: pegué B0CYLMJJJC (Dermaglos) en draft mensaje Setex.
+   Patch SOP cierre: validar ASINs pertenecen al cliente correcto antes de postear.
+2. **Cruce Seller Central obligatorio antes de mensajes operativos**: 3 ítems
+   originales ya estaban resueltos (Tati ya había actuado pero vault no estaba
+   sincronizado). Patch SOP: refresh Seller Central como primer paso pre-mensaje Tati.
+3. **Bug módulo M4** (`STR_analizado.xlsx`) — solo procesa KW campaigns (deja fuera
+   70% del business). Mismo patrón Dermaglos 08/05. Patch coordinado con Ramiro pendiente.
+
+### Pendientes próxima sesión Setex (29/05)
+- [ ] Eval día 7 post-bulks 22/05 (impressions THIN-PUSH + winners escalados + KW post-bid-down)
+- [ ] Status confirmación Neha → arrancar Fase 1 Atom11 (22 rules RANKING + DEFENSIVE)
+- [ ] Reevaluar harvest EXACT con SQP fresco post-optimización
+- [ ] Consolidar duplicados brand defense (setex en 2 camps + setex gecko grip en 3)
+- [ ] Tocar CLUSTER Core ES case-by-case (6 KWs uniformes $13.10)
+- [ ] Re-evaluar `antideslizante para lentes` EXACT (post 7d sin sesgo pre-fix)
+- [ ] Status restocks Tati: B0F63LTD92 / B0C7WPFVGV / B0B94KBY8H
+- [ ] Status nuevos flags: B09F7YB74Y / B0DW9Z2H2W / B0CC6THCDS
+- [ ] Confirmar archivado Camp 109236070351461 (BRAND setex almohadillas)
