@@ -11,6 +11,7 @@ El caller decide si aplicar report.blocks como overwrite o no
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -52,6 +53,19 @@ class BlockDraft:
 @dataclass
 class ImportReport:
     blocks: list[BlockDraft] = field(default_factory=list)
+    warnings: list[ImportWarning] = field(default_factory=list)
+    errors: list[ImportError] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return len(self.errors) == 0
+
+
+@dataclass
+class MergeResult:
+    proposal_updated: dict
+    applied_blocks: list[str] = field(default_factory=list)  # module_ids overwriteados
+    skipped_blocks: list[tuple[str, str]] = field(default_factory=list)  # (module_id, reason)
     warnings: list[ImportWarning] = field(default_factory=list)
     errors: list[ImportError] = field(default_factory=list)
 
@@ -541,3 +555,129 @@ def extract_blocks(html_source: str | bytes, catalog: dict) -> ImportReport:
         report.blocks.append(draft)
 
     return report
+
+
+# ---------------------------------------------------------------------------
+# Merge layer — capa 2: aplica un ImportReport sobre un proposal target
+# ---------------------------------------------------------------------------
+
+
+def merge_blocks(
+    report: ImportReport,
+    target_proposal: dict,
+    catalog: dict,
+) -> MergeResult:
+    """Merge B7 blocks en target_proposal. Función pura, sin I/O.
+
+    Reglas (contrato B7 §6):
+    - Overwrite TOTAL del data del bloque target (sin merge field-by-field).
+    - Si module_id del HTML no existe en target_proposal.blocks →
+      skip + ImportWarning code='block_not_in_target'.
+    - Si target_proposal tiene 2+ bloques con mismo module_id →
+      updatear el primero + ImportWarning code='duplicate_module_id'.
+    - Si report.ok == False → MergeResult con ImportError, sin merge.
+    - Si target_proposal no tiene key 'blocks' o no es lista →
+      ImportError code='target_proposal_malformed'.
+
+    El merge sólo afecta block['data']. Los campos id, module_id, proposal_id,
+    is_fixed, copy_overrides se preservan intactos. Esto es coherente con
+    §6 del contrato B7 ('overwrite del data del bloque target') — no
+    'overwrite del block entero'.
+
+    Args:
+        report: salida de extract_blocks. Debe ser ok.
+        target_proposal: dict de proposal cargado del disco.
+        catalog: contenido de _catalog.json (no utilizado en v1 del merge,
+            queda como signature por si v1.1 agrega validación cruzada
+            módulo → arquetipo de la propuesta).
+
+    Returns:
+        MergeResult. proposal_updated es una COPIA modificada
+        (deepcopy del input). No muta target_proposal.
+    """
+    # Caso early: report con errores → no se hace merge.
+    if not report.ok:
+        return MergeResult(
+            proposal_updated=copy.deepcopy(target_proposal),
+            errors=[
+                ImportError(
+                    code="report_not_ok",
+                    block_index=None,
+                    module_id=None,
+                    message=(
+                        f"ImportReport tiene {len(report.errors)} error(es); "
+                        f"merge abortado. Codes: "
+                        f"{sorted({e.code for e in report.errors})}"
+                    ),
+                ),
+            ],
+        )
+
+    # Validación shape mínimo de target_proposal.
+    blocks = target_proposal.get("blocks") if isinstance(target_proposal, dict) else None
+    if not isinstance(blocks, list):
+        return MergeResult(
+            proposal_updated=copy.deepcopy(target_proposal) if isinstance(target_proposal, dict) else {},
+            errors=[
+                ImportError(
+                    code="target_proposal_malformed",
+                    block_index=None,
+                    module_id=None,
+                    message=(
+                        "target_proposal.blocks ausente o no es una lista; "
+                        "merge abortado."
+                    ),
+                ),
+            ],
+        )
+
+    # Deepcopy: cero side effects sobre target_proposal.
+    updated = copy.deepcopy(target_proposal)
+    updated_blocks: list = updated["blocks"]
+
+    result = MergeResult(proposal_updated=updated)
+
+    for draft in report.blocks:
+        # Buscar TODOS los blocks del target con el module_id del draft.
+        matches = [
+            (idx, blk) for idx, blk in enumerate(updated_blocks)
+            if isinstance(blk, dict) and blk.get("module_id") == draft.module_id
+        ]
+
+        if not matches:
+            result.skipped_blocks.append((draft.module_id, "block_not_in_target"))
+            result.warnings.append(ImportWarning(
+                code="block_not_in_target",
+                block_index=draft.block_index,
+                module_id=draft.module_id,
+                field_path=f"blocks[?].{draft.module_id}",
+                message=(
+                    f"module_id {draft.module_id!r} viene en el HTML pero no "
+                    f"existe en target_proposal.blocks; bloque skipeado."
+                ),
+            ))
+            continue
+
+        # Duplicate module_id en el target → usar el primero, warnear.
+        if len(matches) > 1:
+            dup_indices = [str(idx) for idx, _ in matches]
+            result.warnings.append(ImportWarning(
+                code="duplicate_module_id",
+                block_index=draft.block_index,
+                module_id=draft.module_id,
+                field_path=f"blocks[{matches[0][0]}]",
+                message=(
+                    f"target_proposal.blocks tiene {len(matches)} bloques con "
+                    f"module_id {draft.module_id!r} (indices {','.join(dup_indices)}); "
+                    f"se actualiza el primero (idx {matches[0][0]}). Cleanup manual "
+                    f"queda a cargo del operador."
+                ),
+            ))
+
+        # Overwrite quirúrgico: SOLO el campo 'data'. id/module_id/proposal_id/
+        # is_fixed/copy_overrides se preservan intactos.
+        target_idx, _ = matches[0]
+        updated_blocks[target_idx]["data"] = copy.deepcopy(draft.data)
+        result.applied_blocks.append(draft.module_id)
+
+    return result
