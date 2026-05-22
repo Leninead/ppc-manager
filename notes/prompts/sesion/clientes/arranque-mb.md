@@ -1,175 +1,98 @@
 ---
-tipo: prompt-arranque-cliente
+tipo: prompt-sesion
+actualizado: 2026-05-22
 cliente: mb
-nivel: cargado
-actualizado: 2026-05-04
-proxima_actualizacion: cierre próxima sesión MB
-heroes_oficiales: B0F6LCGH2L (CR M White) · B0F6LDGCDS (VN M Crimson)
-status_atom11: activa (siempre tuvo — corregido 2026-05-04)
+nota: owner oficial Cuki desde 11/05 — esta sesión actualiza por ad hoc Attribution 22/05
 ---
 
-# Arranque Sesión — MB (Mott & Bow)
-
-> Prompt customizado para arrancar cualquier sesión del cliente MB.
-> Pegar el bloque XML del primer code block en chat nuevo de Claude.ai.
-> Se actualiza al cierre de cada sesión con el delta.
->
-> ⚠️ STUB — Esta nota está parcialmente poblada con contexto de marzo/abril.
-> Completar al final de la próxima sesión MB con el formato del arranque-dermaglos.
-
----
-
-## 🚀 Bloque para pegar al chat (estable)
-
-```xml
 <arranque_sesion cliente="mb">
 
-Hola Claude. Soy Lenin, Capybaras Agency. Vengo a trabajar sesión MB (Mott & Bow).
+Hola Claude. Soy Lenin, Capybaras Agency.
+Vengo a trabajar sesión M&B (Mott & Bow).
 
 <contexto_proyecto>
-Repo local: C:\proyectos\ppc-manager (rama main, conectado a GitHub Leninead/ppc-manager).
-Vault Obsidian: notes/ dentro del repo, sincronizado vía GitHub a este proyecto Claude.
-Cliente: Mott & Bow — Amazon US, apparel premium.
+Repo local: C:\proyectos\ppc-manager (rama main, GitHub Leninead/ppc-manager).
+Vault Obsidian: notes/ dentro del repo.
+Cliente: Mott & Bow — Amazon US, ropa premium (t-shirts, jeans, 3-packs).
+Owner oficial: Cuki desde 11/05/2026.
+AM principal: Agustín Favano.
 </contexto_proyecto>
 
 <lectura_obligatoria_en_orden>
-1. notes/CLAUDE.md (estado general agencia)
-2. notes/state/STATE-agencia.md (qué cambió + bloqueos abiertos)
-3. notes/brands/mb/MB.md (sesiones recientes, fases ejecutadas, pendientes)
-4. notes/brands/mb/skus_mb.md (si existe — mapeo SKU/ASIN)
-5. notes/brands/mb/atom11-rules.md (si existe — rules en producción)
-6. notes/daily/ (último daily MB disponible)
-7. notes/sops/amazon-bulk-upload-guide.md (gotchas de bulk format)
+notes/CLAUDE.md
+notes/state/STATE-agencia.md
+notes/brands/mb/MB.md (incluye sesión ad hoc 22/05 Attribution)
+notes/daily/2026-05-22.md (sección M&B del cierre)
+notes/sops/amazon-attribution-setup.md (SOP nuevo creado 22/05)
+notes/TRASPASO_MottBow.md (handoff oficial a Cuki)
 </lectura_obligatoria_en_orden>
 
 <conocimiento_operativo_mb>
 
-## Heroes oficiales
-- CR M White: B0F6LCGH2L (Crew Neck Hero)
-- VN M Crimson: B0F6LDGCDS (V-Neck Hero)
-- Sleeper en observación: línea Black Women (~$3K+/sem orgánico, futuro hero candidato)
+**Estado al 22/05:**
 
-## Status Fase 2 (snapshot 2026-05-04)
-🔥 BLOQUEADA hace 7 días — ventana 26-30 abril vencida sin lanzamientos.
+**Amazon Attribution V0 — Meta Facebook (entregado 22/05):**
+- Campaign operativa: MB-US-META-2026Q2-v2 (External ID: MBMETA2026Q2v2)
+- Campaign zombie a ignorar: MB-US-META-2026Q2 (ID 579799613303383079)
+- 6 tags entregados a Agustín por Slack:
+  - Familia A (CR Women Black $40): B0F6LDG3NK, B0FQPPLFRT, B0F6LF4SH4
+  - Familia B (3-Pack Driggs BGN $92): B0GHZY9TSB, B0GHZTD49W, B0GHZBP1TN
+- ⚠️ Familia B con historial 1★ — Agustín aprobó con conocimiento del riesgo
 
-- White Tee ($30/d) + Premium Cotton ($10/d) **NO lanzados**
-- Bloqueo: Brand Store Women actualizado + video SBV (cliente, sin ETA)
-- **Mensaje gate AM Fase 2 — pendiente desde 27/04 — PRIMERA TAREA próxima sesión**
-- Pregunta cerrada al AM: "Brand Store Women + video SBV listos sí/no, fecha estimada"
+**Pendientes Attribution (esperando cliente):**
+- Instagram channel (6 tags más si cliente corre IG)
+- Email channel (6 tags más si quiere trackear newsletter)
+- Brand Referral Bonus enrollment status
+- V1 granular cuando cliente pase listado Meta real
+- Validación 24-48hs post-deployment (entran clicks)
 
-## Análisis de tráfico externo (Marzo 2026)
-- Push detectado 27-29/03: sesiones +134% vs fines de semana normales
-- Sales día más alto del mes: $13,086 (sábado)
-- Patrón: tráfico externo (redes sociales / email / influencer) sin aviso a la agencia
-
-## Atom11 status
-✅ Activa (corregido 2026-05-04 — M&B siempre tuvo Atom11, el STATE histórico estaba mal). Coverage exacto, rules activas y portfolios bajo Atom11 — TBD próxima sesión con datos del cliente.
-
-## Naming convention MB
-**Mixto** — coexisten:
-- Legacy con paréntesis de dispositivo: `MTC - B0F844CHFY | SP - PR | EXACT | DEFEND | BRAND ASINS`
-- Capybaras nuevo (las 5 NB HW + Premium del 21-27/04): `MB | B0F6LDGCDS | US | SP-KW | EXACT | NB CR HW A`
-
-Auditoría de unificación naming pendiente — bloqueante para que Atom11 Rules Builder (M11) clasifique todas las campañas correctamente.
-
-## Bid strategy MB
-TBD — definir en próxima sesión M&B. Datos para el análisis:
-- CPC promedio cuenta TW: $0.75
-- Las 5 nuevas con bid $0.80-$1.10 NO impresionan → bid floor apparel Women US > $1.50
-- DEFEND brand sigue eficiente: BROAD M `+mott +bow` ACoS 12.2%, EXACT defenders ACoS 6-15%
+**Pendientes operativos regulares (de TRASPASO_MottBow):**
+- Fase 2 gate pendiente (Cuki maneja)
+- Audit SCAVENGER (Cuki maneja)
+- Otros items según handoff
 
 </conocimiento_operativo_mb>
 
-<bugs_y_gotchas_bulk_format>
-Aplican los 8 learnings de la sesión Dermaglos 28/04. Ver sección completa en notes/sops/amazon-bulk-upload-guide.md "Learnings 2026-04-28".
-</bugs_y_gotchas_bulk_format>
+<gotchas_attribution_22_05>
+8 gotchas críticos documentados en [[amazon-attribution-setup]]:
+1. Multi-cuenta riesgo (validar advertiser antes de cualquier acción)
+2. Template Attribution ≠ Template SP
+3. Template vacío rebota (Amazon usa filas ejemplo)
+4. Publisher difference Bulk vs Manual
+5. ⭐ CRÍTICO: Bulk Beta NO completa jerarquía Ads/Tags
+6. Campaigns Attribution permanentes (no se eliminan)
+7. Variation parents rechazados (solo child ASINs)
+8. Modelo cambia 2026 (last-touch → shopping-signal weighted)
+</gotchas_attribution_22_05>
 
 <flujo_de_arranque>
-1. Confirmá brevemente entendimiento de:
-   - Última sesión MB (fecha + qué se hizo)
-   - Status Fase 2 (¿White Tee + Premium Cotton lanzados?)
-   - Pendientes activos
-   - Bloqueos vigentes (Brand Store Women / video SBV)
+Confirmá entendimiento de:
+- Estado Attribution V0 entregado 22/05
+- Pendientes esperando cliente (Instagram, Email, BRB, V1)
+- Owner oficial sigue siendo Cuki
 
-2. Recordame git status + git pull + checkpoint commit
+Recordame correr al inicio:
+git status
+git pull
+git add . && git commit -m "checkpoint: pre-trabajo M&B [fecha]"
 
-3. Preguntame qué atacamos hoy antes de trabajo nuevo
+Preguntame qué atacamos hoy. Opciones probables:
+(a) Validación 24-48hs Attribution V0 (entran clicks?)
+(b) Setup Instagram si cliente confirmó
+(c) Setup Email si cliente confirmó
+(d) Brand Referral Bonus enrollment
+(e) V1 granular Attribution (1 tag por ad set específico)
+(f) Items regulares M&B según TRASPASO (consultar Cuki primero)
+(g) Otro tema específico
 
-4. Si involucra bulks → gotchas primero
+Si involucra Attribution → revisar gotchas en [[amazon-attribution-setup]].
 </flujo_de_arranque>
 
 <rituales_obligatorios>
-Al cierre: 3 prompts sop-writer + update este archivo + git commit/push + refresh proyecto Claude.
+Al cierre: usar notes/prompts/sesion/cierre-meta.md
+NUEVO POST-22/05:
+- Validar ASINs no pertenecen a otra cuenta antes de mensajes
+- Cruzar con Seller Central para flags abiertas
 </rituales_obligatorios>
 
 </arranque_sesion>
-```
-
----
-
-## 📊 Estado actual del cliente
-
-> ⚠️ STUB — Actualizar con la próxima sesión MB.
-
-### Última actividad documentada
-- **Marzo 2026**: análisis de impacto tráfico externo (push 27-29/03 detectado)
-- **Pre-2026-04-15**: Fase 2 bloqueada esperando Brand Store Women actualizado + video SBV
-
-### KPIs
-<<<rellenar próxima sesión MB>>>
-
----
-
-## ⏰ Pendientes activos
-
-### Bloqueos
-1. Brand Store Women actualizado (cliente)
-2. Video SBV (cliente)
-3. Verificar si White Tee ($30/d) + Premium Cotton ($10/d) se lanzaron en ventana 26-30 abril
-
-### Diferidos
-<<<rellenar próxima sesión MB>>>
-
----
-
-## 📅 Próxima evaluación
-
-<<<rellenar próxima sesión MB>>>
-
----
-
-## 🧠 Conocimiento operativo permanente
-
-### Contactos cliente / equipo
-
-<<<rellenar próxima sesión MB>>>
-
-### Reglas Capybaras específicas para MB
-
-- Mercado: USA
-- Apparel category — gestionar variations (sizes, colors)
-- Atención a tráfico externo (cliente puede pushear sin aviso, ver análisis Marzo 2026)
-
-### Decisiones de bid strategy históricas
-
-<<<rellenar próxima sesión MB>>>
-
-### Listings con flag
-
-<<<rellenar próxima sesión MB>>>
-
----
-
-## 📜 Historial de actualizaciones
-
-- **2026-05-04**: STUBs poblados con datos reales del análisis WoW (PW 19-25 abr / TW 26 abr-2 may). Heroes confirmados (CR M White B0F6LCGH2L + VN M Crimson B0F6LDGCDS). Atom11 corregido a activa. Naming mixto documentado. Status Fase 2 actualizado a bloqueada hace 7 días. Bid strategy datos para análisis incluidos.
-- **2026-04-28**: stub creado con contexto disponible (Fase 2 bloqueada + análisis tráfico externo Marzo). Secciones marcadas con `<<<rellenar>>>` esperan la próxima sesión MB.
-
----
-
-## 🔗 Referencias cruzadas
-
-- `[[MB]]` — brand note principal (si existe)
-- `[[MB_Impacto_Trafico_Externo_Marzo2026]]` — análisis tráfico externo
-- `[[amazon-bulk-upload-guide]]` — gotchas bulk format
-- `[[STATE-agencia]]` — estado global agencia

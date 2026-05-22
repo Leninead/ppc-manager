@@ -375,7 +375,7 @@ Aplicar multiplicadores sobre el target de cada objetivo:
 | Dermaglos USA | DG | v2026.2 | 70% | 62 activas + 14 pausadas viejas | `Atom11_Rules_DG.md` | 07/04/2026 (2 semanas) |
 | M&B MX | MB | — | — | 0 | pendiente | — |
 | Love To Dream MX | LTD | — | — | 0 | pendiente | — |
-| Setex Technologies MX | STX | — | — | 0 | pendiente | — |
+| Setex Technologies MX | STX | v2026.3 | 25% (TACoS 18%) | 52 diseñadas / esperando Neha | Setex_Atom11_Rules_v2026_3_22May.xlsx | 29/05/2026 (Fase 1 launch) |
 
 ---
 

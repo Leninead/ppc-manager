@@ -150,6 +150,98 @@ Detalle completo en `notes/daily/2026-05-13.md` y `notes/brands/agency-os.md`
 
 ---
 
+### Última sesión — 2026-05-22 (M27 v1.1 — B5-b/c + hardening + plan B6)
+
+**Sesión cierre arrastrado 21/05 + sesión completa 22/05 (~4h).**
+
+**M27 Flat File Migrator v1.1 cross-schema — row pipeline cerrado + decisión B6 tomada:**
+
+- 3 commits sobre `modules/pages/flat_file_migrator.py` (+333 LOC):
+  - `f274122` — B5-b `_extract_old_rows` row extractor + Required validator (+143 LOC, 21/05)
+  - `3248695` — B5-c `_migrate_row` row migrator core + 5 diagnostic codes (+148 LOC, 21/05)
+  - `e10b961` — hardening post-audit: P1-1 empty_field_map + P1-2 field_id_row_out_of_range + P2-3 end_of_data_reached (+42 LOC, 22/05)
+
+**Audit code-reviewer (Opus 4.7)** sobre B5-b + B5-c (21/05, post-commit): **APPROVE 8/8, 0 bugs activos**. 11 trayectorias críticas trazadas limpio. 9 findings advisory (2 P1 + 4 P2 + 3 P3). Las 3 mitigaciones de mayor señal aplicadas en `e10b961`.
+
+**Pipeline row-level cross-schema OLD→NEW operativo end-to-end**, validado via `scripts/smoke_b6a_e2e_pipeline.py` (smoke E2E PASS 12/12 sanity checks, 1.27s, 7 rows → 152 new_fields, 0 crashes). Performance: openpyxl load 925ms + pipeline <350ms.
+
+**5 diagnostic codes implementados en B5-c**: `unmapped_field`, `deprecated_enum_no_target`, `deprecated_value`, `unknown_enum_value` (pasthrough con flag), `missing_required_in_new` (warning, no error). Más 3 codes en B5-b: `missing_required_in_old`, `no_field_ids`, `end_of_data_reached` (level=info), `field_id_row_out_of_range`.
+
+**Discovery UI v1 completo** (B6-a paso 2, read-only): mapa estructural de 2198 LOC, 33 funciones, anatomía exhaustiva de `_render_marketplace` (234 LOC, 8 widgets, 6 branches), pipeline v1 same-schema mapeado (11 funciones), cross-pollination v1 vs v1.1 (12 helpers v1.1 huérfanos hoy, todos se conectan en B6).
+
+**Decisión arquitectónica B6 cerrada**: **opción (b) toggle radio v1/v1.1 al inicio de `_render_marketplace` con auto-detección del modo recomendado por `_detect_schema()`**. Justificación: preserva v1 estable (5 estrategias + 61 aliases validados con clientes reales) + expone v1.1 como opt-in con auto-detect guiando al AM + bajo costo implementación (~50-80 LOC) + path evolución linear sin big-bang. Opción (a) descartada (10 tabs anidadas arruinan UX). Opción (c) descartada (riesgo regresión MUY alto).
+
+**Plan B6-b producido**: `notes/modules/M27-b6-plan.md` (240 LOC, gitignored por bug `.gitignore` documentado desde 2026-04-22). Documento estructura B6-b en 5 sub-bloques (B6-b-1 orquestador `_run_migration_v11` / B6-b-2 auto-detect + radio / B6-b-3 renderer diagnostics / B6-b-4 expander cómo funciona / B6-b-5 audit + mitigaciones). Estimación: 2.5-3.5h cabe en una sesión.
+
+**Estado al cierre:**
+- ✅ 7/8 sub-bloques M27 v1.1 cerrados (87%)
+- ⏸️ Único bloque pendiente: **B6 UI integration** con plan ejecutivo en disco
+
+**Deuda activa M27 (post-audit, NO aplicado, blanda):**
+- P2-1: validación Required NEW O(N×M)
+- P2-2: `str()` ingenuo sobre datetime/Decimal
+- P2-4: shadow-match `old_label == ""`
+- P3-1: rename `_extract_old_rows` (colisión nominal con `_extract_template_rows`)
+- P3-2: rename codes `deprecated_value` / `deprecated_enum_no_target`
+- P3-3: detectar `field_overwrite_in_new`
+- Heredada audit 19/05 (B5-a): B5-a-bis (P3 #7), B5-a-bis-bis (P1 #1), B5-a-bis-tris (P1 #2)
+- Discovery B6-a: `_extract_template_rows` (L712) helper huérfano; doble apertura workbooks auto-detect (~100ms)
+
+**Validaciones data-dependientes pendientes:**
+3 codes ausentes en smoke (deprecated_value, deprecated_enum_no_target, unknown_enum_value) requieren OLD file con ISBN/GCID o Relationship Type. Capturar en B6 cuando se haga smoke E2E completo con archivo de cliente real.
+
+**Próxima sesión M27:** B6-b según plan en `notes/modules/M27-b6-plan.md`. Secuencia: B6-b-1 orquestador → B6-b-2 radio + auto-detect → B6-b-3 renderer diagnostics → B6-b-4 expander (opcional) → B6-b-5 audit + mitigaciones. Total estimado: 2.5-3.5h.
+
+Ver: [[2026-05-22]] [[2026-05-21]] [[M27-flat-file-migrator]] [[M27-b6-plan]] [[code-reviewer]]
+
+---
+
+### Última sesión — 2026-05-22 (M29 — B7 Importer v1 completo)
+
+**Sesión partida 21+22/05** — código del 21/05 sin commit por salida imprevista;
+consolidación completa el 22/05.
+
+**Commits del día (4):**
+- `8e13409` feat(M29): B7 Importer v1 - extractor puro HTML → BlockDraft
+- `c714123` feat(M29): B7 Importer v1 - merge_blocks layer (capa 2)
+- `fc6fc88` fix(M29): duplicate_module_id ERROR → WARNING (fix D6)
+- `02303bd` test(M29): cobertura pytest formal (4 gaps P2)
+
+**Archivos:** modules/sales/__init__.py + modules/sales/b7_importer.py
+(691 LOC) + tests/fixtures/b7_sample_*.html (2) + tests/test_b7_importer.py
+(291 LOC).
+
+**Estado al cierre:**
+- ✅ B7 Importer v1 extractor + merge + fix D6 + 10 tests pytest verde
+- ✅ API pública: extract_blocks + merge_blocks + dataclasses exports
+- ⏸️ UI dispatcher pendiente lunes 25/05 (depende D2 informal)
+- ⏸️ Capa save pendiente (no es scope B7)
+
+**Reunión Ramiro 22/05 15:00:**
+- Acuerdos de dirección (no lock contractual):
+  - V3 → lógica DataDive como source (refactor parser Research)
+  - V5 → buscar forma de traer imágenes automatizadas (opciones abiertas)
+  - Contrato B7 v1.0 sigue draft
+- Próxima sync: viernes 30/05 con M29 shippeado el día anterior
+
+**Plan al jueves 28/05:**
+- Lunes: UI dispatcher B7 (V3+V4)
+- Martes: refactor DataDive parsers + mapper V3
+- Miércoles: editor manual V5 + testing
+- Jueves: E2E + ship M29
+
+**Deuda activa M29:**
+- P2 UI dispatcher (depende D2)
+- P3 Refactor genérico Class B (4 refs V3-V6)
+- P3 Cleanup 44 versiones proposal 6861bbce-...
+- P3 Schema items_schema {} vs null (D6 catalog)
+- P3 Short-circuit en _extract_block_data (~3 LOC)
+- Imágenes V5 automáticas (post-jueves)
+
+Ver: [[2026-05-22]] [[2026-05-22-ramiro-b7-sync]]
+
+---
+
 ### Última sesión — 2026-05-20 (M29 6 CORE editores cerrados + M27 v1.1 B5-b cerrado + LTD bulks + SPP submit)
 
 **M29 Proposal Studio — sesión 2026-05-20:**
@@ -627,7 +719,25 @@ Todos commiteados a `main`, pendientes de push.
 - **M&B SQP abril 2026 procesado (2026-05-11)**: Purchase Brand Share branded 77.3% → 23% de compras branded se fugan a competencia con brand defense activa (~$2,800/mes). Imp Brand Share 40.6%. **Gap masivo identificado: jeans branded** (14,070 vol/mes con 11.8% imp share, 27.3% purchase share) — no hay catálogo. Caso de negocio para apertura jeans Amazon respaldado por data dura. La incrementalidad branded NO es baja — la palanca real es catálogo, no reducir spend.
 - **M&B Research off-Amazon (2026-05-11)**: los problemas de calidad están confirmados en TODOS los canales (Trustpilot 13K+ reviews, BBB 94 complaints). NO es problema Amazon — es estructural. Driggs thin documentado off-Amazon, manufacturing split (Honduras/Peru/Vietnam) probable root cause. Carlton heavyweight 235g recibe mejor feedback que Driggs → evaluar como hero Amazon. Jeans con mejor reputación off-Amazon que t-shirts → refuerza apertura catálogo.
 - **M&B WoW TW (26 abr-2 may, revisado 11/05)**: Sales totales +9.6% ($32,886 → $36,030) pero Ad Sales -6.8% ($14,902 → $13,886). ACoS 10.6% / TACoS 4.1% / ROAS 9.45x / CVR 10.79% / BuyBox 99.6%. WTC 28.1%→9% y WTV 15%→8.6% post-cleanup 27/04. SCAVENGER bajó a 32.5% pero sigue lejos del 3.4% histórico (audit pendiente). Estrella oculta WTV B005ULUZIQ SP-PR EXACT DEFEND BRAND ASINS ROAS 28x (escalar budget si capeado). Bleeders 3-Pack VN B0FY3X2KCT + B0FXBTNRT9 (pausar). PPC bajó pero ventas subieron → confirma Meta como motor real.
-- **Setex pendientes post-12/05** (actualizado, supersedes 29/04): ✅ Sesión 12/05 cierre completo — 9 bulks, 275 cambios, 100% Success · cambio estratégico Thin push activo · pausa preventiva 19 ads B086H3TZ6B · bug fix bid `antideslizante para lentes` ($21.80 → $7.50) · 154 negativos cross-campaign anti-canibalización · 5 EXACT nuevas Thin SKU XG9G515 (+$145/d). Brand Hub Heroes ya subido $3→$5 en Bulk #1 (cierra pendiente del 29/04). ⏳ Pendientes activos: (1) **4 urgencias Tati Slack 12/05**: restock B086H3TZ6B (1u, child badge), restock B0F63LTD92 (1u, Ear Hook), ETA Temple Tips OOS, audit listing EN B081GB8F89 · (2) Verificación visual post-bulks en Amazon Ads (que se aplicaron los 275 cambios) · (3) Asignación manual portfolios a 4 RANKING revividas + 5 nuevas Thin · (4) **Atom11 rules file para Neha** — Setex ya añadido a Atom pero sin rules (sesión dedicada próxima) · (5) **SBV B08PZF22R1 — owner Adam** (heredado 15/04, push Thin family cobra urgencia) · (6) Si llega restock B086H3TZ6B → reactivar 19 Product Ads pausados (Bulk #2 UUID `afde8719`) · (7) Coordinar con Nicki: 5 SKUs duplicados Closed (heredado 29/04) · (8) Listing opt B081GB8F89 lock-in del badge (lleva pendiente desde 29/04). Diferidos hasta restock: 5 campañas nuevas Temple/Ear Hook + 12 KWs harvest documentados en [[PENDIENTES_RESTOCK]]. Próximas evals: 15/05 (día 3 impressions 5 EXACT Thin) · 19/05 (día 7 performance) · 26/05 (día 14 review completo). Ver detalle completo en [[2026-05-12]] (sección "Sesión Setex 12/05/2026") y [[setex]].
+- **2026-05-22**: Lenin ad hoc setup Amazon Attribution Meta Facebook para
+  M&B (ayudando Agustín). 6 tags V0 generados y entregados. Instagram +
+  Email + BRB enrollment + V1 granular pendientes según respuesta cliente.
+  Owner sigue siendo Cuki. SOP nuevo creado en [[amazon-attribution-setup]].
+- **Setex Technologies (Amazon MX)** — Status: 🟢 OK — full sesión 21-22/05
+  - Última sesión: 22/05 (cierre ejecución 2 días 21+22/05)
+  - 5 bulks ejecutados 22/05 (157 cambios / 33 camps / +$223/d budget winners)
+  - Atom11 Rules v2026.3 enviado a Neha (52 rules / 5 sheets / esperando confirmación)
+  - ACoS cuenta pre-bulks: 19.4% · TACoS 14% (target 18%)
+  - Net efecto esperado: -$400/mo spend / +$25k/mo sales
+  - Pendientes Tati: listing audit B081GB8F89 (ES+EN) + ETAs restocks
+    (B0F63LTD92 / Temple Tips)
+  - Flags Seller Central nuevas: B09F7YB74Y (3u+10u inbound) / B0DW9Z2H2W
+    (Missing offer) / B0CC6THCDS (precio Kids 15p vs 5p)
+  - Próxima sesión: jueves 29/05 — eval día 7 + Fase 1 Atom11
+  - Histórico 12/05 (9 bulks, 275 cambios) y pendientes restock heredados:
+    ver [[2026-05-12]] y [[PENDIENTES_RESTOCK]]
+
+Ver: [[2026-05-22]] [[setex]] [[atom11-rules]]
 - **360 Essentials SBV**: espera video creativo FreedomPlus para lanzar 3 campañas SBV ($45/d).
 - **Git**: 2 commits locales sin push (`fbae212`, `3f04fb1`) + los que se agreguen hoy. Push manual al cerrar sesión.
 - **Repo deuda técnica**: `INTELLIGENCE-INDEX.md` stale (dice 1 nota, M&B listado como MX en vez de US, sin 360 Essentials ni PVM).
@@ -931,3 +1041,14 @@ Detalle M29 bug: [[2026-05-15-m29-bug-save-buttons]]
 15. **Outputs LTD sesión 25/04**: Bulk `LTD_Fase4_Bulk_M4_Push_Heroes_25Abr2026.xlsx` subido a Amazon (Batch UUID 10d5a6ef). HTML internal brief `LTD_Sesion_25Abr2026_InternalBrief.html` generado para distribución interna Adam+Agustín. Ambos en /mnt/user-data/outputs (compartidos con Lenin desde Claude chat).
 16. **Biblioteca de prompts v5 (2026-04-27)** — refrescar 7 archivos en proyecto Claude vía "Add content from GitHub". Después validar `cierre-meta` en sesión real durante esta misma conversación. Crear archivos de `codigo/` cuando aparezca el primer módulo nuevo. Actualizar [[CLAUDE]] del vault + [[Biblioteca]] con la nueva carpeta.
 17. **Setex** (post 12/05) — (1) Esperar respuesta Tati Slack 12/05 con las 4 urgencias: restock B086H3TZ6B + B0F63LTD92, ETA Temple Tips, audit listing EN B081GB8F89. (2) Verificación visual post-bulks en Campaign Manager (275 cambios). (3) Asignación manual portfolios a 4 RANKING revividas + 5 nuevas Thin (9 campañas total). (4) **Atom11 rules file para Neha — sesión dedicada próxima** (Setex ya añadido a Atom pero sin rules). (5) **SBV B08PZF22R1 — owner Adam** (heredado 15/04, push Thin family cobra urgencia). (6) Evaluaciones programadas: 15/05 día 3 (impressions 5 EXACT Thin, si KWs PS 100% <300 imp → bid $3→$4) · 19/05 día 7 (performance EXACT iniciales + decisión escalar/pausar) · 26/05 día 14 (review completo + plan v2). (7) Si llega restock B086H3TZ6B → reactivar 19 Product Ads pausados (Bulk #2 UUID `afde8719-00dd-476f-9c48-364bd625bf64`). (8) Si llega restock Temple/Ear Hook → ejecutar [[PENDIENTES_RESTOCK]] playbook (5 campañas + 12 KWs + bid +25-30%). (9) Listing opt B081GB8F89 lock-in del badge (sigue heredado de 29/04). (10) Coordinar con Nicki: 5 SKUs duplicados Closed (heredado 29/04).
+
+
+---
+
+## Conocimiento operativo agencia
+
+- **2026-05-22**: Amazon Attribution setup documentado en
+  [[amazon-attribution-setup]]. Primera implementación M&B exitosa.
+  Replicable para cualquier cliente con Brand Registry + canales externos
+  activos. Aplica a LTD, Dermaglos, M&B. Gotcha crítico documentado:
+  bulk Beta no completa jerarquía Ads/Tags, default = Create manually.

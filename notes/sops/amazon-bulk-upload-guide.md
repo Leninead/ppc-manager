@@ -193,3 +193,66 @@ El buscador integrado de Product Targeting en Campaign Manager (Targeting → Ad
 1. Crear campaña + ad group + product ads via bulk (sin Product Targeting)
 2. Asignar Product Targets via UI usando el buscador nativo
 3. Validar Impressions > 0 a las 24-48h
+
+## Learnings 2026-05-22 (Setex 5 bulks)
+
+### 12. Bug módulo M4 `STR_analizado.xlsx` — solo procesa KW campaigns
+
+Mismo patrón Dermaglos 08/05. El script `modules/pages/str.py` (o equivalente)
+solo procesa search terms con Match Type EXACT/PHRASE/BROAD. Deja fuera AUTO
+(43% spend típico) y PT (27% spend típico) = 70% del business sin analizar.
+
+Bugs adicionales en bulks pre-armados del módulo:
+- Duplicados masivos en negativos (mismo término 2-4 veces)
+- Mismas KWs en negatives Y harvest simultáneamente
+- Brand propio (`setex gecko grip`) clasificado como negativo
+- ASIN propio en harvest con bids altos
+
+**Fix coordinado con Ramiro pendiente** — patch debe procesar TODOS los rows
+del STR raw, no solo Match Type ∈ {EXACT, PHRASE, BROAD}.
+
+### 13. Cross-client ASIN safety check antes de mensajes operativos
+
+Por correr 3+ cuentas en una misma semana (LTD/Dermaglos/Setex/M&B), riesgo
+real de pegar ASIN de un cliente en mensaje de otro. Ejemplo 22/05: B0CYLMJJJC
+(Dermaglos $9.99) apareció en draft mensaje Setex.
+
+**Patch SOP cierre**: antes de postear cualquier mensaje a equipo cliente,
+validar que los 5 últimos ASINs mencionados pertenecen al cliente del thread.
+
+### 14. Cruce Seller Central obligatorio pre-mensajes Tati
+
+Vault desincronizado con realidad Seller Central genera ruido:
+- B086H3TZ6B "urgente" del 29/04 ya tenía inbound activo desde 19/05
+- B08SNXF8HP "BuyBox 91%" ya estaba en 100% Featured offer sin Match
+- Restocks "iniciar" eran "confirmar ETA" (inbound ya activo)
+
+**Patch SOP cierre**: refresh Seller Central como primer paso pre-mensaje
+operativo Tati. Validar status REAL de cada flag/restock vs lo que dice el vault.
+
+### 15. Diferencia CREATE vs UPDATE rollback (refresh del 12/05)
+
+CREATE procesa row-by-row → 126 negativos del 22/05 todos aplicados sin rollback.
+UPDATE hace rollback total → un solo error en Bulk 2 o 3 hubiera tirado todos los
+cambios. Por eso: subir CREATE bulks últimos (más tolerantes), UPDATE bulks
+primero (necesitan archivo limpio).
+
+Orden ejecutado 22/05 (recomendado):
+1. UPDATE state (pausas+archive)
+2. UPDATE bid down (frenar sangrado)
+3. UPDATE bid up (reactivar)
+4. UPDATE budget (escalar)
+5. CREATE negativos (al final, más tolerante)
+
+### 16. Validación cruzada pre-bulk (7 checks descartó harvest EXACT)
+
+Antes de generar bulk de CREATE harvest, ejecutar 7 checks:
+1. ¿Existe ya como EXACT activa?
+2. ¿Convierte hoy en AUTO/PT con ACoS bajo? (canibalización)
+3. ¿Variante plural/singular cercana en EXACT? (Amazon close match)
+4. ¿Existe como PHRASE/BROAD activo que la cubre?
+5. ¿Tráfico real en STR 30d?
+6. ¿SQV suficiente en SQP semanal?
+7. ¿AUTO winner ya la captura barato? (no canibalizar)
+
+Si AUTO captura a ACoS <10%, **NO crear EXACT** — solo escalar AUTO budget.

@@ -713,3 +713,83 @@ Vía Agustín. Pack de 3 bloques entregado. Premisa de Santi (baja incrementalid
 ### Atom11 status
 
 Activa (corregido 04/05 — siempre la tuvo). Coverage exacto / rules / tier asignado pendiente de pedir a Neha en primer touchpoint Cuki.
+
+### 22/05/2026 — Amazon Attribution setup tráfico externo (ad hoc Lenin asistiendo Agustín)
+
+**Contexto:** Sesión ad hoc fuera del flujo M&B oficial (lleva Cuki desde 11/05).
+Agustín pingueó a Lenin directo para setear Attribution tags. Solución directa
+al problema documentado en [[MB_Impacto_Trafico_Externo_Marzo2026]] (push
+tráfico externo 27-29/03 sin atribución = $13K incremental + BRB perdidos).
+
+**Familias confirmadas por Agustín (Slack 22/05):**
+
+Familia A — CR Women Black singles ($40):
+- B0F6LDG3NK (M Black) — hero candidate ya flageado en vault como sleeper
+- B0FQPPLFRT (L Black)
+- B0F6LF4SH4 (S Black)
+
+Familia B — 3-Pack Driggs Men BGN ($92):
+- B0GHZY9TSB (XL Black/Gray/Navy)
+- B0GHZTD49W (M Black/Gray/Navy)
+- B0GHZBP1TN (XXL Black/Gray/Navy)
+
+**⚠️ Heads up Familia B:** historial 1★ que sacó el 3-Pack del Big Spring Sale
+en marzo. Agustín aprobó con conocimiento del riesgo (chat Slack 22/05).
+Mandar tráfico cold Meta a $92 con ese historial = riesgo medio. Monitorear
+ATC vs Purchase rate del canal Meta para detectar pricing/trust issue temprano.
+
+**Canales V0 entregados:**
+- ✅ Meta Facebook — 6 tags creados y entregados (uno por ASIN)
+
+**Pendientes según respuesta cliente:**
+- ⏳ Instagram — 6 tags más si cliente también corre IG
+- ⏳ Email — 6 tags más si cliente quiere trackear newsletter
+- ⏳ Brand Referral Bonus enrollment status
+
+**Campaign final operativa:** `MB-US-META-2026Q2-v2`
+External ID: `MBMETA2026Q2v2`
+Publisher: Facebook | Channel: Social
+
+**Campaign zombie (ignorar):** `MB-US-META-2026Q2` (sin -v2)
+ID 579799613303383079 — quedó vacía por bulk Beta fail. Attribution NO permite
+eliminar campaigns, queda en la lista sin uso.
+
+**Tags entregados a Agustín por Slack (URLs trackeables):**
+
+A-CR-Black-M (B0F6LDG3NK):
+https://www.amazon.com/dp/B0F6LDG3NK?maas=maas_adg_B90034E6010FAA0880E139965CD7E5A6_afap_abs&ref_=aa_maas&tag=maas
+
+A-CR-Black-L (B0FQPPLFRT):
+https://www.amazon.com/dp/B0FQPPLFRT?maas=maas_adg_A44327A904BC4E8D1F5D5E7F7EA75A52_afap_abs&ref_=aa_maas&tag=maas
+
+A-CR-Black-S (B0F6LF4SH4):
+https://www.amazon.com/dp/B0F6LF4SH4?maas=maas_adg_93A2D18EA884F77B3CFEA8E3A09FA58A_afap_abs&ref_=aa_maas&tag=maas
+
+B-3PK-BGN-XL (B0GHZY9TSB):
+https://www.amazon.com/dp/B0GHZY9TSB?maas=maas_adg_29D48DBC17AAF9C695315B79590E8706_afap_abs&ref_=aa_maas&tag=maas
+
+B-3PK-BGN-M (B0GHZTD49W):
+https://www.amazon.com/dp/B0GHZTD49W?maas=maas_adg_4415A39D5A42921C6B4631DE9C726866_afap_abs&ref_=aa_maas&tag=maas
+
+B-3PK-BGN-XXL (B0GHZBP1TN):
+https://www.amazon.com/dp/B0GHZBP1TN?maas=maas_adg_1E6C4B8D94991746F7245C8535061E93_afap_abs&ref_=aa_maas&tag=maas
+
+**Validación post-deploy pendiente:**
+- 24-48hs después de que cliente reemplace links en Meta, validar que entren
+  clicks en los 6 ad groups
+- Si todo en 0 después de 48hs → cliente no deployó los links
+
+**Aprendizajes operativos registrados en SOP:** [[amazon-attribution-setup]]
+- Primer intento via bulk Beta falló parcialmente (status "PRODUCTS_ADDED"
+  engañoso, jerarquía incompleta)
+- Pivot exitoso a Create manually
+- Gotcha crítico: bulk Attribution Beta no completa jerarquía Ads/Tags
+- Tiempo total sesión: ~2hs (incluido troubleshooting + recovery)
+
+**Artefactos generados (gitignored, no en repo):**
+- `MB_Attribution_Bulk_Meta_FBIG.xlsx` (template bulk del primer intento, NO usar)
+- `Amazon_Attribution_Tags_May_22_2026__1_.csv` (CSV oficial de Amazon con los 6 tags)
+- SOP textual replicable en repo: [[amazon-attribution-setup]]
+
+Wikilinks: [[amazon-attribution-setup]] [[MB_Impacto_Trafico_Externo_Marzo2026]]
+[[TRASPASO_MottBow]] [[2026-05-22]]
