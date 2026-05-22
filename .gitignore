@@ -72,3 +72,20 @@ notes/sales/*
 # El _README.md SÍ se versiona como inventario de qué se porteó cuándo.
 .claude/porting-sources/*.html
 !.claude/porting-sources/_README.md
+# ── Cierre 2026-05-22 — deliverables operativos ───
+# Estos artefactos viajan por Slack/Drive con el cliente; no son código.
+# M27 smoke outputs
+scripts/_smoke_output_migrated.xlsx
+# Setex deliverables
+Setex_*.xlsx
+Bulk_Setex*.xlsx
+# M&B deliverables (sesión ad hoc Attribution)
+MB_Attribution_*.xlsx
+MB_Attribution_*.csv
+Amazon_Attribution_Tags_*.csv
+# Whitelist notes/meetings/ (carpeta nueva del 22/05 para sync notes)
+!notes/meetings/
+!notes/meetings/**
+# Whitelist notes/modules/ (carpeta de planes de implementación por módulo)
+!notes/modules/
+!notes/modules/**
