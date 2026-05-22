@@ -6,7 +6,7 @@ actualizado: 2026-05-19
 proxima_actualizacion: cierre próxima sesión OPTIPET
 parent_asin: B0H12ZXVPF
 flavorboost_parent_asin: B0H16N6SHP
-status_catalogo: Adult variation family 100% operativa (65u FBA, Buy Box). FlavorBoost: 3 children creados al 2026-05-19 — Hígado Inactive (compliance, peso corregido 297g), Pollo en review 48h (B0H2CFM37X), Pulmón con ASIN viejo heredado (B00ZCVB3Z8, requiere investigación)
+status_catalogo: "Adult variation family 100% operativa (179u FBA totales: V59/SC60/HG60, primera venta Vitality 1u, A+ Premium Vitality creado 21/05 pendiente approval) | FlavorBoost: Pollo B0H2CFM37X Active suppressed por imagen rota / Hígado B0H16T5H18 Inactive compliance / Pulmón B00ZCVB3Z8 CERRADO ASIN reciclado, esperando UPC fresh Mario"
 status_ppc: sin historial al 2026-05-14 — agregar cuando se inicien campañas
 status_compliance: Hígado bloqueado por política GRLKLZ6WQ9R259LC Pet Consumables MX — esperando docs cliente
 status_upcs_flavorboost: Pool ADAM REQUEST: 951536+934935 CONTAMINADOS en GS1 (8541 con Cat Treats Inactive). 663064+848478 funcionaron parcialmente: 848478→Pollo limpio, 663064→Pulmón heredó ASIN viejo. Pendiente investigación B00ZCVB3Z8.
@@ -195,6 +195,9 @@ Compliance issue activo:
 
 ## ⏭️ Próximas evaluaciones
 
+- **Próxima sesión**: verificar status approval A+ Premium Vitality (creado 21/05). Si approved → screenshot del A+ live + monitorear cambio en CVR / Page views Vitality. Si rejected → revisar feedback Amazon + ajustar
+- **Cuando llegue arte Skin and Coat**: armar A+ Premium SKU `OPTIPETSKINCOAT` con patrón Vitality
+- **Cuando llegue arte Healthy Gut**: armar A+ Premium SKU `OPTIPETHEALTHYGUT` con patrón Vitality
 - **+24h (2026-05-20)**: investigar B00ZCVB3Z8 en amazon.com.mx, decidir destrabe Pulmón
 - **+48h (2026-05-21)**: verificar Pollo B0H2CFM37X salió de review
 - **Cuando responda Mario al mensaje del 2026-05-14** → confirmar asignación UPC final, generar v5 flat file local, subir a Amazon
@@ -290,6 +293,7 @@ Compliance issue activo:
 
 > Una línea por sesión. Más reciente arriba.
 
+- **2026-05-21** (cierre completo incluyendo deltas finales): investigación B00ZCVB3Z8 + Close Pulmón + gotcha 19 + pool ADAM REQUEST agotado + mensaje Mario enviado. **Hallazgos adicionales al cierre**: A+ Premium Vitality creado (4 módulos, status approval TBD), inbound 72u consolidado (179u FBA totales Adult), primera venta Vitality 1u, FBM zombi OPTIPETSKINCOATFBA confirmado Active en producción (acción TBD). Reconstrucción retroactiva daily 19/05.
 - **2026-05-19**: Uploads v5 + v6 FlavorBoost. Pollo creado limpio (B0H2CFM37X review 48h), Pulmón con ASIN viejo heredado (B00ZCVB3Z8 requiere investigación), Hígado peso 297g aplicado. Descubiertas 4 gotchas nuevas (unit_count+unit_count_type petfood MX 2026, PartialUpdate variation child requiere flavor_name, UPCs pueden venir contaminados de GS1, campos vacíos no nulean). Template version 2026.0508 actualizada.
 - **2026-05-14**: respuesta Mario (4 UPCs nuevos en pool ADAM REQUEST master sheet rows 21-24, codebars físicos en Drive folder ADAM CODEBARS), peso bruto paquete CONFIRMADO 297g (resuelve pendiente vs 360g v4), mensaje a Mario enviado en formato pregunta abierta (no asumir estado cajas), decisión epistemológica "no asumir nada", hallazgo lateral UPC duplicado VITALPET. Esperando respuesta Mario sobre asignación UPC + estado packaging.
 - **2026-05-12**: diagnóstico compliance Hígado (policy GRLKLZ6WQ9R259LC), análisis Innasa Master Sheet (ingredientes reales confirmados, pricing oficial $349, línea OPTICAT identificada), comunicación con Adam (escribe directo a chat INASA, esperando framing). Adult variation 100% operativa con 65u FBA. FBM zombi reapareció. Cat Treats Inactive NO se eliminan por decisión del cliente.

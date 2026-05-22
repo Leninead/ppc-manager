@@ -73,6 +73,8 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
   - **v6 (UPCs sobrantes pool)**: 7 issues — Pollo creado limpio (B0H2CFM37X, review 48h), Pulmón creado con ASIN viejo heredado (B00ZCVB3Z8, UPC 663064 ya en catálogo)
   - **Hígado patch peso 297g aplicado** vía PartialUpdate quirúrgico (con flavor_name explícito tras gotcha 15)
   - **Snapshots**: `flat-files/OPTIPET_FlavorBoost_2026-05-19_v5.txt` + `flat-files/OPTIPET_FlavorBoost_2026-05-19_v6.txt`
+- **2026-05-21** — A+ Premium Vitality creado. Patrón: A+ por child (no parent). 4 módulos visibles: Hero "Combustible premium" / Lifestyle "Almas imparables" / Dr. Bacterias endorsement / Beneficios (Aminoácidos + Metabolismo + Para Perros Activos). Status approval TBD.
+- **2026-05-22 (confirmado en cierre 2026-05-21)** — Estado Adult variation family verificado: 179u FBA totales (59+60+60). Inbound 72u + pre-existentes consolidados. **Primera venta Adult: Vitality 1u en 30d window** = primer ingreso operativo OPTIPET Adult.
 
 ## Pendientes activos
 
@@ -105,6 +107,11 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 15. **OPTICAT roadmap Amazon**: confirmar si entra al pipeline (3 SKUs nuevos para gatos identificados en master sheet)
 16. **FBM zombi `OPTIPETSKINCOATFBA` reapareció Active el 2026-05-06** — apagar con Close listing real
 
+### A+ Content roadmap (decisión: por child, no parent)
+- A+ Premium Skin and Coat (`B0G6TW7G12`) — pendiente arte equivalente al de Vitality
+- A+ Premium Healthy Gut (`B0G6TPVT2G`) — pendiente arte equivalente al de Vitality
+- Verificar status approval A+ Vitality (próxima sesión)
+
 ## Notas operativas
 
 - **SKUs FBA-only por política del cliente.** Si aparecen FBMs nuevos compartiendo ASIN con un child, apagar antes de cualquier cambio en variations (lección aprendida 2026-05-08 con `OPTIPETSKINCOATFBA`).
@@ -129,6 +136,7 @@ Cliente personal de Lenin Acosta gestionado directamente fuera de la agencia. Ma
 - **PartialUpdate en variation child requiere `flavor_name` explícito** aunque el listing ya lo tenga seteado. Sin él, error 99003.
 - **Campos vacíos en `Update` NO nulean valores previos** — Amazon retiene del feed previo. Para limpiar URLs placeholder TBD, sobreescribir con URL real.
 - **Template fptcustom Pet Food MX version actualizada a `2026.0508`** (era `2026.0427` en knowledge anterior). 220 cols upload / 222 cols processing summary.
+- **A+ Content por child, no parent** (decisión 2026-05-21): debido a que el arte de cada sabor es específico (frasco + claim de beneficio individual), A+ se hace a nivel child. Implicación: requiere 3 A+ separados para cubrir Vitality / SkinCoat / HealthyGut. Workaround si arte por sabor no está disponible: A+ genérico a nivel parent. Patrón a replicar también en Flavor Boost cuando lleguen imágenes.
 
 ## Wikilinks
 
