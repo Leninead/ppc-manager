@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en" data-proposal-contract-version="1.0">
+<head><meta charset="utf-8"><title>B7 Sample Duplicate V3</title></head>
+<body>
+
+<section data-proposal-block="V3_seo_opportunity">
+  <h2>V3 - PRIMERA APARICIÓN (debe ganar)</h2>
+  <div data-proposal-array="missing_keywords">
+    <div data-proposal-item>
+      <span data-proposal-item-field="keyword">FIRST_kw_1</span>
+      <span data-proposal-item-field="sv">100</span>
+      <span data-proposal-item-field="current_rank">10</span>
+      <span data-proposal-item-field="opportunity_score">5.0</span>
+    </div>
+  </div>
+  <div data-proposal-array="launch_score_table"></div>
+  <div data-proposal-array="page1_domination_chart_data"></div>
+</section>
+
+<section data-proposal-block="V4_listing_improvements_current_state">
+  <h2>V4 - única aparición</h2>
+  <a data-proposal-field="current_state_url" href="https://www.amazon.com/dp/B0FIRST">
+    First V4 link
+  </a>
+  <div data-proposal-array="items">
+    <div data-proposal-item>
+      <span data-proposal-item-field="name">First item</span>
+      <span data-proposal-item-field="status">present</span>
+      <span data-proposal-item-field="notes">V4 único</span>
+    </div>
+  </div>
+</section>
+
+<section data-proposal-block="V3_seo_opportunity">
+  <h2>V3 - SEGUNDA APARICIÓN (debe ignorarse con warning)</h2>
+  <div data-proposal-array="missing_keywords">
+    <div data-proposal-item>
+      <span data-proposal-item-field="keyword">SECOND_kw_should_be_ignored</span>
+      <span data-proposal-item-field="sv">999</span>
+      <span data-proposal-item-field="current_rank">99</span>
+      <span data-proposal-item-field="opportunity_score">9.9</span>
+    </div>
+  </div>
+  <div data-proposal-array="launch_score_table"></div>
+  <div data-proposal-array="page1_domination_chart_data"></div>
+</section>
+
+</body>
+</html>

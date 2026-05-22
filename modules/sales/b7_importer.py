@@ -27,6 +27,8 @@ from bs4 import BeautifulSoup
 class ImportWarning:
     code: str  # 'array_empty' | 'field_unknown' | 'enum_unknown'
                # | 'required_missing' | 'coercion_failed'
+               # | 'duplicate_module_id_in_html'  (extract)
+               # | 'block_not_in_target' | 'duplicate_module_id'  (merge)
     block_index: int
     module_id: str | None
     field_path: str
@@ -36,7 +38,8 @@ class ImportWarning:
 @dataclass
 class ImportError:
     code: str  # 'no_blocks' | 'module_id_unknown'
-               # | 'contract_version_major_mismatch' | 'duplicate_module_id'
+               # | 'contract_version_major_mismatch'  (extract)
+               # | 'report_not_ok' | 'target_proposal_malformed'  (merge)
     block_index: int | None
     module_id: str | None
     message: str
@@ -538,15 +541,20 @@ def extract_blocks(html_source: str | bytes, catalog: dict) -> ImportReport:
             continue
 
         # Detección de module_id duplicado en el mismo HTML.
+        # No bloqueante (warning, no error): el primer bloque gana, los
+        # subsiguientes se ignoran. Coherente con el manejo de duplicate_module_id
+        # en merge_blocks (también es warning).
         if draft.module_id in seen_module_ids:
-            report.errors.append(ImportError(
-                code="duplicate_module_id",
+            first_index = seen_module_ids[draft.module_id]
+            report.warnings.append(ImportWarning(
+                code="duplicate_module_id_in_html",
                 block_index=block_index,
                 module_id=draft.module_id,
+                field_path=f"blocks[{block_index}]",
                 message=(
-                    f"module_id {draft.module_id!r} ya apareció antes en el "
-                    f"mismo HTML (block_index={seen_module_ids[draft.module_id]}). "
-                    f"Solo se procesa la primera ocurrencia."
+                    f"module_id {draft.module_id!r} aparece múltiples veces en "
+                    f"el HTML; se procesa el primer bloque (index {first_index}) "
+                    f"y se ignoran los duplicados subsiguientes."
                 ),
             ))
             continue
