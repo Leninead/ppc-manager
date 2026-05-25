@@ -2294,17 +2294,46 @@ def _render_marketplace(suffix: str, sheet_names: list[str]):
         st.warning("Subí ambos archivos antes de migrar.")
         return
 
-    # Ejecutar migración
+    # Ejecutar migración — branch por modo (B6-b-3).
     try:
-        result = _run_migration(
-            old_parsed=old_parsed,
-            new_parsed=new_parsed,
-            user_old_header_row_1=int(old_header_row),
-            user_new_header_row_1=int(new_header_row),
-            skip_example=skip_example,
-        )
+        if mode.startswith("Same-schema"):
+            result = _run_migration(
+                old_parsed=old_parsed,
+                new_parsed=new_parsed,
+                user_old_header_row_1=int(old_header_row),
+                user_new_header_row_1=int(new_header_row),
+                skip_example=skip_example,
+            )
+            is_v11 = False
+        else:
+            result = _run_migration_v11(
+                old_parsed=old_parsed,
+                new_parsed=new_parsed,
+                user_old_header_row_1=int(old_header_row),
+                user_new_header_row_1=int(new_header_row),
+                skip_example=skip_example,
+            )
+            is_v11 = True
     except Exception as e:
         st.error(f"Error en migración: {e}")
+        return
+
+    # Edge cases v1.1: early-exit no_field_ids / output vacío.
+    if is_v11 and not result["has_old_fids"]:
+        _msg = "OLD sin field_ids."
+        for _d in result.get("diagnostics_b5b", []):
+            if _d.get("code") in (
+                "no_field_ids", "template_headers_not_found",
+                "field_id_row_out_of_range",
+            ):
+                _msg = _d.get("message", _msg)
+                break
+        st.error(
+            f"❌ {_msg} Cambiá a modo **Same-schema (v1)** para este par."
+        )
+        return
+    if is_v11 and not result["output_rows"]:
+        st.warning("Migración sin filas de output. Revisá el OLD.")
         return
 
     # Resultados
@@ -2335,6 +2364,9 @@ def _render_marketplace(suffix: str, sheet_names: list[str]):
     if skipped > 0:
         extras.append(("Filas Amazon filtradas", skipped))
     extras.append(("Match por método", methods_str))
+    if is_v11:
+        extras.append(("Cobertura (cross-schema)", f"{result['coverage_pct']:.1f}%"))
+        extras.append(("Enum translators", result["enum_translators_active"]))
 
     if extras:
         cols_extra = st.columns(len(extras))
@@ -2388,6 +2420,61 @@ def _render_marketplace(suffix: str, sheet_names: list[str]):
                 )
             else:
                 st.caption("—")
+
+    # Diagnostics cross-schema v1.1 (B6-b-3) — solo en modo Cross-schema.
+    if is_v11:
+        st.markdown("### 🔬 Diagnostics cross-schema (v1.1)")
+        diag_by_code = result["diagnostics_by_code"]
+        if not diag_by_code:
+            st.success("Sin diagnostics — migración limpia.")
+        else:
+            import pandas as pd
+
+            df_codes = pd.DataFrame(
+                sorted(diag_by_code.items(), key=lambda kv: -kv[1]),
+                columns=["Code", "Count"],
+            )
+            with st.expander(
+                f"Tabla de diagnostics ({sum(diag_by_code.values())} total)",
+                expanded=False,
+            ):
+                st.dataframe(df_codes, hide_index=True, use_container_width=True)
+
+            def _preview_fields(code: str):
+                """(n_ocurrencias, lista_fields_únicos) para un code de B5-c."""
+                occ = [
+                    d for d in result["diagnostics_b5c"]
+                    if d.get("code") == code
+                ]
+                uniq: list[str] = []
+                seen: set[str] = set()
+                for d in occ:
+                    f = d.get("field", "")
+                    if f and f not in seen:
+                        seen.add(f)
+                        uniq.append(f)
+                return len(occ), uniq
+
+            n_unmapped, unmapped_uniq = _preview_fields("unmapped_field")
+            if n_unmapped:
+                _prev = unmapped_uniq[:10]
+                st.warning(
+                    f"⚠️ {n_unmapped} ocurrencias de `unmapped_field` "
+                    f"({len(unmapped_uniq)} fields únicos) — data del OLD que "
+                    f"no tiene destino en el NEW. Primeros {len(_prev)}: "
+                    + ", ".join(f"`{f}`" for f in _prev)
+                )
+
+            n_missing, missing_uniq = _preview_fields("missing_required_in_new")
+            if n_missing:
+                _prev = missing_uniq[:10]
+                st.warning(
+                    f"⚠️ {n_missing} ocurrencias de `missing_required_in_new` "
+                    f"({len(missing_uniq)} fields únicos) — Required del NEW sin "
+                    f"valor migrado. Primeros {len(_prev)}: "
+                    + ", ".join(f"`{f}`" for f in _prev)
+                )
+            # end_of_data_reached es info, no warning — queda en la tabla.
 
     # Download
     st.markdown("")
