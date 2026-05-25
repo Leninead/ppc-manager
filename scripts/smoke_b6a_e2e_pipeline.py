@@ -33,6 +33,8 @@ from modules.pages.flat_file_migrator import (
     _locate_template_headers,
     _extract_old_rows,
     _migrate_row,
+    _run_migration_v11,
+    _build_migrated_xlsx,
 )
 
 # Configuración — paths del par discovery (ALRBB093 fptcustom OLD + COAT PTD NEW)
@@ -258,5 +260,92 @@ Migracion cross-schema completada
     return 0 if all_pass else 1
 
 
+def smoke_run_migration_v11() -> bool:
+    """Smoke B6-b-1: valida el orquestador _run_migration_v11 end-to-end.
+
+    Usa el mismo par Gamboa (ALRBB093 fptcustom → COAT__5_ ptd). Valida el
+    shape SUPERSET (18 keys), tipos, y que output_rows alimenta a
+    _build_migrated_xlsx sin crashear.
+    """
+    banner("M27 v1.1 - Smoke B6-b-1: _run_migration_v11")
+
+    # parsed minimal: _run_migration_v11 sólo lee sheet_name + wb_bytes (vía
+    # _open_ws). Lo armamos a mano para evitar el warning ScriptRunContext de
+    # _parse_workbook (@st.cache_data) fuera del runtime Streamlit.
+    old_parsed = {"sheet_name": "Template", "wb_bytes": Path(OLD_PATH).read_bytes()}
+    new_parsed = {"sheet_name": "Template", "wb_bytes": Path(NEW_PATH).read_bytes()}
+
+    try:
+        result = _run_migration_v11(
+            old_parsed,
+            new_parsed,
+            user_old_header_row_1=4,
+            user_new_header_row_1=6,
+            skip_example=True,
+        )
+
+        expected_keys = {
+            "output_rows", "sheet_name", "matched", "not_in_new", "only_in_new",
+            "data_rows_count", "skipped_internal", "dropped_example",
+            "old_header_row_used", "new_header_row_used", "has_old_fids",
+            "has_new_fids", "methods_count", "enum_translators_active",
+            "diagnostics_b5b", "diagnostics_b5c", "diagnostics_by_code",
+            "coverage_pct",
+        }
+        missing = expected_keys - set(result.keys())
+        assert not missing, f"faltan keys en el output: {sorted(missing)}"
+        assert len(expected_keys) == 18, "el shape debe tener 18 keys"
+
+        # Tipos.
+        assert isinstance(result["output_rows"], list), "output_rows no es list"
+        assert isinstance(result["sheet_name"], str), "sheet_name no es str"
+        assert isinstance(result["matched"], list), "matched no es list"
+        assert isinstance(result["not_in_new"], list), "not_in_new no es list"
+        assert isinstance(result["only_in_new"], list), "only_in_new no es list"
+        assert isinstance(result["data_rows_count"], int), "data_rows_count no es int"
+        assert isinstance(result["skipped_internal"], int), "skipped_internal no es int"
+        assert isinstance(result["dropped_example"], int), "dropped_example no es int"
+        assert isinstance(result["old_header_row_used"], int), "old_header_row_used no es int"
+        assert isinstance(result["new_header_row_used"], int), "new_header_row_used no es int"
+        assert isinstance(result["has_old_fids"], bool), "has_old_fids no es bool"
+        assert isinstance(result["has_new_fids"], bool), "has_new_fids no es bool"
+        assert isinstance(result["methods_count"], dict), "methods_count no es dict"
+        assert isinstance(result["enum_translators_active"], int), "enum_translators_active no es int"
+        assert isinstance(result["diagnostics_b5b"], list), "diagnostics_b5b no es list"
+        assert isinstance(result["diagnostics_b5c"], list), "diagnostics_b5c no es list"
+        assert isinstance(result["diagnostics_by_code"], dict), "diagnostics_by_code no es dict"
+        assert isinstance(result["coverage_pct"], float), "coverage_pct no es float"
+
+        # Sanity de contenido para el par Gamboa real.
+        assert result["data_rows_count"] > 0, "data_rows_count debería ser > 0"
+        assert result["coverage_pct"] > 0.0, "coverage_pct debería ser > 0"
+        assert result["enum_translators_active"] > 0, "deberían existir enum translators"
+
+        # output_rows alimenta a _build_migrated_xlsx sin crashear.
+        xlsx_bytes = _build_migrated_xlsx(result["output_rows"], result["sheet_name"])
+        assert isinstance(xlsx_bytes, (bytes, bytearray)), "xlsx no es bytes"
+        assert len(xlsx_bytes) > 0, "xlsx vacío"
+
+        # diagnostics_b5c trae row_index agregado por el orquestador.
+        if result["diagnostics_b5c"]:
+            assert all("row_index" in d for d in result["diagnostics_b5c"]), \
+                "diagnostics_b5c sin row_index"
+    except AssertionError as exc:
+        print(f"\nB6-b-1 SMOKE FAIL: {exc}")
+        return False
+
+    print("\nB6-b-1 SMOKE PASS")
+    print(f"  rows_count           : {result['data_rows_count']}")
+    print(f"  coverage_pct         : {result['coverage_pct']:.1f}%")
+    print(f"  field matches        : {result['methods_count']}")
+    print(f"  enum translators     : {result['enum_translators_active']}")
+    print(f"  output_rows          : {len(result['output_rows'])}")
+    print(f"  xlsx bytes           : {len(xlsx_bytes)}")
+    print(f"  diagnostics_by_code  : {result['diagnostics_by_code']}")
+    return True
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    rc_b6a = main()
+    rc_b6b1 = 0 if smoke_run_migration_v11() else 1
+    sys.exit(rc_b6a or rc_b6b1)

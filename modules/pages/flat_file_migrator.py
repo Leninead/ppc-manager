@@ -1853,6 +1853,222 @@ def _run_migration(
     }
 
 
+def _run_migration_v11(
+    old_parsed: dict,
+    new_parsed: dict,
+    user_old_header_row_1: int,
+    user_new_header_row_1: int,
+    skip_example: bool,
+) -> dict:
+    """Orquestador cross-schema v1.1.
+
+    A diferencia de _run_migration (v1, matching por field_id con 5
+    estrategias), v1.1 hace matching por label normalizado + alias y traduce
+    enums via value_map. Pivotea entre productTypes distintos (ej. fptcustom
+    → PTD).
+
+    Pipeline: _locate_template_headers (×2) → _parse_data_definitions (×2)
+    → _build_field_map → _parse_valid_values (×2) → _build_value_map
+    → _extract_old_rows → loop _migrate_row.
+
+    Los args user_old_header_row_1 / user_new_header_row_1 se aceptan por
+    uniformidad de signature con _run_migration, pero v1.1 NO los usa: los
+    headers reales se auto-descubren con _locate_template_headers. Quedan
+    documentados como hint para fallback futuro.
+
+    Returns:
+        dict con shape SUPERSET de _run_migration. Si OLD no trae field_ids
+        (no_field_ids) retorna shape válido con data_rows_count=0 y un
+        diagnostic level=error code=no_field_ids en diagnostics_b5b.
+    """
+    sheet_name = new_parsed["sheet_name"]
+
+    def _empty(diag_list, *, has_old, has_new, old_hdr, new_hdr):
+        by_code: dict[str, int] = {}
+        for d in diag_list:
+            c = d.get("code", "")
+            if c:
+                by_code[c] = by_code.get(c, 0) + 1
+        return {
+            "output_rows": [],
+            "sheet_name": sheet_name,
+            "matched": [],
+            "not_in_new": [],
+            "only_in_new": [],
+            "data_rows_count": 0,
+            "skipped_internal": 0,
+            "dropped_example": 0,
+            "old_header_row_used": old_hdr,
+            "new_header_row_used": new_hdr,
+            "has_old_fids": has_old,
+            "has_new_fids": has_new,
+            "methods_count": {"label_match": 0, "alias_label": 0},
+            "enum_translators_active": 0,
+            "diagnostics_b5b": diag_list,
+            "diagnostics_b5c": [],
+            "diagnostics_by_code": by_code,
+            "coverage_pct": 0.0,
+        }
+
+    old_ws, old_wb = _open_ws(old_parsed)
+    new_ws, new_wb = _open_ws(new_parsed)
+
+    # Auto-descubrimiento de headers (user_*_header_row_1 se ignoran by design).
+    try:
+        old_locate = _locate_template_headers(old_wb)
+        new_locate = _locate_template_headers(new_wb)
+    except (KeyError, ValueError) as exc:
+        return _empty(
+            [{"row_index": 0, "level": "error", "field": "",
+              "code": "template_headers_not_found",
+              "message": f"No se pudieron localizar headers del Template: {exc}"}],
+            has_old=False, has_new=False, old_hdr=0, new_hdr=0,
+        )
+
+    old_label_row_1 = old_locate.get("display_row")
+    new_label_row_1 = new_locate.get("display_row")
+    old_field_id_row = old_locate.get("field_id_row")
+    new_field_id_row = new_locate.get("field_id_row")
+
+    # Degenerado: sin label row, o NEW sin field_id row (no se puede posicionar).
+    if old_label_row_1 is None or new_label_row_1 is None or new_field_id_row is None:
+        return _empty(
+            [{"row_index": 0, "level": "error", "field": "",
+              "code": "template_headers_not_found",
+              "message": "Locator no devolvió display_row/field_id_row utilizables "
+                         "(OLD o NEW) — v1.1 no puede continuar."}],
+            has_old=old_field_id_row is not None,
+            has_new=new_field_id_row is not None,
+            old_hdr=old_label_row_1 or 0, new_hdr=new_label_row_1 or 0,
+        )
+
+    has_new_fids = new_field_id_row is not None
+
+    # Early-exit no_field_ids: OLD sin field_ids (ej. Category Listing).
+    if old_field_id_row is None:
+        return _empty(
+            [{"row_index": 0, "level": "error", "field": "",
+              "code": "no_field_ids",
+              "message": "OLD no contiene fila de field_ids — v1.1 requiere "
+                         "field_ids en OLD para extraer rows. Sugerencia: usá "
+                         "modo Same-schema (v1)."}],
+            has_old=False, has_new=has_new_fids,
+            old_hdr=old_label_row_1, new_hdr=new_label_row_1,
+        )
+
+    # Pipeline B2 → B3 → B4 → B5b → B5c.
+    old_dd = _parse_data_definitions(old_wb)
+    new_dd = _parse_data_definitions(new_wb)
+    field_map, _fm_warnings = _build_field_map(old_dd, new_dd)
+    old_vv = _parse_valid_values(old_wb)
+    new_vv = _parse_valid_values(new_wb)
+    value_map, _vm_warnings = _build_value_map(old_vv, new_vv)
+
+    old_rows, diagnostics_b5b = _extract_old_rows(old_wb, old_locate, old_dd)
+    has_old_fids = not any(
+        d.get("code") in ("no_field_ids", "field_id_row_out_of_range")
+        for d in diagnostics_b5b
+    )
+
+    # Skip example row — réplica de v1: dropea la 1ra data row sin heurística.
+    dropped_example = 0
+    if skip_example and len(old_rows) > 0:
+        old_rows = old_rows[1:]
+        dropped_example = 1
+
+    # Migrar cada row + acumular diagnostics B5-c con row_index (0-based loop).
+    diagnostics_b5c: list[dict] = []
+    migrated_new_rows: list[dict] = []
+    for idx, old_row in enumerate(old_rows):
+        new_row_dict, diags = _migrate_row(
+            old_row, field_map, value_map, old_dd, new_dd,
+        )
+        for d in diags:
+            diagnostics_b5c.append({**d, "row_index": idx})
+        migrated_new_rows.append(new_row_dict)
+
+    # output_rows: preservar rows pre-data del NEW + separador + data posicional.
+    new_max_col = _ws_max_row_col(new_ws)[1]
+    new_data_start_1 = new_locate.get("data_start_row") or (new_field_id_row + 1)
+    output_rows: list[list] = []
+    for r0 in range(0, new_data_start_1 - 1):
+        output_rows.append(
+            [_cell_value_or_blank(new_ws, r0, c0) for c0 in range(new_max_col)]
+        )
+    output_rows.append([""] * new_max_col)
+
+    # Mapa field_id → col_idx del NEW para expandir dicts sparse a posicional.
+    new_fid_cells = next(
+        new_ws.iter_rows(
+            min_row=new_field_id_row, max_row=new_field_id_row, values_only=True,
+        ),
+        None,
+    )
+    new_fid_to_col: dict[str, int] = {}
+    if new_fid_cells:
+        for c_idx, v in enumerate(new_fid_cells):
+            if v is not None and str(v).strip():
+                new_fid_to_col.setdefault(str(v).strip(), c_idx)
+
+    for new_row_dict in migrated_new_rows:
+        row = [""] * new_max_col
+        for fid, val in new_row_dict.items():
+            col = new_fid_to_col.get(fid)
+            if col is not None and col < new_max_col:
+                row[col] = val if val != "" else ""
+        output_rows.append(row)
+
+    # Agregados de display labels.
+    mapped_old = set(field_map.keys())
+    mapped_new = set(field_map.values())
+    matched = [old_dd[f].get("label", f) for f in old_dd if f in mapped_old]
+    not_in_new = [old_dd[f].get("label", f) for f in old_dd if f not in mapped_old]
+    only_in_new = [new_dd[f].get("label", f) for f in new_dd if f not in mapped_new]
+
+    # methods_count sintetizado: _build_field_map retorna (mapping, warnings),
+    # no expone método por field. Re-derivamos: hit directo de label normalizado
+    # = label_match; en otro caso el match vino por _LABEL_ALIASES = alias_label.
+    new_labels_norm = {
+        _normalize_label(info.get("label", "")) for info in new_dd.values()
+    }
+    new_labels_norm.discard("")
+    methods_count = {"label_match": 0, "alias_label": 0}
+    for of in field_map:
+        if _normalize_label(old_dd.get(of, {}).get("label", "")) in new_labels_norm:
+            methods_count["label_match"] += 1
+        else:
+            methods_count["alias_label"] += 1
+
+    diagnostics_by_code: dict[str, int] = {}
+    for d in (diagnostics_b5b + diagnostics_b5c):
+        code = d.get("code", "")
+        if code:
+            diagnostics_by_code[code] = diagnostics_by_code.get(code, 0) + 1
+
+    coverage_pct = len(field_map) / max(len(old_dd), 1) * 100
+
+    return {
+        "output_rows": output_rows,
+        "sheet_name": sheet_name,
+        "matched": matched,
+        "not_in_new": not_in_new,
+        "only_in_new": only_in_new,
+        "data_rows_count": len(old_rows),
+        "skipped_internal": 0,
+        "dropped_example": dropped_example,
+        "old_header_row_used": old_label_row_1,
+        "new_header_row_used": new_label_row_1,
+        "has_old_fids": has_old_fids,
+        "has_new_fids": has_new_fids,
+        "methods_count": methods_count,
+        "enum_translators_active": len(value_map),
+        "diagnostics_b5b": diagnostics_b5b,
+        "diagnostics_b5c": diagnostics_b5c,
+        "diagnostics_by_code": diagnostics_by_code,
+        "coverage_pct": coverage_pct,
+    }
+
+
 # ── UI helpers ──────────────────────────────────────────────────────────
 
 def _header():
