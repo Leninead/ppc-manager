@@ -86,6 +86,26 @@ Slugs de cliente válidos: dermaglos, ltd, mb, setex, 360essentials, pura-vida-m
 
 5. Si la sesión NO tocó código ni clientes (ej: solo lectura, sin cambios),
    indicalo y omití el daily — respetá la regla "decidir por valor, no por ritual".
+
+6. **Detectar features tocadas en la sesión** (módulos M## o features con slug
+   conocido como B7-importer). Para cada feature detectada:
+   - Verificar si existe `notes/prompts/sesion/features/arranque-{slug}.md`
+   - Si NO existe → crearlo desde `_template.md` con frontmatter + contexto
+     permanente extraído de la sesión (sección "Conocimiento operativo feature",
+     "Bugs y gotchas")
+   - Si SÍ existe → generar prompt sop-writer dedicado que actualice SOLO las
+     secciones dinámicas:
+       * Estado actual del módulo (último commit, % avance, sub-bloques)
+       * Pendientes activos (re-prioritizar con lo nuevo)
+       * Próxima sesión propuesta (bloque concreto + estimación)
+       * Append una línea al Historial de sesiones
+   - NO tocar el bloque XML estable, "Conocimiento operativo feature",
+     "Bugs y gotchas" salvo decisión arquitectónica nueva cerrada hoy.
+
+7. **Detectar multi-frente**: si la sesión tocó N features/clientes distintos,
+   generar N prompts de arranque para el día siguiente, uno por frente,
+   embedded con continuidad de la sesión actual. Cada uno va en su propio
+   bloque de código copiable.
 </rules>
 
 <output_format>
@@ -136,6 +156,38 @@ Después del push:
 ```xml
 [prompt v5 completo personalizado, embebido con contexto de continuidad si aplica]
 ```
+
+## 🔄 7. Prompts de arranque por frente (próxima sesión)
+
+> Detectado: la sesión tocó <<<N>>> frentes paralelos.
+> Generar <<<N>>> prompts independientes, uno por frente, listos para pegar
+> en <<<N>>> chats distintos mañana.
+
+### Frente 1: <<<nombre — slug>>>
+
+**Path del arranque actualizado:** `notes/prompts/sesion/features/arranque-{slug}.md`
+o `notes/prompts/sesion/clientes/arranque-{slug}.md`
+
+**Prompt copiable para arrancar mañana:**
+
+```xml
+<<<bloque XML del arranque + sección "venimos de" con continuidad concreta>>>
+```
+
+### Frente 2: <<<nombre — slug>>>
+
+[idem]
+
+---
+
+**Confirmación visual:**
+Después del cierre, los siguientes arranques quedan actualizados en disco:
+- [ ] `notes/prompts/sesion/features/arranque-{slug-1}.md`
+- [ ] `notes/prompts/sesion/clientes/arranque-{slug-2}.md`
+- [ ] [...]
+
+Mañana abrís N chats nuevos en Claude.ai → en cada uno pegás el prompt
+correspondiente del bloque 7 → arrancás con contexto cargado sin armar nada.
 
 ---
 Cierre: una línea final del tipo "Sesión cerrada. Próximo arranque: [fecha estimada o 'cuando puedas']."
