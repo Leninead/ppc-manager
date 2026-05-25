@@ -440,3 +440,157 @@ enviado a Neha. Esperando confirmación de prefix STX + schedule + timeline.
 - [ ] Status restocks Tati: B0F63LTD92 / B0C7WPFVGV / B0B94KBY8H
 - [ ] Status nuevos flags: B09F7YB74Y / B0DW9Z2H2W / B0CC6THCDS
 - [ ] Confirmar archivado Camp 109236070351461 (BRAND setex almohadillas)
+
+---
+
+## 2026-05-25 — Hot Sale push táctico (6 bulks)
+
+### Contexto
+
+Tati avisó 10:39 AM: están en Hot Sale con descuentos en todos los portfolios. Pedido del cliente: push táctico a Ultra Thin Nose Pad (B0F3PSP82K family). Deals activos también en Standard 1mm + Thick.
+
+### KPIs cuenta pre-bulks (BSE 1-25/05)
+
+| Métrica | Hoy (25d) | Pre-bulks 22/05 | Δ |
+|---|---|---|---|
+| ACoS | 18.5% | 19.4% | -0.9 pts ✅ |
+| ROAS | 5.41× | 5.15× | +0.26× ✅ |
+| Orders/30d | 448 | 393 | +14% ✅ |
+| CVR | 11.45% | 10.46% | +1 pt ✅ |
+| Spend cuenta | $22,006 | — | — |
+| Sales cuenta | $118,985 | — | — |
+
+Cuenta pisa target ACoS cuenta (18%). Arranca Hot Sale en estado sano.
+
+### Hero scorecard 30d por familia
+
+| Hero | Spend | Sales | % Sales | ACoS | ROAS |
+|------|------:|------:|--------:|-----:|-----:|
+| 1mm (incl. B081GB8F89 badge) | $13,311 | $67,999 | 57.1% | 19.6% | 5.11× |
+| Thin (Ultra Thin family) | $2,035 | $18,855 | 15.8% | 10.8% | 9.27× |
+| Thick | $2,071 | $13,873 | 11.7% | 14.9% | 6.70× |
+| Nano Gen2 | $1,158 | $7,450 | 6.3% | 15.5% | 6.44× |
+| Ear Hook | $1,332 | $5,740 | 4.8% | 23.2% | 4.31× |
+| Thumbstick | $2,039 | $3,841 | 3.2% | 53.1% | 1.88× |
+| Brand defense (Hub) | $43 | $1,228 | 1.0% | 3.5% | 28.85× |
+
+3 heroes oficiales (Thin+1mm+Thick) = 84.6% de las sales.
+
+### 6 bulks ejecutados — 100% Success
+
+#### Bulk 0 — PausarB09F7P8GBZPA (17 PAs)
+
+UUID: `35acaeab-06fd-4453-bfed-0aa53f442947`
+
+Decisión opción B: 18 PAs detectados ENABLED, pausamos 17, preservamos 1.
+
+- Pausados: 17 ad groups donde XG9G145 era self-PAT defense sin sales propias
+- Preservado: Ad ID 537314526886846 en `AG | almohadillas para lentes` ($151.87sp / $1,170.50sa / 4 ord / ROAS 7.7× período BSE)
+- Stock B09F7P8GBZ: 6u OnHand + 1 reserved = 5 disponibles, sin inbound
+- Trip wire activo: si OnHand <3u sin restock → pausar último PA también
+
+#### Bulk 1 — PushHeroesROAS10x (24 rows = 12 camps + 12 TOS adj)
+
+UUID: `8649da59-f84a-4cc7-a1a6-516110e5745c`
+
+Net +$430/d. Bid + budget calibrado por stock real.
+
+| Camp ID | Camp (short) | Bud anterior | Bud nuevo | TOS adj | ROAS | Stock SKU |
+|---|---|---:|---:|---:|---:|---|
+| 61136864082890 | Ultra Thin 5p Transp AUTO | $250 | $400 | +50% | 15.82× | 1300u 🟢 |
+| 218511029864709 | Ultra Thin 5p Negro AUTO | $75 | $112 | +50% | 11.22× | 381u 🟢 |
+| 65865182356280 | Thin DEFENSIVE OWN PDPs | $50 | $100 | +50% | 19.26× | Thin 🟢 |
+| 145255413702541 | Nano Gen2 5p Negro AUTO | $120 | $156 | +20% | 10.58× | 70u 🟡 |
+| 248917342492178 | Thick 1.8mm 15p Transp AUTO | $50 | $75 | +50% | 17.93× | 89u 🟢 |
+| 92627931529509 | 1mm AUTO COMPLEMENTS | $40 | $50 | +20% | 12.18× | 1mm 🟡 |
+| 80306519696131 | Thick 1.8mm 15p Negro AUTO | $50 | $75 | +50% | 17.27× | 51u 🟢 |
+| 18832208041881 | Ultra Thin 15p Negro AUTO | $60 | $78 | +20% | 15.16× | 48u |
+| 235140577957935 | Thick PAT MATCH AA Slzhds+ZENSUKYE | $50 | $62 | +20% | 11.17× | Thick 🟡 |
+| 132078755333600 | Brand Hub All Heroes ⚡ | $15 | $45 | +50% | 27.92× | Multi |
+| 66145625107465 | Ultra Thin 15p Transp AUTO | $100 | $150 | +50% | 20.13× | 153u 🟢 |
+| 24451596620601 | Ultra Thin 5p PUSH EXACT | $60 | $78 | +30% | 10.12× | Thin 🟢 |
+
+#### Bulk 2 — BidUpKWHeroes (11 KWs)
+
+UUID: `a3d34f10-91c7-4745-8ca6-22934dfd946e`
+
+Calibrado contra gap IS de SQP semana 21.
+
+| Keyword | Bid ant | Bid nuevo | Δ |
+|---|---:|---:|---:|
+| almohadillas para lentes | $13.00 | $16.90 | +30% |
+| antideslizante para lentes | $7.50 | $10.50 | +40% |
+| nose pads for glasses (EN) | $9.70 | $13.58 | +40% |
+| almohadillas nasales para lentes | $13.10 | $15.72 | +20% |
+| antiderrapante para lentes | $6.50 | $8.45 | +30% |
+| gomas para lentes | $10.80 | $12.96 | +20% |
+| nose pads (EN) | $8.90 | $12.46 | +40% |
+| setex (Brand Hub) | $5.00 | $7.50 | +50% |
+| setex gecko grip (Brand Hub) | $5.00 | $7.50 | +50% |
+| setex nosepads (Brand Hub) | $5.00 | $7.50 | +50% |
+| setex gecko grip (BRANDED 1mm) | $8.50 | $11.05 | +30% |
+
+#### Bulk 3 — PausasWaste (8 camps)
+
+UUID parcial: `?2a0-d940-48dc-8099-84126a0dfda1`
+
+-$421/d liberados.
+
+- 99542552378824 — Thumbstick XG0K962 SP-AUTO CLOSE ($350/$0)
+- 18714595839987 — Thick 1.8mm 5p Negro SP-AUTO CLOSE ($151/$0, anómalo)
+- 276917832064312 — Thumbstick XG0K923 SP-AUTO CLOSE ($74/$0)
+- 89126363750359 — Thick PAT MATCH A VEWIYT ($64/$0)
+- 89947613493655 — Thumbstick XG0K924 SP-AUTO CLOSE ($58/$0)
+- 97949174835202 / 122056868904779 / 243881534918759 — 3 Thumbstick PHRASE DISCOVERY ($0/$0 fantasmas con $50/d budget bloqueado c/u)
+
+#### Bulk 4 — ReactivarB086H3TZ6B (19 PAs)
+
+UUID: `6e51010d-c5da-4cbc-8772-0c3423da9466`
+
+Recovery confirmado: 1u (12/05) → 49u + 1 reserved (25/05). Reactivadas las 19 Product Ads en mismos ad groups donde se pausaron 12/05 (UUID histórico `afde8719-00dd-476f-9c48-364bd625bf64`).
+
+#### Bulk 5 — NegativosQuirurgicos (153 rows)
+
+UUID: `8c097629-806a-4237-a79b-96bf669074a4`
+
+9 KWs × 17 camps AUTO (cross-brand, gaming, EN funnel break específico):
+
+- `ray ban meta`, `nose pad ray-ban`, `nose pads rayban meta`, `ray ban meta accesorios` (cross-brand rayban)
+- `glasses grip`, `anti slip glasses grip`, `glasses nose grip replacements` (EN "grip puro" sin "nose pads")
+- `thumb grips`, `thumb grips ps5` (gaming)
+
+### Hallazgos críticos nuevos (cruce Inventory + BSE)
+
+1. **B09F7P8GBZ (1mm Azul 5p) stock crítico 6u** — no flageado previamente en vault. Detectado en cruce Inventory completo. Child del parent 1mm, mismo patrón B086H3TZ6B 12/05.
+2. **Corrección diagnóstico listing EN B081GB8F89** — cluster EN convierte bien en general (PS 66-100% en queries con "nose pad(s)"). Funnel break previo atribuido al cluster entero era diagnóstico parcial incorrecto — es específico de subgrupos "grip puro" + rayban-specific (ya negativizados en Bulk 5). **Audit EN baja prioridad.**
+3. **Refuerzo listing audit ES B081GB8F89** — patrón "1mm + antideslizante / antiderrapante" confirmado en SQP semana 21: CS 100% / PS 0% en queries con specs técnicas exactas. Comprador específico hace click y abandona en PDP. Sigue prioritario.
+4. **B0F63LTD92 + B0C7WPFVGV** — restock confirmado (98u + 50u) pero 0 sales en 30d. El listing no tracciona. Nuevo flag listing audit para Tati.
+5. **B086H3TZ6B recovery** confirmado 49u — 19 PAs reactivadas (Bulk 4).
+6. **27 camps fantasma con $962/d budget bloqueado** (20% del budget total de cuenta) — ENABLED, $0 spend en 25d. Headroom oculto para cuando arranque Atom11 Fase 1. Cleanup masivo postponed post-Hot Sale.
+
+### Bugs M4 nuevos (cierre 25/05)
+
+Total 8 bugs acumulados desde Dermaglos 08/05 + Setex 22/05 + Setex 25/05:
+
+6. `ppc_insights_asin` corrupto: solo 2 ASINs cuando hay $22k spend en decenas
+7. `plan_accion_bulk` falsos positivos: `steam controller` "ESCALAR", rayban como "DEFENDER", NaN tratado como 0
+8. `plan_accion_bulk` sin mapping Campaign/Ad Group/Max Bid
+
+Patch coordinado con Ramiro pendiente próxima sesión repo.
+
+### Mensaje Slack Tati enviado
+
+Resumen Hot Sale + flag B09F7P8GBZ + corrección diagnóstico EN + pendientes sin novedad. Adjuntado reporte completo con UUIDs y análisis cruzado.
+
+### Próximas evaluaciones
+
+- 28/05 día 3 — impressions, CTR primer corte
+- 01/06 día 7 — performance Hot Sale post-ventana
+- 08/06 día 14 — review consolidada
+
+### Decisiones que pasan al próximo ciclo
+
+- Trip wire B09F7P8GBZ activo: monitor cada lunes, pausar último PA si OnHand <3u sin inbound confirmado
+- Push winners agresivo Thin family (stock 1,882u soporta cualquier escalada)
+- Brand Hub triplicado a $45/d — observación 24h crítica
+- Lecciones operativas para SOP `amazon-bulk-upload-guide.md` aprendizaje #17: "Product Ad no tiene bid propio — pausar es la única palanca por-SKU"

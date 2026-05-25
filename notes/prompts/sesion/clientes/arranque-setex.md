@@ -140,53 +140,66 @@ Devolveme un briefing de 4-6 bullets:
 
 > Se actualiza al cierre de cada sesión Setex vía `cierre-acotado`.
 
-**Último daily Setex:** 2026-05-22 (5 bulks ejecutados + Atom11 v2026.3 setup).
+**Último daily Setex:** 2026-05-25 (Hot Sale push táctico — 6 bulks ejecutados).
 
-**KPIs cuenta (pre-bulks 22/05):** ACoS 19.4% · TACoS 14% (target cuenta 18%) ·
-ROAS 5.15x · 393 orders/30d · CVR 10.46%. Net esperado post-bulks: -$400/mo
-spend / +$25k/mo sales.
+**KPIs cuenta (snapshot BSE 1-25/05, pre-bulks):** ACoS 18.5% · ROAS 5.41× · 448 orders/30d · CVR 11.45% · 86 camps ENABLED · $4,694/d budget total.
 
-**5 bulks ejecutados 22/05 (UUIDs — verificar status post-24/48h):**
-- Bulk 1 Pausas+Archive (7): `cb02fff2-3421-48cb-8a22-724f12d745b9`
-- Bulk 2 Bid Up (15): `cc7bb7a9-f6bf-4c78-a79c-2157ee72ec90`
-- Bulk 3 Bid Down (4): `9e7cad37-24ed-4879-9b31-f09b2c0cda09`
-- Bulk 4 Escalar (5): `92e33b06-dd4c-4d19-85da-68638ede73bd`
-- Bulk 5 Negativos (126): `cd9c099c-bcbd-41dd-9b9a-cc111aae38cc`
-- Net: 157 cambios / 33 camps afectadas / +$223/d budget winners.
+**6 bulks ejecutados 25/05 — 100% Success (UUIDs):**
+- Bulk 0 PausarB09F7P8GBZPA (17): `35acaeab-06fd-4453-bfed-0aa53f442947`
+- Bulk 1 PushHeroesROAS10x (24): `8649da59-f84a-4cc7-a1a6-516110e5745c`
+- Bulk 2 BidUpKWHeroes (11): `a3d34f10-91c7-4745-8ca6-22934dfd946e`
+- Bulk 3 PausasWaste (8): UUID parcial `?2a0-d940-48dc-8099-84126a0dfda1`
+- Bulk 4 ReactivarB086H3TZ6B (19): `6e51010d-c5da-4cbc-8772-0c3423da9466`
+- Bulk 5 NegativosQuirurgicos (153): `8c097629-806a-4237-a79b-96bf669074a4`
 
-**Status Atom11:** v2026.3 configurado, 🟡 enviado a Neha 22/05 — pendiente
-confirmar prefix STX + schedule + timeline Fase 1 (22 rules RANKING + DEFENSIVE).
+**Status post-bulks 25/05:** cuenta pasa de 86 → 78 camps ENABLED (8 pausadas). Budgets 12 winners verificados aterrizados (Brand Hub $15→$45, Ultra Thin 5p Transp $250→$400, etc).
+
+**Status Atom11 v2026.3:** sin cambio desde 22/05. 🟡 sigue sin confirmación Neha (prefix STX + schedule + timeline Fase 1).
 
 ## Pendientes activos
 
 > Se actualiza al cierre vía `cierre-acotado`. Ordenar P0 → P3.
 
-**P0 — urgente HOY (2026-05-25 — Hot Sale):**
-- Tatiana avisó 10:39 que están en Hot Sale con descuentos en TODOS los portfolios.
-- Pedido del cliente: **push táctico al Ultra Thin Nose Pad** (B0F3PSP82K family).
-  Deals activos también en Standard 1mm + Thick.
-- Descargar reportes: BR + SQP 4w + STR 90d + cruzado (M4) + Bulk Sheet Export.
-- Análisis 360° → bulks de ejecución hoy.
+**P0 — urgente próxima sesión:**
+- Eval día 7 post-bulks Hot Sale (01/06): impressions + CTR + sales + ACoS primer corte real
+- Confirmación Tati ETA inbound B09F7P8GBZ — trip wire activo (si OnHand <3u sin inbound, pausar último PA preservado)
+- Monitor semanal B09F7P8GBZ cada lunes (decisión opción B activa)
 
 **P1:**
-- Confirmar prefix STX + schedule + timeline Fase 1 Atom11 con Neha.
+- Confirmar prefix STX + schedule + timeline Fase 1 Atom11 con Neha
+- Status nuevos flags Tati: B0F63LTD92 (Ear Hook 98u, 0 sales 30d) y B0C7WPFVGV (Temple Tips Grises 50u, 0 sales 30d) — restock confirmado pero listing no tracciona → audit listing nuevo
 
-**P2 — pendientes Tati (posteados 22/05):**
-- Listing audit B081GB8F89 ES (8 EXACT funnel break SQP).
-- Audit listing EN B081GB8F89 (queries EN con IS alto pero PS 0%).
-- Confirmar ETAs inbound: B0F63LTD92 / B0C7WPFVGV / B0B94KBY8H.
-- Flags Seller Central: B09F7YB74Y (1mm Rojos, riesgo OOS) · B0DW9Z2H2W (Nano 15p,
-  missing offer + 0u) · B0CC6THCDS (Kids 15p $530, 1u/30d con 33u stock).
+**P2 — pendientes Tati previos (sin novedad):**
+- Listing audit B081GB8F89 ES (refuerzo evidencia 25/05 — sigue prioritario)
+- Confirmar ETA inbound B09F7P8GBZ
+- B0DW9Z2H2W (Nano 15p Negros) sigue missing offer + 0u + $0 — listing roto
+- B0CC6THCDS (Kids 15p $530) — 1 venta/30d con 33u, revisar precio
 
-**P3:**
-- Gotcha "almoadillas" — agregar verificación de typos KW interna al SOP
-  amazon-bulk-upload-guide si se confirma como patrón cross-cliente.
+**P2 — actualización diagnóstico (no requiere acción Tati):**
+- ~~Listing audit EN B081GB8F89~~ — REMOVIDO. SQP 25/05 muestra cluster EN convierte bien (PS 66-100% en queries "nose pad(s)"). Funnel break era específico de subgrupos "grip puro" + rayban — ya negativizados en Bulk 5.
+
+**P3 — interno:**
+- Bug list M4 consolidado (8 bugs) — entregable a Ramiro próxima sesión repo
+- Consolidar duplicados brand defense (setex en 2 camps + setex gecko grip en 3 — ya identificado 22/05, pendiente)
+- Tocar CLUSTER Core ES case-by-case (6 KWs uniformes $13.10 — pendiente 22/05)
 
 ## Próxima sesión propuesta
 
-> Se actualiza al cierre de hoy vía `cierre-acotado`.
+**Próxima sesión Setex: 01/06/2026 (día 7 post-bulks Hot Sale)**
 
-[a poblar al cierre de hoy 2026-05-25]
+**Bloque a ejecutar:** Eval Hot Sale post-ventana + status pendientes Tati.
+
+**Pre-flight obligatorio:**
+1. BSE fresco Setex (período 25/05-01/06) → verificar UUIDs aterrizaron y no hubo rollbacks parciales
+2. Cruce Seller Central completo:
+   - B09F7P8GBZ stock check (trip wire 3u)
+   - B086H3TZ6B confirmación recovery sostenido
+   - B0F63LTD92 / B0C7WPFVGV listing tracking (¿empezaron a vender?)
+   - B0DW9Z2H2W status missing offer
+3. STR + SQP semana 22 (25-31/05) — primer dato de ventana Hot Sale completa
+4. Si Neha confirmó Atom11 v2026.3 → activar Fase 1 (22 rules)
+
+**Estimación duración:** 90-120 min (eval + posibles ajustes finos + comunicación Tati)
 
 ## Historial de sesiones
 
@@ -194,6 +207,7 @@ confirmar prefix STX + schedule + timeline Fase 1 (22 rules RANKING + DEFENSIVE)
 
 - 2026-05-12 — Análisis 360° + Campaign Analyzer M6 + descubrimiento gotcha KW typo "almoadillas". [[2026-05-12]]
 - 2026-05-22 — 5 bulks ejecutados (157 cambios) + Atom11 v2026.3 setup enviado a Neha. [[2026-05-22]]
+- 2026-05-25 — Hot Sale push táctico 6 bulks 100% Success (UUIDs registrados), cuenta 86→78 camps, flag B09F7P8GBZ stock 6u opción B, corrección diagnóstico listing EN, +8 bugs M4 acumulados para Ramiro. Ver [[daily/2026-05-25]]
 
 ## Referencias cruzadas
 
