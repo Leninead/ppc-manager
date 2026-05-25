@@ -45,7 +45,9 @@
       "Bash(find modules/pages -name \"*.py\" -exec grep -l \"^def [a-z]\" {})",
       "Bash(echo \"  in $f\")",
       "Bash(done)",
-      "Bash(grep -rn 'key=\"\"\"\"' modules/pages/*.py)"
+      "Bash(grep -rn 'key=\"\"\"\"' modules/pages/*.py)",
+      "Bash(git worktree *)",
+      "Bash(ls C:/proyectos)"
     ]
   }
 }
