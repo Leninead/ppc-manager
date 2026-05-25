@@ -83,6 +83,8 @@ Bulk_Setex*.xlsx
 MB_Attribution_*.xlsx
 MB_Attribution_*.csv
 Amazon_Attribution_Tags_*.csv
+# NotebookLM PDF exports + cowork reports (artefactos generados, reproducibles)
+outputs/
 # Whitelist notes/meetings/ (carpeta nueva del 22/05 para sync notes)
 !notes/meetings/
 !notes/meetings/**
