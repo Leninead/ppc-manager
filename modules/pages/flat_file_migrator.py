@@ -2216,6 +2216,58 @@ def _render_marketplace(suffix: str, sheet_names: list[str]):
 
     st.markdown("")
 
+    # Auto-detección de schema + selector de modo de migración (B6-b-2).
+    # Solo tiene sentido con ambos archivos cargados. Doble apertura vía
+    # _open_ws (~100ms) — costo aceptado y documentado en gotchas.
+    mode = "Same-schema (v1)"  # default; el radio lo sobreescribe si hay ambos
+    if old_parsed is not None and new_parsed is not None:
+        try:
+            _, old_wb_d = _open_ws(old_parsed)
+            _, new_wb_d = _open_ws(new_parsed)
+            old_schema = _detect_schema(old_wb_d)
+            new_schema = _detect_schema(new_wb_d)
+        except Exception:
+            old_schema, new_schema = "unknown", "unknown"
+
+        # _detect_schema retorna "unknown" (nunca None/"") cuando no reconoce.
+        _known = (
+            old_schema not in ("", "unknown", None)
+            and new_schema not in ("", "unknown", None)
+        )
+        if _known and old_schema != new_schema:
+            recommended_mode = "v1.1"
+            auto_detect_note = (
+                f"Detectamos schemas distintos: OLD={old_schema} → "
+                f"NEW={new_schema}. Recomendamos Cross-schema."
+            )
+        elif _known and old_schema == new_schema:
+            recommended_mode = "v1"
+            auto_detect_note = (
+                f"Detectamos schema same: ambos {old_schema}. "
+                f"Recomendamos Same-schema."
+            )
+        else:
+            recommended_mode = "v1"
+            auto_detect_note = (
+                "No pudimos detectar schemas. Default: Same-schema (v1)."
+            )
+
+        mode = st.radio(
+            "Modo de migración",
+            options=["Same-schema (v1)", "Cross-schema (v1.1)"],
+            index=0 if recommended_mode == "v1" else 1,
+            key=k("migration_mode"),
+            horizontal=True,
+            help=(
+                "Same-schema: 5 estrategias de matching por field_id "
+                "(recomendado si ambos archivos comparten schema). "
+                "Cross-schema: matching por label normalizado + traducción "
+                "de enums (recomendado si los schemas difieren, ej. "
+                "fptcustom → PTD)."
+            ),
+        )
+        st.caption(auto_detect_note)
+
     # Botón migrar
     can_migrate = old_parsed is not None and new_parsed is not None
     btn_clicked = st.button(
