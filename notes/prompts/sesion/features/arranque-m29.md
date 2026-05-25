@@ -1,6 +1,6 @@
 ---
 tipo: prompt
-actualizado: 2026-05-22
+actualizado: 2026-05-25
 categoria: sesion
 subcategoria: feature
 version: v1
@@ -174,30 +174,41 @@ Al final del bloque <background>, devolveme un briefing de 4-6 bullets:
 > Esta sección se actualiza automáticamente al cierre de cada sesión que toque
 > esta feature.
 
-**Último commit relevante:** `fc6fc88` — fix(M29): B7 Importer - duplicate_module_id en HTML pasa de error a warning — 2026-05-22. Cierre documentado en `1a189de` docs(M29): cierre B7 Importer v1 + sync Ramiro pre-30/05.
+**Último commit relevante:** `093e686` — feat(M29): B7 UI dispatcher D2 -
+expander + uploader + ImportReport preview — 2026-05-25 (chat #1/4 multi-frente).
 
-**Progreso global:** 6/6 editores CORE cerrados. B7 Importer v1 cerrado (extract +
-merge + fix D6 + 10 tests). Ship target: jueves 28/05.
+**Progreso global:** 6/6 editores CORE cerrados. B7 Importer v1 cerrado. UI
+dispatcher B7: D1 (discovery) + D2 (skeleton+preview) cerrados; D3+D4
+pendientes. Ship target: jueves 28/05.
 
 **Sub-bloques cerrados:**
 - V1 (brand_overview) + V2 (market_opportunity) — editables Plan D
 - V3 (seo_opportunity) + V4 (listing_improvements) + V5 (listing_comparison) +
   V6 (growth_plan_phases) — readonly Class B
-- B7 Importer v1: `extract_blocks` (capa 1) + `merge_blocks` (capa 2) + fix D6 +
-  cobertura pytest
+- B7 Importer v1: `extract_blocks` (capa 1) + `merge_blocks` (capa 2) + fix D6
+- UI dispatcher B7 D1: discovery cerrado (catalog crudo confirmado para
+  importer; `pp.save_proposal` auto-bumpea version e ignora input; naming
+  `<uuid>__v<N>.json`)
+- UI dispatcher B7 D2: expander en `_render_detail_screen` + file_uploader +
+  parser → ImportReport preview (counts, tablas warning/error, cards
+  apply/skip, debug expander, footer condicional `report.ok`). +168 LOC en
+  `_render_b7_importer_section`. Smoke E2E con `b7_sample_v3v4.html` PASS
+  (Blocks=2, Warnings=6, Errors=0).
 
 **Sub-bloques pendientes (hacia ship 28/05):**
-- UI dispatcher B7 (V3+V4 vía HTML) en proposal_studio.py — 3-4h
-- Refactor DataDive parsers → `modules/parsers/` + mapper V3 — 3-4h
-- Editor manual V5 (URLs pareadas) + testing + smoke — 3-4h
-- Testing E2E + bugfixing + SOP + ship — 3h
+- UI dispatcher B7 D3 (apply + 2-clicks + save) — 60min
+- UI dispatcher B7 D4 (hardening + smoke E2E final) — 40min
+- Refactor DataDive parsers → `modules/parsers/` + mapper V3 — 3-4h (martes)
+- Editor manual V5 (URLs pareadas) + testing + smoke — 3-4h (miércoles)
+- Testing E2E + bugfixing + SOP + ship — 3h (jueves)
 
 **Tests:** B7 importer 10/10 verde (`tests/test_b7_importer.py`, suite 0.20s).
-Cobertura: TestContractVersionMismatch (3) · TestNoBlocks (2) ·
-TestDuplicateModuleIdInHtml (3) · TestCopyOverridesPreserved (2). FALTA: tests
-AppTest E2E del flujo UI (deuda ALTA).
+FALTA: tests AppTest E2E del flujo UI (deuda ALTA — agudizada por incidente
+"edits fantasma" del 25/05 que el smoke manual no detectó hasta el commit).
 
-**Smoke status:** B7 extract 10/10 + merge 5/5 + fix D6 3 hitos verde (2026-05-22).
+**Smoke status:** D2 dispatcher UI PASS con fixture canónica
+`tests/fixtures/b7_sample_v3v4.html` (25/05). B7 extract 10/10 + merge 5/5 +
+fix D6 3 hitos verde (22/05).
 
 ---
 
@@ -206,17 +217,20 @@ AppTest E2E del flujo UI (deuda ALTA).
 > Esta sección se actualiza al cierre. Ordenar por prioridad: P0 → P1 → P2 → P3.
 
 **P0 — bloqueante:**
-- (ninguno hoy — depende de confirmar fecha sync Ramiro)
+- (ninguno)
 
 **P1 — alta prioridad (camino al ship 28/05):**
-- UI dispatcher B7 (V3+V4) en proposal_studio.py
+- UI dispatcher B7 D3 (apply + 2-clicks + save) — bloque inmediato martes
+- UI dispatcher B7 D4 (hardening + smoke E2E final)
 - Refactor DataDive parsers → `modules/parsers/` + mapper V3
 - Editor manual V5 (URLs pareadas)
 - Testing E2E + SOP + ship
-- Tests AppTest E2E (deuda ALTA — el smoke manual sigue siendo el único gate UI)
+- Tests AppTest E2E (deuda ALTA — agravada por incidente fantasma 25/05)
 
 **P2 — media:**
-- UI dispatcher del importer (depende D2 informal)
+- Validar con consolidador #5 si el commit `252f286` (mensaje M27, contenido
+  -147 LOC en flat_file_migrator.py, ex-`64e3d6f` mal etiquetado M29) era
+  intencional del chat #2 o accidente capturado
 - Template launch desactualizado vs catálogo (`_DEMO_AgencyOS` 20 vs 35 blocks)
 
 **P3 — baja / deuda blanda:**
@@ -233,25 +247,41 @@ AppTest E2E del flujo UI (deuda ALTA).
 > Esta sección se actualiza al cierre con el bloque concreto a ejecutar la
 > próxima vez que se trabaje esta feature.
 
-**Bloque a ejecutar:** Lunes 25/05 — UI dispatcher B7 (V3+V4 vía HTML) en
-`proposal_studio.py`. Conecta `extract_blocks` + `merge_blocks` a un uploader de
-HTML en la vista detalle, con preview del ImportReport (errores/warnings) antes
-de aplicar el merge.
+**Bloque a ejecutar:** Martes 26/05 — UI dispatcher B7 D3 + D4 (cierre del
+bloque). D3 = apply quirúrgico: botón "Aplicar merge" con confirmación
+2-clicks (flag `ps_b7_confirm_apply_{pid}` en session_state), llamada a
+`merge_blocks(report, proposal, catalog)`, persistencia vía
+`pp.save_proposal(merge_result.proposal_updated)` que auto-bumpea version,
+banner verde post-save con vN→v(N+1), `st.rerun()`. D4 = smoke E2E con casos
+edge (b7_sample_duplicate.html para validar fix D6 en UI; HTML inválido para
+validar error path). Una vez cerrado, pivot al bloque "Refactor DataDive
+parsers → modules/parsers/ + mapper V3" del plan al 28/05.
 
-**Pre-flight:** leer la API de `b7_importer.py` (extract/merge + dataclasses) y
-la vista detalle de `proposal_studio.py` donde se inyecta el dispatcher.
-Confirmar si D2 informal habilita el target dinámico. Releer acuerdos del meeting
-22/05.
+**Pre-flight:**
+- Leer firma exacta de `merge_blocks(report, target_proposal, catalog) →
+  MergeResult` en `modules/sales/b7_importer.py` (la firma estuvo en chat
+  durante D1 pero conviene re-verificar en disco antes de cablear)
+- Confirmar shape de `MergeResult.applied_blocks` / `skipped_blocks` /
+  `warnings` para el summary post-merge
+- Releer el helper `_render_b7_importer_section` ya en disco para entender
+  dónde insertar el botón apply (después del footer condicional)
+- Verificar que `_DEMO_AgencyOS` siga siendo la propuesta canónica de smoke
+  (`pp.get_proposal(id)` con id `01fbf5c2...`); si subió de v12 por testing
+  D3 no importa — `save_proposal` versiona limpio
 
-**Estimación:** 3-4h.
+**Estimación:** 1.5-2h (60min D3 + 40min D4).
 
-**Sub-agentes Claude Code que podrían usarse:** html-to-streamlit-porter,
-data-persistence-specialist, code-reviewer (Opus 4.7) para audit. NO usar
-ppc-module-builder.
+**Sub-agentes Claude Code que podrían usarse:** code-reviewer (Opus 4.7) para
+audit post-D4 antes de commit final. NO usar ppc-module-builder.
 
-**Riesgos/dependencias:** fecha sync Ramiro a confirmar (30/05 cae sábado).
-Imágenes V5 automáticas quedan post-ship; V5 sale con editor manual de URLs.
-Plan completo al 28/05 en el daily 2026-05-22 y el meeting note.
+**Riesgos/dependencias:**
+- Riesgo: bug en `_validate_proposal` si el merge produce un dict que pierde
+  FK válida contra catalog (baja probabilidad — merge solo toca `block['data']`)
+- Si el incidente "edits fantasma" se repite en D3, revisar si Streamlit
+  está corriendo contra un buffer stale: matar proceso + re-ejecutar antes
+  de smoke
+- Sync Ramiro: viernes 30/05 (corregido del arranque previo). M29 debería
+  estar shippeado el jueves 28/05 — un día antes de la sync
 
 ---
 
@@ -266,6 +296,7 @@ Plan completo al 28/05 en el daily 2026-05-22 y el meeting note.
 - 2026-05-18 — B3-c V2 validado E2E + B3-d V3 readonly + pivot dual-mode. [[2026-05-18]]
 - 2026-05-20 — B3-f V5 + B3-g V6 readonly (Class B N=4). [[2026-05-20]]
 - 2026-05-22 — B7 Importer v1 completo (extract + merge + fix D6 + 10 tests) + sync Ramiro. [[2026-05-22]]
+- 2026-05-25 — UI dispatcher B7 D1 discovery + D2 skeleton/preview cerrados (chat #1/4 multi-frente; incidente fantasma de edits + bug commit cross-frente documentados). [[2026-05-25]]
 
 ---
 
