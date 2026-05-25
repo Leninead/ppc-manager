@@ -1,6 +1,6 @@
 ---
 tipo: prompt
-actualizado: 2026-05-22
+actualizado: 2026-05-25
 categoria: sesion
 subcategoria: feature
 version: v1
@@ -164,27 +164,25 @@ Al final del bloque <background>, devolveme un briefing de 4-6 bullets:
 > Esta sección se actualiza automáticamente al cierre de cada sesión que toque
 > esta feature.
 
-**Último commit relevante:** `e10b961` — fix(M27): mitigaciones post-audit B5-b+B5-c (P1-1 empty_field_map, P1-2 field_id_row_out_of_range, P2-3 end_of_data_reached) — 2026-05-22. Cierre documentado en `37dddfb` docs(M27).
+**Último commit relevante:** `b9d9264` — feat(M27): B6-b-4 expander 'Como funciona' dividido v1/v1.1 — 2026-05-25.
 
-**Progreso global:** 7/8 sub-bloques cerrados (87%). Solo falta B6-b (UI integration).
+**Progreso global:** 8/8 sub-bloques cerrados (100% funcional). Audit Opus (B6-b-5) pendiente como deuda blanda P3.
 
-**Sub-bloques cerrados:**
-- B1 + B2 + B3 cross-schema (field map, 42% cobertura)
-- B4a + B4b (parsers data definitions + valid values)
-- B5-a (matching por label normalizado + alias)
-- B5-b (`_extract_old_rows` row extractor + Required validator)
-- B5-c (`_migrate_row` row migrator core + 5 diagnostic codes)
-- B6-a (smoke E2E PASS + discovery UI + decisión arquitectónica + plan B6-b)
+**Sub-bloques cerrados (sesión 2026-05-25):**
+- B6-b-1 orquestador `_run_migration_v11` (~216 LOC + smoke +91 LOC, commit f71bfdf)
+- B6-b-2 toggle radio v1/v1.1 + auto-detect schema (+52 LOC, commit 7565d1d)
+- B6-b-3 renderer condicional + bloque diagnostics cross-schema (+95 / -8 LOC, commit 95f936b)
+- B6-b-4 expander "Cómo funciona" dividido (+39 / -12 LOC, commit b9d9264)
+- Más fix b0a234c (restaurar B6-b-2 + B6-b-3 borrados accidentalmente por chat M29 64e3d6f)
 
 **Sub-bloques pendientes:**
-- B6-b (UI integration) — 2.5-3.5h, 5 sub-bloques (ver "Próxima sesión")
+- B6-b-5 audit code-reviewer Opus 4.7 (30-45 min) — opcional, diferido por validación E2E exitosa
 
-**Tests:** smoke E2E `scripts/smoke_b6a_e2e_pipeline.py` PASS 12/12 sanity checks
-(1.27s, cobertura 42.1% — 69/164 fields, 3 enum translators, 7 rows → 152
-new_fields). Par real: Gamboa coat ALRBB093 fptcustom → COAT__5_ ptd. No hay
-suite pytest formal del módulo todavía.
+**Tests:**
+- smoke E2E `scripts/smoke_b6a_e2e_pipeline.py`: pipeline B6-a sigue PASS pero smoke wrapper B6-b-1 crashea con Python 3.14.3 + openpyxl 3.1.5 sobre .xlsm (segfault nivel C, sin traceback). Bug de entorno, NO de código.
+- Smoke visual Streamlit con par real Gamboa (.xlsx convertidos): PASS E2E completo — cobertura 42.1%, 69 col migradas, 6 filas, 3 enum translators, 276 diagnostics, descarga XLSX OK.
 
-**Smoke status:** B6-a E2E PASS 12/12 (2026-05-22).
+**Smoke status:** Smoke visual UI PASS 2026-05-25 (par Gamboa coat.xlsx). Smoke CLI requiere fix infra (venv Python 3.12 o workaround .xlsm → .xlsx).
 
 ---
 
@@ -196,18 +194,22 @@ suite pytest formal del módulo todavía.
 - (ninguno)
 
 **P1 — alta prioridad:**
-- B6-b UI integration completo (único bloque para llegar a 100% v1.1)
+- **Bug entorno Python 3.14.3 + openpyxl 3.1.5 + .xlsm:** smoke CLI crashea silencioso al parsear xlsm con macros. Workaround: convertir a .xlsx antes de upload. Solución definitiva: venv `.venv` con Python 3.12.x + `pip install -r requirements.txt`.
 
 **P2 — media:**
-- P2-1 validador Required NEW O(N×M)
-- P2-2 `str()` sobre datetime/Decimal
-- P2-4 shadow-match en matching de columnas
+- **Audit Opus B6-b-5 pendiente:** opcional pero recomendado antes de shipear formalmente.
+- **Síntesis `methods_count` v1.1** re-derivada por `_normalize_label` — validar contra `_build_field_map` real durante audit (regla "hit directo = label_match, else alias_label" puede tener falsos positivos).
+- P2-1 validador Required NEW O(N×M) (sin cambios)
+- P2-2 `str()` sobre datetime/Decimal (sin cambios)
+- P2-4 shadow-match en matching de columnas (sin cambios)
 
 **P3 — baja / deuda blanda:**
-- P3-1 a P3-3 renames de helpers
-- B5-a-bis / bis-bis / bis-tris del audit 19/05
-- Helper huérfano `_extract_template_rows` (L712)
-- Extender `_STRUCTURED_ALIASES` a otras categorías (on-demand, sin ROI confirmado)
+- P3-1 a P3-3 renames de helpers (sin cambios)
+- B5-a-bis / bis-bis / bis-tris del audit 19/05 (sin cambios)
+- Helper huérfano `_extract_template_rows` L712 (sin cambios)
+- Extender `_STRUCTURED_ALIASES` a otras categorías (sin cambios)
+- Limpiar artefacto untracked `-` en raíz del repo (no de M27)
+- Auditar configuración de CC para evitar `git commit --amend` autónomo con mensajes fabricados (incidente 252f286 del 2026-05-25)
 
 ---
 
@@ -216,24 +218,28 @@ suite pytest formal del módulo todavía.
 > Esta sección se actualiza al cierre con el bloque concreto a ejecutar la
 > próxima vez que se trabaje esta feature.
 
-**Bloque a ejecutar:** B6-b según `notes/modules/M27-b6-plan.md`. Secuencia:
-- B6-b-1 — orquestador `_run_migration_v11` (output shape superset, ~80-100 LOC) — 45-60 min
-- B6-b-2 — auto-detección post-parse + radio toggle v1/v1.1 (~30-40 LOC) — 20-30 min
-- B6-b-3 — renderer condicional de resultados + diagnostics v1.1 (~60-80 LOC) — 45-60 min
-- B6-b-4 — expander "Cómo funciona" dividido v1/v1.1 (opcional, ~30-40 LOC) — 15-20 min
-- B6-b-5 — audit code-reviewer Opus 4.7 + mitigaciones — 30-45 min
+**Bloque a ejecutar (decisión Lenin):**
 
-**Pre-flight:** leer `notes/modules/M27-b6-plan.md` completo (tiene pseudocódigo
-por sub-bloque + riesgos). Mirar `_render_marketplace` L1916-2149 y `render()`
-L2153-2198 antes de editar.
+Opción A — Audit Opus B6-b-5 (30-45 min):
+- Sub-agente: code-reviewer Opus 4.7 (NO ppc-module-builder)
+- Scope: delta f71bfdf~1..b9d9264 sobre flat_file_migrator.py + smoke
+- Mitigaciones quirúrgicas si aparece P1 (commit aparte fix(M27): B6-b-5 mitigaciones audit Opus)
 
-**Estimación:** 2.5-3.5h — cabe en una sesión.
+Opción B — Fix infra entorno (45-60 min):
+- Setup venv Python 3.12 + `pip install -r requirements.txt`
+- Re-correr smoke CLI con venv → confirmar PASS
+- Documentar setup en CLAUDE.md repo
 
-**Sub-agentes Claude Code que podrían usarse:** code-reviewer (Opus 4.7) para
-B6-b-5. NO usar ppc-module-builder (historial de hallucination).
+Opción C — Ship M27 v1.1 (cierre formal):
+- Mover arranque-m27.md a `_shipped/` con frontmatter `feature_status: shipped`
+- Update STATE-agencia reflejando ship
+- Maintenance backlog = P2/P3 actuales
 
-**Riesgos/dependencias:** sin bloqueos externos. Riesgo técnico: degradar UI a
-"Same-schema solamente" si el OLD no trae field_ids (`has_old_fids` False).
+**Estimación:** 30-60 min según opción.
+
+**Sub-agentes:** code-reviewer Opus 4.7 si Opción A.
+
+**Riesgos/dependencias:** Opción A puede sacar P1 que requiera otra sesión. Opción B requiere Python 3.12 instalado en el sistema (verificar). Opción C asume ship a producción interna agencia (Marcos) — confirmar antes con Freddy.
 
 ---
 
@@ -246,6 +252,7 @@ B6-b-5. NO usar ppc-module-builder (historial de hallucination).
 - 2026-05-20 — B5-b row extractor + Required validator + audit (3 commits, +205 LOC). [[2026-05-20]]
 - 2026-05-21 — B5-c row migrator core con 5 codes (commit 3248695). [[2026-05-21]]
 - 2026-05-22 — Hardening post-audit + B6-a smoke E2E PASS + discovery UI + plan B6-b producido. [[2026-05-22]]
+- 2026-05-25 — B6-b-1+2+3+4 completos (5 commits, M27 v1.1 al 100% funcional, validado E2E Streamlit con par Gamboa). Incidente: chat M29 borró 147 LOC, restaurado por b0a234c. Deuda P1 nueva: Python 3.14 + openpyxl + xlsm. Audit Opus B6-b-5 diferido. [[2026-05-25]]
 
 ---
 
