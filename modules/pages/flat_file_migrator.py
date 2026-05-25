@@ -2515,19 +2515,46 @@ def render():
 
     # Ayuda rápida (always-visible expander)
     with st.expander("ℹ️ Cómo funciona", expanded=False):
+        st.markdown("##### Modo Same-schema (v1)")
         st.markdown(
-            "1. **Subí el flat file viejo** (con tus datos de productos)\n"
-            "2. **Subí el template nuevo** descargado de Seller Central → Catalog → Add Products via Upload\n"
-            "3. **Migrar Data →** mapea columnas usando 5 estrategias en cascada:\n"
-            "   - Match exacto de field IDs (lowercase)\n"
-            "   - Match normalizado (sin brackets, hash, sufijos numéricos)\n"
-            "   - Aliases bidireccionales (~40 mappings: `item_sku ↔ contribution_sku`, "
-            "`brand ↔ brand_name`, `main_image_url ↔ main_product_image_locator`, etc.)\n"
-            "   - Match por base name del field ID\n"
-            "   - Match por header normalizado (fallback)\n"
-            "4. **Filtra filas internas Amazon** (`marketplace_id=`, `[language_tag=`, etc.)\n"
-            "5. **Skip example row**: la primera data row del old (ejemplo Amazon) se saltea por default\n"
-            "6. **Descargá** el resultado en `.xlsx` o `.tsv`"
+            "Mapeo por **field_id**. Funciona cuando OLD y NEW comparten el "
+            "mismo `productType` (ej. coat → coat). Aplica 5 estrategias de "
+            "matching en cascada:\n"
+            "1. **Exact** — field_id idéntico (`bullet_point#1.value` ⇄ "
+            "`bullet_point#1.value`).\n"
+            "2. **Normalized** — quita `[marketplace_id=...]`, "
+            "`[language_tag=...]`, hash y sufijos, y compara base + número.\n"
+            "3. **Aliases** — 61 mapeos bidireccionales validados con "
+            "clientes reales (`item_sku ↔ contribution_sku`, "
+            "`brand ↔ brand_name`, etc.).\n"
+            "4. **Base** — solo coincide el nombre base (sin números).\n"
+            "5. **Header** — fallback por display label si los field_ids no "
+            "alcanzan.\n\n"
+            "También filtra filas internas de Amazon (`marketplace_id=`, "
+            "`[language_tag=`, etc.) y, por default, saltea la primera data "
+            "row del OLD (ejemplo de Amazon).\n\n"
+            "Cobertura típica: 80-95% en pares same-schema."
+        )
+
+        st.divider()
+
+        st.markdown("##### Modo Cross-schema (v1.1)")
+        st.markdown(
+            "Mapeo por **label normalizado + alias** + traducción de enums. "
+            "Diseñado para pivotear entre `productType` distintos (ej. "
+            "`fptcustom` → `ptd`). Pipeline:\n"
+            "1. **Auto-detect schema** — `_detect_schema` infiere OLD/NEW y "
+            "preselecciona el modo recomendado.\n"
+            "2. **Field map** — matching por label normalizado "
+            "(`brand_name` → `Brand Name`) + 3 aliases label-level.\n"
+            "3. **Value map** — traduce enums entre schemas (ej. "
+            "`Partial Update` → `Edit (Partial Update)`). 3 translators "
+            "activos.\n"
+            "4. **Row migration** — copia data celda por celda y emite "
+            "diagnostics por code (`unmapped_field`, "
+            "`missing_required_in_new`, etc.).\n\n"
+            "Cobertura típica: 40-60% en pares cross-schema. El resto "
+            "requiere completar manual en el NEW."
         )
 
     st.markdown("")
