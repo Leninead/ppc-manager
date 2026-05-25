@@ -1053,3 +1053,7 @@ Detalle M29 bug: [[2026-05-15-m29-bug-save-buttons]]
   Replicable para cualquier cliente con Brand Registry + canales externos
   activos. Aplica a LTD, Dermaglos, M&B. Gotcha crítico documentado:
   bulk Beta no completa jerarquía Ads/Tags, default = Create manually.
+
+- **2026-05-22**: NotebookLM adoption — SOP v1.0 commiteado (notes/sops/SOP_NotebookLM_Capybaras_2026.md). Pilot personal de Lenin días 1-7 con notebook `intel-agencia-q2-2026`. 4 notebooks pre-armados con fuentes en Drive. Go/No-Go preliminar día 7, formal día 60 (2026-07-22).
+
+- **2026-05-22**: NotebookLM adoption — SOP v1.0 commiteado (notes/sops/SOP_NotebookLM_Capybaras_2026.md). Pilot personal de Lenin días 1-7 con notebook `intel-agencia-q2-2026`. 4 notebooks pre-armados con fuentes en Drive. Go/No-Go preliminar día 7, formal día 60 (2026-07-22).

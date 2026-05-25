@@ -191,3 +191,9 @@ Biblioteca crece, Claude tiene contexto acumulado
 
 ## Tags
 #sop #obsidian #biblioteca #workflow #capybaras #conocimiento #2026
+
+---
+
+## SOPs
+
+- [[SOP_NotebookLM_Capybaras_2026]] — Adopción NotebookLM Google Workspace (v1.0, mayo 2026). 5 use cases priorizados, roadmap 60 días.
