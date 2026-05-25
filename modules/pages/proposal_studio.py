@@ -29,6 +29,7 @@ import json
 import streamlit as st
 from datetime import datetime, timezone
 import core.proposal_persistence as pp
+from modules.sales.b7_importer import extract_blocks
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constantes UI
@@ -2570,11 +2571,178 @@ def _render_detail_screen() -> None:
 
     st.divider()
 
+    # ── B7 Importer (D2: preview readonly, apply llega en D3) ────────────
+    _render_b7_importer_section(proposal)
+
     # ── Listado de blocks de la propuesta ────────────────────────────────
     _render_blocks_section(proposal)
 
     with st.expander("🔍 Ver propuesta cruda (debug)", expanded=False):
         st.code(json.dumps(proposal, indent=2, ensure_ascii=False), language="json")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B7 Importer — UI dispatcher (D2: skeleton + preview readonly, sin apply)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _render_b7_importer_section(proposal: dict) -> None:
+    """Sección de importer B7 dentro de la vista detalle.
+
+    D2 (este sub-bloque): expander con file_uploader + preview readonly del
+    ImportReport (counts + warnings + errors + listado de blocks detectados).
+    NO incluye apply/save todavía; eso llega en D3.
+
+    Args:
+        proposal: dict de la propuesta cargada del disco (vista detalle).
+    """
+    pid = proposal["id"]
+
+    with st.expander("📥 Importar desde HTML (B7)", expanded=False):
+        st.caption(
+            "Subí un HTML producido por las skills de audit de Ramiro "
+            "(`amazon-brand-audit`, `digital-presence-audit`). El importer "
+            "lee la convención `data-proposal-*` del contrato B7 v1.0 y "
+            "prepara un preview de los bloques detectados. "
+            "**D2: solo preview readonly — el apply llega en D3.**"
+        )
+
+        uploaded = st.file_uploader(
+            "HTML de audit",
+            type=["html", "htm"],
+            key=f"b7_uploader_{pid}",
+            help="Single file v1. Multi-file llega en v1.1.",
+        )
+
+        if uploaded is None:
+            return
+
+        # Parsear el HTML — función pura, sin side effects.
+        try:
+            html_bytes = uploaded.getvalue()
+            catalog = _load_catalog_cached()
+            report = extract_blocks(html_bytes, catalog)
+        except Exception as e:
+            st.error(
+                f"❌ Error al parsear el HTML: {type(e).__name__}: {e}"
+            )
+            return
+
+        # ── Counts ────────────────────────────────────────────────────────
+        n_blocks = len(report.blocks)
+        n_warnings = len(report.warnings)
+        n_errors = len(report.errors)
+
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("Blocks detectados", n_blocks)
+        with col_b:
+            st.metric("Warnings", n_warnings)
+        with col_c:
+            st.metric("Errors (bloqueantes)", n_errors)
+
+        # ── Errors: tabla roja, apply bloqueado ───────────────────────────
+        if n_errors > 0:
+            st.markdown(
+                f"<div style='background:#FFF5F5;border-left:3px solid #F44336;"
+                f"padding:0.7rem 1rem;border-radius:4px;font-size:0.85rem;"
+                f"color:#5D1A1A;line-height:1.5;margin:0.8rem 0;'>"
+                f"⛔ <strong>{n_errors} error(es) bloqueante(s)</strong> — el "
+                f"merge no se va a poder aplicar hasta resolverlos.</div>",
+                unsafe_allow_html=True,
+            )
+            err_rows = [
+                {
+                    "code": e.code,
+                    "module_id": e.module_id or "—",
+                    "block_index": e.block_index if e.block_index is not None else "—",
+                    "message": e.message,
+                }
+                for e in report.errors
+            ]
+            st.dataframe(err_rows, use_container_width=True, hide_index=True)
+
+        # ── Warnings: tabla amarilla, no bloquea ──────────────────────────
+        if n_warnings > 0:
+            st.markdown(
+                f"<div style='background:#FFFBF0;border-left:3px solid #FFC107;"
+                f"padding:0.7rem 1rem;border-radius:4px;font-size:0.85rem;"
+                f"color:#5D4037;line-height:1.5;margin:0.8rem 0;'>"
+                f"⚠️ <strong>{n_warnings} warning(s)</strong> — no bloquean "
+                f"el merge.</div>",
+                unsafe_allow_html=True,
+            )
+            warn_rows = [
+                {
+                    "code": w.code,
+                    "module_id": w.module_id or "—",
+                    "block_index": w.block_index if w.block_index is not None else "—",
+                    "field_path": w.field_path or "—",
+                    "message": w.message,
+                }
+                for w in report.warnings
+            ]
+            st.dataframe(warn_rows, use_container_width=True, hide_index=True)
+
+        # ── Blocks detectados: lista compacta con flag apply/skip ─────────
+        if n_blocks > 0:
+            st.markdown(
+                f"<div style='font-size:0.9rem;font-weight:700;color:{_NEGRO};"
+                f"margin-top:0.8rem;margin-bottom:0.4rem;'>Blocks detectados "
+                f"<span style='font-size:0.75rem;color:{_GRIS_TXT};font-weight:400;'>"
+                f"({n_blocks})</span></div>",
+                unsafe_allow_html=True,
+            )
+
+            # Pre-calcular qué module_ids existen en target_proposal.blocks
+            # para marcar visualmente cuáles van a aplicar y cuáles skipean.
+            # Mismo criterio que usa merge_blocks (block_not_in_target se
+            # warnea pero no aplica).
+            target_module_ids = {
+                b.get("module_id") for b in proposal.get("blocks", [])
+                if isinstance(b, dict)
+            }
+
+            for draft in report.blocks:
+                will_apply = draft.module_id in target_module_ids
+                badge_bg = "#E8F5E9" if will_apply else "#F5F5F5"
+                badge_color = "#2E7D32" if will_apply else "#9E9E9E"
+                badge_text = "✓ aplicará" if will_apply else "⊘ skip (no está en target)"
+
+                st.markdown(
+                    f"<div style='border:1px solid #E0E0E0;border-left:3px solid "
+                    f"{_NARANJA};border-radius:4px;padding:0.5rem 0.8rem;"
+                    f"margin-bottom:0.35rem;background:#FFFFFF;'>"
+                    f"<div style='display:flex;align-items:center;justify-content:space-between;'>"
+                    f"<div style='font-family:monospace;font-size:0.82rem;color:{_NEGRO};'>"
+                    f"#{draft.block_index:02d} · {draft.module_id}</div>"
+                    f"<span style='background:{badge_bg};color:{badge_color};"
+                    f"font-size:0.7rem;padding:2px 8px;border-radius:3px;font-weight:600;'>"
+                    f"{badge_text}</span>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+
+            # Debug: expander con el data crudo de cada draft (para auditoría).
+            with st.expander("🔍 Ver data crudo de los blocks detectados", expanded=False):
+                for draft in report.blocks:
+                    st.markdown(
+                        f"**{draft.module_id}** "
+                        f"(contract v{draft.contract_version})"
+                    )
+                    st.json(draft.data)
+
+        # ── Footer info ───────────────────────────────────────────────────
+        if report.ok:
+            st.markdown(
+                f"<div style='margin-top:0.8rem;padding:0.6rem 1rem;"
+                f"background:#FFF8F0;border-left:3px solid {_NARANJA};"
+                f"border-radius:4px;font-size:0.78rem;color:#555;line-height:1.5;'>"
+                f"✅ Report válido. El botón <strong>Aplicar merge</strong> "
+                f"llega en D3 (próximo sub-bloque). Por ahora, smoke manual "
+                f"contra esta preview.</div>",
+                unsafe_allow_html=True,
+            )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
