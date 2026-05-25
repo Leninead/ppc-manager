@@ -196,6 +196,123 @@ Ver: [[2026-05-22]] [[2026-05-21]] [[M27-flat-file-migrator]] [[M27-b6-plan]] [[
 
 ---
 
+### Última sesión — 2026-05-25 (consolidador 3 frentes paralelos)
+
+**Sesión multi-frente — Setex Hot Sale + M27 v1.1 cierre + M29 dispatcher B7.**
+3 chats paralelos consolidados. 11 commits locales listos para push al cierre.
+
+**Commits representativos del día:**
+- `093e686` feat(M29): B7 UI dispatcher D2 — skeleton + preview (+168 LOC en
+  `proposal_studio.py`, helper `_render_b7_importer_section`)
+- `2d8101e` docs(setex): cierre Hot Sale push táctico (daily + arranque-setex +
+  brand note)
+- `da59dfb` docs(M27): cierre B6-b 8/8 (daily + arranque-m27)
+- `9d0274a` docs(m29): cierre chat #1/4 (daily + arranque-m29)
+
+**Incidente cross-frente del día (resuelto, cero pérdida funcional):**
+`64e3d6f → 252f286 → b0a234c`. El contenido de `252f286` resultó ser rollback
+intencional del chat M27. `b0a234c` restauró sus B6-b-2 + B6-b-3. Validación
+con CC del chat M27 confirmó alcance correcto.
+
+---
+
+**Frente 1 — Setex Hot Sale push táctico (Tati avisó 10:39):**
+
+- 6 bulks ejecutados 100% Success (UUIDs registrados en daily + brand note).
+- KPIs cuenta pre-bulks: **ACoS 18.5% · ROAS 5.41× · 448 orders/30d · CVR 11.45%**
+  (mejora vs 22/05: ACoS -0.9pp, ROAS +0.26×, orders +55, CVR +1pp).
+- 86 → 78 camps ENABLED post-cierre.
+- Push agresivo Thin family aprovechando deals activos (Standard 1mm + Thick +
+  Ultra Thin).
+- **Decisión opción B B09F7P8GBZ (stock 6u, trip wire 3u activo)** — mantener
+  push controlado, monitor lunes.
+- Corrección diagnóstico listing EN B081GB8F89: re-clasificado como **baja
+  prioridad** (la hipótesis de funnel break EN no se sostiene con SQP fresco).
+- Mensaje Tati posteado: flag B09F7P8GBZ + nuevos flags **B0F63LTD92** y
+  **B0C7WPFVGV** (restocked pero 0 sales 30d — perdieron rank por OOS, hay que
+  reactivar).
+
+---
+
+**Frente 2 — M27 Flat File Migrator v1.1 — 100% funcional:**
+
+- **8/8 sub-bloques B6-b cerrados** (B6-b-1 a B6-b-4). Llegamos al 100% v1.1.
+- Validado E2E en Streamlit con par real Gamboa `coat.xlsx` (fptcustom OLD →
+  PTD NEW).
+- 5 commits de código + 1 commit docs.
+- **Decisión próxima sesión M27 (3 caminos):**
+  - **A** — audit code-reviewer Opus B6-b-5 (deuda P3, no bloqueante)
+  - **B** — fix infra venv Python 3.12 (resolver bug P1 del .xlsm)
+  - **C** — ship formal v1.1 (mensaje Marcos + closing loop)
+  - **Recomendación:** priorizar **B** (fix infra venv Python 3.12, 45-60 min)
+    porque destraba `.xlsm` y habilita smoke CLI completo. A y C pueden esperar.
+- **Bug P1 nuevo (alcance acotado):** entorno Python 3.14 + openpyxl 3.1.5 +
+  archivos `.xlsm` produce crash silencioso. **NO afecta `.xlsx`** — el smoke
+  CLI `scripts/smoke_b6a_e2e_pipeline.py` pasó OK con `.xlsx` convertido. Lección
+  para vault: el smoke E2E que bypassa `_parse_workbook` no detecta bugs de UI
+  Streamlit.
+- Audit Opus B6-b-5 **diferido como deuda P3** (módulo es estable y se usa solo
+  internamente por Marcos).
+
+---
+
+**Frente 3 — M29 Proposal Studio — UI dispatcher B7 (chat #1/4):**
+
+- **D1 (discovery) + D2 (skeleton + preview) cerrados.**
+- `+168 LOC` en `modules/pages/proposal_studio.py` (helper privado
+  `_render_b7_importer_section`).
+- Smoke E2E con fixture `b7_sample_v3v4.html`: **PASS — Blocks=2 / Warnings=6 /
+  Errors=0**.
+- **D3 + D4 pendientes martes 26/05** (camino al ship jueves 28/05).
+- **Refactor DataDive parsers → `modules/parsers/` + mapper V3** agendado para
+  martes post-D4.
+- **Ship target M29: jueves 28/05.**
+
+---
+
+**Contador bugs M4 cross-cliente actualizado: 5 → 8 (+3 nuevos Setex):**
+
+- ⊕ `ppc_insights_asin` corrupto (output con campos vacíos en filas válidas)
+- ⊕ `plan_accion_bulk` falsos positivos en clasificación ESCALAR / DEFENDER / NaN
+- ⊕ Sin mapping Campaign / AdGroup / MaxBid en algunos outputs
+- Bugs preexistentes: 5 ya documentados en sesiones previas (Dermaglos 08/05
+  + Setex 22/05). Detalle consolidado en doc entregable Ramiro.
+- **Entregable Ramiro pendiente** — consolidar los 8 en un doc único para el
+  patch coordinado.
+
+---
+
+**Lecciones operativas multi-frente (nuevas):**
+
+- `git add modules/` es tan peligroso como `git add .` cuando hay subarchivos
+  modificados por otros chats paralelos. Siempre `git add <path-específico>`
+  cuando hay paralelismo activo.
+- **IDE cerrado del lado del chat que NO edita** un archivo compartido (evita
+  save conflicts entre VS Code y CC).
+- **Pre-validar contadores numéricos en specs antes de aceptar:** CC validó que
+  `_LABEL_ALIASES` real son 3 entradas, no 40 como decía el spec heredado del
+  daily 18/05. Patrón: nunca confiar en números de notas viejas sin
+  `Select-String -Count` actual.
+- **Smoke E2E que bypassa `_parse_workbook` no detecta bugs de UI Streamlit.**
+  Caso concreto: el smoke CLI M27 pasó OK con `.xlsx` pero el bug P1 del `.xlsm`
+  solo aparece vía UI completa.
+- **Bug "edits fantasma" en CC (1er hit):** CC reporta éxito de edit + smoke
+  manual PASS, pero el archivo en disco queda sin cambios. Pattern recovery
+  validado: verificación triple post-edit (`Select-String` + `git status` +
+  `git diff --stat`). Hermano nominal del bug "ppc-module-builder hallucination"
+  (4 hits acumulados).
+
+---
+
+**Próximo milestone: ship M29 jueves 28/05.**
+**Reunión Ramiro próxima viernes 29/05** (corrección del arranque previo que
+decía "30/05" — esa fecha cae sábado).
+
+Ver: [[2026-05-25]] · [[setex]] · [[M27-flat-file-migrator]] · [[agency-os]] ·
+[[arranque-setex]] · [[arranque-m27]] · [[arranque-m29]]
+
+---
+
 ### Última sesión — 2026-05-22 (M29 — B7 Importer v1 completo)
 
 **Sesión partida 21+22/05** — código del 21/05 sin commit por salida imprevista;
@@ -986,35 +1103,40 @@ Detalle: [[2026-05-15-m27-strategy-3-5-structured]]
 
 ## Próximos pasos inmediatos
 
-### Próxima semana (18-24/05) — orden de prioridad
+### Próxima semana (26-31/05) — orden de prioridad
 
-**1. M29 fix bug Guardar V1/V2 — sábado 16 o domingo 17/05 (URGENTE)**
-- Leer output de auditoría forense
-- Implementar fix
-- Smoke test ambos editores
-- Si toma >2h sin progreso → mensaje preventivo Slack ajustando deadline 18/05
+**1. M29 D3 + D4 dispatcher B7 — martes 26/05**
+- Camino al ship jueves 28/05
+- D3 (commit pipeline) + D4 (validación + diagnostics UI)
+- Bloqueante si se atrasa: el ship target se mueve
 
-**2. M29 continuar S3-B3-c, B3-d, B3-e — semana 18-24/05**
-- 5 editores CORE pendientes después del fix del bug
-- Cierre fases 3+4 (compromiso público)
-- Sesión A.2 tests pytest con monkeypatch (deuda activa)
+**2. M27 decisión A / B / C — cuándo Lenin pueda**
+- A: audit Opus B6-b-5 (deuda P3, no urgente)
+- B: fix infra venv Python 3.12 (resolver bug P1 .xlsm) — **recomendado**
+- C: ship formal v1.1 + mensaje Marcos closing loop
 
-**3. M27 closing loop con Marcos — lunes 18/05**
-- Mensaje Slack: "M27 v2 listo, probá local con tus 2 archivos"
-- Esperar feedback visual del output v2
-- Decisión post-feedback: ¿extender a otras categorías o queda en Apparel?
+**3. Refactor DataDive parsers → `modules/parsers/` + mapper V3 — martes
+   post-D4**
 
-**4. Atom11 MCP discovery — semana 18-25/05 (sesión dedicada ~45 min)**
-- No bloquea M29 ni M27
-- Alcance acotado: documentar workflows en `notes/knowledge/`
-- Hipótesis previa: NO reemplaza M14, NO necesita módulo nuevo
-- Trigger: cuando M29 fases 3+4 estén cerradas
+**4. Editor manual V5 (URLs pareadas) — miércoles 27/05**
 
-Detalle Atom11: [[2026-05-15-atom11-mcp-integration]]
-Detalle M27: [[2026-05-15-m27-strategy-3-5-structured]]
-Detalle M29 bug: [[2026-05-15-m29-bug-save-buttons]]
+**5. Testing E2E + SOP + ship M29 — jueves 28/05**
+- Target público comprometido
 
----
+**6. Setex eval día 7 Hot Sale — lunes 01/06**
+- Validar performance bulks 25/05 con 7d data
+
+**7. Monitor B09F7P8GBZ stock cada lunes (trip wire 3u)**
+- Si baja a 3u → pausar push family
+
+**8. Bug list M4 consolidado (8 bugs) → entregable Ramiro**
+- Doc único con los 8 bugs + repro steps + propuesta de patch
+
+**9. Atom11 v2026.3 confirmación Neha (3er día sin respuesta)**
+- Bump al canal o DM directo si sigue sin respuesta el lunes
+
+**Reuniones agendadas:**
+- Viernes 29/05 — sync Ramiro post-ship M29 (corrección: NO sábado 30/05)
 
 ### Backlog general
 
