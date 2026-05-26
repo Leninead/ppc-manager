@@ -133,7 +133,12 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - **SQP:** `read_sqp()` con `skiprows=1`. Marca extraída con `extract_sqp_brand()`.
 - **Bulk:** Dataframe raw. Filtro por `State == "ENABLED"`.
 - **Business Report:** Dataframe raw de ventas y sesiones.
-- **Análisis Cruzado STR vs SQP:** Cruza `Customer Search Term` vs `Search Query`. Opportunity Score = min-max de impresiones + clicks + purchase rate. Filtros: impresiones, SQS, purchases, tipo Marca/Genérica.
+- **Análisis Cruzado STR vs SQP** (`modules/pages/analisis_cruzado.py`): cruza STR (búsqueda paga) vs SQP (orgánica) para keyword discovery + clasificación automática. Opportunity Score = min-max de impresiones + clicks + purchase rate.
+  - **Tab 1 Cruce:** oportunidades marca/genéricas + panel diagnóstico cobertura Match Type (warning si AUTO/PT > 20% del spend — mitigación visual BUG-1; el fix real upstream en M2 queda para C-2).
+  - **Tab 2 Plan de Acción:** classifier con 9 acciones priorizadas (bloque BRAND antes que genéricas): ⚔️ CONQUEST (cross-brand) > ❔ SIN DATA marca > 🛡️ DEFENDER marca > 🏆 BRAND PURE OK > ⚫ ASIN (PT) > ⚡ ESCALAR > ➕ AGREGAR keyword > ⬇️ BAJAR BID > 👁️ MONITOREAR. Inputs opcionales: brand terms, competidores conocidos, ASINs propios del cliente, precio promedio, CVR default, target ACoS. Bulk export con Max Bid calculado (CVR × precio × target ACoS) + Match Type variable (ESCALAR→exact, AGREGAR→phrase, DEFENDER→exact).
+  - **Tab 3 PPC Insights por ASIN:** detección ASIN multi-columna (Advertised ASIN → ASIN → SKU → Product → regex Campaign Name) + warning de cobertura de spend.
+  - **Helper `_norm()`:** normaliza brand matching (strip acentos + colapso espacios + lowercase). Aplica en detección Tipo + classifier.
+  - **Contrato con M10 Campaign Builder:** las 4 columnas del bulk (`Keyword` / `Acción sugerida` / `Purchases mercado` / `Brand Share %`) son inmutables. La whitelist de export filtra CONQUEST / SIN DATA / BRAND PURE OK / ASIN — solo ESCALAR/AGREGAR/DEFENDER llegan a M10.
 - **Tendencia Multi-Semana:** Hasta 4 SQPs. Pivot por `Search Query`. ↑ >10%, ↓ >10%, → estable.
 - **Análisis de Funnel:** Campañas ENABLED, brechas STR vs bulk, campañas sugeridas con naming convention, harvesting Exact/Phrase (Exact si órdenes ≥ 3 o ACoS ≤ 25%).
 

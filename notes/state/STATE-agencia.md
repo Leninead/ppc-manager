@@ -1,11 +1,33 @@
 ---
 tipo: state
-actualizado: 2026-05-15
+actualizado: 2026-05-26
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-05-26 (fix M4 Análisis Cruzado — 14 bugs)
+
+Sesión de fix completo de M4 (`modules/pages/analisis_cruzado.py`). Commit `b2763cb` (+313/-33). Audit doble code-reviewer (intermedio + final) PASS + 2 smokes reales PASS (Setex 22/05 + Dermaglos 08/05).
+
+**Resueltos (commit b2763cb):**
+- BUG-1 M4: mitigación visual con panel diagnóstico cobertura Match Type (fix REAL pendiente C-2).
+- BUG-2, BUG-3, BUG-4, BUG-5, BUG-6, BUG-7, BUG-8, BUG-9, BUG-10 (todos M4).
+- 4 adicionales del audit: Opportunity Score disponible en Tab 2, `precio=0` vestigial removido del classifier, NaN-or trap arreglado con helper `_br_num`, dedupe SQP sin mutar `df_sqp` original.
+- Bonus: acción nueva `🏆 BRAND PURE OK` + reorden bloque BRAND antes de ESCALAR/AGREGAR (FIX B post-audit).
+
+**Movido a próxima sesión / C-2:**
+- BUG-1 fix REAL en M2 (`search_term_report.py` L325-345): la merma AUTO/PT (~70% del spend) viene de la vista Winners / filtro upstream, NO de M4. M4 lee el STR raw sin filtrar.
+
+**Deuda técnica registrada (no bugs):**
+- M4: columna residual `_asin_ext` en `df_str` (scope local Tab 3, sin impacto en exports). Aplicar `df_str_t3 = df_str.copy()` solo si se reordenan los tabs en el futuro.
+- M4: `_br_num` no maneja separador de miles europeo (`1.234`). YAGNI — Amazon US/MX exporta con coma de miles.
+
+**Learning operativo — Python NaN-or trap:**
+En expresiones tipo `expr or default` donde `expr` puede devolver NaN, NaN es *truthy* en Python → `NaN or 0` devuelve NaN, no 0. Siempre usar `pd.isna()` check explícito. Detectado por code-reviewer en B4.4 (parser BR de M4). Aplicar en futuras refactors de parsers similares.
 
 ---
 

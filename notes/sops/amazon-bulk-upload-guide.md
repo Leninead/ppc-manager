@@ -208,8 +208,7 @@ Bugs adicionales en bulks pre-armados del módulo:
 - Brand propio (`setex gecko grip`) clasificado como negativo
 - ASIN propio en harvest con bids altos
 
-**Fix coordinado con Ramiro pendiente** — patch debe procesar TODOS los rows
-del STR raw, no solo Match Type ∈ {EXACT, PHRASE, BROAD}.
+**✅ RESUELTO (commit b2763cb, 2026-05-26)** — el classifier de M4 fue reescrito: dedupe SQP, anti-self-ASIN, cross-brand → CONQUEST, NaN ≠ 0, relevancia confirmada para ESCALAR, bloque BRAND prioritario. M4 ahora cubre AUTO + PT vía panel diagnóstico visual (warning si > 20% del spend en AUTO/PT/sin Match Type). El fix REAL upstream en M2 (`search_term_report.py` L325-345) queda pendiente para sesión C-2.
 
 ### 13. Cross-client ASIN safety check antes de mensajes operativos
 
@@ -256,3 +255,10 @@ Antes de generar bulk de CREATE harvest, ejecutar 7 checks:
 7. ¿AUTO winner ya la captura barato? (no canibalizar)
 
 Si AUTO captura a ACoS <10%, **NO crear EXACT** — solo escalar AUTO budget.
+
+---
+
+## Learnings 2026-05-26 (cierre fix M4 — bulks ejecutables)
+
+### Bulks M4 ahora ejecutables (commit b2763cb)
+El Plan de Acción bulk de M4 dejó de ser inejecutable: Max Bid calculado (CVR × precio × target ACoS), Match Type variable por acción (ESCALAR→exact, AGREGAR→phrase, DEFENDER→exact), contrato con M10 Campaign Builder preservado (4 columnas inmutables). **Verificar `target_acos` antes de descargar el bulk** (default 35, ajustar según cliente: Setex 18, Dermaglos 50, LTD 35) — un target más estricto reduce las filas ESCALAR y baja el Max Bid calculado.
