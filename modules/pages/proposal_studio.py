@@ -1,4 +1,4 @@
-"""Proposal Studio (M29) — Sesión 2 skeleton.
+﻿"""Proposal Studio (M29) — Sesión 2 skeleton.
 
 Módulo de la sección Sales Director del Agency OS. Permite crear y gestionar
 propuestas comerciales para leads/prospects usando el catálogo de 37 módulos
@@ -29,7 +29,7 @@ import json
 import streamlit as st
 from datetime import datetime, timezone
 import core.proposal_persistence as pp
-from modules.sales.b7_importer import extract_blocks
+from modules.sales.b7_importer import extract_blocks, merge_blocks
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constantes UI
@@ -2582,16 +2582,17 @@ def _render_detail_screen() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# B7 Importer — UI dispatcher (D2: skeleton + preview readonly, sin apply)
+# B7 Importer — UI dispatcher (D3: preview + apply 2-clicks + save con auto-bump)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 def _render_b7_importer_section(proposal: dict) -> None:
     """Sección de importer B7 dentro de la vista detalle.
 
-    D2 (este sub-bloque): expander con file_uploader + preview readonly del
-    ImportReport (counts + warnings + errors + listado de blocks detectados).
-    NO incluye apply/save todavía; eso llega en D3.
+    D2: expander con file_uploader + preview readonly del ImportReport
+    (counts + warnings + errors + listado de blocks detectados).
+    D3: botón "Aplicar merge" con confirmación 2-clicks + save con
+    auto-bump de version + banner de éxito + rerun.
 
     Args:
         proposal: dict de la propuesta cargada del disco (vista detalle).
@@ -2602,9 +2603,10 @@ def _render_b7_importer_section(proposal: dict) -> None:
         st.caption(
             "Subí un HTML producido por las skills de audit de Ramiro "
             "(`amazon-brand-audit`, `digital-presence-audit`). El importer "
-            "lee la convención `data-proposal-*` del contrato B7 v1.0 y "
-            "prepara un preview de los bloques detectados. "
-            "**D2: solo preview readonly — el apply llega en D3.**"
+            "lee la convención `data-proposal-*` del contrato B7 v1.0, "
+            "preview los bloques detectados y aplica overwrite quirúrgico "
+            "del `data` de cada bloque target (preserva id/module_id/is_fixed/"
+            "copy_overrides). El save auto-bumpea version."
         )
 
         uploaded = st.file_uploader(
@@ -2724,7 +2726,7 @@ def _render_b7_importer_section(proposal: dict) -> None:
                 )
 
             # Debug: expander con el data crudo de cada draft (para auditoría).
-            with st.expander("🔍 Ver data crudo de los blocks detectados", expanded=False):
+            with st.popover("🔍 Ver data crudo de los blocks detectados"):
                 for draft in report.blocks:
                     st.markdown(
                         f"**{draft.module_id}** "
@@ -2732,17 +2734,182 @@ def _render_b7_importer_section(proposal: dict) -> None:
                     )
                     st.json(draft.data)
 
-        # ── Footer info ───────────────────────────────────────────────────
+        # ── D3: Apply merge con confirmación 2-clicks + save ──────────────
         if report.ok:
-            st.markdown(
-                f"<div style='margin-top:0.8rem;padding:0.6rem 1rem;"
-                f"background:#FFF8F0;border-left:3px solid {_NARANJA};"
-                f"border-radius:4px;font-size:0.78rem;color:#555;line-height:1.5;'>"
-                f"✅ Report válido. El botón <strong>Aplicar merge</strong> "
-                f"llega en D3 (próximo sub-bloque). Por ahora, smoke manual "
-                f"contra esta preview.</div>",
-                unsafe_allow_html=True,
-            )
+            _render_b7_apply_flow(proposal, report, catalog, target_module_ids)
+
+
+def _render_b7_apply_flow(
+    proposal: dict,
+    report,
+    catalog: dict,
+    target_module_ids: set,
+) -> None:
+    """Botón "Aplicar merge" con confirmación 2-clicks + save con auto-bump.
+
+    Flujo:
+      1. Click #1 → setea flag `ps_b7_confirm_apply_{pid}` en session_state,
+         el botón muta a "⚠️ Confirmar aplicación".
+      2. Click #2 → ejecuta merge_blocks → save_proposal (auto-bumpea version)
+         → banner verde con vN → v(N+1) + counts → limpia flag → st.rerun().
+      3. Botón "Cancelar" siempre disponible cuando hay flag pendiente.
+
+    El merge se ejecuta SOLO cuando el usuario confirma — si no hay blocks
+    aplicables (todos skip por block_not_in_target), igual se muestra el
+    botón pero la acción se hace explícita con info al lado.
+
+    Args:
+        proposal: dict actual de la propuesta (vista detalle).
+        report: ImportReport ya validado (report.ok == True).
+        catalog: catálogo cargado, requerido por merge_blocks signature.
+        target_module_ids: set de module_ids presentes en proposal.blocks,
+            ya pre-calculado por el caller (para mostrar preview-aware).
+    """
+    pid = proposal["id"]
+    flag_key = f"ps_b7_confirm_apply_{pid}"
+    confirm_pending = st.session_state.get(flag_key, False)
+
+    # Pre-calcular cuántos blocks van a aplicar vs skipear (preview).
+    n_will_apply = sum(
+        1 for d in report.blocks if d.module_id in target_module_ids
+    )
+    n_will_skip = len(report.blocks) - n_will_apply
+
+    st.markdown(
+        f"<div style='margin-top:1rem;padding:0.7rem 1rem;"
+        f"background:#FFF8F0;border-left:3px solid {_NARANJA};"
+        f"border-radius:4px;font-size:0.82rem;color:#5D2D00;line-height:1.5;'>"
+        f"✅ <strong>Report válido</strong> — listo para aplicar el merge. "
+        f"Se actualizarán <strong>{n_will_apply}</strong> bloque(s) "
+        f"<span style='color:#888;'>(skip: {n_will_skip})</span>.</div>",
+        unsafe_allow_html=True,
+    )
+
+    col_btn, col_cancel = st.columns([3, 1])
+
+    with col_btn:
+        if not confirm_pending:
+            if st.button(
+                "Aplicar merge",
+                key=f"b7_apply_btn_{pid}",
+                type="primary",
+                use_container_width=True,
+                disabled=(n_will_apply == 0),
+                help=(
+                    "Sobrescribe el `data` de cada bloque target con los datos "
+                    "del HTML. Auto-bumpea version (snapshot inmutable)."
+                    if n_will_apply > 0
+                    else "Ningún bloque del HTML matchea con los blocks del target."
+                ),
+            ):
+                st.session_state[flag_key] = True
+                st.rerun()
+        else:
+            if st.button(
+                "⚠️ Confirmar aplicación",
+                key=f"b7_confirm_btn_{pid}",
+                type="primary",
+                use_container_width=True,
+            ):
+                _execute_b7_merge_and_save(proposal, report, catalog, flag_key)
+
+    with col_cancel:
+        if confirm_pending:
+            if st.button(
+                "Cancelar",
+                key=f"b7_cancel_btn_{pid}",
+                use_container_width=True,
+            ):
+                st.session_state[flag_key] = False
+                st.rerun()
+
+
+def _execute_b7_merge_and_save(
+    proposal: dict,
+    report,
+    catalog: dict,
+    flag_key: str,
+) -> None:
+    """Ejecuta merge_blocks + save_proposal con manejo de errores.
+
+    En orden:
+      1. version_before = proposal['version'] (para banner vN → vN+1)
+      2. merge_blocks(report, proposal, catalog) → MergeResult
+      3. Si merge_result.errors → banner rojo, NO se guarda, NO se limpia flag.
+      4. pp.save_proposal(merge_result.proposal_updated) → auto-bumpea version.
+      5. Banner verde con summary + limpia flag + st.rerun().
+
+    Args:
+        proposal: dict de la propuesta actual.
+        report: ImportReport ya validado.
+        catalog: catálogo B7.
+        flag_key: clave del session_state a limpiar post-éxito.
+    """
+    version_before = proposal.get("version", "?")
+
+    try:
+        merge_result = merge_blocks(report, proposal, catalog)
+    except Exception as e:
+        st.error(
+            f"❌ Error inesperado durante el merge: "
+            f"{type(e).__name__}: {e}"
+        )
+        return
+
+    # Validar que merge_result no traiga errores bloqueantes.
+    if merge_result.errors:
+        err_codes = ", ".join(sorted({e.code for e in merge_result.errors}))
+        st.error(
+            f"❌ El merge no se pudo aplicar: {len(merge_result.errors)} "
+            f"error(es) — codes: {err_codes}. La propuesta NO fue modificada."
+        )
+        # NO limpiamos el flag: el usuario puede volver a intentar o cancelar.
+        return
+
+    # Save con auto-bump de version (pp.save_proposal ignora cualquier
+    # version del input y escribe max_actual + 1).
+    try:
+        saved = pp.save_proposal(merge_result.proposal_updated)
+    except Exception as e:
+        st.error(
+            f"❌ Error al persistir la propuesta: "
+            f"{type(e).__name__}: {e}. El merge se calculó pero NO se guardó."
+        )
+        return
+
+    # Éxito: banner verde + limpiar flag + rerun.
+    version_after = saved.get("version", "?")
+    n_applied = len(merge_result.applied_blocks)
+    n_skipped = len(merge_result.skipped_blocks)
+    n_warn = len(merge_result.warnings)
+
+    summary_parts = [
+        f"<strong>Aplicados:</strong> {n_applied}",
+        f"<strong>Skip:</strong> {n_skipped}",
+        f"<strong>Warnings:</strong> {n_warn}",
+    ]
+    if merge_result.applied_blocks:
+        applied_preview = ", ".join(merge_result.applied_blocks[:5])
+        if n_applied > 5:
+            applied_preview += f", ... ({n_applied - 5} más)"
+        summary_parts.append(f"<strong>Módulos:</strong> {applied_preview}")
+
+    st.markdown(
+        f"<div style='margin-top:0.8rem;padding:0.8rem 1.1rem;"
+        f"background:#E8F5E9;border-left:4px solid #2E7D32;"
+        f"border-radius:4px;font-size:0.88rem;color:#1B5E20;line-height:1.6;'>"
+        f"✅ <strong>Merge aplicado y guardado.</strong> "
+        f"<span style='font-family:monospace;background:#FFFFFF;padding:1px 6px;"
+        f"border-radius:3px;color:#2E7D32;'>v{version_before} → v{version_after}</span>"
+        f"<br>{' · '.join(summary_parts)}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Limpiar flag de confirmación.
+    st.session_state[flag_key] = False
+
+    # Refrescar la vista detalle con la propuesta nueva.
+    st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
