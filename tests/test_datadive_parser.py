@@ -8,8 +8,9 @@ from __future__ import annotations
 import io
 
 import pandas as pd
+import pytest
 
-from modules.parsers.datadive import parse_mkl
+from modules.parsers.datadive import parse_mkl, parse_competitors, parse_rank_radar
 
 # Layout esperado por parse_mkl (read con header=None):
 #   col0=index, col1=Search Term, col2=SV, col3=Relevance, col4=Sugg.Bid,
@@ -51,3 +52,126 @@ def test_parse_mkl_coerces_nan_relevance_and_launch_to_zero():
     row = df.iloc[0]
     assert row["Relevance"] == 0
     assert row["Launch Score"] == 0
+
+
+# ── Builders adicionales (E2) ────────────────────────────────────────────────
+
+def _sheet_bytes(rows: list[list]) -> bytes:
+    """Construye bytes de un .xlsx con las filas dadas tal cual (header=None)."""
+    df = pd.DataFrame(rows)
+    buf = io.BytesIO()
+    df.to_excel(buf, header=False, index=False)
+    return buf.getvalue()
+
+
+# ── parse_mkl — set completo (E2) ────────────────────────────────────────────
+
+def test_parse_mkl_extracts_keywords_with_asin_ranks():
+    header = [None, "Search Term", "SV", "Relevance", "Sugg. Bid", "Launch Score",
+              "B0AAA00001", "B0BBB00002", "B0CCC00003"]
+    rows = [
+        header,
+        [1, "yoga mat", 1000, 5.5, 1.20, 8.0, 3, 12, None],
+        [2, "foam roller", 500, 4.0, 0.90, 6.0, None, 7, 40],
+    ]
+    df, asins = parse_mkl(_sheet_bytes(rows), "mkl.xlsx")
+    assert asins == ["B0AAA00001", "B0BBB00002", "B0CCC00003"]
+    for a in asins:
+        assert a in df.columns
+    yoga = df[df["Search Term"] == "yoga mat"].iloc[0]
+    assert yoga["B0AAA00001"] == 3
+    # OJO: el parser guarda None, pero pandas upcastea la columna mixta int/None
+    # a float64 → el faltante queda como NaN, no None. El mapper (E3) debe usar
+    # pd.isna(), no `is None`, para detectar ranks faltantes.
+    assert pd.isna(yoga["B0CCC00003"])
+
+
+def test_parse_mkl_detects_asin_in_header_row_or_below():
+    # El ASIN puede estar en cualquiera de las 3 primeras filas de su columna.
+    rows = [
+        [None, "Search Term", "SV", "Relevance", "Sugg. Bid", "Launch Score", "B0AAA00001", None, None],
+        [None, None, None, None, None, None, None, "B0BBB00002", None],
+        [None, None, None, None, None, None, None, None, "B0CCC00003"],
+        [1, "kw uno", 100, 2.0, 0.5, 5.0, 1, 2, 3],
+    ]
+    df, asins = parse_mkl(_sheet_bytes(rows), "mkl.xlsx")
+    assert set(asins) == {"B0AAA00001", "B0BBB00002", "B0CCC00003"}
+    assert df.shape[0] == 1  # solo "kw uno" es fila de datos válida
+
+
+def test_parse_mkl_skips_empty_search_term_rows():
+    header = [None, "Search Term", "SV", "Relevance", "Sugg. Bid", "Launch Score", "B0AAA00001"]
+    rows = [
+        header,
+        [1, "valid one", 100, 2.0, 0.5, 5.0, 1],
+        [2, "", 100, 2.0, 0.5, 5.0, 1],      # term vacío
+        [3, "nan", 100, 2.0, 0.5, 5.0, 1],   # "nan" literal
+        [4, None, 100, 2.0, 0.5, 5.0, 1],    # None
+        [5, "valid two", 200, 3.0, 0.6, 6.0, 2],
+    ]
+    df, _ = parse_mkl(_sheet_bytes(rows), "mkl.xlsx")
+    assert df.shape[0] == 2
+    assert set(df["Search Term"]) == {"valid one", "valid two"}
+
+
+def test_parse_mkl_handles_no_asin_columns():
+    header = [None, "Search Term", "SV", "Relevance", "Sugg. Bid", "Launch Score"]
+    rows = [
+        header,
+        [1, "kw uno", 100, 2.0, 0.5, 5.0],
+        [2, "kw dos", 200, 3.0, 0.6, 6.0],
+    ]
+    df, asins = parse_mkl(_sheet_bytes(rows), "mkl.xlsx")
+    assert asins == []
+    assert df.shape[0] == 2
+    for col in ["Search Term", "SV", "Relevance", "Sugg. Bid", "Launch Score"]:
+        assert col in df.columns
+
+
+def test_parse_mkl_coerces_sv_with_commas():
+    header = [None, "Search Term", "SV", "Relevance", "Sugg. Bid", "Launch Score", "B0AAA00001"]
+    rows = [header, [1, "big kw", "12,450", 5.0, 1.0, 7.0, 2]]
+    df, _ = parse_mkl(_sheet_bytes(rows), "mkl.xlsx")
+    assert df.iloc[0]["SV"] == 12450
+
+
+def test_parse_mkl_garbage_input_raises():
+    # El plan lo nombró "returns_empty", pero el comportamiento real de
+    # pd.read_excel sobre bytes no-xlsx es LANZAR. Caracterizamos el raise
+    # (no se modifica el parser en E2 — sería un cambio de comportamiento).
+    with pytest.raises(Exception):
+        parse_mkl(b"not an xlsx", "garbage.bin")
+
+
+# ── parse_competitors (E2) ───────────────────────────────────────────────────
+
+def test_parse_competitors_extracts_median_and_asin_rows():
+    rows = [
+        ["Metric", "Median", "", "", "", "Comp 1", "Comp 2"],
+        ["ASIN", "", "", "", "", "B0AAA00001", "B0BBB00002"],
+        ["Price", "20.00", "", "", "", "19.99", "21.00"],
+        ["Rating", "4.5", "", "", "", "4.4", "4.6"],
+    ]
+    df, median_data = parse_competitors(_sheet_bytes(rows), "comp.xlsx")
+    assert not df.empty
+    assert df.shape[0] == 2
+    assert set(df["ASIN"]) == {"B0AAA00001", "B0BBB00002"}
+    assert "Price" in median_data
+
+
+# ── parse_rank_radar (E2) ─────────────────────────────────────────────────────
+
+def test_parse_rank_radar_extracts_date_columns():
+    rows = [
+        ["", "", "Organic", "Organic", "Organic"],
+        ["Search Terms", "SV", "2025-01-01", "2025-02-01", "2025-03-01"],
+        ["", "", 5, 6, 7],
+        ["", "", "", "", ""],
+        ["yoga mat", 1000, 3, 4, 5],
+        ["foam roller", 500, 10, 9, 8],
+    ]
+    df, date_cols, _agg = parse_rank_radar(_sheet_bytes(rows), "rr.xlsx")
+    assert date_cols == ["2025-01-01", "2025-02-01", "2025-03-01"]
+    for d in date_cols:
+        assert d in df.columns
+    assert df.shape[0] == 2
