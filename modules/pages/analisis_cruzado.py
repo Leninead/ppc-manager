@@ -1,9 +1,36 @@
 import io
+import re
+import unicodedata
 
 import streamlit as st
 import pandas as pd
 
 from core.helpers import read_sqp, extract_sqp_brand
+
+
+def _norm(s) -> str:
+    """Normaliza string para matching: lowercase, sin acentos, espacios colapsados."""
+    if s is None or (isinstance(s, float) and pd.isna(s)):
+        return ""
+    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    return s
+
+
+# ASIN de Amazon: B0 + 8 alfanuméricos (case-insensitive via lower()).
+_ASIN_RE = re.compile(r"^b0[a-z0-9]{8}$")
+
+
+def _br_num(raw, present) -> float:
+    """Convierte un valor del BR a número, NaN→0. Reemplaza el patrón
+    'pd.to_numeric(...) or 0' que NO captura NaN (NaN es truthy en Python)."""
+    if not present:
+        return 0
+    v = pd.to_numeric(
+        str(raw).replace("$", "").replace(",", "").replace("MX", ""),
+        errors="coerce",
+    )
+    return 0 if pd.isna(v) else v
 
 
 @st.cache_data
@@ -56,9 +83,9 @@ def render():
 
         if brand_name:
             st.success(f"Marca detectada: **{brand_name.title()}**")
-            brand_terms = [t.strip() for t in brand_name.split(",")]
-            df_sqp["Tipo"] = df_sqp[sqp_col].fillna("").astype(str).str.lower().str.strip().apply(
-                lambda q: "Marca" if q and any(t in q for t in brand_terms) else "Genérica"
+            brand_terms = [_norm(t) for t in brand_name.split(",") if _norm(t)]
+            df_sqp["Tipo"] = df_sqp[sqp_col].apply(
+                lambda q: "Marca" if _norm(q) and any(t in _norm(q) for t in brand_terms) else "Genérica"
             )
         else:
             marca_manual = st.text_input(
@@ -68,9 +95,9 @@ def render():
             )
             if marca_manual.strip():
                 brand_name = marca_manual.strip().lower()
-                brand_terms = [t.strip() for t in brand_name.split(",")]
-                df_sqp["Tipo"] = df_sqp[sqp_col].fillna("").astype(str).str.lower().str.strip().apply(
-                    lambda q: "Marca" if q and any(t in q for t in brand_terms) else "Genérica"
+                brand_terms = [_norm(t) for t in brand_name.split(",") if _norm(t)]
+                df_sqp["Tipo"] = df_sqp[sqp_col].apply(
+                    lambda q: "Marca" if _norm(q) and any(t in _norm(q) for t in brand_terms) else "Genérica"
                 )
                 st.success(f"Marca configurada manualmente: **{brand_name.title()}**")
             else:
@@ -115,6 +142,62 @@ def render():
                 m1, m2 = st.columns(2)
                 m1.metric("Oportunidades de marca", n_marca)
                 m2.metric("Oportunidades genéricas", n_generica)
+
+                # ── Diagnóstico cobertura STR (mitigación BUG-1) ─────────
+                # M4 NO filtra por Match Type — pero si el STR llega filtrado
+                # upstream (M2 Winners view o export Amazon recortado), AUTO/PT
+                # se pierden. Este panel muestra cuánto spend queda fuera.
+                if df_str is not None and "Match Type" in df_str.columns:
+                    with st.expander("📊 Diagnóstico cobertura STR (BUG-1)", expanded=False):
+                        spend_col = None
+                        for c in ["Spend", "spend", "Cost"]:
+                            if c in df_str.columns:
+                                spend_col = c
+                                break
+                        if spend_col is None:  # fallback substring
+                            spend_col = next(
+                                (c for c in df_str.columns
+                                 if "spend" in c.lower() or "cost" in c.lower()),
+                                None,
+                            )
+
+                        if spend_col is None:
+                            st.info("No detecté columna 'Spend' — omito % spend.")
+                            _cov = df_str.groupby(
+                                df_str["Match Type"].astype(str).str.upper()
+                            ).size().reset_index(name="rows")
+                            st.dataframe(_cov, use_container_width=True)
+                        else:
+                            _spend_num = pd.to_numeric(
+                                df_str[spend_col].astype(str).str.replace(
+                                    r"[MX$,%]", "", regex=True
+                                ),
+                                errors="coerce",
+                            ).fillna(0)
+                            _mt = df_str["Match Type"].astype(str).str.upper()
+                            cov = pd.DataFrame({"Match Type": _mt, "_spend": _spend_num})
+                            cov = cov.groupby("Match Type").agg(
+                                rows=("_spend", "size"), spend=("_spend", "sum")
+                            ).reset_index()
+                            cov["% spend"] = (cov["spend"] / (cov["spend"].sum() + 1e-9) * 100).round(1)
+                            st.dataframe(cov, use_container_width=True)
+
+                            non_kw_types = ["AUTO", "PT", "PRODUCT_TARGETING", "-", "", "NAN"]
+                            non_kw_spend = _spend_num[_mt.isin(non_kw_types)].sum()
+                            non_kw_spend_pct = non_kw_spend / (_spend_num.sum() + 1e-9) * 100
+
+                            if non_kw_spend_pct > 20:
+                                st.warning(
+                                    f"⚠️ {non_kw_spend_pct:.1f}% del spend está en AUTO/PT/sin "
+                                    f"Match Type. Si tu STR viene filtrado upstream (M2 Winners "
+                                    f"view), ese spend NO entra al classifier. Verificá el origen "
+                                    f"del archivo."
+                                )
+                            else:
+                                st.info(
+                                    f"ℹ️ Cobertura: {100 - non_kw_spend_pct:.1f}% del spend en "
+                                    f"keywords (EXACT/PHRASE/BROAD)."
+                                )
 
                 # ── Filtros globales ─────────────────────────────────────
                 st.markdown("---")
@@ -195,6 +278,29 @@ def render():
                     key="pa_target_acos"
                 )
 
+                cinp1, cinp2 = st.columns(2)
+                with cinp1:
+                    competidores_raw = st.text_input(
+                        "Competidores conocidos (opcional, separados por coma)",
+                        value="",
+                        help="Ej: 'rayban, meta, oakley'. Si la query menciona tu marca "
+                             "+ un competidor → clasifica CONQUEST, no DEFENDER (BUG-8).",
+                        key="ac_competidores",
+                    )
+                with cinp2:
+                    catalogo_raw = st.text_input(
+                        "ASINs propios del cliente (opcional, separados por coma)",
+                        value="",
+                        help="Cross-check anti-self-ASIN. Si la query es uno de estos "
+                             "ASINs → se excluye del bulk de keywords (BUG-5).",
+                        key="ac_catalogo_asins",
+                    )
+
+                # Listas normalizadas una sola vez (se cierran sobre el classifier).
+                brand_terms_norm = [_norm(t) for t in brand_name.split(",") if _norm(t)] if brand_name else []
+                competidores_norm = [_norm(c) for c in competidores_raw.split(",") if _norm(c)]
+                catalogo_norm = [_norm(a) for a in catalogo_raw.split(",") if _norm(a)]
+
                 st.markdown("---")
 
                 # ── Preparar columnas numéricas del SQP ──────────────────
@@ -207,7 +313,11 @@ def render():
 
                 for c in [pur_brand, pur_share, clicks_col]:
                     if c in df_sqp.columns:
-                        df_sqp[c] = pd.to_numeric(df_sqp[c], errors="coerce").fillna(0)
+                        # NO .fillna(0) acá — NaN = sin data ≠ 0 = data confirmada cero.
+                        # El classifier diferencia NaN para no falsear DEFENDER (BUG-7).
+                        # clicks_col / pur_col ya vienen filleados arriba (L99 del bloque
+                        # compartido); pur_brand y pur_share quedan NaN-preserving.
+                        df_sqp[c] = pd.to_numeric(df_sqp[c], errors="coerce")
 
                 # ── Recuperar columnas STR para cruce ─────────────────────
                 spend_col_pa  = next((c for c in df_str.columns if "spend" in c.lower()), None)
@@ -236,8 +346,9 @@ def render():
                         ).fillna(0)
 
                 # ── Función de acción sugerida ────────────────────────────
-                def _accion_sugerida(row, terms_str_set, str_agg_df, target_acos, precio):
+                def _accion_sugerida(row, terms_str_set, str_agg_df, target_acos):
                     query      = str(row.get(sqp_col_pa, "")).lower().strip()
+                    query_norm = _norm(row.get(sqp_col_pa, ""))
                     tipo       = row.get("Tipo", "Genérica")
                     purch_tot  = row.get(pur_col, 0)
                     purch_br   = row.get(pur_brand, 0)
@@ -245,6 +356,43 @@ def render():
                     opp_score  = row.get(opp_col, 0)
                     en_str     = query in terms_str_set
 
+                    # Anti-self-ASIN (BUG-5): si el término ES un ASIN (regex) o aparece
+                    # en el catálogo del cliente → no es una keyword accionable (PT).
+                    if _ASIN_RE.match(query_norm.replace(" ", "")) or (
+                        catalogo_norm and any(a in query_norm for a in catalogo_norm)
+                    ):
+                        return "⚫ ASIN (PT)"
+
+                    # ─────────────────────────────────────────────────────
+                    # Bloque BRAND (alta prioridad — ANTES de ESCALAR/AGREGAR)
+                    # Todo término de marca se resuelve acá; no cae al bloque
+                    # genéricas. Cierra el bug de AGREGAR/ESCALAR pisando marca.
+                    # ─────────────────────────────────────────────────────
+                    # Detección de marca normalizada (BUG-4): acentos + espacios colapsados.
+                    es_marca = (tipo == "Marca") or (
+                        brand_terms_norm and any(t in query_norm for t in brand_terms_norm)
+                    )
+                    # Cross-brand (BUG-8): menciona tu marca PERO también un competidor.
+                    tiene_competidor = bool(competidores_norm) and any(
+                        c in query_norm for c in competidores_norm
+                    )
+
+                    if es_marca:
+                        # Cross-brand: marca propia + competidor en la misma query.
+                        if tiene_competidor:
+                            return "⚔️ CONQUEST (cross-brand)"
+                        # Sin data: brand query sin métrica BS (NaN ≠ 0, BUG-7).
+                        if pd.isna(br_share):
+                            return "❔ SIN DATA (marca, sin métrica BS)"
+                        # Brand perdiendo share → defender activamente.
+                        if br_share < 70:
+                            return "🛡️ DEFENDER marca"
+                        # Brand dominando (BS ≥ 70) → no escalar más, monitorear.
+                        return "🏆 BRAND PURE OK"
+
+                    # ─────────────────────────────────────────────────────
+                    # Bloque GENÉRICAS (solo términos NO marca llegan acá)
+                    # ─────────────────────────────────────────────────────
                     # Buscar datos STR si existe
                     str_row = None
                     if str_agg_df is not None:
@@ -255,18 +403,28 @@ def render():
                     acos_str   = str_row["_acos"] if str_row is not None and "_acos" in str_row else None
                     orders_str = str_row[orders_col_pa] if str_row is not None and orders_col_pa else 0
 
-                    # Reglas en orden de prioridad
-                    brand_terms_pa = [t.strip().lower() for t in brand_name.split(",")] if brand_name else []
-                    es_marca = (tipo == "Marca") or (brand_terms_pa and any(t in query for t in brand_terms_pa))
-                    if es_marca and br_share < 70:
-                        return "🛡️ DEFENDER marca"
-                    if en_str and acos_str is not None and acos_str <= target_acos * 0.7 and orders_str >= 2:
+                    # Relevancia CONFIRMADA para ESCALAR (BUG-6, caso edge): exige señal
+                    # POSITIVA (BS > 0 o brand purchases > 0). NaN NO basta — sin data ≠
+                    # relevancia. Bloquea escalar términos sin tracción de mercado
+                    # (gomas/plaquetas/sujetadores Setex con BS NaN y purchases 0).
+                    # Trade-off (decisión 2026-05-26): un genérico ganador sin Brand
+                    # Analytics cae a MONITOREAR — precisión > recall en cuentas sucias.
+                    tiene_relevancia_confirmada = (
+                        (pd.notna(br_share) and br_share > 0)
+                        or (pd.notna(purch_br) and purch_br > 0)
+                    )
+                    if (
+                        en_str and acos_str is not None
+                        and acos_str <= target_acos * 0.7
+                        and orders_str >= 2
+                        and tiene_relevancia_confirmada
+                    ):
                         return "⚡ ESCALAR"
-                    if not en_str and purch_br > 0 and purch_tot > 0:
+                    if not en_str and pd.notna(purch_br) and purch_br > 0 and purch_tot > 0:
                         return "➕ AGREGAR keyword"
-                    if purch_tot > 500 and br_share == 0:
+                    if purch_tot > 500 and (pd.isna(br_share) or br_share == 0):
                         return "🚫 NO ATACAR"
-                    if opp_score > 40 and br_share < 5 and purch_tot < 300:
+                    if opp_score > 40 and (pd.isna(br_share) or br_share < 5) and purch_tot < 300:
                         return "🔍 INVESTIGAR"
                     if en_str and acos_str is not None and acos_str > target_acos * 2:
                         return "⬇️ BAJAR BID"
@@ -275,9 +433,43 @@ def render():
                 # ── Construir tabla de plan de acción ─────────────────────
                 terms_str_set_pa = set(df_str[str_col_pa].dropna().str.lower().str.strip())
 
-                df_plan = df_sqp.copy()
+                # ── Dedupe SQP por search query (BUG-2 → BUG-3 cae solo) ──
+                # El SQP multi-mes puede traer la misma query en N filas. Sin
+                # dedupe, el bulk repite KWs (BUG-2) y la misma query cae en 2
+                # buckets de acción distintos (BUG-3). Suma volúmenes, promedia
+                # share (preserva NaN), toma 'first' para el resto.
+                if sqp_col_pa in df_sqp.columns:
+                    agg_dict = {}
+                    for c in df_sqp.columns:
+                        if c == sqp_col_pa:
+                            continue
+                        if c in [imp_col, pur_col, pur_brand, clicks_col]:
+                            agg_dict[c] = "sum"
+                        elif c == pur_share:
+                            agg_dict[c] = "mean"
+                        else:
+                            agg_dict[c] = "first"
+                    df_sqp_dedup = df_sqp.groupby(sqp_col_pa, as_index=False).agg(agg_dict)
+                else:
+                    df_sqp_dedup = df_sqp
+
+                df_plan = df_sqp_dedup.copy()
+
+                # ── Opportunity Score en Tab 2 (adicional #1) ─────────────
+                # Tab 1 lo calcula solo para only_sqp; sin esto la regla
+                # INVESTIGAR del classifier nunca dispara (opp_score=0 siempre).
+                if all(c in df_plan.columns for c in [imp_col, clicks_col, pur_share]):
+                    _imp = df_plan[imp_col].fillna(0)
+                    _clk = df_plan[clicks_col].fillna(0)
+                    imp_norm = (_imp - _imp.min()) / (_imp.max() - _imp.min() + 1e-9)
+                    click_norm = (_clk - _clk.min()) / (_clk.max() - _clk.min() + 1e-9)
+                    share_norm = df_plan[pur_share].fillna(0) / 100
+                    df_plan[opp_col] = (
+                        imp_norm * 0.4 + click_norm * 0.3 + share_norm * 0.3
+                    ).round(3)
+
                 df_plan["Acción"] = df_plan.apply(
-                    lambda r: _accion_sugerida(r, terms_str_set_pa, str_agg, target_acos_pa, 0),
+                    lambda r: _accion_sugerida(r, terms_str_set_pa, str_agg, target_acos_pa),
                     axis=1
                 )
                 df_plan["En STR"] = df_plan[sqp_col_pa].str.lower().str.strip().isin(terms_str_set_pa).map(
@@ -324,9 +516,13 @@ def render():
                     "⚡ ESCALAR":        "background-color: #E8F5E9",
                     "➕ AGREGAR keyword": "background-color: #E3F2FD",
                     "🛡️ DEFENDER marca":  "background-color: #FFF8E1",
+                    "🏆 BRAND PURE OK":   "background-color: #DCEDC8",
+                    "⚔️ CONQUEST (cross-brand)": "background-color: #EDE7F6",
                     "⬇️ BAJAR BID":       "background-color: #FFF3E0",
                     "🚫 NO ATACAR":       "background-color: #FFEBEE",
                     "🔍 INVESTIGAR":      "background-color: #F3E5F5",
+                    "❔ SIN DATA (marca, sin métrica BS)": "background-color: #ECEFF1",
+                    "⚫ ASIN (PT)":       "background-color: #E0E0E0",
                     "👁️ MONITOREAR":      "",
                 }
                 def _color_accion(val):
@@ -336,6 +532,13 @@ def render():
                 st.dataframe(styled_plan, use_container_width=True, height=500)
 
                 # ── Export bulk — solo accionables ────────────────────────
+                # Whitelist intacta = contrato con M10 (campaign_builder acciones_incluir).
+                # ⚔️ CONQUEST queda como clasificación UI (cumple BUG-8: ya no se confunde
+                # con DEFENDER) pero NO se auto-exporta: targetear marcas competidoras como
+                # keyword es decisión deliberada del AM (riesgo trademark). Si en el futuro
+                # se quiere fluir CONQUEST → M10, agregar la acción a acciones_incluir (L906
+                # de campaign_builder.py) en la misma sesión. ⚫ ASIN (PT) y ❔ SIN DATA
+                # quedan fuera por no estar en la whitelist.
                 df_exportable = df_plan[
                     df_plan["Acción"].isin(["➕ AGREGAR keyword", "⚡ ESCALAR", "🛡️ DEFENDER marca"])
                 ].copy()
@@ -344,6 +547,25 @@ def render():
                     st.markdown("---")
                     st.markdown(f"#### 📦 Export bulk — {len(df_exportable)} términos accionables")
                     st.caption("Solo AGREGAR keyword, ESCALAR y DEFENDER marca. Campaign Name y Ad Group Name vacíos — el AM los completa antes de subir.")
+
+                    # ── Inputs para cálculo Max Bid (BUG-9) ──────────────
+                    st.markdown("##### Inputs para cálculo Max Bid")
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        precio_promedio = st.number_input(
+                            "Precio promedio producto (USD)",
+                            min_value=0.0, value=0.0, step=0.5,
+                            help="Max Bid = (CVR/100) × precio × (target ACoS/100). "
+                                 "Dejá en 0 si no querés poblar Max Bid (bulk sigue funcional).",
+                            key="ac_precio_prom",
+                        )
+                    with col_b:
+                        cvr_default = st.number_input(
+                            "CVR default (%) — fallback si no hay data por KW",
+                            min_value=0.0, max_value=100.0, value=10.0, step=0.5,
+                            help="Se aplica a todas las KWs (no calculamos CVR por KW aún).",
+                            key="ac_cvr_default",
+                        )
 
                     df_bulk_export = pd.DataFrame({
                         "Product":          "",
@@ -358,6 +580,25 @@ def render():
                         "Brand Share %":    df_exportable[pur_share].values if pur_share in df_exportable.columns else "",
                         "Purchases mercado": df_exportable[pur_col].values if pur_col in df_exportable.columns else "",
                     })
+
+                    # ── Max Bid (BUG-9): CVR × precio × target ACoS ──────
+                    # target_acos_pa está en escala % (ej. 18) → /100. Setex 18% +
+                    # precio $12 + CVR 10% → bid ≈ 0.22 USD. Si precio=0, queda vacío.
+                    if precio_promedio > 0:
+                        max_bid_value = round(
+                            (cvr_default / 100) * precio_promedio * (target_acos_pa / 100), 2
+                        )
+                        df_bulk_export["Max Bid"] = max_bid_value
+
+                    # ── Match Type variable según acción (no hardcode "exact") ──
+                    match_type_map = {
+                        "⚡ ESCALAR":         "exact",
+                        "➕ AGREGAR keyword": "phrase",
+                        "🛡️ DEFENDER marca":  "exact",
+                    }
+                    df_bulk_export["Match Type"] = df_bulk_export["Acción sugerida"].map(
+                        match_type_map
+                    ).fillna("exact")
 
                     st.dataframe(df_bulk_export, use_container_width=True)
 
@@ -402,9 +643,11 @@ def render():
                                     continue
                                 br_asin_data[a] = {
                                     "Title": str(row_br[title_col_br])[:50] if title_col_br else "",
-                                    "Sessions": pd.to_numeric(str(row_br.get(sess_col_br, 0)).replace(",", ""), errors="coerce") or 0 if sess_col_br else 0,
-                                    "Sales": pd.to_numeric(str(row_br.get(sales_col_br, 0)).replace("$", "").replace(",", "").replace("MX", ""), errors="coerce") or 0 if sales_col_br else 0,
-                                    "Units": pd.to_numeric(str(row_br.get(units_col_br, 0)).replace(",", ""), errors="coerce") or 0 if units_col_br else 0,
+                                    # _br_num: NaN→0 robusto (el viejo 'pd.to_numeric() or 0'
+                                    # dejaba NaN porque NaN es truthy en Python). Adic #4.
+                                    "Sessions": _br_num(row_br.get(sess_col_br, 0), sess_col_br),
+                                    "Sales": _br_num(row_br.get(sales_col_br, 0), sales_col_br),
+                                    "Units": _br_num(row_br.get(units_col_br, 0), units_col_br),
                                 }
                             st.success(f"✅ BR cargado — {len(br_asin_data)} ASINs")
                     except Exception as e:
@@ -412,8 +655,7 @@ def render():
 
                 st.markdown("---")
 
-                # ── Detectar ASINs del STR ────────────────────────────────
-                asin_col_str = next((c for c in df_str.columns if "advertised asin" in c.lower()), None)
+                # ── Detectar ASINs del STR (multi-columna + fallback, BUG-10) ──
                 camp_col_str = next((c for c in df_str.columns if "campaign name" in c.lower()), None)
                 spend_col_str = next((c for c in df_str.columns if "spend" in c.lower()), None)
                 sales_col_str = next((c for c in df_str.columns if "sales" in c.lower()
@@ -421,16 +663,54 @@ def render():
                 orders_col_str = next((c for c in df_str.columns if "orders" in c.lower()), None)
                 clicks_col_str = next((c for c in df_str.columns if "clicks" in c.lower()), None)
 
-                if not asin_col_str:
-                    # Intentar extraer de Campaign Name
-                    import re as _re_cr
-                    if camp_col_str:
-                        df_str["_asin_ext"] = df_str[camp_col_str].astype(str).str.extract(r'(B0[A-Z0-9]{8})', expand=False)
-                        if df_str["_asin_ext"].notna().any():
-                            asin_col_str = "_asin_ext"
+                # Probar columnas ASIN explícitas antes del regex sobre Campaign Name.
+                asin_cols_candidates = [
+                    "Advertised ASIN", "ASIN", "SKU", "Product",
+                    "advertised asin", "asin", "sku", "product",
+                ]
+                asin_col_str = next(
+                    (c for c in df_str.columns if "advertised asin" in c.lower()), None
+                )
+                if asin_col_str is None:
+                    for cand in asin_cols_candidates:
+                        if cand in df_str.columns:
+                            asin_col_str = cand
+                            break
 
-                if not asin_col_str:
-                    st.warning("⚠️ No se detectó columna de ASIN en el STR. Necesitás 'Advertised ASIN' o ASIN en el Campaign Name.")
+                if asin_col_str is None and camp_col_str:
+                    df_str["_asin_ext"] = df_str[camp_col_str].astype(str).str.extract(
+                        r"(B0[A-Z0-9]{8})", expand=False
+                    )
+                    asin_col_str = "_asin_ext"
+                    st.warning(
+                        "⚠️ No se detectó columna 'Advertised ASIN'/'ASIN' explícita. "
+                        "Extrayendo ASIN del Campaign Name vía regex. "
+                        "Cobertura PARCIAL si tu naming no incluye ASIN."
+                    )
+
+                # Cobertura de ASINs (BUG-10): cuántas filas quedan dentro del análisis.
+                rows_total = len(df_str)
+                rows_con_asin = int(df_str[asin_col_str].notna().sum()) if asin_col_str else 0
+                if asin_col_str and spend_col_str and spend_col_str in df_str.columns:
+                    _sp_cov = pd.to_numeric(
+                        df_str[spend_col_str].astype(str).str.replace(r"[MX$,%]", "", regex=True),
+                        errors="coerce",
+                    ).fillna(0)
+                    spend_total = _sp_cov.sum()
+                    spend_con_asin = _sp_cov[df_str[asin_col_str].notna()].sum()
+                    cobertura_pct = (spend_con_asin / spend_total * 100) if spend_total > 0 else 0
+                else:
+                    cobertura_pct = (rows_con_asin / rows_total * 100) if rows_total > 0 else 0
+
+                if asin_col_str and rows_con_asin < rows_total:
+                    st.info(
+                        f"ℹ️ {rows_con_asin}/{rows_total} filas con ASIN identificable "
+                        f"({cobertura_pct:.1f}% del spend cubierto). El resto queda fuera "
+                        f"del análisis por ASIN."
+                    )
+
+                if not asin_col_str or rows_con_asin == 0:
+                    st.warning("⚠️ No se detectó ASIN en el STR. Necesitás 'Advertised ASIN'/'ASIN' o ASIN en el Campaign Name.")
                 else:
                     # Limpiar numéricos del STR
                     def _to_num_cr(series):
