@@ -91,3 +91,8 @@ outputs/
 # Whitelist notes/modules/ (carpeta de planes de implementación por módulo)
 !notes/modules/
 !notes/modules/**
+# ── Entorno local Python 3.12 (setup 2026-05-26) ──
+# venv local — nunca se versiona. Recrear con py -3.12 -m venv .venv
+.venv/
+# Settings locales de Claude Code (permisos por máquina, no compartibles)
+.claude/settings.local.json

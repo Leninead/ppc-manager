@@ -14,6 +14,26 @@ pip install streamlit pandas openpyxl pdfplumber
 ```
 No hay build step, test suite ni linter configurado.
 
+## Setup local (Python 3.12 obligatorio)
+
+**Requisito:** Python 3.12.x. **NO usar Python 3.14** — bug P1 conocido (segfault C-level en `_run_migration_v11` y similares por incompatibilidad ABI de NumPy/pyarrow con CPython 3.14).
+
+```powershell
+cd C:\proyectos\ppc-manager
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python -m streamlit run app.py
+```
+
+Para correr smoke tests M27:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python scripts\smoke_b6a_e2e_pipeline.py
+```
+
 ---
 
 ## 📐 Estructura de navegación (Sidebar) — Estado actual
