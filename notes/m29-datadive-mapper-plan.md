@@ -85,3 +85,29 @@ Reporte por Ex antes de seguir al siguiente. Commit local por Ex. NO push (SOP R
 4. asin no natural de DataDive → text_input (D5).
 5. V3 puede no estar en target → `merge_blocks` skipea con badge.
 6. Drift de nombres de columna → constantes `COL_*` compartidas.
+
+## Log de ejecución (chat 26/05 PM — autónomo E1→E5)
+
+| Ex | Commit | Resultado |
+|---|---|---|
+| setup | `08ac59b` | plan recreado (perdido al cerrar m29-d3) + force-add |
+| E1 | `b540531` | parsers extraídos + fix NaN (TDD) — suite 78/78 |
+| E2 | `a92d9a8` | 8 tests parser (characterization) — suite 86/86 |
+| E3 | `a1f93ac` | mapper `datadive_to_v3_block` (TDD RED→GREEN, 9 tests) — suite 95/95 |
+| E4 | `b37b237` | UI `_render_datadive_importer_section` + call site — py_compile+import OK, suite 95/95 |
+| E5 | (este) | smoke E2E CLI ALL PASS (v12→v13, 7 missing kw) — suite 95/95 |
+
+**Smoke E5:** chain completa `parse_mkl(bytes) → datadive_to_v3_block → merge_blocks → save_proposal`
+con MKL sintético (10 kw, ranks cliente 3 strong / 4 weak / 3 None) → v13 en disco con
+7 missing_keywords, opportunity_score=0.7. Script throwaway borrado.
+
+### Deudas / hallazgos nuevos (NO en STATE — acá)
+- **P2 (OK'd separado):** `tests/test_b7_importer.py` y el test de integración del mapper dependen
+  del proposal gitignored `01fbf5c2…__v12.json`. En worktree/clone limpio → `FileNotFoundError`
+  (2-3 tests). Se destraba copiando el v12 del principal. Fix real: fixture trackeado en `tests/fixtures/`.
+- **P3 flag-collision UI:** `_render_datadive_importer_section` reusa el flag de 2-clicks de
+  `_render_b7_apply_flow` (`ps_b7_confirm_apply_{pid}`). Si el operador tiene el expander B7 y el de
+  DataDive con upload simultáneo, el estado de confirmación se comparte. Edge case baja prob.
+  Fix futuro: parametrizar `flag_key` en `_render_b7_apply_flow` (toca función B7, requiere OK).
+- **Hallazgo (no bug):** ranks faltantes en columna mixta int/None del MKL quedan como `NaN`
+  (no `None`) por upcast de pandas → el mapper usa `pd.isna()`/`pd.notna()`, no `is None`.
