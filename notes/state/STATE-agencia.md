@@ -196,6 +196,80 @@ Ver: [[2026-05-22]] [[2026-05-21]] [[M27-flat-file-migrator]] [[M27-b6-plan]] [[
 
 ---
 
+### Última sesión — 2026-05-26 (M27 v1.1 SHIP — soft launch + mensaje team)
+
+**Sesión foco único M27.** Cierre formal de M27 Flat File Migrator v1.1
+con audit Opus + fix infra venv 3.12 + validación E2E contra .xlsm originales
++ ship deployed live + mensaje a @channel del team.
+
+**Commits del día:**
+- `c10fa27` chore(infra): setup venv Python 3.12 + doc setup local (destraba P1 segfault 3.14)
+- (commit final de cierre docs por crear en este reporte)
+
+**Trabajo realizado:**
+
+**Paso 1 — Audit code-reviewer Opus 4.7 sobre delta B6-b (f71bfdf~1..b9d9264):**
+- Veredicto: APPROVE WITH CONCERNS
+- 0 P1 bloqueantes
+- 4 P2 documentadas como deuda blanda (no aplicadas): redundant-open, no-close, methods_count re-derivada (sin falso positivo confirmado), import-inline
+- Sin regresión sobre deuda P3 heredada
+- Decisión Lenin: no mitigar los P2 hoy, patrón "P1 se mitiga, P2/P3 se documenta" replicado (consistente con B5-a 19/05 y B5-b 20/05)
+
+**Paso 2 — Setup venv Python 3.12 (destrabó P1):**
+- Python 3.12.10 instalado vía `winget install Python.Python.3.12` (Python 3.14 sigue como default global, sin interferencia)
+- venv `.venv` creado con `py -3.12 -m venv .venv`
+- `pip install -r requirements.txt`: exit 0, todo prebuilt wheels (pandas 2.2.3 + openpyxl 3.1.5 + numpy 2.4.6 + pyarrow 24.0.0)
+- Smoke pipeline B1→B5-c PASS 12/12 (335ms)
+- Smoke wrapper B6-b-1 PASS (lo que segfaulteaba con `-1073741510` en 3.14)
+- Documentado en `CLAUDE.md` del repo (sección "Setup local Python 3.12 obligatorio")
+- `.gitignore` updated (+`.venv/` +`.claude/settings.local.json`)
+
+**Paso 2.5 — Commit limpio:**
+- `git add .gitignore CLAUDE.md` (selectivo, sin tocar analisis_cruzado.py del chat M29)
+- Commit `c10fa27`: chore(infra): setup venv Python 3.12 + doc setup local (destraba P1 segfault 3.14)
+
+**Paso 2.6 — Validación contra .xlsm originales:**
+- Descubrimiento clave: `scripts/smoke_b6a_e2e_pipeline.py` ya targeteaba los .xlsm originales en L41-42 hardcoded, NO .xlsx convertidos como asumimos del daily 25/05
+- Re-run explícito contra `ALRBB093_p_USA_2026__1_.xlsm` + `COAT__5_.xlsm`: PASS exit 0, byte-idéntico al run del Paso 2 salvo Δ1 byte de jitter del zip (nondeterminismo de timestamps internos del .xlsx output)
+- P1 del 25/05 CERRADO al 100%: bug era exclusivamente Python 3.14 ABI, NO específico de .xlsm con macros como creíamos
+- **Lección importante:** la "conversión .xlsm → .xlsx" nunca fue el fix real; era placebo. El fix real era venv 3.12.
+
+**Paso 3 — Ship soft launch:**
+- Validación visual del deploy live (capybaras-os.streamlit.app): PASS — Lenin confirmó toggle v1/v1.1 visible, auto-detect "Detectamos schemas distintos: OLD=fptcustom → NEW=ptd. Recomendamos Cross-schema." funcionando, output coat_migrated.xlsx descargado OK
+- arranque-m27.md status: activa → shipped-monitoring (soak 14 días, deadline ~2026-06-09)
+- Mensaje a @channel del team enviado por Slack con SOP completo embebido:
+  * Crédito explícito a Marcos por la lógica del workflow
+  * 8 pasos paso-a-paso (marketplace tab → uploaders → header rows → toggle modo → migrar)
+  * Diagnostics explicados (unmapped_field, missing_required_in_new, deprecated_value)
+  * Formatos validados oficialmente (.xlsm, .xlsx) vs los que NO testeamos (.xls/.tsv/.csv/.txt)
+  * Oferta de acompañamiento primer caso
+
+**Estado del proyecto al cierre:**
+
+| Módulo | Status |
+|---|---|
+| M27 Flat File Migrator v1.1 | ✅ SHIPPED soft launch — 8/8 sub-bloques cerrados, audit Opus PASS, deployed live confirmado, mensaje @channel OK. Soak hasta ~2026-06-09. |
+| M29 Proposal Studio | Chat paralelo activo. UI dispatcher B7 D1+D2 cerrados (25/05). D3+D4 + ship target jueves 28/05. |
+| Pricing Dashboard (HTML #3 Marcos) | 🔴 0% sin arrancar. Bloqueado por persistencia cloud (decisión Freddy) + renumeración M30 en `_README.md` pendiente. |
+
+**Deuda nueva descubierta hoy (M27 SHIP):**
+- P3: Restringir file_uploader UI a xlsx/xlsm (formatos .xls/.tsv/.csv/.txt no validados visibles en UI — riesgo de uso ciego por team)
+- P3: Consolidar 2 secciones Setup en CLAUDE.md del repo (1 vieja sin venv + 1 nueva con venv 3.12 conviven)
+- P3: Decidir si `.claude/settings.local.json` se destrackea con `git rm --cached` (coordinado con chat M29 paralelo para evitar conflictos)
+
+**Lecciones M27 SHIP:**
+- **Pre-validar contadores Y paths en specs antes de aceptar.** El bug del 25/05 ("convertir .xlsm a .xlsx era workaround") era diagnóstico equivocado del placebo. CC corrigió leyendo el código real (L41-42 hardcoded apuntando ya a los .xlsm). Patrón a aplicar: cuando el vault dice "X es el workaround", verificar contra código antes de seguir asumiéndolo.
+- **venv pythonización ahorra horas.** El Setup CLAUDE.md previene que este P1 vuelva a aparecer. ROI altísimo: 5 min de winget install + 2 min de venv = 100% confiabilidad future-proof.
+- **Soft launch > Formal launch para módulos single-tenant interno:** mantiene el prompt activo durante soak sin overhead de archivar/desarchivar. Replica patrón M28.
+- **4to hit audit Opus sin generar P1 reales** — patrón super estable, mantener pre-ship como ritual no negociable.
+- **Crédito a Marcos por la lógica del workflow** (no por código) — patrón replicable para futuras herramientas que automatizan know-how de AMs. Buen team-building + claridad de roles.
+
+**Próxima sesión M27:** trigger-based. Sin bloque obligatorio. Triggers documentados en arranque-m27.md sección "Próxima sesión propuesta".
+
+Ver [[2026-05-26]] [[arranque-m27]] [[code-reviewer]]
+
+---
+
 ### Última sesión — 2026-05-25 (consolidador 3 frentes paralelos)
 
 **Sesión multi-frente — Setex Hot Sale + M27 v1.1 cierre + M29 dispatcher B7.**

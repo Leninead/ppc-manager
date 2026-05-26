@@ -1,11 +1,11 @@
 ---
 tipo: prompt
-actualizado: 2026-05-25
+actualizado: 2026-05-26
 categoria: sesion
 subcategoria: feature
 version: v1
 feature_slug: m27
-feature_status: activa
+feature_status: shipped-monitoring
 modulo_id: M27
 ---
 
@@ -161,55 +161,70 @@ Al final del bloque <background>, devolveme un briefing de 4-6 bullets:
 
 ## Estado actual del módulo
 
-> Esta sección se actualiza automáticamente al cierre de cada sesión que toque
-> esta feature.
+**Status:** SHIPPED — monitoring period (2026-05-26 al ~2026-06-09).
+Después de 14 días sin bug crítico reportado, mover a _shipped/ formalmente.
 
-**Último commit relevante:** `b9d9264` — feat(M27): B6-b-4 expander 'Como funciona' dividido v1/v1.1 — 2026-05-25.
+**Último commit relevante:** `c10fa27` chore(infra): setup venv Python 3.12 + doc setup local — 2026-05-26.
 
-**Progreso global:** 8/8 sub-bloques cerrados (100% funcional). Audit Opus (B6-b-5) pendiente como deuda blanda P3.
+**Progreso global:** 8/8 sub-bloques B6-b cerrados (100% funcional + auditado + deployed).
 
-**Sub-bloques cerrados (sesión 2026-05-25):**
-- B6-b-1 orquestador `_run_migration_v11` (~216 LOC + smoke +91 LOC, commit f71bfdf)
-- B6-b-2 toggle radio v1/v1.1 + auto-detect schema (+52 LOC, commit 7565d1d)
-- B6-b-3 renderer condicional + bloque diagnostics cross-schema (+95 / -8 LOC, commit 95f936b)
-- B6-b-4 expander "Cómo funciona" dividido (+39 / -12 LOC, commit b9d9264)
-- Más fix b0a234c (restaurar B6-b-2 + B6-b-3 borrados accidentalmente por chat M29 64e3d6f)
+**Audit B6-b-5 (code-reviewer Opus 4.7) — 2026-05-26:**
+- Veredicto: APPROVE WITH CONCERNS
+- 0 P1 bloqueantes
+- 4 P2 documentadas como deuda blanda (no aplicadas): redundant-open, no-close, methods_count re-derivada (sin falso positivo confirmado), import-inline
+- Sin regresión sobre deuda P3 heredada
+- 4to hit consecutivo del patrón audit post-commit estable
 
-**Sub-bloques pendientes:**
-- B6-b-5 audit code-reviewer Opus 4.7 (30-45 min) — opcional, diferido por validación E2E exitosa
+**Bug P1 (Python 3.14 + segfault C-level) → CERRADO 2026-05-26:**
+- Confirmado que el segfault `-1073741510` era exclusivamente ABI inmadura de NumPy/pyarrow bajo CPython 3.14
+- NO era específico de .xlsm con macros como creíamos el 25/05
+- Fix definitivo: venv `.venv` con Python 3.12.10 + pip install -r requirements.txt
+- Documentado en CLAUDE.md del repo (sección "Setup local")
+- Validado E2E: smoke CLI contra .xlsm originales par Gamboa (ALRBB093 + COAT_5) PASS exit 0
 
-**Tests:**
-- smoke E2E `scripts/smoke_b6a_e2e_pipeline.py`: pipeline B6-a sigue PASS pero smoke wrapper B6-b-1 crashea con Python 3.14.3 + openpyxl 3.1.5 sobre .xlsm (segfault nivel C, sin traceback). Bug de entorno, NO de código.
-- Smoke visual Streamlit con par real Gamboa (.xlsx convertidos): PASS E2E completo — cobertura 42.1%, 69 col migradas, 6 filas, 3 enum translators, 276 diagnostics, descarga XLSX OK.
+**Validación E2E al cierre:**
+- Smoke CLI contra .xlsm originales (venv 3.12): PASS exit 0, pipeline 321ms, 12/12 sanity checks, coverage 42.1%, 3 enum translators, 6 rows generadas, XLSX output 204554 bytes
+- Smoke runtime en Streamlit deploy live: PASS — toggle v1/v1.1 visible, auto-detect "OLD=fptcustom → NEW=ptd. Recomendamos Cross-schema" funcionando, output coat_migrated.xlsx descargado OK
+- Validación visual previa Streamlit local (25/05): PASS con par Gamboa coat.xlsx
 
-**Smoke status:** Smoke visual UI PASS 2026-05-25 (par Gamboa coat.xlsx). Smoke CLI requiere fix infra (venv Python 3.12 o workaround .xlsm → .xlsx).
+**Despliegue:** capybaras-os.streamlit.app, sidebar Account Manager → Flat File Migrator. Tabs USA / DE / IT / FR / ES (solo USA validada oficialmente).
+
+**Comunicación al team:**
+- Mensaje @channel enviado por Slack 2026-05-26 con SOP completo embedded (cómo entrar al módulo, paso a paso 8 steps, qué diagnostics revisar, formatos validados oficialmente, oferta de acompañamiento primer caso)
+- Crédito explícito a Marcos por la lógica del workflow
 
 ---
 
 ## Pendientes activos
 
-> Esta sección se actualiza al cierre. Ordenar por prioridad: P0 → P1 → P2 → P3.
+**P0 — bloqueante:** (ninguno)
 
-**P0 — bloqueante:**
-- (ninguno)
+**P1 — alta prioridad:** (ninguno — P1 venv 3.12 cerrado 2026-05-26)
 
-**P1 — alta prioridad:**
-- **Bug entorno Python 3.14.3 + openpyxl 3.1.5 + .xlsm:** smoke CLI crashea silencioso al parsear xlsm con macros. Workaround: convertir a .xlsx antes de upload. Solución definitiva: venv `.venv` con Python 3.12.x + `pip install -r requirements.txt`.
-
-**P2 — media:**
-- **Audit Opus B6-b-5 pendiente:** opcional pero recomendado antes de shipear formalmente.
-- **Síntesis `methods_count` v1.1** re-derivada por `_normalize_label` — validar contra `_build_field_map` real durante audit (regla "hit directo = label_match, else alias_label" puede tener falsos positivos).
-- P2-1 validador Required NEW O(N×M) (sin cambios)
-- P2-2 `str()` sobre datetime/Decimal (sin cambios)
-- P2-4 shadow-match en matching de columnas (sin cambios)
+**P2 — media (documentadas como deuda, NO aplicar sin trigger):**
+- redundant-open: 4 aperturas de workbook por click (2 auto-detect + 2 migración). Mitigación futura: cachear _detect_schema por wb_bytes.
+- no-close: _open_ws no cierra wb. Sin handle leak, pero churn de memoria si AM migra repetido.
+- methods_count re-derivada: regla actual sin falso positivo confirmado por audit Opus 26/05. Refactor futuro: que _build_field_map devuelva el método por field en vez de re-derivar.
+- import-inline: `import pandas as pd` dentro de rama diagnostics — mover al tope.
 
 **P3 — baja / deuda blanda:**
-- P3-1 a P3-3 renames de helpers (sin cambios)
-- B5-a-bis / bis-bis / bis-tris del audit 19/05 (sin cambios)
-- Helper huérfano `_extract_template_rows` L712 (sin cambios)
-- Extender `_STRUCTURED_ALIASES` a otras categorías (sin cambios)
-- Limpiar artefacto untracked `-` en raíz del repo (no de M27)
-- Auditar configuración de CC para evitar `git commit --amend` autónomo con mensajes fabricados (incidente 252f286 del 2026-05-25)
+- P3-1 a P3-3 renames de helpers
+- B5-a-bis / bis-bis / bis-tris del audit 19/05
+- Helper huérfano `_extract_template_rows` L712
+- Extender `_STRUCTURED_ALIASES` a otras categorías (sin ROI confirmado)
+- Limpiar artefacto untracked `-` en raíz del repo
+- Restringir file_uploader UI a xlsx/xlsm (formatos .xls/.tsv/.csv/.txt no validados todavía)
+- .claude/settings.local.json todavía trackeado en git — eventual `git rm --cached` coordinado con chat M29
+- Consolidar 2 secciones Setup en CLAUDE.md del repo (1 vieja + 1 nueva conviven, ambas funcionales)
+- Auditar config CC para evitar `git commit --amend` autónomo (incidente 252f286 del 25/05)
+- Validar otros marketplaces (DE/IT/FR/ES) — solo USA validada oficialmente
+
+**Validaciones pendientes durante soak (~14 días):**
+- Feedback Marcos sobre primer uso real
+- Feedback del resto del team que pruebe la herramienta
+- Validación de 3 codes ausentes en smoke (deprecated_value, deprecated_enum_no_target, unknown_enum_value) — requieren OLD con ISBN/GCID o Relationship Type
+- Comportamiento con formatos no validados (.xls/.tsv/.csv/.txt) si alguien los prueba
+- Validación de otros pares (fptcustom→PTD en categorías distintas a Apparel/Coat)
 
 ---
 
@@ -218,28 +233,17 @@ Al final del bloque <background>, devolveme un briefing de 4-6 bullets:
 > Esta sección se actualiza al cierre con el bloque concreto a ejecutar la
 > próxima vez que se trabaje esta feature.
 
-**Bloque a ejecutar (decisión Lenin):**
+**Triggers de próxima sesión:**
+- Bug reportado por Marcos o team (urgente — destrabar antes de seguir con otro módulo)
+- Fin de soak period (~2026-06-09) sin bugs críticos → mover arranque-m27.md a _shipped/ + maintenance backlog
+- Decisión estratégica de extender cobertura (otros marketplaces DE/IT/FR/ES, otras categorías, otros pares de schemas)
+- Caso real con formato no validado (.xls/.tsv/.csv) requiere ampliar testing
 
-Opción A — Audit Opus B6-b-5 (30-45 min):
-- Sub-agente: code-reviewer Opus 4.7 (NO ppc-module-builder)
-- Scope: delta f71bfdf~1..b9d9264 sobre flat_file_migrator.py + smoke
-- Mitigaciones quirúrgicas si aparece P1 (commit aparte fix(M27): B6-b-5 mitigaciones audit Opus)
+**Estimación:** depende del trigger. Ningún bloque obligatorio agendado.
 
-Opción B — Fix infra entorno (45-60 min):
-- Setup venv Python 3.12 + `pip install -r requirements.txt`
-- Re-correr smoke CLI con venv → confirmar PASS
-- Documentar setup en CLAUDE.md repo
+**Sub-agentes:** code-reviewer Opus 4.7 disponible para audits.
 
-Opción C — Ship M27 v1.1 (cierre formal):
-- Mover arranque-m27.md a `_shipped/` con frontmatter `feature_status: shipped`
-- Update STATE-agencia reflejando ship
-- Maintenance backlog = P2/P3 actuales
-
-**Estimación:** 30-60 min según opción.
-
-**Sub-agentes:** code-reviewer Opus 4.7 si Opción A.
-
-**Riesgos/dependencias:** Opción A puede sacar P1 que requiera otra sesión. Opción B requiere Python 3.12 instalado en el sistema (verificar). Opción C asume ship a producción interna agencia (Marcos) — confirmar antes con Freddy.
+**Riesgos/dependencias:** ninguno bloqueante hoy.
 
 ---
 
@@ -253,6 +257,7 @@ Opción C — Ship M27 v1.1 (cierre formal):
 - 2026-05-21 — B5-c row migrator core con 5 codes (commit 3248695). [[2026-05-21]]
 - 2026-05-22 — Hardening post-audit + B6-a smoke E2E PASS + discovery UI + plan B6-b producido. [[2026-05-22]]
 - 2026-05-25 — B6-b-1+2+3+4 completos (5 commits, M27 v1.1 al 100% funcional, validado E2E Streamlit con par Gamboa). Incidente: chat M29 borró 147 LOC, restaurado por b0a234c. Deuda P1 nueva: Python 3.14 + openpyxl + xlsm. Audit Opus B6-b-5 diferido. [[2026-05-25]]
+- 2026-05-26 — Audit Opus B6-b-5 PASS sin P1 (4 P2 docs), venv Python 3.12 setup destrabó P1 segfault 3.14, smoke E2E contra .xlsm originales PASS, validación visual deploy live (toggle v1/v1.1 + auto-detect OK), ship M27 v1.1 soft launch + mensaje @channel team. [[2026-05-26]]
 
 ---
 
