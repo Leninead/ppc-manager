@@ -1,4 +1,4 @@
-"""Proposal Studio (M29) — Sesión 2 skeleton.
+﻿"""Proposal Studio (M29) — Sesión 2 skeleton.
 
 Módulo de la sección Sales Director del Agency OS. Permite crear y gestionar
 propuestas comerciales para leads/prospects usando el catálogo de 37 módulos
@@ -2726,7 +2726,7 @@ def _render_b7_importer_section(proposal: dict) -> None:
                 )
 
             # Debug: expander con el data crudo de cada draft (para auditoría).
-            with st.expander("🔍 Ver data crudo de los blocks detectados", expanded=False):
+            with st.popover("🔍 Ver data crudo de los blocks detectados"):
                 for draft in report.blocks:
                     st.markdown(
                         f"**{draft.module_id}** "
