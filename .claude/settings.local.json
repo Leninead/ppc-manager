@@ -47,7 +47,29 @@
       "Bash(done)",
       "Bash(grep -rn 'key=\"\"\"\"' modules/pages/*.py)",
       "Bash(git worktree *)",
-      "Bash(ls C:/proyectos)"
+      "Bash(ls C:/proyectos)",
+      "Bash(git -C C:/proyectos/ppc-manager worktree list)",
+      "Bash(git -C C:/proyectos/ppc-manager status --short)",
+      "Bash(git -C C:/proyectos/ppc-manager branch --show-current)",
+      "Bash(git -C C:/proyectos/ppc-manager log --oneline -3)",
+      "Bash(git -C C:/proyectos/ppc-manager-m29-d3 status)",
+      "Bash(git -C C:/proyectos/ppc-manager-m29-d3 branch --show-current)",
+      "Bash(git -C C:/proyectos/ppc-manager-m29-d3 log --oneline -5)",
+      "Bash(git -C C:/proyectos/ppc-manager-m27-venv status)",
+      "Bash(git -C C:/proyectos/ppc-manager-m27-venv branch --show-current)",
+      "Bash(ls C:/proyectos/ppc-manager-m29-d3/tests/fixtures/ 2>&1 | head -30)",
+      "Bash(git -C C:/proyectos/ppc-manager-setex status)",
+      "Bash(git -C C:/proyectos/ppc-manager-setex branch --show-current)",
+      "Bash(where.exe python *)",
+      "Bash(py -3.12 --version)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(py install *)",
+      "Bash(ls C:/proyectos/ppc-manager-setex/notes/daily/ | grep -E \"2026-05-2[0-9]\")",
+      "Bash(ls C:/proyectos/ppc-manager-m27-venv/notes/daily/ 2>&1 | head -20)",
+      "Bash(ls C:/proyectos/ppc-manager-m27-venv/notes/prompts/sesion/features/ 2>&1)",
+      "Bash(ls C:/proyectos/ppc-manager-m29-d3/data/sales/proposals/ 2>&1 | head -20)",
+      "Bash(cd C:/proyectos/ppc-manager-m29-d3 && wc -l tests/fixtures/b7_sample_v3v4.html tests/fixtures/b7_sample_duplicate.html 2>&1)",
+      "Bash(grep -n \"venv\\\\|\\\\.venv\" C:/proyectos/ppc-manager-m27-venv/.gitignore 2>&1)"
     ]
   }
 }

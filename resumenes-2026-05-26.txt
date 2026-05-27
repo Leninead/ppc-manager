@@ -1,0 +1,46 @@
+=== RESUMEN CHAT M4 — Fix Análisis Cruzado ===
+
+ESTADO: Cerrado y pusheado (a diferencia de M29/M27/Setex que cierran via consolidador).
+COMMITS YA EN MAIN:
+- b2763cb fix(M4): 14 bugs análisis cruzado (+313/-33, 1 archivo)
+- bf205f7 docs: cierre fix M4 (+37/-4, 3 archivos)
+
+⚠️ ATENCIÓN CONSOLIDADOR:
+El STATE-agencia.md YA fue editado por el commit bf205f7 con un bloque
+"## Última sesión — 2026-05-26 (fix M4 Análisis Cruzado — 14 bugs)".
+NO duplicar ese bloque. ACCIÓN REQUERIDA: mergear los frentes M29 + M27 +
+Setex DENTRO del mismo bloque existente, cambiando el header a algo como
+"## Última sesión — 2026-05-26 (M4 fix + M29 D3+D4 + M27 + Setex)" y
+sub-dividiendo en sub-secciones por frente.
+
+DOCS YA ACTUALIZADOS POR EL COMMIT bf205f7:
+- CLAUDE.md: descripción M4 expandida (bloque sub-bullets + contrato M10)
+- STATE-agencia.md: bloque sesión 2026-05-26 (solo M4)
+- amazon-bulk-upload-guide.md: Learning 12 cerrado + sección nueva con target_acos por cliente
+
+BUGS CERRADOS (14):
+P0 datos: BUG-2/3/7
+P0 clasificación: BUG-4/5/6/8
+P1 usabilidad: BUG-9/10/1(mitigación)
++ 4 adicionales: Opp Score Tab 2, precio=0 removido, _br_num NaN-or trap, dedupe sin mutar df_sqp
++ Bonus: BRAND PURE OK + reorden bloque BRAND
+
+DIFERIDO A C-2:
+- BUG-1 fix REAL en M2 search_term_report.py L325-345
+
+DEUDA TÉCNICA REGISTRADA:
+- _asin_ext residual Tab 3 (sin impacto)
+- _br_num separador miles europeo (YAGNI)
+
+LEARNINGS NUEVOS:
+1. Python NaN-or trap (técnico) → ya documentado en STATE
+2. sop-writer Write-only destruye STATE → ya documentado, regla validación
+   git diff --stat + lectura textual obligatoria reforzada
+
+ARCHIVOS MODIFICADOS HOY (M4):
+- modules/pages/analisis_cruzado.py
+- CLAUDE.md
+- notes/state/STATE-agencia.md
+- notes/sops/amazon-bulk-upload-guide.md
+
+PRÓXIMO PASO LÓGICO POST-CONSOLIDACIÓN: C-2 = BUG-1 fix REAL en M2.
