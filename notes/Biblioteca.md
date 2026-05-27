@@ -7,6 +7,8 @@
 **Autor:** Lenin Acosta  
 **Equipo:** Capybaras Agency
 
+> 🗓️ [[_cheat-sheet-diario]] — abrir TODAS las mañanas antes de empezar trabajo. Mecánica del workflow multi-frente diario.
+
 ---
 
 ## ¿Qué es esto y para qué sirve?
