@@ -9,7 +9,11 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
-## Última sesión — 2026-05-26 (fix M4 Análisis Cruzado — 14 bugs)
+## Última sesión — 2026-05-26 (4 frentes: M4 fix + M29 D3+D4+DataDive + M27 ship + Setex)
+
+> Día multi-frente (worktrees-flow v1.0). Una sub-sección por frente.
+
+### M4 — Análisis Cruzado (14 bugs) — ✅ main `b2763cb`+`bf205f7`
 
 Sesión de fix completo de M4 (`modules/pages/analisis_cruzado.py`). Commit `b2763cb` (+313/-33). Audit doble code-reviewer (intermedio + final) PASS + 2 smokes reales PASS (Setex 22/05 + Dermaglos 08/05).
 
@@ -28,6 +32,37 @@ Sesión de fix completo de M4 (`modules/pages/analisis_cruzado.py`). Commit `b27
 
 **Learning operativo — Python NaN-or trap:**
 En expresiones tipo `expr or default` donde `expr` puede devolver NaN, NaN es *truthy* en Python → `NaN or 0` devuelve NaN, no 0. Siempre usar `pd.isna()` check explícito. Detectado por code-reviewer en B4.4 (parser BR de M4). Aplicar en futuras refactors de parsers similares.
+
+### M29 — Proposal Studio — ✅ D3+D4 main (`458fb4b`) · ⏸️ DataDive mapper branch (`0aa5261`)
+
+B7 UI dispatcher D3+D4 (apply 2-clicks + merge + save con auto-bump) mergeado a main. DataDive → V3 mapper en branch `feature/m29-datadive-mapper` (E1→E5: parsers a `modules/parsers/` + mapper `datadive_to_v3_block` ImportReport-driven, suite 95/95 bajo venv 3.12, **pendiente merge mañana**).
+
+**Deudas nuevas M29:**
+- **P2 — fixture trackeado:** `test_b7_importer` + el test de integración del mapper dependen del proposal gitignored `01fbf5c2…__v12.json` → `FileNotFoundError` en worktree/clone limpio. Mover a `tests/fixtures/`. ANTES del merge.
+- **P3 — flag-collision DataDive vs B7:** ambos usan `ps_b7_confirm_apply_{pid}`. Parametrizar `flag_key` en `_render_b7_apply_flow`.
+
+### M27 — Flat File Migrator v1.1 — ✅ SHIPPED main (`5fa3e02`)
+
+v1.1 soft launch (soak 14 días) + setup venv Python 3.12 (`c10fa27`, destraba P1 segfault 3.14 = ABI NumPy/pyarrow, no era el .xlsm) + audit B6-b-5 PASS sin P1. Validado E2E contra .xlsm originales + deploy live. Mensaje team Slack enviado.
+
+### Setex — hallazgo categoría B08PZF22R1
+
+Análisis de imagen Inventory de Tati + hallazgo P0 de categoría mal seteada en familia Thin. Mensaje a Tati enviado vía Slack 26/05. Bid hold Thin family hasta corrección.
+
+**Pendientes activos (P0 → P1):**
+- **P0 — Categoría B08PZF22R1 (Thin 5p Transp)** mal seteada en Ropa/Gafas en lugar de Salud y Cuidado Personal. Bloqueador estructural Thin family. Acción en Tati (flag 26/05 vía Slack). Validar también B09T7BF9TK (Kids Negros, Deportes y Aire Libre).
+- **P1 — Bid hold Thin family** hasta corrección categoría. Push 25/05 corriendo, sin escalado adicional.
+- **P1 — Fase 2 Temple bulk reactivación rank** programada sesión 01/06. Stock validado 49u (B0C7WPFVGV) + 96u (B0B94KBY8H), $0 sales 30d.
+- **P1 — Re-pull SQP D+7 post-fix categoría** para validar reframe diagnóstico CS/PS técnicos.
+
+**Aprendizaje — Categoría incorrecta como bloqueador estructural (26/05):**
+- Cuando un child ASIN tiene Sales rank en categoría distinta a sus hermanos del mismo parent, validar breadcrumb PDP antes de invertir en PPC sobre ese ASIN
+- Síntoma diagnóstico previo (SQP CS 100% / PS 0% en queries técnicas) puede ser disonancia categórica, no problema de copy
+- AUTO targeting opera sobre browse node → categoría incorrecta = waste estructural en AUTO
+- Antes de subir bid sobre un ASIN con waste alto en AUTO, validar categoría primaria
+
+**Evento de cuenta:**
+- 2026-05-26 — Hallazgo P0 categoría B08PZF22R1 (Thin 5p Transp 1300u stock) en Ropa › Hombres › Gafas en lugar de Salud. Frente abierto vía Tati. Bid hold Thin family hasta corrección. Mensaje Slack enviado.
 
 ---
 

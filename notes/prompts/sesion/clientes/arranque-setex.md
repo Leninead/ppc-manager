@@ -140,48 +140,46 @@ Devolveme un briefing de 4-6 bullets:
 
 > Se actualiza al cierre de cada sesión Setex vía `cierre-acotado`.
 
-**Último daily Setex:** 2026-05-25 (Hot Sale push táctico — 6 bulks ejecutados).
+Última sesión: 26/05/2026 — análisis imagen Inventory Tati + hallazgo categoría B08PZF22R1.
 
-**KPIs cuenta (snapshot BSE 1-25/05, pre-bulks):** ACoS 18.5% · ROAS 5.41× · 448 orders/30d · CVR 11.45% · 86 camps ENABLED · $4,694/d budget total.
+Sesión previa (25/05): Hot Sale push +$430/d redirigido a winners. KPIs cuenta: ACoS 18.5% · ROAS 5.41× · 448 orders/30d · 78 camps ENABLED. Push Thin/Thick corriendo.
 
-**6 bulks ejecutados 25/05 — 100% Success (UUIDs):**
-- Bulk 0 PausarB09F7P8GBZPA (17): `35acaeab-06fd-4453-bfed-0aa53f442947`
-- Bulk 1 PushHeroesROAS10x (24): `8649da59-f84a-4cc7-a1a6-516110e5745c`
-- Bulk 2 BidUpKWHeroes (11): `a3d34f10-91c7-4745-8ca6-22934dfd946e`
-- Bulk 3 PausasWaste (8): UUID parcial `?2a0-d940-48dc-8099-84126a0dfda1`
-- Bulk 4 ReactivarB086H3TZ6B (19): `6e51010d-c5da-4cbc-8772-0c3423da9466`
-- Bulk 5 NegativosQuirurgicos (153): `8c097629-806a-4237-a79b-96bf669074a4`
+Mensaje 26/05 a Tati: status Hot Sale push + hallazgo categoría B08PZF22R1 + plan Fase 2. Enviado. Verificar respuesta al iniciar sesión.
 
-**Status post-bulks 25/05:** cuenta pasa de 86 → 78 camps ENABLED (8 pausadas). Budgets 12 winners verificados aterrizados (Brand Hub $15→$45, Ultra Thin 5p Transp $250→$400, etc).
-
-**Status Atom11 v2026.3:** sin cambio desde 22/05. 🟡 sigue sin confirmación Neha (prefix STX + schedule + timeline Fase 1).
+Frente categoría abierto: B08PZF22R1 P0 + B09T7BF9TK P1 esperando acción Tati.
 
 ## Pendientes activos
 
 > Se actualiza al cierre vía `cierre-acotado`. Ordenar P0 → P3.
 
-**P0 — urgente próxima sesión:**
-- Eval día 7 post-bulks Hot Sale (01/06): impressions + CTR + sales + ACoS primer corte real
-- Confirmación Tati ETA inbound B09F7P8GBZ — trip wire activo (si OnHand <3u sin inbound, pausar último PA preservado)
-- Monitor semanal B09F7P8GBZ cada lunes (decisión opción B activa)
+**P0 — Respuesta Tati frente categoría:**
+- Confirmación edit B08PZF22R1 (browse node a Salud y Cuidado Personal)
+- Confirmación edit/validación B09T7BF9TK
+- Reports prometidos: BR por ASIN 30d, Inventory completo, SQP semana 22
 
-**P1:**
-- Confirmar prefix STX + schedule + timeline Fase 1 Atom11 con Neha
-- Status nuevos flags Tati: B0F63LTD92 (Ear Hook 98u, 0 sales 30d) y B0C7WPFVGV (Temple Tips Grises 50u, 0 sales 30d) — restock confirmado pero listing no tracciona → audit listing nuevo
+**P0 — Bid hold Thin family:** mantener push 25/05 sin escalar hasta categoría corregida.
 
-**P2 — pendientes Tati previos (sin novedad):**
-- Listing audit B081GB8F89 ES (refuerzo evidencia 25/05 — sigue prioritario)
-- Confirmar ETA inbound B09F7P8GBZ
-- B0DW9Z2H2W (Nano 15p Negros) sigue missing offer + 0u + $0 — listing roto
-- B0CC6THCDS (Kids 15p $530) — 1 venta/30d con 33u, revisar precio
+**P1 — Eval D+3 push Hot Sale (28/05):** primer corte data limpia post-bulks 25/05.
 
-**P2 — actualización diagnóstico (no requiere acción Tati):**
-- ~~Listing audit EN B081GB8F89~~ — REMOVIDO. SQP 25/05 muestra cluster EN convierte bien (PS 66-100% en queries "nose pad(s)"). Funnel break era específico de subgrupos "grip puro" + rayban — ya negativizados en Bulk 5.
+**P1 — Sesión 01/06 (eval D+7):**
+- Eval impacto Hot Sale push completo
+- Re-pull SQP queries técnicas si categoría ya corregida (validar reframe diagnóstico)
+- Fase 2 Temple: bulk dedicado reactivación rank (stock validado B0C7WPFVGV 49u + B0B94KBY8H 96u, $0 sales 30d)
+- Si reports BR por ASIN llegaron: separar problema de tráfico vs conversión por SKU Thin/Thick
 
-**P3 — interno:**
-- Bug list M4 consolidado (8 bugs) — entregable a Ramiro próxima sesión repo
-- Consolidar duplicados brand defense (setex en 2 camps + setex gecko grip en 3 — ya identificado 22/05, pendiente)
-- Tocar CLUSTER Core ES case-by-case (6 KWs uniformes $13.10 — pendiente 22/05)
+**P1 — B09F7P8GBZ trip wire:** check lunes 02/06 (stock 6u OnHand sin inbound, trip wire <3u).
+
+**P2 — Bug list M4 consolidado (8 bugs):** entregable Ramiro pendiente.
+
+**P2 — Consolidación duplicados brand defense** + CLUSTER Core ES case-by-case (del 22/05).
+
+**P3 — Listing audit B081GB8F89 ES:** re-priorizado — el diagnóstico ahora apunta a contexto categórico, no copy. Pendiente validar post-fix B08PZF22R1.
+
+## Bloqueos
+
+- Acción categoría B08PZF22R1 depende de Tati / Seller Support
+- Atom11 v2026.3 Fase 1: Neha sin responder desde 22/05 (prefix STX + schedule + timeline)
+- Tati: 4 flags abiertos previos (B09F7P8GBZ ETA, B0F63LTD92, B0C7WPFVGV listing tracción, B0DW9Z2H2W listing roto)
 
 ## Próxima sesión propuesta
 

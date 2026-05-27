@@ -594,3 +594,24 @@ Resumen Hot Sale + flag B09F7P8GBZ + corrección diagnóstico EN + pendientes si
 - Push winners agresivo Thin family (stock 1,882u soporta cualquier escalada)
 - Brand Hub triplicado a $45/d — observación 24h crítica
 - Lecciones operativas para SOP `amazon-bulk-upload-guide.md` aprendizaje #17: "Product Ad no tiene bid propio — pausar es la única palanca por-SKU"
+
+---
+
+## Bugs y gotchas conocidos
+
+### Categoría mal seteada (descubierto 26/05/2026)
+
+**B08PZF22R1 (XG9G515, Thin 5p Transp 1300u stock)**
+- Categoría actual: `Ropa, Zapatos y Accesorios › Hombres › Accesorios › Gafas y Accesorios`
+- Categoría correcta esperada: `Salud y Cuidado Personal` (como los 3 hermanos del parent B0F3PSP82K)
+- Hermanos OK: B08SMSBFG9 · B08SNXF8HP · B08SP1JFZ8
+- Acción pendiente en Tati: editar listing o caso Catalog Support
+
+**B09T7BF9TK (XG9GA25, Kids 5p Negros 31u stock)**
+- Categoría actual: `Deportes y Aire Libre` (rank 29,947)
+- Hermanos del Kids parent B0F3QW4RZR en Salud y Cuidado Personal
+- Validar y corregir
+
+**Patrón aprendido:** Sales rank en categoría distinta a hermanos = bloqueador estructural. Validar antes de invertir bid sobre el ASIN.
+
+**Conexión con SQP:** queries técnicas con CS 100% / PS 0% pueden ser síntoma de disonancia categórica del PDP, no problema de copy. Re-pull SQP D+7 post-fix para validar.

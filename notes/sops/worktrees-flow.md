@@ -155,6 +155,31 @@ interno queda colgado hasta que se prunee.
   día 25/05 donde el commit `252f286` capturó -147 LOC cross-frente al no
   ver los cambios de otro chat sobre el mismo working tree.
 
+## Caveats descubiertos en producción 2026-05-26
+
+Hallazgos del día multi-frente (M29 DataDive en worktree nuevo + consolidación).
+Afectan a cualquier worktree fresco o clone limpio:
+
+1. **`data/sales/proposals/` arranca vacío** en un worktree nuevo (solo `.gitkeep`;
+   los proposals son gitignored). Todo smoke/test con proposals reales requiere copiar
+   el `__vN.json` del principal primero.
+2. **`.streamlit/secrets.toml` ausente** en el worktree → `app.py` lanza
+   `FileNotFoundError: No secrets found` y la app no renderiza (gate de login). Copiar
+   del principal / `~/.streamlit/` para smoke de UI. El smoke CLI lo esquiva.
+3. **El venv no trae pytest por default** — instalarlo (`pip install pytest`) para correr
+   la suite en un entorno nuevo.
+4. **`SALES_ROOT` (data Sales) es relativo al cwd**, no a `__file__` → lanzar Streamlit/
+   scripts desde la raíz del worktree, o los datos aterrizan en el árbol equivocado.
+   Deuda P1 de fondo (afecta a todo el sistema Sales).
+5. **`notes/*` está gitignored** (regla `notes/*` del `.gitignore`; los subfolders
+   `daily/`, `sops/`, `state/` están re-incluidos, pero archivos en la raíz de `notes/` no).
+   Planes/scratch en la raíz de `notes/` necesitan `git add -f` para versionarse.
+6. **Dailies cross-frente generan conflicto add/add** cuando 2+ frentes escriben
+   `notes/daily/YYYY-MM-DD.md` el mismo día. Propuesta: cada frente escribe
+   `daily/YYYY-MM-DD-<frente>.md` y un consolidador único arma el `YYYY-MM-DD.md` final
+   (o el consolidador es el único que toca el daily compartido). Hoy se resolvió a mano
+   (un solo daily con secciones por frente).
+
 ## Referencias cruzadas
 
 - [[cierre-acotado]] — cierre por frente sin push
