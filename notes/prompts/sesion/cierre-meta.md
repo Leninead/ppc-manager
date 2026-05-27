@@ -5,6 +5,18 @@ categoria: sesion
 version: v5
 ---
 
+> ⚠️ **REGLA OPERATIVA — sop-writer suspendido**
+>
+> Tras incidentes 25-26/05 (sop-writer destruyó STATE-agencia −1255 líneas),
+> sop-writer NO se usa para:
+> - `notes/state/STATE-agencia.md` (cualquier operación)
+> - Cualquier archivo >500 líneas
+>
+> Para esos casos, Edit quirúrgico obligatorio con validación textual:
+> - `git diff --stat` ANTES (esperable <50 líneas modificadas)
+> - `grep "^## " <archivo>` (verificar headers post-edit)
+> - Si `git diff --stat` muestra -200+ líneas → PARAR y `git restore`
+
 # ⭐ Meta-prompt de cierre
 
 ## Cuándo usar

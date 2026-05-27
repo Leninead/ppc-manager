@@ -1,7 +1,7 @@
 ---
 tipo: sop
-actualizado: 2026-05-25
-version: v1.0
+actualizado: 2026-05-27
+version: v1.1
 tags: [git, worktrees, multi-frente, parallel-agents]
 ---
 
@@ -110,6 +110,20 @@ intencionalmente. Por defecto git protege contra esto.
    `git status` antes de cerrar el día. Si el principal está sucio, algo se
    filtró fuera de su worktree — investigar antes de hacer cualquier otra cosa.
 
+6. **PRE-flight obligatorio en cada chat.** Cada chat debe ejecutar como primera
+   acción al arrancar: `pwd && git branch --show-current && git status`. Si no
+   está en su worktree dedicado → STOP, reportar a Lenin, NO trabajar en
+   principal. Regla agregada tras incidente Setex 26/05.
+
+7. **WIP-handoff vs cierre acotado son mutuamente excluyentes.** Si la sesión NO
+   terminó → usar [[wip-handoff]]. Si terminó → usar [[cierre-acotado]]. Nunca
+   ambos en el mismo cierre.
+
+8. **sop-writer SUSPENDIDO para STATE-agencia.md y archivos >500 líneas.** Tras
+   incidente del 26/05 (sop-writer destruyó -1255 líneas durante BLOQUE 8 de fix
+   M4), regla operativa: usar Edit quirúrgico + validación textual (`git diff
+   --stat` + lectura de headers post-edit) para STATE y archivos grandes.
+
 ## Cómo se combina con `dispatching-parallel-agents`
 
 Cuando tenés 2+ frentes independientes en una misma sesión de Claude Code
@@ -154,6 +168,10 @@ interno queda colgado hasta que se prunee.
   (colisiones garantizadas) a worktrees aislados. Trigger: incidente del
   día 25/05 donde el commit `252f286` capturó -147 LOC cross-frente al no
   ver los cambios de otro chat sobre el mismo working tree.
+- **2026-05-27 — v1.1.** Agregadas reglas R6 (PRE-flight obligatorio),
+  R7 (WIP vs cierre exclusivos), R8 (sop-writer suspendido en STATE).
+  Trigger: 3 incidentes operativos 25-26/05 que ya se documentaron en
+  el daily correspondiente.
 
 ## Caveats descubiertos en producción 2026-05-26
 
