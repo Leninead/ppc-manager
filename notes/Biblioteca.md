@@ -8,6 +8,7 @@
 **Equipo:** Capybaras Agency
 
 > 🗓️ [[_cheat-sheet-diario]] — abrir TODAS las mañanas antes de empezar trabajo. Mecánica del workflow multi-frente diario.
+> 🚀 [[arranque-universal]] — prompt único para pegar al primer mensaje de cualquier chat nuevo. El chat te conduce paso a paso.
 
 ---
 
