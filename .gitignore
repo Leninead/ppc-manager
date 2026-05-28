@@ -54,6 +54,8 @@ notes/*
 !notes/daily/**
 !notes/personal/
 !notes/personal/**
+!notes/personal-projects-backup/
+!notes/personal-projects-backup/**
 !notes/prompts/
 !notes/prompts/**
 !notes/sales/
