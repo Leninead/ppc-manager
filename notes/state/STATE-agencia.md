@@ -1,6 +1,6 @@
 ---
 tipo: state
-actualizado: 2026-05-26
+actualizado: 2026-05-28
 ---
 
 # STATE Agencia — Capybaras
@@ -923,19 +923,39 @@ heroes_detectados_str: 19
 
 Todos commiteados a `main`, pendientes de push.
 
-- **M29 Proposal Studio (Sales Director module)** — Sesión 3 en curso
-  (B1+B2 cerrados, B3-B6 pendientes). Commits hoy: `6b0f2dc` (S3-B1 routing
-  vista detalle + state machine + skeleton) + `5cc0fd3` (S3-B2 listado
-  readonly de blocks con badges por tier). Ambos en `main`, SIN push —
-  acumulando hasta cierre de B6 según patrón S2 (3 commits sin push).
-  Click "🔎 Abrir" desde Listado ahora abre vista detalle funcional con
-  todos los blocks de la propuesta visibles, badges por tier
-  (editable/locked/próximamente). Smoke test E2E con las 3 propuestas
-  demo: composición CORE varía por arquetipo (Launch=4, CVR=3,
-  Scale+SEO=5). Próximo: Sesión 3 — B3-b V1 Brand Overview end-to-end con
-  save funcional → si valida patrón, replicar a V2-V6 → B5 botón Guardar
-  → B6 polish + push acumulado. Compromiso Slack (12/05): fases 3+4 esta
-  semana. Owner: Lenin (dev). Ver [[brands/agency-os]] y [[daily/2026-05-13]].
+- **M29 Proposal Studio (Sales Director module)** — branch `feature/m29-datadive-mapper`
+  LISTA PARA SHIP. 28/05 chat paralelo cerró: tests E2E AppTest del flujo UI
+  (deuda "edits fantasma" del 25/05 tapada en el path apply), propuesta de shape
+  V5 redactada para sync con Ramiro 30/05, SOP M29 v1.0 completo escrito (módulo
+  + 2 vías de import + editores + gotchas + tests + deuda). Suite 98/98 verde.
+  Convergencia de branches confirmada: `feature/m29-datadive-mapper` contiene todo
+  el frente (B7 D2-D4 + DataDive E1-E5 + lo de hoy); `origin/feature/m29-b7-d3-d4`
+  es redundante y queda histórica.
+
+  Commits nuevos del 28/05 (3, fast-forward limpio sobre origin previo):
+  - `78ba2eb`  test(M29): E2E AppTest flujo UI - B7 importer apply + DataDive V3
+  - `0dcf8c3`  docs(M29): propuesta shape V5 assets para sync Ramiro 30/05
+  - `b7fd965`  docs(M29): SOP v1.0 modulo completo - importer B7 + DataDive + editores
+
+  Push + merge a main = acciones manuales de Lenin (sesión 28/05 PM).
+
+  Pendientes M29 ordenados:
+  - **P0**: Reunión Ramiro 30/05 — llevar `notes/modules/M29-V5-shape-proposal.md`,
+    capturar respuestas, cerrar contrato v2 de shape V5.
+  - **P1**: Post-v2, construir editor manual V5 (1 sesión + tests).
+  - **P2**: Verificar 4 templates en `data/sales/_templates/*.json` con 0 blocks
+    (¿esperado o deuda?). Portear harness AppTest a botones Guardar V1/V2 para
+    cerrar 100% la deuda "edits fantasma".
+  - **P3**: Refactor Class B genérico (cuando haya N=4 readonly V3-V6). Cleanup
+    versiones `__vN.json` acumuladas en save_proposal. Renderer HTML/PDF para
+    S5/S6 (hoy solo JSON crudo en debug expander).
+
+  Flags vivos a retener (del handoff del chat M29):
+  - Templates `data/sales/_templates/*.json` con 0 blocks — verificar si es esperado
+    del wizard por arquetipo o deuda silenciosa.
+  - Discrepancia numérica "20 vs 35 blocks" del planning vs realidad ("20 demo vs
+    37 catálogo") — ya no debería bloquear pero anotada.
+  - `_DEMO_AgencyOS` es client_name de la propuesta seed, NO un template.
 - **Variation Builder M26 (2026-04-26 en curso)**. Módulo nuevo Account Manager para generar flat files Amazon (1 parent + N children). `modules/pages/variation_builder.py` (929L). 4 tabs: Parent / Children+Theme / Preview / Descargar. Tema Variation (Sabor, Tamano, Scent, etc). Bug abierto: `data_editor` requiere doble entrada para persistir — fix diseñado (3 keys pattern) pendiente de aplicar. End-to-end validado con template cliente `PET_FOOD__1_.xlsm`. **Casos de éxito acumulados (3)**: VITALPET 27/04 (4/4), OPTIPET_ADULT 08/05 (4/4), OPTIPET_FLAVORBOOST 09/05 PARCIAL (2/4 — primer caso "listing rico desde cero", 7 hallazgos técnicos nuevos VB-004 a VB-011). Knowledge: `notes/knowledge/2026-05-08-variation-builder-flat-file-format.md`.
 - **Sprint 1 Campaign Builder v2.0 — SB rewrite (cerrado 2026-04-23)**. `_render_sb()` reescrito 864→1121 líneas en `modules/pages/campaign_builder.py`. Selector SBV/SBH. Brand Entity ID obligatorio. 29 columnas bulk SB 2026. Validaciones estrictas. Naming Capybaras hardcoded preservado (contrato con M11 Atom11 Rules Builder).
 - **Gamboa Generator M25 (integrado 2026-04-22)**. Módulo Account para reportes HTML integrales (SQP mensual + BR semanal). 5 archivos en `modules/gamboa/` + `modules/pages/gamboa_generator.py` (383L). Live en producción.
@@ -944,7 +964,31 @@ Todos commiteados a `main`, pendientes de push.
 - **Vault Obsidian versionado (hoy 2026-04-24)**. `.gitignore` fix `notes/` → `notes/*` + excepciones por carpeta. Estructura 8 directorios (`brands/`, `daily/`, `knowledge/`, `personal/`, `prompts/`, `sops/`, `state/`, `.obsidian/`). 6 brand notes + 9 archivos sueltos reorganizados con `git mv`.
 - **Sprint 2 Campaign Builder Modo B (TBD ~4-5h)**. XLSX custom + `st.data_editor` para flujo rápido power-user.
 - **Sprint 3 DaypartingApp (TBD ~2h)**. Módulo nuevo Account Manager — automatización bids por día/hora.
-- **M28 SKU Progress Report (Account Health)** — production-ready local con 4 bugs cerrados (commits 841b230 + 0c7dbf4 + b4d84e9). Triple validacion: audit code-reviewer + diff visual + smoke E2E con Dermaglos. Bloqueado para uso compartido por filesystem efimero de Streamlit Cloud.
+- **M28 SKU Progress Report (Account Health)** — WIP — soak local en preparación.
+  28/05 sesión de validación E2E parcial. Cliente de prueba `gamboa` creado con 3
+  SKUs (GAMB-SERUM-50ML, GAMB-CREMA-200G, GAMB-OIL-30ML) y fixture CSV sintético
+  validado contra parser + consolidación + saneo de símbolos + auto-detect de semana
+  del filename + detección de snapshot duplicado + save Parquet. Pendiente para
+  próxima sesión: validar tab Admin (borrar snapshot, borrar SKU), Excel completo
+  (multi-hoja), registrar optimización en flujo limpio, render del tab GAMB-CREMA-200G
+  con los datos importados (consolidación de 2 variantes en pantalla). Después del
+  cierre de las 4 validaciones → armar instructivo de setup local para Marcos
+  (Python 3.12 + venv + repo + streamlit run). Plan de soak: Marcos prueba en SU PC
+  (no deploy cloud) durante una semana; recién con esa validación se decide pasar a
+  Supabase para uso compartido.
+
+  Worktree activo: `C:\proyectos\ppc-manager-m28` (branch `feature/m28-soak-local`).
+  No hay código modificado en esta sesión — el código de M28 está estable.
+
+  Riesgos detectados (deuda P3, no bloquean soak):
+  - R1: `_delete_cliente` y `_dialog_borrar_cliente` usan `Path("data")` relativo;
+    el resto del módulo usa `DATA_ROOT`. Inconsistencia a limpiar.
+  - R2: posible colisión de nombres de hoja Excel si dos SKUs truncan al mismo
+    string de 31 chars (edge case improbable).
+  - R3: `unlink()` directo en `_render_admin_tab` fuera de `core.persistence`.
+  - Observación UX para soak: el file_uploader rechaza .xlsx en silencio (ícono
+    rojo sin mensaje). Marcos puede confundirse si Excel le re-guarda el CSV como
+    xlsx. Candidato a mensaje de error explícito.
 
 ---
 
