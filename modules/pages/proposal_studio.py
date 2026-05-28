@@ -26,10 +26,13 @@ Ver:
 from __future__ import annotations
 
 import json
+import re
 import streamlit as st
 from datetime import datetime, timezone
 import core.proposal_persistence as pp
 from modules.sales.b7_importer import extract_blocks, merge_blocks
+from modules.parsers.datadive import parse_mkl as _dd_parse_mkl
+from modules.sales.mappers.datadive_to_v3 import datadive_to_v3_block
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constantes UI
@@ -2574,6 +2577,9 @@ def _render_detail_screen() -> None:
     # ── B7 Importer (D2: preview readonly, apply llega en D3) ────────────
     _render_b7_importer_section(proposal)
 
+    # ── DataDive Importer (E4: MKL → V3 SEO Opportunity) ─────────────────
+    _render_datadive_importer_section(proposal)
+
     # ── Listado de blocks de la propuesta ────────────────────────────────
     _render_blocks_section(proposal)
 
@@ -2910,6 +2916,131 @@ def _execute_b7_merge_and_save(
 
     # Refrescar la vista detalle con la propuesta nueva.
     st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DataDive Importer — UI dispatcher (E4: MKL → V3 SEO Opportunity)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@st.cache_data
+def _dd_parse_mkl_cached(data: bytes, name: str):
+    """Wrapper cacheado del parser puro (evita re-parsear en cada rerun)."""
+    return _dd_parse_mkl(data, name)
+
+
+def _extract_asin_from_proposal(proposal: dict) -> str:
+    """Best-effort: extrae un ASIN (B0XXXXXXXX) del bloque V4 listing si existe."""
+    asin_re = re.compile(r"B0[A-Z0-9]{8}")
+    for b in proposal.get("blocks", []):
+        if not isinstance(b, dict):
+            continue
+        if b.get("module_id") != "V4_listing_improvements_current_state":
+            continue
+        data = b.get("data", {}) or {}
+        for key in ("asin", "current_state_url"):
+            val = data.get(key)
+            if isinstance(val, str):
+                m = asin_re.search(val.upper())
+                if m:
+                    return m.group(0)
+    return ""
+
+
+def _render_datadive_importer_section(proposal: dict) -> None:
+    """Sección DataDive → V3 dentro de la vista detalle (E4).
+
+    Layout paralelo al importer B7:
+      - text_input ASIN cliente (default best-effort desde el bloque V4)
+      - validación regex en vivo → habilita uploader sólo con ASIN válido
+      - uploader MKL .xlsx → parse_mkl → datadive_to_v3_block → ImportReport
+      - reusa _render_b7_apply_flow + _execute_b7_merge_and_save (report-driven)
+
+    Nota: reusa el flag de confirmación de _render_b7_apply_flow
+    (ps_b7_confirm_apply_{pid}); si el operador tuviera el expander B7 y el de
+    DataDive con upload simultáneo, el estado de 2-clicks se comparte. Edge case
+    de baja probabilidad, registrado como deuda (no se modifican funciones B7).
+    """
+    pid = proposal["id"]
+
+    with st.expander("🌊 Importar desde DataDive (V3 SEO Opportunity)", expanded=False):
+        st.caption(
+            "Subí el MKL (`niche-*-keywords.xlsx`) de DataDive. Detectamos las "
+            "keywords donde el ASIN del cliente no rankea o rankea débil (rank > 30) "
+            "y poblamos el bloque `V3_seo_opportunity` (overwrite del `data`, "
+            "auto-bump de version). Reusa el flujo de apply 2-clicks del B7."
+        )
+
+        default_asin = _extract_asin_from_proposal(proposal)
+        asin_input = st.text_input(
+            "ASIN del cliente",
+            value=default_asin,
+            placeholder="B0XXXXXXXX",
+            key=f"dd_v3_asin_{pid}",
+            help="Se usa para leer el rank actual del cliente en el MKL.",
+        ).strip().upper()
+
+        if not re.match(r"^B0[A-Z0-9]{8}$", asin_input):
+            st.info("Ingresá un ASIN válido (formato `B0XXXXXXXX`) para habilitar el upload.")
+            return
+
+        uploaded = st.file_uploader(
+            "MKL DataDive (.xlsx)",
+            type=["xlsx"],
+            key=f"dd_v3_uploader_{pid}",
+            help="niche-*-keywords.xlsx (sheet 1).",
+        )
+        if uploaded is None:
+            return
+
+        try:
+            mkl_df, competitor_asins = _dd_parse_mkl_cached(uploaded.getvalue(), uploaded.name)
+        except Exception as e:
+            st.error(f"❌ No se pudo parsear el MKL: {type(e).__name__}: {e}")
+            return
+
+        catalog = _load_catalog_cached()
+        report = datadive_to_v3_block(mkl_df, competitor_asins, asin_input)
+
+        n_blocks = len(report.blocks)
+        n_warnings = len(report.warnings)
+        n_errors = len(report.errors)
+
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("Blocks", n_blocks)
+        with col_b:
+            st.metric("Warnings", n_warnings)
+        with col_c:
+            st.metric("Errors (bloqueantes)", n_errors)
+
+        if n_errors > 0:
+            for e in report.errors:
+                st.error(f"⛔ {e.code}: {e.message}")
+            return
+
+        if n_blocks > 0:
+            v3 = report.blocks[0]
+            n_missing = len(v3.data.get("missing_keywords", []))
+            st.markdown(
+                f"<div style='margin:0.5rem 0;padding:0.6rem 1rem;background:#FFF8F0;"
+                f"border-left:3px solid {_NARANJA};border-radius:4px;font-size:0.85rem;"
+                f"color:#5D2D00;'>🌊 <strong>{n_missing}</strong> missing keyword(s) "
+                f"detectada(s) para <code>{asin_input}</code>.</div>",
+                unsafe_allow_html=True,
+            )
+            with st.popover("🔍 Ver data del bloque V3 a aplicar"):
+                st.json(v3.data)
+
+        if n_warnings > 0:
+            for w in report.warnings:
+                st.warning(f"⚠️ {w.code}: {w.message}")
+
+        target_module_ids = {
+            b.get("module_id") for b in proposal.get("blocks", [])
+            if isinstance(b, dict)
+        }
+        _render_b7_apply_flow(proposal, report, catalog, target_module_ids)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

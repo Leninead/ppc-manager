@@ -1,6 +1,6 @@
 ---
 tipo: prompt
-actualizado: 2026-05-25
+actualizado: 2026-05-26
 categoria: sesion
 subcategoria: feature
 version: v1
@@ -174,12 +174,13 @@ Al final del bloque <background>, devolveme un briefing de 4-6 bullets:
 > Esta sección se actualiza automáticamente al cierre de cada sesión que toque
 > esta feature.
 
-**Último commit relevante:** `093e686` — feat(M29): B7 UI dispatcher D2 -
-expander + uploader + ImportReport preview — 2026-05-25 (chat #1/4 multi-frente).
+**Último commit relevante:** `0aa5261` — test(M29): E5 - smoke E2E DataDive → V3
+validado — 2026-05-26 (branch feature/m29-datadive-mapper, pendiente merge).
 
-**Progreso global:** 6/6 editores CORE cerrados. B7 Importer v1 cerrado. UI
-dispatcher B7: D1 (discovery) + D2 (skeleton+preview) cerrados; D3+D4
-pendientes. Ship target: jueves 28/05.
+**Progreso global:** 6/6 editores CORE + B7 v1 + UI dispatcher B7 D3+D4 SHIPPED
+(mergeado a main, 458fb4b) + DataDive → V3 mapper en branch
+(feature/m29-datadive-mapper @ 0aa5261, pendiente merge). Ship target: jueves
+28/05 (adelantado — el plan original era refactor DataDive el martes).
 
 **Sub-bloques cerrados:**
 - V1 (brand_overview) + V2 (market_opportunity) — editables Plan D
@@ -220,20 +221,27 @@ fix D6 3 hitos verde (22/05).
 - (ninguno)
 
 **P1 — alta prioridad (camino al ship 28/05):**
-- UI dispatcher B7 D3 (apply + 2-clicks + save) — bloque inmediato martes
-- UI dispatcher B7 D4 (hardening + smoke E2E final)
-- Refactor DataDive parsers → `modules/parsers/` + mapper V3
+- Merge `feature/m29-datadive-mapper` a main (con fixture trackeado pre-merge)
 - Editor manual V5 (URLs pareadas)
-- Testing E2E + SOP + ship
+- Testing E2E completo (miércoles)
+- Ship + SOP (jueves)
 - Tests AppTest E2E (deuda ALTA — agravada por incidente fantasma 25/05)
+- ✅ Cerrados 26/05: UI dispatcher B7 D3+D4 (mergeado a main) + Refactor DataDive
+  parsers → `modules/parsers/` + mapper V3 (branch, pendiente merge)
 
 **P2 — media:**
+- NUEVA (26/05) — Test fixture trackeado: mover v12 a
+  `tests/fixtures/_DEMO_AgencyOS_v12.json` + refactorear `DEMO_PROPOSAL_PATH`.
+  `test_b7_importer` + el test de integración del mapper dependen del proposal
+  gitignored → `FileNotFoundError` en worktree/clone limpio. ~20 min, ANTES del merge.
 - Validar con consolidador #5 si el commit `252f286` (mensaje M27, contenido
   -147 LOC en flat_file_migrator.py, ex-`64e3d6f` mal etiquetado M29) era
   intencional del chat #2 o accidente capturado
 - Template launch desactualizado vs catálogo (`_DEMO_AgencyOS` 20 vs 35 blocks)
 
 **P3 — baja / deuda blanda:**
+- NUEVA (26/05) — Flag-collision DataDive vs B7 (ambos usan
+  `ps_b7_confirm_apply_{pid}`). Parametrizar `flag_key` en `_render_b7_apply_flow`. ~15 min.
 - Refactor genérico Class B (`_render_class_b_readonly`) — ~400→~80 LOC
 - Cleanup 44 versiones del proposal `6861bbce-...`
 - Schema `items_schema: {}` vs `null` en `_catalog.json` (D6 catalog)
@@ -247,29 +255,21 @@ fix D6 3 hitos verde (22/05).
 > Esta sección se actualiza al cierre con el bloque concreto a ejecutar la
 > próxima vez que se trabaje esta feature.
 
-**Bloque a ejecutar:** Martes 26/05 — UI dispatcher B7 D3 + D4 (cierre del
-bloque). D3 = apply quirúrgico: botón "Aplicar merge" con confirmación
-2-clicks (flag `ps_b7_confirm_apply_{pid}` en session_state), llamada a
-`merge_blocks(report, proposal, catalog)`, persistencia vía
-`pp.save_proposal(merge_result.proposal_updated)` que auto-bumpea version,
-banner verde post-save con vN→v(N+1), `st.rerun()`. D4 = smoke E2E con casos
-edge (b7_sample_duplicate.html para validar fix D6 en UI; HTML inválido para
-validar error path). Una vez cerrado, pivot al bloque "Refactor DataDive
-parsers → modules/parsers/ + mapper V3" del plan al 28/05.
+**Bloque a ejecutar:** Martes 27/05 — (1) mover v12 a `tests/fixtures/` +
+refactorear `DEMO_PROPOSAL_PATH` (P2, ~20 min) ANTES del merge; (2) merge
+`feature/m29-datadive-mapper` → main (`--no-ff`, ~30 min); (3) arrancar V5
+manual editor (URLs pareadas, ~3-4h, resto del día).
 
 **Pre-flight:**
-- Leer firma exacta de `merge_blocks(report, target_proposal, catalog) →
-  MergeResult` en `modules/sales/b7_importer.py` (la firma estuvo en chat
-  durante D1 pero conviene re-verificar en disco antes de cablear)
-- Confirmar shape de `MergeResult.applied_blocks` / `skipped_blocks` /
-  `warnings` para el summary post-merge
-- Releer el helper `_render_b7_importer_section` ya en disco para entender
-  dónde insertar el botón apply (después del footer condicional)
-- Verificar que `_DEMO_AgencyOS` siga siendo la propuesta canónica de smoke
-  (`pp.get_proposal(id)` con id `01fbf5c2...`); si subió de v12 por testing
-  D3 no importa — `save_proposal` versiona limpio
+- Revisar P3 flag-collision DataDive vs B7 (`ps_b7_confirm_apply_{pid}`
+  compartido entre ambos importers) ANTES del merge — decidir si se
+  parametriza `flag_key` en `_render_b7_apply_flow` o se difiere
+- Sincronizar main del principal y re-chequear conflictos antes del merge
+  (main puede haber avanzado con otros frentes)
+- Confirmar suite 95/95 bajo venv 3.12 en la branch antes de mergear
+  (recordar: la suite necesita el v12 — por eso conviene moverlo a fixtures)
 
-**Estimación:** 1.5-2h (60min D3 + 40min D4).
+**Estimación:** ~50 min (fixture + merge) + 3-4h (V5).
 
 **Sub-agentes Claude Code que podrían usarse:** code-reviewer (Opus 4.7) para
 audit post-D4 antes de commit final. NO usar ppc-module-builder.
@@ -297,6 +297,7 @@ audit post-D4 antes de commit final. NO usar ppc-module-builder.
 - 2026-05-20 — B3-f V5 + B3-g V6 readonly (Class B N=4). [[2026-05-20]]
 - 2026-05-22 — B7 Importer v1 completo (extract + merge + fix D6 + 10 tests) + sync Ramiro. [[2026-05-22]]
 - 2026-05-25 — UI dispatcher B7 D1 discovery + D2 skeleton/preview cerrados (chat #1/4 multi-frente; incidente fantasma de edits + bug commit cross-frente documentados). [[2026-05-25]]
+- 2026-05-26 — D3+D4 mergeado a main (458fb4b) + DataDive mapper en branch (0aa5261, pendiente merge). E1→E5 cerrados, suite 95/95. [[2026-05-26]]
 
 ---
 
