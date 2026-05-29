@@ -77,6 +77,8 @@ notes/sales/*
 # Estos artefactos viajan por Slack/Drive con el cliente; no son código.
 # M27 smoke outputs
 scripts/_smoke_output_migrated.xlsx
+# M28 validation outputs (reproducibles, no se versionan)
+scripts/_m28_excel_validation_output.xlsx
 # Setex deliverables
 Setex_*.xlsx
 Bulk_Setex*.xlsx
