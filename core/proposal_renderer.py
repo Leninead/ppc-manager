@@ -69,13 +69,20 @@ def _pick_lang(field, lang):
 
 
 def _build_env() -> Environment:
-    """Environment Jinja2 anclado al dir absoluto de templates, autoescape ON."""
-    return Environment(
+    """Environment Jinja2 anclado al dir absoluto de templates, autoescape ON.
+
+    Registra el filtro `pick_lang` para resolver campos bilingües {en, es} dentro
+    de los templates: `{{ campo | pick_lang(lang) }}`. Infra compartida por todos
+    los sub-templates (FIXED con defaults bilingües + V4/V5/V6 futuros).
+    """
+    env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_ABS)),
         autoescape=select_autoescape(enabled_extensions=("html",), default=True),
         trim_blocks=True,
         lstrip_blocks=True,
     )
+    env.filters["pick_lang"] = _pick_lang
+    return env
 
 
 def _catalog_module_index() -> dict:
