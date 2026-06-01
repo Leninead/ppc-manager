@@ -30,6 +30,7 @@ import re
 import streamlit as st
 from datetime import datetime, timezone
 import core.proposal_persistence as pp
+from core.proposal_renderer import render_proposal_html
 from modules.sales.b7_importer import extract_blocks, merge_blocks
 from modules.parsers.datadive import parse_mkl as _dd_parse_mkl
 from modules.sales.mappers.datadive_to_v3 import datadive_to_v3_block
@@ -2490,6 +2491,16 @@ def _render_blocks_section(proposal: dict) -> None:
     )
 
 
+def _slug_filename(name: str) -> str:
+    """Slug filename-safe para el nombre del archivo de descarga (kebab ASCII)."""
+    s = (name or "").strip().lower()
+    repl = {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n", "ü": "u"}
+    for k, v in repl.items():
+        s = s.replace(k, v)
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s or "propuesta"
+
+
 def _render_detail_screen() -> None:
     """Pantalla de vista detalle de una propuesta. Reemplaza los tabs cuando está activa.
 
@@ -2582,6 +2593,28 @@ def _render_detail_screen() -> None:
 
     # ── Listado de blocks de la propuesta ────────────────────────────────
     _render_blocks_section(proposal)
+
+    # ── Vista previa / Descargar HTML (S5 renderer) ──────────────────────
+    st.divider()
+    st.markdown("#### 📄 Vista previa / Descargar")
+    _render_lang = proposal.get("language") or "es"
+    try:
+        _proposal_html = render_proposal_html(proposal, _render_lang)
+    except Exception as e:
+        st.error(f"❌ Error al renderar la propuesta: {type(e).__name__}: {e}")
+    else:
+        st.caption(
+            "Vistazo rápido — el preview fiel es el HTML descargado abierto en el browser."
+        )
+        st.components.v1.html(_proposal_html, height=800, scrolling=True)
+        _slug = _slug_filename(proposal.get("client_name"))
+        st.download_button(
+            "⬇️ Descargar HTML",
+            data=_proposal_html,
+            file_name=f"propuesta-{_slug}-v{pversion}.html",
+            mime="text/html",
+            key="detail_download_html",
+        )
 
     with st.expander("🔍 Ver propuesta cruda (debug)", expanded=False):
         st.code(json.dumps(proposal, indent=2, ensure_ascii=False), language="json")
