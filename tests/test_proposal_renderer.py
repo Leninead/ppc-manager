@@ -104,6 +104,43 @@ def test_effective_data_no_default_is_non_regressive():
     assert _effective_data(v1, block_data) == block_data
 
 
+def test_render_includes_fixed_catalog_content():
+    """El render incluye contenido de los defaults del catálogo (F4/F6 pillars)."""
+    p = _launch_proposal()
+    html = render_proposal_html(p, "es")
+    assert "Strategic Management" in html          # F4 pillar name (plano)
+    assert "Sistema Operativo Propio" in html      # F6 pillar title.es resuelto
+
+
+def test_render_pick_lang_no_raw_dict():
+    """Los campos bilingües {en,es} se resuelven; no aparecen dicts crudos."""
+    p = _launch_proposal()
+    for lang in ("es", "en"):
+        html = render_proposal_html(p, lang)
+        assert "{'en'" not in html
+        assert "{'es'" not in html
+        assert "{&#39;en&#39;" not in html  # por si autoescape escapa las comillas
+
+
+def test_render_v2_fields():
+    """V2 renderiza sus campos data-driven; omite vacíos, sin 'None'."""
+    p = _launch_proposal()
+    for b in p["blocks"]:
+        if b["module_id"] == "V2_category_overview":
+            b["data"] = {
+                "category_name": "ZEBRA_CATEGORY",
+                "category_size_band": "$10-100M",
+                "competition_density": "",          # "" → debe omitirse
+                "top_competitors": ["CompA", "CompB"],
+                "weaknesses": ["Weak1"],
+            }
+    html = render_proposal_html(p, "es")
+    assert "ZEBRA_CATEGORY" in html
+    assert "CompA" in html
+    assert "Weak1" in html
+    assert "None" not in html
+
+
 def test_render_missing_template_uses_placeholder():
     """Un module_id sin template propio cae al placeholder (no rompe)."""
     p = _launch_proposal()
