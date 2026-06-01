@@ -920,7 +920,7 @@ def _dialog_add_cliente():
     """Modal para crear un nuevo cliente (genera carpeta data/account-health/<slug>/sku-progress/)."""
     name = st.text_input(
         "Nombre del cliente",
-        placeholder="Gamboa, Dermaglos, M&B, ...",
+        placeholder="Ej: nombre de la marca o cliente",
         key="sku_progress_add_cliente_name",
     )
     if name.strip():
