@@ -1,0 +1,33 @@
+<section class="block" data-module="{{ module_id }}">
+  <h2 class="block-section-title">{{ title or module_id }}</h2>
+  <!-- TODO: contenido real pendiente de Lenin (stats sin default en catálogo) -->
+  {% set scalar_stats = [
+    ('years_experience', 'Years of experience', 'Años de experiencia'),
+    ('monthly_revenue_usd', 'Monthly revenue managed', 'Revenue mensual gestionado'),
+    ('monthly_ad_spend_usd', 'Monthly ad spend', 'Ad spend mensual'),
+    ('average_roas', 'Average ROAS', 'ROAS promedio'),
+    ('conversion_rate_advantage', 'CVR advantage', 'Ventaja de CVR')
+  ] %}
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; margin-top: 0.6rem;">
+    {% for field, lbl_en, lbl_es in scalar_stats %}
+    <div style="border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem;">
+      <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-muted);">{{ lbl_en if lang == 'en' else lbl_es }}</div>
+      <div style="font-size: 1.4rem; font-weight: 700; font-family: var(--font-display); margin-top: 0.2rem;">{{ data[field] | default('—', true) }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% set lists = [
+    ('certifications', 'Certifications', 'Certificaciones'),
+    ('partners', 'Partners', 'Partners')
+  ] %}
+  {% for field, lbl_en, lbl_es in lists %}
+  <div style="margin-top: 1rem;">
+    <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.3rem;">{{ lbl_en if lang == 'en' else lbl_es }}</div>
+    {% if data[field] %}
+      {% for item in data[field] %}<span class="pill">{{ item }}</span>{% endfor %}
+    {% else %}
+      <span style="color: var(--text-muted); font-style: italic;">{{ 'pending' if lang == 'en' else 'pendiente' }}</span>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>

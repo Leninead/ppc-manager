@@ -1,0 +1,21 @@
+<section class="block" data-module="{{ module_id }}">
+  <h2 class="block-section-title">{{ title or module_id }}</h2>
+  <!-- TODO: contenido real pendiente de Lenin (ejemplos de marca sin default en catálogo) -->
+  {% set stages = [
+    ('create_brands', 'Create', 'Crear'),
+    ('launch_brands', 'Launch', 'Lanzar'),
+    ('scale_brands', 'Scale', 'Escalar')
+  ] %}
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 0.6rem;">
+    {% for field, lbl_en, lbl_es in stages %}
+    <div style="border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+      <h3 style="margin: 0 0 0.5rem; font-size: 1.05rem;">{{ lbl_en if lang == 'en' else lbl_es }}</h3>
+      {% if data[field] %}
+        {% for brand in data[field] %}<div style="font-size: 0.9rem;">{{ brand.name | default('—', true) }}</div>{% endfor %}
+      {% else %}
+        <span style="color: var(--text-muted); font-style: italic; font-size: 0.9rem;">{{ 'pending' if lang == 'en' else 'pendiente' }}</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
