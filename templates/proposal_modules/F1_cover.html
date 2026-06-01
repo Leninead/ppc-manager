@@ -1,0 +1,15 @@
+<section class="block cover" data-module="{{ module_id }}">
+  <div style="padding: 2.5rem 0 1.5rem;">
+    <div class="mono" style="color: var(--accent); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.8rem;">Capybaras Agency</div>
+    <h1 style="font-size: 2.6rem; margin-top: 0.6rem;">{% if lang == 'en' %}Commercial Proposal{% else %}Propuesta Comercial{% endif %}</h1>
+    {% if proposal.client_name %}
+    <p style="font-size: 1.3rem; font-weight: 600; margin: 0.6rem 0 0;">{{ proposal.client_name }}</p>
+    {% endif %}
+    {% if proposal.client_industry %}
+    <p style="color: var(--text-muted); margin: 0.2rem 0 0;">{{ proposal.client_industry }}</p>
+    {% endif %}
+    {% if proposal.version %}
+    <p class="mono" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 1.6rem;">v{{ proposal.version }}{% if proposal.archetype %} &middot; {{ proposal.archetype }}{% endif %}</p>
+    {% endif %}
+  </div>
+</section>

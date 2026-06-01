@@ -1,0 +1,32 @@
+<section class="block" data-module="{{ module_id }}">
+  <h2 class="block-section-title">{{ title or ('Brand Overview' if lang == 'en' else 'Resumen de Marca') }}</h2>
+  <table class="kv">
+    {% if data.brand_name %}
+    <tr><th>{% if lang == 'en' %}Brand{% else %}Marca{% endif %}</th><td>{{ data.brand_name }}</td></tr>
+    {% endif %}
+    {% if data.sku_count is not none and data.sku_count != '' %}
+    <tr><th>SKUs</th><td>{{ data.sku_count }}</td></tr>
+    {% endif %}
+    {% if data.categories %}
+    <tr><th>{% if lang == 'en' %}Categories{% else %}Categorías{% endif %}</th><td>{% for c in data.categories %}<span class="pill">{{ c }}</span>{% endfor %}</td></tr>
+    {% endif %}
+    {% if data.markets %}
+    <tr><th>{% if lang == 'en' %}Markets{% else %}Mercados{% endif %}</th><td>{% for m in data.markets %}<span class="pill">{{ m }}</span>{% endfor %}</td></tr>
+    {% endif %}
+    {% if data.amazon_account_type %}
+    <tr><th>{% if lang == 'en' %}Account type{% else %}Tipo de cuenta{% endif %}</th><td>{{ data.amazon_account_type }}</td></tr>
+    {% endif %}
+    {% if data.ppc_maturity %}
+    <tr><th>{% if lang == 'en' %}PPC maturity{% else %}Madurez PPC{% endif %}</th><td>{{ data.ppc_maturity }}</td></tr>
+    {% endif %}
+    {% if data.hero_asins %}
+    <tr><th>Hero ASINs</th><td>{% for a in data.hero_asins %}<span class="pill mono">{{ a }}</span>{% endfor %}</td></tr>
+    {% endif %}
+    {% if data.monthly_revenue_band %}
+    <tr><th>{% if lang == 'en' %}Monthly revenue{% else %}Revenue mensual{% endif %}</th><td>{{ data.monthly_revenue_band }}</td></tr>
+    {% endif %}
+    {% if data.current_acos_band %}
+    <tr><th>{% if lang == 'en' %}Current ACoS{% else %}ACoS actual{% endif %}</th><td>{{ data.current_acos_band }}</td></tr>
+    {% endif %}
+  </table>
+</section>
