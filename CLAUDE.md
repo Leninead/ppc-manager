@@ -2110,3 +2110,75 @@ Lecciones extraídas de la validación end-to-end de M28 SKU Progress Report con
 - **Causa:** los fixes en código NO regeneran archivos derivados automáticamente. `_history.parquet`, `_aggregate.parquet` y similares son outputs persistentes que sobreviven a los fixes hasta que el módulo los regenere desde cero (típicamente vía `_rebuild_*` o re-ejecución del flujo de import).
 - **Mitigación:** después de cualquier cambio en `core/persistence.py` que toque generación de agregadores (`_history.parquet`), `_rebuild_*` o derivados similares, ejecutar sweep manual: `Get-ChildItem -Path data -Recurse -Filter "_history.parquet" | Remove-Item`. Crítico para multi-cliente: un solo `_history.parquet` contaminado en cualquier cliente envenena todo el dashboard de ese cliente.
 - **Fecha documentado:** 2026-05-09
+
+---
+
+## Protocolo: NUNCA borrar archivos del root sin protocolo
+
+Si encontrás archivos sueltos en root del repo (resúmenes, dumps, .txt sueltos,
+outputs de scripts, etc.):
+
+**PROHIBIDO:**
+- `Remove-Item <archivo>` directo en PowerShell — borra PERMANENTE, no va al trash.
+- `rm <archivo>` en bash idem.
+- `git clean -f` sin haber inventariado primero.
+- Aceptar recomendaciones de Claude/CC de borrar sin antes leer el contenido.
+
+**OBLIGATORIO en orden:**
+
+1. **Leer contenido SIEMPRE primero**, probando encodings:
+```powershell
+   Get-Item <archivo> | Select Name, Length, LastWriteTime
+   Get-Content <archivo> -Encoding UTF8 -TotalCount 30
+   Get-Content <archivo> -Encoding Unicode -TotalCount 30   # si UTF8 falla
+   Get-Content <archivo> -Encoding Default -TotalCount 30   # último recurso
+```
+   Si los 3 fallan: el archivo SÍ es binario / corrupto / encoding exótico.
+   Aún así, no borrar — mover.
+
+2. **Mover, no borrar.** Si no sabés qué hacer con el archivo, mové al staging:
+```powershell
+   New-Item -Path "_staging-pre-decision" -ItemType Directory -Force
+   Move-Item <archivo> _staging-pre-decision\
+```
+   Esa carpeta queda gitignored. Decisión final cuando tengas cabeza fresca.
+
+3. **Si el archivo SÍ tiene info útil**, mové al destino correcto:
+   - Resúmenes operativos → `notes/state/resumenes/`
+   - Outputs de scripts reproducibles → `scripts/_outputs/` (gitignored)
+   - Notas crudas para procesar → `notes/inbox/` (gitignored hasta procesar)
+   - Logs / debugging → `_logs/` (gitignored)
+
+4. **Si DEFINITIVAMENTE es basura** (verificado con lectura + 1 minuto de
+   pensar), entonces sí, eliminá — pero usando recycle bin explícito:
+```powershell
+   # Alternativa nativa con shell COM (manda al Recycle Bin):
+   $shell = New-Object -ComObject Shell.Application
+   $shell.NameSpace(0).ParseName((Resolve-Path <archivo>).Path).InvokeVerb('delete')
+```
+   Opcional: `Install-Module -Name Recycle -Force` da el comando
+   `Remove-ItemSafely` que hace lo mismo más limpio.
+
+5. **Inviolable**: jamás borrar archivos en root sin haber leído contenido.
+   Aunque el nombre sugiera basura. Aunque Claude diga borrá.
+
+### Regla equivalente para .venv del repo
+
+Si vas a hacer cleanup amplio (eg. `git clean`):
+- `git clean -n` (dry-run) PRIMERO, siempre.
+- Inventariar la lista.
+- Solo después de leer cada archivo dudoso, ejecutar `git clean -f`.
+
+### Anti-patrón documentado (29/05/2026)
+- Claude recomendó `Remove-Item` para 2 .txt sin advertir del bypass de Recycle Bin.
+- Lenin ejecutó. Archivos perdidos permanente.
+- Contenido del 27/05 parcialmente rescatado del chat history (P0 pendientes
+  Dermaglos). Ver `notes/state/resumenes/rescate-dermaglos-2026-05-27.md`.
+- Contenido del 28/05 perdido completo.
+- Lección: NUNCA borrar sin leer + mover en vez de borrar como default.
+
+### Regla equivalente para CC y agentes
+Cuando Claude (chat) o CC sugieran borrar/limpiar archivos:
+- Lenin debe pedir SIEMPRE leer contenido primero, incluso si Claude no lo ofrece.
+- Claude/CC tienen instrucción de advertir cuando un comando borra permanente,
+  pero el operador es el dueño del shell. Confiar pero verificar.
