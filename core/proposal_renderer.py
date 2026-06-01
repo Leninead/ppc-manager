@@ -78,10 +78,36 @@ def _build_env() -> Environment:
     )
 
 
-def _catalog_title_index() -> dict:
-    """{module_id: {en, es}} desde el catálogo (solo lectura, anclado a repo root)."""
+def _catalog_module_index() -> dict:
+    """{module_id: module_def} desde el catálogo (solo lectura, anclado a repo root)."""
     catalog = json.loads(_CATALOG_ABS.read_text(encoding="utf-8"))
-    return {m["module_id"]: m.get("title", {}) for m in catalog.get("modules", [])}
+    return {m["module_id"]: m for m in catalog.get("modules", [])}
+
+
+def _schema_defaults(schema: dict) -> dict:
+    """Extrae los `default` por campo del schema del módulo: {field: default_value}.
+
+    Los FIXED (F4 pillars, F6 version+pillars, F7 cross_support_team) declaran su
+    contenido fijo acá. Si un campo no tiene `default`, no aparece en el dict.
+    """
+    if not isinstance(schema, dict):
+        return {}
+    return {
+        field: spec["default"]
+        for field, spec in schema.items()
+        if isinstance(spec, dict) and "default" in spec
+    }
+
+
+def _effective_data(module: dict, block_data: dict) -> dict:
+    """Overlay (approach B): default del catálogo como base, block.data lo pisa.
+
+    - FIXED con data={} → heredan el contenido fijo del schema (F4/F6/F7-cross).
+    - Variables sin default → quedan con su block.data tal cual (no-regresivo).
+    - Si un campo está en ambos, gana SIEMPRE block.data (el override del operador).
+    """
+    defaults = _schema_defaults((module or {}).get("schema", {}))
+    return {**defaults, **(block_data or {})}
 
 
 def _template_exists(name: str) -> bool:
@@ -108,7 +134,7 @@ def render_proposal_html(proposal: dict, lang: str) -> str:
         lang = "es"
 
     env = _build_env()
-    titles = _catalog_title_index()
+    catalog = _catalog_module_index()
 
     # Metadata de la propuesta — la usan bloques sin data propia (ej. F1_cover).
     proposal_meta = {
@@ -124,11 +150,14 @@ def render_proposal_html(proposal: dict, lang: str) -> str:
     rendered_blocks = []
     for block in proposal.get("blocks", []):
         module_id = block.get("module_id", "")
-        data = block.get("data") or {}  # {} es estado normal (FIXED + V17-V22)
+        module = catalog.get(module_id, {})
+        block_data = block.get("data") or {}  # {} es estado normal (FIXED + V17-V22)
+        # Overlay (approach B): default del catálogo como base, block.data lo pisa.
+        effective_data = _effective_data(module, block_data)
         copy_overrides = block.get("copy_overrides") or {}
         # copy_overrides shape: {en: {...}, es: {...}} → el sub-dict del lang activo.
         copy = copy_overrides.get(lang) or copy_overrides.get("es") or {}
-        title = _pick_lang(titles.get(module_id, {}), lang)
+        title = _pick_lang(module.get("title", {}), lang)
 
         template_name = f"{module_id}.html"
         if not _template_exists(template_name):
@@ -136,7 +165,7 @@ def render_proposal_html(proposal: dict, lang: str) -> str:
 
         tmpl = env.get_template(template_name)
         block_html = tmpl.render(
-            data=data,
+            data=effective_data,
             copy=copy,
             module_id=module_id,
             title=title,

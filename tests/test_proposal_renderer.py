@@ -9,7 +9,11 @@ en CI). El renderer es una función pura que recibe el dict.
 from __future__ import annotations
 
 import core.proposal_persistence as pp
-from core.proposal_renderer import render_proposal_html
+from core.proposal_renderer import (
+    _catalog_module_index,
+    _effective_data,
+    render_proposal_html,
+)
 
 
 def _launch_proposal(client_name: str = "Capybaras Test Client") -> dict:
@@ -75,6 +79,29 @@ def test_render_empty_data_block():
     assert any((b.get("data") or {}) == {} for b in p["blocks"])
     html = render_proposal_html(p, "es")
     assert isinstance(html, str) and len(html) > 0
+
+
+def test_effective_data_inherits_default_when_no_block_data():
+    """Un bloque sin data hereda el default del catálogo (F6.version = 'v3')."""
+    f6 = _catalog_module_index()["F6_why_capybaras"]
+    eff = _effective_data(f6, {})
+    assert eff.get("version") == "v3"
+    assert isinstance(eff.get("pillars"), list) and len(eff["pillars"]) == 4
+
+
+def test_effective_data_block_data_overrides_default():
+    """block.data pisa SIEMPRE el default del catálogo."""
+    f6 = _catalog_module_index()["F6_why_capybaras"]
+    eff = _effective_data(f6, {"version": "OVERRIDE_X", "pillars": ["only_one"]})
+    assert eff["version"] == "OVERRIDE_X"
+    assert eff["pillars"] == ["only_one"]
+
+
+def test_effective_data_no_default_is_non_regressive():
+    """Un módulo sin defaults (V1) devuelve la block.data tal cual (no-regresivo)."""
+    v1 = _catalog_module_index()["V1_brand_overview"]
+    block_data = {"brand_name": "X", "sku_count": None}
+    assert _effective_data(v1, block_data) == block_data
 
 
 def test_render_missing_template_uses_placeholder():
