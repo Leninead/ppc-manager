@@ -1291,6 +1291,11 @@ def _render_import_tab(cliente: str, tracked_skus: list[dict]):
         type=["csv", "tsv", "txt"],
         key="sku_progress_csv_uploader",
     )
+    st.caption(
+        "Subí el CSV tal cual lo exportás de Seller Central (Business Reports → "
+        "Detail Page Sales and Traffic By Child Item). No lo abras ni lo re-guardes "
+        "como .xlsx — el importador solo lee CSV / TSV / TXT."
+    )
     if not file:
         st.info("Sube un archivo para previsualizar la importacion.")
         return
