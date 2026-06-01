@@ -2110,3 +2110,29 @@ Lecciones extraídas de la validación end-to-end de M28 SKU Progress Report con
 - **Causa:** los fixes en código NO regeneran archivos derivados automáticamente. `_history.parquet`, `_aggregate.parquet` y similares son outputs persistentes que sobreviven a los fixes hasta que el módulo los regenere desde cero (típicamente vía `_rebuild_*` o re-ejecución del flujo de import).
 - **Mitigación:** después de cualquier cambio en `core/persistence.py` que toque generación de agregadores (`_history.parquet`), `_rebuild_*` o derivados similares, ejecutar sweep manual: `Get-ChildItem -Path data -Recurse -Filter "_history.parquet" | Remove-Item`. Crítico para multi-cliente: un solo `_history.parquet` contaminado en cualquier cliente envenena todo el dashboard de ese cliente.
 - **Fecha documentado:** 2026-05-09
+
+---
+
+## 📅 Sesión 2026-06-01 — M28 SKU Progress Report: cierre pre-soak
+
+Sesión de cierre del módulo M28 antes del soak local de ~2 semanas con Marcos. Trabajo sobre worktree `feature/m28-soak-local`.
+
+### Verificación en runtime
+- App levanta local, login OK, modo local OK, caption guía CSV OK.
+
+### Commits en `feature/m28-soak-local` (sin push aún → consolidador)
+- `bf4f25f` — caption guía CSV anti-.xlsx en uploader
+- `df1f587` — instructivo `SETUP-MARCOS.md` (raíz repo)
+- `dbfb558` — modo local sin auth (`AGENCY_OS_LOCAL_MODE`) + `secrets.toml.example`
+- `2357152` — genericar placeholder modal cliente (quita nombres reales)
+
+### Setup de corrida local
+- `secrets.toml` copiado al worktree (gitignored, **NO commiteado**) para correr local.
+
+### Estado
+Cierre funcional. Soak local de Marcos (~2 semanas) listo para arrancar una vez pusheado + Marcos sigue `SETUP-MARCOS.md` con `AGENCY_OS_LOCAL_MODE=1`.
+
+### Deuda registrada (NO hacer ahora)
+- **Punto 5 — variantes (`csv_ids`) visibles en render por SKU:** requiere bump schema v1→v2 (se dropean en `_build_snapshot_df` L527-543). Diferido a schema-v2 + Supabase post-soak.
+- **HMAC `cookie.key` de 25 bytes** (<32 recomendado por RFC 7518) — regenerar en migración cloud/DPP. Warning no bloqueante.
+- **Docstring L6 de `sku_progress_report.py` menciona "Gamboa"** (atribución HTML original) — cosmético, no es UI. Limpiar con intención si se quiere 0 menciones.

@@ -70,8 +70,13 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```powershell
 cd C:\proyectos\ppc-manager
 .\.venv\Scripts\Activate.ps1
+$env:AGENCY_OS_LOCAL_MODE="1"
 python -m streamlit run app.py
 ```
+
+> La línea `$env:AGENCY_OS_LOCAL_MODE="1"` desactiva el login para la
+> prueba local — vas a ver un banner "🔓 MODO LOCAL" arriba, es normal.
+> Tenés que ponerla cada vez que abrís una terminal nueva (no queda guardada).
 
 Se abre solo en el navegador. En la barra de la izquierda buscá:
 **Account Health → SKU Progress Report**.
