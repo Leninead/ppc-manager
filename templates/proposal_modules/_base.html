@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Propuesta — {{ client_name }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Light-document tokens (cliente recibe + S6 imprime a PDF) */
+      --bg: #ffffff;
+      --surface: #f7f7f7;
+      --surface-accent: #fff8f0;
+      --text: #1F1F1F;
+      --text-muted: #666666;
+      --accent: #E84000;          /* naranja canónico Capybaras */
+      --accent-soft: #FFD9B3;
+      --border: #e0e0e0;
+      --font-display: 'Bricolage Grotesque', sans-serif;
+      --font-body: 'Geist', -apple-system, system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --page-w: 820px;            /* ancho tipo A4 centrado */
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--surface);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .doc {
+      max-width: var(--page-w);
+      margin: 0 auto;
+      background: var(--bg);
+      padding: 0;
+    }
+
+    h1, h2, h3 { font-family: var(--font-display); font-weight: 700; color: var(--text); margin: 0 0 0.4em; line-height: 1.15; }
+    h1 { font-size: 2.2rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.15rem; }
+
+    .mono { font-family: var(--font-mono); }
+
+    /* Cada bloque = una sección de documento, corta limpio en PDF (S6) */
+    .block {
+      padding: 2.4rem 2.8rem;
+      border-bottom: 1px solid var(--border);
+      page-break-inside: avoid;
+    }
+    .block:last-child { border-bottom: none; }
+
+    .block-section-title {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0 0 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 3px solid var(--accent);
+      display: inline-block;
+    }
+
+    /* Tabla label/valor genérica para bloques de pares */
+    table.kv { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+    table.kv th, table.kv td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    table.kv th { width: 38%; color: var(--text-muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.02em; }
+    table.kv td { font-weight: 500; }
+
+    .pill { display: inline-block; background: var(--surface-accent); border: 1px solid var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.82rem; margin: 0.12rem 0.2rem 0.12rem 0; }
+
+    @media print {
+      html, body { background: #fff; }
+      .doc { max-width: none; }
+      .block { padding: 1.8rem 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+  <main class="doc">
+    {% for block in rendered_blocks %}
+    {{ block.html }}
+    {% endfor %}
+  </main>
+</body>
+</html>
