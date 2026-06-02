@@ -237,3 +237,51 @@ def test_render_v6_narrative_xss_escaped():
     assert "&lt;script&gt;" in html
     assert "<script>steal()</script>" not in html
     assert "<strong>Ok</strong>" in html
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMIT F — template V4_listing_improvements_current_state
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _proposal_with_v4_data() -> dict:
+    """Proposal launch con V4 poblado: url + items con los 3 status + notes null."""
+    p = _launch_proposal()
+    for b in p["blocks"]:
+        if b["module_id"] == "V4_listing_improvements_current_state":
+            b["data"] = {
+                "current_state_url": "https://example.com/ZEBRA-shot.jpg",
+                "items": [
+                    {"name": "Main image", "status": "present", "notes": "1500x1500 OK"},
+                    {"name": "Infographics", "status": "weak", "notes": "2 de 7 slots"},
+                    {"name": "A+ content", "status": "missing", "notes": None},  # null → omitir
+                ],
+            }
+    return p
+
+
+def test_render_v4_badges_and_url():
+    """V4: badges lang-aware con LABEL de texto + URL como link; notes null omitido."""
+    p = _proposal_with_v4_data()
+    html = render_proposal_html(p, "es")
+    # LABEL de texto dentro del badge (no solo color) — ES
+    assert "Presente" in html
+    assert "Débil" in html
+    assert "Falta" in html
+    # name + notes presentes
+    assert "Main image" in html
+    assert "1500x1500 OK" in html
+    # URL como link clickeable
+    assert "ZEBRA-shot.jpg" in html
+    # Gotcha B3-d-bis: notes=None NO debe aparecer como 'None'.
+    assert "None" not in html
+
+
+def test_render_v4_badges_english():
+    """V4: los labels de status cambian a inglés con lang='en'."""
+    p = _proposal_with_v4_data()
+    html = render_proposal_html(p, "en")
+    assert "Present" in html
+    assert "Weak" in html
+    assert "Missing" in html
+    assert "None" not in html
