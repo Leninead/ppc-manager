@@ -15,6 +15,7 @@ from core.proposal_renderer import (
     _md_bold,
     _normalize_asset,
     _normalize_assets,
+    _template_exists,
     render_proposal_html,
 )
 
@@ -380,3 +381,55 @@ def test_render_v5_english_labels():
     # El apóstrofo se autoescapa (&#39;) — correcto; asserto la parte sin comilla.
     assert "Competitor has A+, we don" in html
     assert "None" not in html
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMIT H — smoke combinado V4/V5/V6 + verificación del reparto own/placeholder
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Reparto esperado (espejo del seed completo): 13 con template propio, 7 placeholder.
+_OWN_TEMPLATE_IDS = [
+    "F1_cover", "F2_about_stats", "F3_brand_stages", "F4_operation_pillars",
+    "F5_case_studies", "F6_why_capybaras", "F7_team", "F8_lets_scale",
+    "V1_brand_overview", "V2_category_overview",
+    "V4_listing_improvements_current_state", "V5_listing_comparison_competitor",
+    "V6_growth_plan_phases",
+]
+_PLACEHOLDER_IDS = [
+    "V3_seo_opportunity", "V17_made_in_country_advantage",
+    "V18_modular_launch_strategy", "V19_amazon_launch_grid",
+    "V20_shopify_d2c_channel", "V21_meta_ads_growth", "V22_walmart_marketplaces",
+]
+
+
+def test_template_split_13_own_7_placeholder():
+    """Reparto del seed: 13 module_ids con template propio, 7 caen al placeholder."""
+    assert len(_OWN_TEMPLATE_IDS) == 13
+    assert len(_PLACEHOLDER_IDS) == 7
+    for mid in _OWN_TEMPLATE_IDS:
+        assert _template_exists(f"{mid}.html"), f"{mid} debería tener template propio"
+    for mid in _PLACEHOLDER_IDS:
+        assert not _template_exists(f"{mid}.html"), f"{mid} debería caer al placeholder"
+
+
+def test_smoke_v4_v5_v6_render_clean():
+    """Smoke combinado: V4+V5+V6 poblados renderizan limpio (0 None/{{}}/dicts crudos)."""
+    p = _proposal_with_v4_data()  # V4 ya poblado (está en el archetype launch)
+    # Inyecto V5 y V6 reutilizando las mismas formas de datos de G/E.
+    for b in _proposal_with_v5_data()["blocks"]:
+        if b["module_id"] == "V5_listing_comparison_competitor":
+            _inject_block(p, b["module_id"], b["data"])
+    for b in _proposal_with_v6_data("**Fase 1.** Base.")["blocks"]:
+        if b["module_id"] == "V6_growth_plan_phases":
+            _inject_block(p, b["module_id"], b["data"])
+
+    html = render_proposal_html(p, "es")
+    # Conteos esperados 0/0/0 (espejo del smoke manual sobre el seed).
+    assert "None" not in html                       # B3-d-bis
+    assert "{{" not in html and "{%" not in html    # nada de Jinja sin renderizar
+    assert "{'en'" not in html and "{&#39;en&#39;" not in html  # sin dicts crudos
+    assert "{'es'" not in html and "{&#39;es&#39;" not in html
+    # Las 3 secciones con template propio presentes.
+    assert 'data-module="V4_listing_improvements_current_state"' in html
+    assert 'data-module="V5_listing_comparison_competitor"' in html
+    assert 'data-module="V6_growth_plan_phases"' in html
