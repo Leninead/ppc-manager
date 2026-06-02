@@ -149,28 +149,52 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Autenticación ──────────────────────────────────────────────────
-_creds = st.secrets["credentials"].to_dict()
-_authenticator = stauth.Authenticate(
-    _creds,
-    st.secrets["cookie"]["name"],
-    st.secrets["cookie"]["key"],
-    int(st.secrets["cookie"]["expiry_days"]),
-)
+# Excepción que lanza st.secrets si falta secrets.toml. En streamlit 1.43.2 es
+# FileNotFoundError; versiones nuevas pueden usar StreamlitSecretNotFoundError.
+# Import defensivo: cubrimos ambas sin romper si la clase no existe en esta versión.
+try:
+    from streamlit.errors import StreamlitSecretNotFoundError as _SecretNotFound
+    _SECRET_ERRORS = (FileNotFoundError, KeyError, _SecretNotFound)
+except ImportError:
+    _SECRET_ERRORS = (FileNotFoundError, KeyError)
 
-_name, _auth_status, _username = _authenticator.login(
-    fields={
-        "Form name": "🦫 Agency OS",
-        "Username": "Usuario",
-        "Password": "Contraseña",
-        "Login": "Ingresar",
-    }
-)
+# Bypass de login para soak local. Default = auth ON. Cloud nunca setea esta var.
+_LOCAL_MODE = os.environ.get("AGENCY_OS_LOCAL_MODE") == "1"
 
-if _auth_status is False:
-    st.error("❌ Usuario o contraseña incorrectos")
-    st.stop()
-elif _auth_status is None:
-    st.stop()
+if _LOCAL_MODE:
+    _authenticator = None
+    _name, _auth_status, _username = "Local Dev", True, "local"
+    st.sidebar.warning("🔓 Modo local — login desactivado (AGENCY_OS_LOCAL_MODE=1)")
+else:
+    try:
+        _creds = st.secrets["credentials"].to_dict()
+        _cookie = st.secrets["cookie"]
+    except _SECRET_ERRORS:
+        st.error(
+            "❌ Falta `.streamlit/secrets.toml` o sus claves `credentials`/`cookie`. "
+            "Copiá `secrets.toml.example` → `secrets.toml` y completá tus credenciales, "
+            "o corré en modo local con la variable de entorno `AGENCY_OS_LOCAL_MODE=1`."
+        )
+        st.stop()
+    _authenticator = stauth.Authenticate(
+        _creds,
+        _cookie["name"],
+        _cookie["key"],
+        int(_cookie["expiry_days"]),
+    )
+    _name, _auth_status, _username = _authenticator.login(
+        fields={
+            "Form name": "🦫 Agency OS",
+            "Username": "Usuario",
+            "Password": "Contraseña",
+            "Login": "Ingresar",
+        }
+    )
+    if _auth_status is False:
+        st.error("❌ Usuario o contraseña incorrectos")
+        st.stop()
+    elif _auth_status is None:
+        st.stop()
 # ── Fin auth ───────────────────────────────────────────────────────
 
 
@@ -185,7 +209,8 @@ def _nav(page):
     st.session_state["selected_page"] = page
 
 with st.sidebar:
-    _authenticator.logout("↩ Cerrar sesión", "sidebar")
+    if _authenticator is not None:
+        _authenticator.logout("↩ Cerrar sesión", "sidebar")
     st.caption(f"👤 {_name}")
     st.divider()
     st.markdown(
@@ -277,6 +302,9 @@ with st.sidebar:
     )
 
 selected = st.session_state["selected_page"]
+
+if _LOCAL_MODE:
+    st.warning("🔓 MODO LOCAL — login desactivado. No usar en producción.")
 
 if selected == "🏠 Inicio":
     _render_inicio()

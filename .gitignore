@@ -81,6 +81,8 @@ notes/sales/*
 scripts/_smoke_output_migrated.xlsx
 # M29 discovery output (reunión Ramiro 01/06) — artefacto regenerable, no código
 scripts/_m29_discovery_output.json
+# M28 validation outputs (reproducibles, no se versionan)
+scripts/_m28_excel_validation_output.xlsx
 # Setex deliverables
 Setex_*.xlsx
 Bulk_Setex*.xlsx

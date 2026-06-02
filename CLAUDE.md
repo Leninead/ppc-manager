@@ -2182,3 +2182,29 @@ Cuando Claude (chat) o CC sugieran borrar/limpiar archivos:
 - Lenin debe pedir SIEMPRE leer contenido primero, incluso si Claude no lo ofrece.
 - Claude/CC tienen instrucción de advertir cuando un comando borra permanente,
   pero el operador es el dueño del shell. Confiar pero verificar.
+
+---
+
+## 📅 Sesión 2026-06-01 — M28 SKU Progress Report: cierre pre-soak
+
+Sesión de cierre del módulo M28 antes del soak local de ~2 semanas con Marcos. Trabajo sobre worktree `feature/m28-soak-local`.
+
+### Verificación en runtime
+- App levanta local, login OK, modo local OK, caption guía CSV OK.
+
+### Commits en `feature/m28-soak-local` (sin push aún → consolidador)
+- `bf4f25f` — caption guía CSV anti-.xlsx en uploader
+- `df1f587` — instructivo `SETUP-MARCOS.md` (raíz repo)
+- `dbfb558` — modo local sin auth (`AGENCY_OS_LOCAL_MODE`) + `secrets.toml.example`
+- `2357152` — genericar placeholder modal cliente (quita nombres reales)
+
+### Setup de corrida local
+- `secrets.toml` copiado al worktree (gitignored, **NO commiteado**) para correr local.
+
+### Estado
+Cierre funcional. Soak local de Marcos (~2 semanas) listo para arrancar una vez pusheado + Marcos sigue `SETUP-MARCOS.md` con `AGENCY_OS_LOCAL_MODE=1`.
+
+### Deuda registrada (NO hacer ahora)
+- **Punto 5 — variantes (`csv_ids`) visibles en render por SKU:** requiere bump schema v1→v2 (se dropean en `_build_snapshot_df` L527-543). Diferido a schema-v2 + Supabase post-soak.
+- **HMAC `cookie.key` de 25 bytes** (<32 recomendado por RFC 7518) — regenerar en migración cloud/DPP. Warning no bloqueante.
+- **Docstring L6 de `sku_progress_report.py` menciona "Gamboa"** (atribución HTML original) — cosmético, no es UI. Limpiar con intención si se quiere 0 menciones.

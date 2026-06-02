@@ -920,7 +920,7 @@ def _dialog_add_cliente():
     """Modal para crear un nuevo cliente (genera carpeta data/account-health/<slug>/sku-progress/)."""
     name = st.text_input(
         "Nombre del cliente",
-        placeholder="Gamboa, Dermaglos, M&B, ...",
+        placeholder="Ej: nombre de la marca o cliente",
         key="sku_progress_add_cliente_name",
     )
     if name.strip():
@@ -1290,6 +1290,11 @@ def _render_import_tab(cliente: str, tracked_skus: list[dict]):
         "CSV o TSV semanal",
         type=["csv", "tsv", "txt"],
         key="sku_progress_csv_uploader",
+    )
+    st.caption(
+        "Subí el CSV tal cual lo exportás de Seller Central (Business Reports → "
+        "Detail Page Sales and Traffic By Child Item). No lo abras ni lo re-guardes "
+        "como .xlsx — el importador solo lee CSV / TSV / TXT."
     )
     if not file:
         st.info("Sube un archivo para previsualizar la importacion.")
