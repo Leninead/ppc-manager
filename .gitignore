@@ -66,6 +66,7 @@ notes/sales/*
 !notes/Biblioteca.md
 !notes/CLAUDE.md
 !notes/_cheat-sheet-diario.md
+!notes/arranque-*.md
 .env
 # ── Agregado por setup_deploy.py ──────────────────
 .streamlit/secrets.toml
