@@ -112,3 +112,46 @@ Crear en notes/sops/slug.md. Estructura mínima: propósito, cuándo aplica, pas
 - **Antes de cualquier bulk Negative PT/KW**: validar dtype de Ad Group ID con `.astype("Int64").astype(str)` o cross-check fallará silenciosamente. Ver `notes/knowledge/2026-06-02-gotcha-bulk-export-adgroup-id-float.md`.
 - **Amazon "already exists" en CREATE**: no es falla real, es duplicado preexistente, descartar. Ver `notes/knowledge/2026-06-02-amazon-bulk-error-already-exists.md`.
 - **CREATE vs UPDATE rollback**: CREATE procesa row-a-row (falla aislada); UPDATE rollback completo si una row falla. Filtrar `State != archived` antes de UPDATE bulks.
+
+## Protocolo de cierre — arranque-{slug}.md (institucionalizado 02/06)
+
+Cada cierre de sesión de marca/cliente genera automáticamente `notes/arranque-{slug}.md` (slug = nombre kebab-case de la marca: `ltd`, `setex`, `dermaglos`, etc.).
+
+**Archivos whitelisted:** `!notes/arranque-*.md` en `.gitignore` (línea ~69) — versionables sin tocar gitignore por marca nueva.
+
+**Estructura mínima del arranque:**
+
+```yaml
+---
+brand: <Nombre completo>
+marketplace: <Amazon US/MX/etc>
+tipo: arranque-sesion
+last_updated: YYYY-MM-DD
+last_session: YYYY-MM-DD
+status_arranque: <descripción corta>
+---
+```
+
+Secciones requeridas:
+1. **Contexto** — 1-2 frases describiendo dónde quedamos
+2. **Leé en este orden** — paths exactos a state, brand note, daily, CLAUDE.md
+3. **Prioridades de esta sesión (en orden)** — 3-8 items concretos
+4. **Inputs que el chat debe pedirme antes de empezar** — qué datasets/CSVs necesita
+5. **Bloqueos pendientes (escalación con AM)** — issues abiertos con cliente
+6. **Sesión técnica programada** — si aplica (fix de módulos, syncs con team, etc.)
+
+**Posición en el protocolo de cierre** (después de los pasos existentes):
+1. sop-writer daily
+2. sop-writer brand note
+3. Mega-prompt CC consolidación (STATE + knowledge + modules + CLAUDE.md)
+4. **Mega-prompt CC arranque-{slug}.md (NUEVO paso fijo)**
+5. git commit principal + push
+6. Refresh proyecto Claude
+
+El arranque-{slug}.md puede ir en el mismo commit principal o en uno separado (`docs({slug}): arranque sesión próxima — <fecha o contexto>`). Preferir commit separado si el principal ya quedó grande.
+
+**Beneficios documentados (sesión 02/06):**
+- Elimina dependencia de Sticky Notes paralelo
+- Versionado = trazabilidad entre sesiones
+- Próximo chat lee directamente del repo, no depende de pegar prompt manualmente
+- Fuente única de verdad por marca
