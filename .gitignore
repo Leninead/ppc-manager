@@ -103,3 +103,5 @@ outputs/
 .venv/
 # Settings locales de Claude Code (permisos por máquina, no compartibles)
 .claude/settings.local.json
+# ── Staging anti-pérdida (backups pre-decisión, nunca se versiona) ──
+_staging/

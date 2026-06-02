@@ -101,3 +101,14 @@ Crear en notes/sops/slug.md. Estructura mínima: propósito, cuándo aplica, pas
 - .env y .gitignore dentro de notes/ — no tocar, son config del vault.
 - .obsidian/ — no tocar, es config de Obsidian.
 - Archivos fuera de las 8 carpetas definidas — reportar antes de crear nada nuevo en raíz. La raíz solo tiene Biblioteca.md + archivos de sistema.
+
+## Reglas LTD MX (actualizado 02/06)
+
+- **Heroes LTD oficial**: 35 ASINs activos (actualizado de 10). Fuente única de verdad: `notes/brands/ltd/LTD.md` sección 🦸 **Heroes oficiales (canónico)** al inicio. NO consultar listas viejas en sesiones previas.
+- **Brand notes path canónico**: `notes/brands/{slug}/{BRAND}.md` (subcarpeta), nunca flat `notes/brands/{slug}.md`. Bug detectado 02/06: el path flat causó duplicado de marca LTD.
+
+## Reglas operacionales bulk sheets Amazon (actualizado 02/06)
+
+- **Antes de cualquier bulk Negative PT/KW**: validar dtype de Ad Group ID con `.astype("Int64").astype(str)` o cross-check fallará silenciosamente. Ver `notes/knowledge/2026-06-02-gotcha-bulk-export-adgroup-id-float.md`.
+- **Amazon "already exists" en CREATE**: no es falla real, es duplicado preexistente, descartar. Ver `notes/knowledge/2026-06-02-amazon-bulk-error-already-exists.md`.
+- **CREATE vs UPDATE rollback**: CREATE procesa row-a-row (falla aislada); UPDATE rollback completo si una row falla. Filtrar `State != archived` antes de UPDATE bulks.

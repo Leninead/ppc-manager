@@ -1,13 +1,49 @@
+---
+brand: LTD (Love To Dream)
+marketplace: Amazon MX
+am: Agustín
+escalation: Adam (Sales Director), Aaron (compliance)
+tags: [brand, ltd-mx, swaddle, baby-sleep]
+last_updated: 2026-06-02
+---
+
 # 🛏️ Love To Dream MX
 
-**Account Manager:** (pendiente asignar)
+**Account Manager:** Agustín
+**Escalación:** Adam (Sales Director), Aaron (compliance)
 **Tomada por agencia:** Marzo 2026
 **Marketplace:** Amazon México
 **Categoría:** Sacos de dormir para bebé (Swaddle UP)
 
 ---
 
-## 📦 Productos principales
+## 🦸 Heroes oficiales LTD MX (canónico — actualizado 02/06/2026)
+
+> Fuente única de verdad de héroes. Supera la progresión histórica 10 → 19 (sesión 2026-05-20) y el snapshot de marzo en "📦 Productos principales" (abajo, histórico).
+
+ANTES (vault 25/04): 10 heroes oficiales documentados.
+AHORA (02/06): 35 ASINs activos vendedores detectados en catálogo Seller Central + BR 30d.
+
+### Top 10 por sales 30d (BR 02/06):
+| ASIN | Producto | Sales 30d | Units | Stock | Status |
+|---|---|---:|---:|---:|---|
+| B0F8P9GBZN | OAT S 1.0TOG 0-3M | $39,163 | 53 | 143 | HERO #1 absoluto |
+| B09MG1PM6L | OLV S 0.2TOG | $33,157 | 48 | 61 | HERO #2 |
+| B0F8PB4NHX | OAT M 1.0TOG | $20,613 | 27 | 17 | HERO #3 🔴 STOCK CRÍTICO |
+| B0F8PCWD6J | OAT NB 1.0TOG | $20,436 | 27 | 63 | HERO #4 |
+| B0081GJ038 | Gray S 1.0TOG | $14,348 | 19 | 1148 | overstock |
+| B09MG3MW3H | DPK S 1.0TOG | $13,382 | 18 | 560 | OK |
+| B00MJXHM48 | GR NB 1.0TOG | $12,196 | 16 | 562 | OK |
+| B0081GIZ52 | GR M Trans | $12,185 | 13 | 264 | ⚠️ vault decía OOS — NO está OOS |
+| B09MG28M9D | DBL M 1.0TOG | $11,852 | 16 | 158 | OK |
+| B09MG1W91D | DBL S 1.0TOG | $11,852 | 16 | 216 | OK |
+
+### Heroes NUEVOS detectados en mayo (no en lista vault 25/04):
+B0F8P9GBZN, B0F8PB4NHX, B0F8PCWD6J, B00MJXHM48, B0DJSGBR4P, B0CK2C1ZJ5, B0CLCBQQN2, B09MG3H2S6, B09MFZVWYH, B0DJSF2N6P, B0DT6F7YLK, B0DT6CMR7B, B0CK2KCBLS, B09S15K7SH, B0FLPL97WG, B0BK9ZZGG4, B0BJL8NZW7.
+
+---
+
+## 📦 Productos principales (snapshot marzo 2026 — histórico)
 
 | ASIN | Producto | Sales TW | BuyBox % |
 |------|----------|----------|----------|
@@ -728,7 +764,7 @@ Config global: Lookback 14d - Wait 3d - Tue+Fri 06:00 - Tier MID - Until INC $2.
 - ⚠️ 1 PAT activa (SwaddleMe), 3 pausadas pendiente validación ASINs MX
 - ✅ 23 portfolios asignados → habilita Atom11 v2026.3
 
-### Heroes oficiales LTD (actualizar de 10 → 19)
+### Heroes oficiales LTD (actualizar de 10 → 19) — ⚠️ SUPERADO por sección canónica 02/06 (35 ASINs) al inicio
 
 Agregar a lista oficial post-validación con Agustín:
 
@@ -757,3 +793,101 @@ Agregar a lista oficial post-validación con Agustín:
 - ACoS target: 11-12% (actual 15.6%)
 - TACoS target: 10-12% (actual 17.4%)
 - Sales incrementales: +MX$18-32K/mes
+
+---
+
+## 🔄 Sesión 2026-06-02 — Análisis 360° + 4 bulks aplicados (recovery ~$6K/mes)
+
+**Daily completo:** [[daily/2026-06-02]]
+
+Análisis 360° cruzando 6 fuentes: STR + SQP (4 weeklies de mayo consolidados → 1,299 queries) + BR + Catálogo Seller Central + Campaign CSV + Bulk Sheet Export. Heroes actualizados de 10 → **35 ASINs** → ver sección canónica **🦸 Heroes oficiales** al inicio.
+
+### KPIs cuenta 02/06/2026 (consolidado 5 fuentes)
+
+| Métrica | Valor | Fuente |
+|---|---:|---|
+| Spend 30d | $33,281 | STR |
+| Sales paid 30d | $216,693 | STR |
+| Sales total 30d | $308,078 | BR |
+| Sales orgánico | $91,385 (30%) | calc |
+| Sessions 30d | 10,065 | BR |
+| CVR cuenta | 3.93% | BR |
+| ACoS paid | 15.4% | STR |
+| **TACoS real** | **10.8%** | calc (en target Junio 10-12%) |
+| Brand IS | 96.5% | SQP |
+| Brand PS | 100% | SQP |
+| LTD overall PS | 0.36% | SQP |
+| Premium vs mkt | +40-86% | SQP/Catálogo |
+
+### Errores del vault 25/04 corregidos en sesión 02/06
+
+| Vault 25/04 decía | Realidad 02/06 |
+|---|---|
+| B0081GIZ52 "OOS confirmado" | 264u stock + $10,504 sales/30d — recuperar campañas |
+| B0CK2C1ZJ5 "perdido, no aparece en export" | 205u stock + $7,324 sales/30d — activo y vendedor |
+| B005ULUZIQ "flag BB 16/04 resuelto" | NO RESUELTO — sigue 83% BB, competidor robando con precio menor |
+| Línea L41 Sleep Suit "pausada por mismatch" | B0FLPL97WG (12-24M) vendió $2,294 con 19u — survivor real |
+| Línea L31 Sleeping Bag "no documentada" | 4 ASINs activos ($900-1,700 c/u): B0FK4YSNVR, B0FK4XCJBN, B0FK4Z7NDS, B0FK5323M6 |
+| B0088HVGHS Organic CR SM | ✅ OOS confirmado (correcto) — ads pausados 20/05 ✅ |
+
+### Líneas de producto (resumen)
+
+| Línea | ASINs activos | Stock | Sales 30d | Units |
+|---|---:|---:|---:|---:|
+| CORE Swaddle UP 1.0 TOG | 15 | 4,410 | $159,652 | 256 |
+| TRANSITION (1.0/0.2 TOG) | 10 | 577 | $51,814 | 67 |
+| L31/L41 Sleeping Bag (mangas) | 6 | 127 | $9,545 | 10 |
+| WARM 1.5 TOG | 1 | 416 | $3,998 | 7 |
+| WARM 2.5 TOG | 2 | 64 | $3,356 | 4 |
+| SILKY-LUX (Bamboo) | 1 | 21 | $1,456 | 2 |
+| ORGANIC | 1 | 20 | $0 | 0 |
+
+### Bulks aplicados
+
+| Bulk | Filas | Status | Recovery/Impacto |
+|---|---:|---|---|
+| #1 Pausas Zombies | 7 | ✅ Success | $1,470/mes |
+| #2 Budget Update Winners | 9 | ✅ Success | +$810/d budget liberado |
+| #3 Negative KW | 33 | ✅ Success | $2,282/mes |
+| #4 Negative PT ASINs | 32 | ✅ Parcial (16 nuevos + 16 dupes) | $1,800-2,200/mes |
+
+**Total recovery directo:** ~$6K MXN/mes
+**Escalado proyectado:** +$18-25K sales/mes (winners absorbiendo budget liberado)
+**ACoS proyección post-cuts:** 11-12% para fin de Junio (target Junio)
+
+### Cuenta ahogada de budget (02/06)
+- 111/118 campañas con TimeInBudget = 100% (capadas)
+- Esto significa que las winners pierden impressions disponibles por falta de budget
+- El escalado del bulk #2 (+$810/d) ataca esto en las 9 winners principales
+
+### Bugs persistentes a escalar con AM
+
+#### Buy Box B005ULUZIQ (GR M 1.5TOG)
+- Flag desde 16/04, no resuelto
+- BB 83%, Featured Offer $742 vs Listing $928
+- Sales 30d: $6,122 / 8 units — sigue vendiendo pero perdiendo BB share
+- Acción pendiente: Edu/Agustín resolver competidor con precio menor
+
+#### 5 ASINs INACTIVE_BLOCKED
+| ASIN | Producto | Stock | Recuperable |
+|---|---|---:|---|
+| B0BNJK6ZD1 | DPK 6-18M 3.5TOG | 0 | Investigar bloqueo |
+| **B0BKB7CJFQ** | **WHT L 2.5TOG** | **23** | **SÍ — alta prioridad** |
+| B0FLN2VTQ7 | LPK M Transition | 0 | Investigar |
+| B0D7W7XBRK | GRY NB | 0 | Investigar |
+| B0D7W5T4LT | GRY M | 0 | Investigar |
+
+#### B09MG1J3LC missing del catálogo
+- Hero histórico OLV M
+- NO aparece en catálogo Seller Central 02/06
+- Status: esperando respuesta Agustín (¿discontinued o blocked?)
+
+### Próximos pasos LTD (Junio)
+1. Verificar 48-72h post-escalado: TimeInBudget winners debería bajar a <90%
+2. Stock alerts → Agustín (mandado 02/06)
+3. Resolver BB B005ULUZIQ con Edu
+4. Investigar bloqueo B0BKB7CJFQ (23u stock recuperable)
+5. Crear EXACT "costalito para dormir bebe" (PS 100%, validado Q1)
+6. Crear EXACT "sleeping bag niños" (SQV 1,235, IS LTD 0.16%)
+7. Bid up SU-CORE PT CONQUEST SwaddleMe (1,334 imp / 0 sales — bid actual muy bajo)
+8. Fix bugs M4 con Marcos/Ramiro (sesión viernes)

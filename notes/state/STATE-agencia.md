@@ -865,7 +865,7 @@ Detalle completo en `daily/2026-05-08.md`.
 |---|---|---|---|---|---|
 | Dermaglos | Amazon USA 🇺🇸 | 58.0% (↓ de 76.1%) | Meta ≤55%, escalar vitamin A + allantoin + tattoo ES | Rufus analysis 4 heroes + confirmación equipo Atom11 ejecutó entregable | [[DERMAGLOS]] · [[DERMAGLOS_DATA]] · [[atom11-rules]] |
 | Mott & Bow | Amazon US 🇺🇸 | 10.6% TW (26 abr-2 may, sano) | Full-Funnel Women — Fase 2 en espera del cliente (SBV White Tee + SP Exact Premium Cotton) · transición de owner a Cuki 2026-05-11 | Video creativo + Brand Store Women — espera respuesta cliente para lanzar Fase 2 | [[MB]] |
-| Love To Dream | Amazon MX 🇲🇽 | 16.1% | Plan 6 Fases ejecutado (5 de 6) — Fase 6 pendiente esta semana (Adam→Aaron, Agustín→cliente) | Mismatch producto/KW sistémico — auditoría dedicada esta semana · B09MG1J3LC sigue OOS · 5 EXACT heroes Delivering desde hoy | [[LTD]] |
+| Love To Dream | Amazon MX 🇲🇽 | 15.4% paid · TACoS 10.8% ✅ target | Post-bulks 02/06 — recovery $6K/mes · escalado +$810/d · próx: monitoreo 48-72h + fix M4 viernes | B005ULUZIQ BB 83% (flag 16/04) · 5 INACTIVE_BLOCKED (B0BKB7CJFQ 23u recuperable) · B09MG1J3LC missing del catálogo | [[LTD]] |
 | Setex Technologies | Amazon MX 🇲🇽 | 20.5% (↓ proyectado 16-17% post-bulks 12/05) | 🏆 Best Seller badge B081GB8F89 (lock-in) + push estratégico familia Thin (B0F3PSP82K, 1839u) — 5 EXACT nuevas SKU XG9G515 +$145/d · 154 negativos cross-camp anti-canibalización · pausa preventiva B086H3TZ6B (1u, 19 ads) | 4 urgencias Tati Slack 12/05: B086H3TZ6B 1u · B0F63LTD92 1u · Temple Tips OOS · audit listing EN B081GB8F89 (PS 0% queries anglo) | [[setex]] · [[PENDIENTES_RESTOCK]] |
 | 360 Essentials | Amazon USA 🇺🇸 | 23.0% (✅ target 35%) | SBV FreedomPlus branded + test incrementalidad + relanzar SD bid $1 | Video creativo FreedomPlus para SBV (3 camps) | [[360ESSENTIALS]] |
 | Pura Vida Moringa | Amazon MX 🇲🇽 | 45.5% marzo (proyectado 48-52% post-opt) | Bajar ACoS a 40-45% · consolidar rank orgánico top 2-5 | Sin crédito Atom11 — optimización manual | [[Puravidamoringa]] |
@@ -874,23 +874,24 @@ Detalle completo en `daily/2026-05-08.md`.
 
 ---
 
-## LTD
-status: 5/6 fases ejecutadas (ejecución bulks completa 2026-05-20)
-last_session: 2026-05-20
-bulks_aplicados: 9 ✅ + 1 manual (PAT SwaddleMe)
-acos_actual: 15.6%
-acos_target_junio: 11-12%
-tacos_actual: 17.4%
-tacos_target_junio: 10-12%
-heroes_oficiales: 10 (pendiente update a 19 con Agustín)
-heroes_detectados_str: 19
+## LTD (Love To Dream) — MX
 
-## Pendiente LTD
-- Stock alerts (Agustín): B0F8PB4NHX, B09S14W4SS, B0088HVGHS, TOG 2.5 línea
-- Validar ASINs MX para 3 PAT pausadas (Halo, Swaddelini, Kyte Baby) — próxima sesión
-- Heroes oficiales: confirmar update 10 → 19 con Agustín
-- B09MG2CVCR SBV PROBLEM: sin owner asignado
-- Seguimientos: 21/05 winners TimeInBudget, 22/05 SwaddleMe PAT impressions, 23/05 EXACT orders, 25/05 STR semanal
+- **AM**: Agustín | **Escalación**: Adam (Sales Director), Aaron (compliance)
+- **Estado**: post-bulks 02/06/2026 — recovery $6K/mes aplicado, escalado en marcha
+- **Última sesión**: 2026-06-02 ([[daily/2026-06-02]] · [[brands/ltd/LTD]])
+- **Próxima acción**: monitorear TimeInBudget 48-72h post-escalado, sesión fix M4 viernes con Marcos/Ramiro
+- **Heroes count**: 35 (actualizado de 10, ver brands/ltd/LTD.md sección 🦸 Heroes oficiales canónico)
+- **KPIs cuenta**: TACoS real 10.8% (en target Junio 10-12%), ACoS paid 15.4%, Sales total 30d $308K
+- **Stock alerts** (mandado a Agustín 02/06):
+  - B0F8PB4NHX (OAT M) — 2.8 sem runway, hero $17K/mes
+  - B09S14W4SS (WHT M Trans) — 3 sem runway, $11K/mes
+  - B0088HVGHS — OOS confirmado, ads pausados
+- **Bloqueos pendientes**:
+  - B005ULUZIQ BuyBox 83% (flag 16/04 sin resolver, competidor con precio menor)
+  - 5 ASINs INACTIVE_BLOCKED (B0BKB7CJFQ tiene 23u stock recuperable — alta prioridad)
+  - B09MG1J3LC missing del catálogo (esperando confirmación Agustín)
+- **Bulks 02/06**: 4 aplicados (Pausas 7 ✅ / Budget +$810/d ✅ / NegKW 33 ✅ / NegPT 16 nuevos + 16 dupes Amazon ⚠️)
+- **Pendientes arrastrados (de sesión 05-20, no cerrados)**: validar ASINs MX para 3 PAT pausadas (Halo, Swaddelini, Kyte Baby) · B09MG2CVCR SBV PROBLEM sin owner
 
 ## API Integration — SPP Case · 20/05/2026
 **Status**: SUBMITTED · esperando review Amazon
