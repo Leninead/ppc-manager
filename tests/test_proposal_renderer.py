@@ -11,6 +11,7 @@ from __future__ import annotations
 import core.proposal_persistence as pp
 from core.proposal_renderer import (
     _catalog_module_index,
+    _compute_bar_chart,
     _effective_data,
     _md_bold,
     _normalize_asset,
@@ -387,25 +388,26 @@ def test_render_v5_english_labels():
 # COMMIT H — smoke combinado V4/V5/V6 + verificación del reparto own/placeholder
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Reparto esperado (espejo del seed completo): 13 con template propio, 7 placeholder.
+# Reparto esperado (espejo del seed completo): 14 con template propio, 6 placeholder.
+# V1–V6 (todos los CORE launch) + F1–F8 tienen template propio; V17–V22 al placeholder.
 _OWN_TEMPLATE_IDS = [
     "F1_cover", "F2_about_stats", "F3_brand_stages", "F4_operation_pillars",
     "F5_case_studies", "F6_why_capybaras", "F7_team", "F8_lets_scale",
-    "V1_brand_overview", "V2_category_overview",
+    "V1_brand_overview", "V2_category_overview", "V3_seo_opportunity",
     "V4_listing_improvements_current_state", "V5_listing_comparison_competitor",
     "V6_growth_plan_phases",
 ]
 _PLACEHOLDER_IDS = [
-    "V3_seo_opportunity", "V17_made_in_country_advantage",
-    "V18_modular_launch_strategy", "V19_amazon_launch_grid",
-    "V20_shopify_d2c_channel", "V21_meta_ads_growth", "V22_walmart_marketplaces",
+    "V17_made_in_country_advantage", "V18_modular_launch_strategy",
+    "V19_amazon_launch_grid", "V20_shopify_d2c_channel",
+    "V21_meta_ads_growth", "V22_walmart_marketplaces",
 ]
 
 
-def test_template_split_13_own_7_placeholder():
-    """Reparto del seed: 13 module_ids con template propio, 7 caen al placeholder."""
-    assert len(_OWN_TEMPLATE_IDS) == 13
-    assert len(_PLACEHOLDER_IDS) == 7
+def test_template_split_14_own_6_placeholder():
+    """Reparto del seed: 14 module_ids con template propio, 6 caen al placeholder."""
+    assert len(_OWN_TEMPLATE_IDS) == 14
+    assert len(_PLACEHOLDER_IDS) == 6
     for mid in _OWN_TEMPLATE_IDS:
         assert _template_exists(f"{mid}.html"), f"{mid} debería tener template propio"
     for mid in _PLACEHOLDER_IDS:
@@ -433,3 +435,123 @@ def test_smoke_v4_v5_v6_render_clean():
     assert 'data-module="V4_listing_improvements_current_state"' in html
     assert 'data-module="V5_listing_comparison_competitor"' in html
     assert 'data-module="V6_growth_plan_phases"' in html
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMIT I — helper _compute_bar_chart + template V3_seo_opportunity
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_compute_bar_chart_share_of_total():
+    """width_pct = value / SUMA × 100 (share del total, no del máximo)."""
+    bars = _compute_bar_chart(
+        [{"label": "Tu marca", "value": 3},
+         {"label": "Competidor A", "value": 8},
+         {"label": "Competidor B", "value": 5}],
+        "Tu marca",
+    )
+    # 3/16=18.75 · 8/16=50.0 · 5/16=31.25
+    assert [b["width_pct"] for b in bars] == [18.75, 50.0, 31.25]
+    assert bars[0]["is_client"] is True
+    assert bars[1]["is_client"] is False and bars[2]["is_client"] is False
+
+
+def test_compute_bar_chart_client_match_not_first():
+    """is_client matchea por label (laxo, case-insensitive), no solo la primera."""
+    bars = _compute_bar_chart(
+        [{"label": "Competidor A", "value": 8}, {"label": "Acme Co", "value": 2}],
+        "acme co",
+    )
+    assert bars[0]["is_client"] is False
+    assert bars[1]["is_client"] is True
+
+
+def test_compute_bar_chart_client_fallback_first():
+    """Si ningún label matchea client_name → la primera barra es el cliente."""
+    bars = _compute_bar_chart(
+        [{"label": "A", "value": 1}, {"label": "B", "value": 1}],
+        "marca inexistente",
+    )
+    assert bars[0]["is_client"] is True
+    assert bars[1]["is_client"] is False
+
+
+def test_compute_bar_chart_sum_zero():
+    """Todos los values 0 → width_pct 0 (sin división por cero)."""
+    bars = _compute_bar_chart(
+        [{"label": "A", "value": 0}, {"label": "B", "value": 0}], "A"
+    )
+    assert all(b["width_pct"] == 0.0 for b in bars)
+
+
+def test_compute_bar_chart_empty_and_invalid():
+    """None/no-lista → []; filtra puntos sin label, value negativo o bool."""
+    assert _compute_bar_chart([], "X") == []
+    assert _compute_bar_chart(None, "X") == []
+    assert _compute_bar_chart("nope", "X") == []
+    bars = _compute_bar_chart(
+        [{"value": 5},                       # sin label → fuera
+         {"label": "ok", "value": 4},        # válido
+         {"label": "neg", "value": -1},      # negativo → fuera
+         {"label": "booly", "value": True}], # bool → fuera
+        "ok",
+    )
+    assert len(bars) == 1 and bars[0]["label"] == "ok"
+
+
+def _proposal_with_v3_data(chart_data) -> dict:
+    """Proposal launch (client='Tu Marca') + block V3 inyectado con los 3 campos."""
+    p = _launch_proposal("Tu Marca")
+    return _inject_block(p, "V3_seo_opportunity", {
+        "missing_keywords": [
+            {"keyword": "saco para dormir bebe", "sv": 46836,
+             "current_rank": None, "opportunity_score": 0.92},   # null rank → "No rankea"
+            {"keyword": "swaddle", "sv": 12450,
+             "current_rank": 18, "opportunity_score": 0.78},
+        ],
+        "launch_score_table": [
+            {"asin": "B09MG1J3LC", "phase": "Launch", "score": 82, "status": "ready"},
+            {"asin": "B0CK2KCBLS", "phase": "Launch", "score": 71, "status": "needs_listing"},
+        ],
+        "page1_domination_chart_data": chart_data,
+    })
+
+
+def test_render_v3_tables_and_chart_es():
+    """V3 ES: tablas + chart con barra del cliente flaggeada; sin 'None'."""
+    chart = [{"label": "Tu Marca", "value": 3},
+             {"label": "Competidor A", "value": 8},
+             {"label": "Competidor B", "value": 5}]
+    p = _proposal_with_v3_data(chart)
+    html = render_proposal_html(p, "es")
+    # missing_keywords
+    assert "saco para dormir bebe" in html
+    assert "No rankea" in html          # current_rank None → label, no "None"
+    assert "#18" in html                # rank presente
+    # launch_score_table badges (ES)
+    assert "Listo" in html
+    assert "Falta listing" in html
+    assert "B09MG1J3LC" in html
+    # chart: la barra del cliente sale marcada "(vos)"
+    assert "(vos)" in html
+    # B3-d-bis
+    assert "None" not in html
+
+
+def test_render_v3_empty_chart_shows_sin_datos():
+    """page1_domination_chart_data=[] (como el seed) → 'Sin datos de chart'."""
+    p = _proposal_with_v3_data([])
+    html = render_proposal_html(p, "es")
+    assert "Sin datos de chart" in html
+    assert "None" not in html
+
+
+def test_render_v3_english():
+    """V3 EN: labels de rank/status/chart en inglés."""
+    p = _proposal_with_v3_data([{"label": "Tu Marca", "value": 1}])
+    html = render_proposal_html(p, "en")
+    assert "Not ranking" in html
+    assert "Ready" in html
+    assert "Needs listing" in html
+    assert "(you)" in html
+    assert "None" not in html

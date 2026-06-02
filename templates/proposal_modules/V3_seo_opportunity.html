@@ -1,0 +1,86 @@
+<section class="block" data-module="{{ module_id }}">
+  <h2 class="block-section-title">{{ title or ('SEO Opportunity — Missing Keywords & Page 1 Domination' if lang == 'en' else 'Oportunidad SEO — Keywords Faltantes y Dominación Page 1') }}</h2>
+
+  {# ── Missing keywords ── #}
+  {% set mks = data.get('missing_keywords') %}
+  {% if mks %}
+  <div style="font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); font-weight: 600; margin: 0.6rem 0 0.2rem;">{% if lang == 'en' %}Missing keywords{% else %}Keywords faltantes{% endif %}</div>
+  <table class="data-table">
+    <tr>
+      <th>{% if lang == 'en' %}Keyword{% else %}Keyword{% endif %}</th>
+      <th>{% if lang == 'en' %}Search vol.{% else %}Vol. búsqueda{% endif %}</th>
+      <th>{% if lang == 'en' %}Current rank{% else %}Rank actual{% endif %}</th>
+      <th>{% if lang == 'en' %}Opportunity{% else %}Oportunidad{% endif %}</th>
+    </tr>
+    {% for mk in mks %}
+    <tr>
+      <td>{{ mk.get('keyword') }}</td>
+      <td>{% if mk.get('sv') is not none %}{{ mk.get('sv') }}{% else %}—{% endif %}</td>
+      <td>{% if mk.get('current_rank') is not none %}#{{ mk.get('current_rank') }}{% else %}<span style="color: var(--text-muted);">{% if lang == 'en' %}Not ranking{% else %}No rankea{% endif %}</span>{% endif %}</td>
+      <td>
+        {% if mk.get('opportunity_score') is not none %}
+        <span style="display: inline-block; width: 56px; height: 8px; background: var(--surface); border-radius: 4px; overflow: hidden; vertical-align: middle; margin-right: 0.4rem;"><span style="display: block; width: {{ (mk.get('opportunity_score') * 100) | round(1) }}%; height: 100%; background: var(--accent);"></span></span>{{ '%.2f' | format(mk.get('opportunity_score')) }}
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {# ── Launch score table ── #}
+  {% set lst = data.get('launch_score_table') %}
+  {% if lst %}
+  <div style="font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); font-weight: 600; margin: 0.8rem 0 0.2rem;">{% if lang == 'en' %}Launch scores{% else %}Scores de lanzamiento{% endif %}</div>
+  <table class="data-table">
+    <tr>
+      <th>ASIN</th>
+      <th>{% if lang == 'en' %}Phase{% else %}Fase{% endif %}</th>
+      <th>Score</th>
+      <th>{% if lang == 'en' %}Status{% else %}Estado{% endif %}</th>
+    </tr>
+    {% for row in lst %}
+    <tr>
+      <td>{% if row.get('asin') %}{{ row.get('asin') }}{% else %}—{% endif %}</td>
+      <td>{% if row.get('phase') %}{{ row.get('phase') }}{% else %}—{% endif %}</td>
+      <td>{% if row.get('score') is not none %}{{ row.get('score') }}{% else %}—{% endif %}</td>
+      <td>
+        {% set st = row.get('status') %}
+        {% if st == 'ready' %}
+        <span class="status-badge" style="background: #E8F5E9; border: 1px solid #A5D6A7; color: #1B6B2F;">{% if lang == 'en' %}Ready{% else %}Listo{% endif %}</span>
+        {% elif st == 'needs_listing' %}
+        <span class="status-badge" style="background: #FFF8E1; border: 1px solid #FFE082; color: #B7791F;">{% if lang == 'en' %}Needs listing{% else %}Falta listing{% endif %}</span>
+        {% elif st %}
+        <span class="status-badge" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">{{ st }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {# ── Page 1 domination chart (barras CSS estáticas, PDF-safe) ── #}
+  {# Shape de page1_domination_chart_data ({label,value}) computado en Python
+     (_compute_bar_chart): width_pct = share del total, is_client = barra del cliente. #}
+  <!-- Shape de page1_domination_chart_data ({label,value}) adoptado por decisión
+       interna, sujeto a revisión si Ramiro confirma otra semántica. No es contrato
+       firmado. -->
+  <div style="font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); font-weight: 600; margin: 0.8rem 0 0.3rem;">{% if lang == 'en' %}Page 1 domination{% else %}Dominación Page 1{% endif %}</div>
+  {% set bars = data.get('page1_domination_chart_data') %}
+  {% if bars %}
+  <div class="p1-chart">
+    {% for bar in bars %}
+    <div style="margin-bottom: 0.5rem;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 0.83rem; margin-bottom: 0.2rem;">
+        <span style="color: var(--text); font-weight: {% if bar['is_client'] %}600{% else %}400{% endif %};">{{ bar['label'] }}{% if bar['is_client'] %} <span style="font-size: 0.72rem; color: var(--accent);">{% if lang == 'en' %}(you){% else %}(vos){% endif %}</span>{% endif %}</span>
+        <span style="color: var(--text-muted);">{{ bar['value'] }}</span>
+      </div>
+      <div style="background: var(--surface); border-radius: 4px; height: 18px; overflow: hidden;">
+        <div style="width: {{ bar['width_pct'] }}%; height: 100%; border-radius: 4px; background: {% if bar['is_client'] %}var(--accent){% else %}var(--text-muted){% endif %};"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div style="font-size: 0.85rem; color: var(--text-muted); font-style: italic;">{% if lang == 'en' %}No chart data{% else %}Sin datos de chart{% endif %}</div>
+  {% endif %}
+</section>

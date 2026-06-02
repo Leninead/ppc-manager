@@ -81,6 +81,11 @@
     /* Badge de estado con LABEL adentro (color + texto): daltónicos + PDF B/N. */
     .status-badge { display: inline-block; border-radius: 4px; padding: 0.12rem 0.55rem; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; }
 
+    /* Tabla multi-columna con fila de header (distinta de .kv key-value). */
+    .data-table { width: 100%; border-collapse: collapse; margin: 0.4rem 0 0.8rem; font-size: 0.88rem; }
+    .data-table th { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 2px solid var(--border); color: var(--text-muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.02em; }
+    .data-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+
     @media print {
       html, body { background: #fff; }
       .doc { max-width: none; }

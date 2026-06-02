@@ -178,13 +178,15 @@ def _normalize_assets(assets) -> list:
 
 
 _V5_MODULE_ID = "V5_listing_comparison_competitor"
+_V3_MODULE_ID = "V3_seo_opportunity"
 
 
-def _transform_v5_assets(effective_data: dict) -> dict:
+def _transform_v5_assets(effective_data: dict, proposal_meta: dict) -> dict:
     """V5: normaliza client_assets/competitor_assets de cada comparison_group.
 
     Pura: devuelve estructuras nuevas, no muta el input. El template recibe assets
     ya uniformados a {url,caption,alt}, sin tener que distinguir str vs dict.
+    (proposal_meta no se usa acá — firma uniforme de transform.)
     """
     groups = effective_data.get("comparison_groups")
     if not isinstance(groups, list):
@@ -200,9 +202,67 @@ def _transform_v5_assets(effective_data: dict) -> dict:
     return out
 
 
+def _compute_bar_chart(data, client_name) -> list:
+    """page1_domination_chart_data → barras horizontales listas para pintar.
+
+    Cada barra: {label, value, width_pct, is_client}.
+    - width_pct = value / SUMA de values válidos × 100 (SHARE DEL TOTAL — cuánto
+      ocupa cada marca, no quién tiene el máximo). sum==0 → todos 0% (sin /0).
+    - is_client: label matchea client_name (laxo, case-insensitive: uno contenido
+      en el otro). Si NINGUNO matchea, la primera barra es el cliente.
+    - filtra puntos inválidos: label vacío o value no-numérico/negativo/bool.
+    None / no-lista / sin puntos válidos → [] (el template muestra "Sin datos").
+    """
+    if not isinstance(data, list):
+        return []
+    pts = []
+    for d in data:
+        if not isinstance(d, dict):
+            continue
+        label = d.get("label")
+        value = d.get("value")
+        if not label:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            continue
+        pts.append({"label": label, "value": value})
+    if not pts:
+        return []
+    total = sum(p["value"] for p in pts)
+    cname = (client_name or "").strip().lower()
+    matched = False
+    for p in pts:
+        p["width_pct"] = round(p["value"] / total * 100, 2) if total else 0.0
+        lbl = p["label"].strip().lower()
+        p["is_client"] = bool(cname) and (cname in lbl or lbl in cname)
+        if p["is_client"]:
+            matched = True
+    if not matched:
+        pts[0]["is_client"] = True
+    return pts
+
+
+def _transform_v3_chart(effective_data: dict, proposal_meta: dict) -> dict:
+    """V3: deriva page1_domination_chart_data → barras pre-computadas (share+is_client).
+
+    Pura. La barra del cliente se detecta contra proposal_meta.client_name. El
+    template solo pinta width_pct y elige color según is_client.
+    """
+    out = dict(effective_data)
+    out["page1_domination_chart_data"] = _compute_bar_chart(
+        effective_data.get("page1_domination_chart_data"),
+        (proposal_meta or {}).get("client_name", ""),
+    )
+    return out
+
+
 # Transforms Python por módulo: normalizan/derivan effective_data antes de renderizar.
 # La lógica de forma vive en Python (no en el template), por decisión de S5.
-_BLOCK_TRANSFORMS = {_V5_MODULE_ID: _transform_v5_assets}
+# Firma uniforme: transform(effective_data, proposal_meta) -> dict.
+_BLOCK_TRANSFORMS = {
+    _V5_MODULE_ID: _transform_v5_assets,
+    _V3_MODULE_ID: _transform_v3_chart,
+}
 
 
 def _template_exists(name: str) -> bool:
@@ -252,7 +312,7 @@ def render_proposal_html(proposal: dict, lang: str) -> str:
         # Transform Python por módulo (ej. V5 normaliza assets a {url,caption,alt}).
         transform = _BLOCK_TRANSFORMS.get(module_id)
         if transform:
-            effective_data = transform(effective_data)
+            effective_data = transform(effective_data, proposal_meta)
         copy_overrides = block.get("copy_overrides") or {}
         # copy_overrides shape: {en: {...}, es: {...}} → el sub-dict del lang activo.
         copy = copy_overrides.get(lang) or copy_overrides.get("es") or {}
