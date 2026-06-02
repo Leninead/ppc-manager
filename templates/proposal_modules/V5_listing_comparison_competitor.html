@@ -1,0 +1,44 @@
+<section class="block" data-module="{{ module_id }}">
+  <h2 class="block-section-title">{{ title or ('Listing — Side-by-Side vs Competitor' if lang == 'en' else 'Listing — Comparación vs Competidor') }}</h2>
+  {% set groups = data.get('comparison_groups') %}
+  {% if groups %}
+  {% for group in groups %}
+  {% set gtype = group.get('type') %}
+  <div class="v5-group" style="margin-bottom: 1.5rem;">
+    <div style="font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); font-weight: 600; margin-bottom: 0.5rem;">
+      {% if gtype == 'main_image' %}{% if lang == 'en' %}Main image{% else %}Imagen principal{% endif %}
+      {% elif gtype == 'infographics' %}{% if lang == 'en' %}Infographics{% else %}Infografías{% endif %}
+      {% elif gtype == 'a_plus' %}{% if lang == 'en' %}A+ Content{% else %}Contenido A+{% endif %}
+      {% elif gtype %}{{ gtype }}
+      {% else %}{% if lang == 'en' %}Comparison{% else %}Comparación{% endif %}{% endif %}
+    </div>
+    <div style="display: flex; gap: 1rem; align-items: flex-start;">
+      {% for side, label_es, label_en in [('client_assets', 'Cliente', 'Client'), ('competitor_assets', 'Competidor', 'Competitor')] %}
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-size: 0.8rem; font-weight: 600; color: var(--text); margin-bottom: 0.4rem;">{% if lang == 'en' %}{{ label_en }}{% else %}{{ label_es }}{% endif %}</div>
+        {% for asset in group[side] %}
+          {% if asset['url'] %}
+          <figure style="margin: 0 0 0.7rem;">
+            <img src="{{ asset['url'] }}" alt="{{ asset['alt'] }}" style="max-width: 100%; border: 1px solid var(--border); border-radius: 4px; display: block;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+            <span class="asset-fallback" style="display: none; font-size: 0.8rem; color: var(--text-muted); padding: 0.45rem; border: 1px dashed var(--border); border-radius: 4px;">{{ asset['caption'] or ('image unavailable' if lang == 'en' else 'imagen no disponible') }}</span>
+            {% if asset['caption'] %}
+            <figcaption style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.25rem;">{{ asset['caption'] }}</figcaption>
+            {% endif %}
+          </figure>
+          {% else %}
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">{{ asset['caption'] }}</div>
+          {% endif %}
+        {% else %}
+        <div style="font-size: 0.82rem; color: var(--text-muted); font-style: italic;">{% if lang == 'en' %}No assets{% else %}Sin assets{% endif %}</div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    {% set commentary = group.get('commentary') | pick_lang(lang) %}
+    {% if commentary %}
+    <p style="margin: 0.6rem 0 0; font-size: 0.88rem; line-height: 1.5; color: var(--text);">{{ commentary }}</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+</section>

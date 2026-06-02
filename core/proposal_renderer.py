@@ -146,6 +146,65 @@ def _effective_data(module: dict, block_data: dict) -> dict:
     return {**defaults, **(block_data or {})}
 
 
+def _normalize_asset(asset) -> dict:
+    """Normaliza UN asset a la forma única {url, caption, alt}.
+
+    El template recibe siempre esta forma y solo decide "¿hay url? <img> : caption-solo".
+    - str  → {url: str, caption: "", alt: ""}      (URL pelada legacy)
+    - dict → {url, caption, alt} con defaults "";  alt cae a caption si no viene
+             (decisión: <img alt=caption).
+    - otro → {url: "", caption: "", alt: ""}        (defensivo, nunca rompe el for)
+    """
+    if isinstance(asset, str):
+        return {"url": asset, "caption": "", "alt": ""}
+    if isinstance(asset, dict):
+        caption = asset.get("caption") or ""
+        return {
+            "url": asset.get("url") or "",
+            "caption": caption,
+            "alt": asset.get("alt") or caption,
+        }
+    return {"url": "", "caption": "", "alt": ""}
+
+
+def _normalize_assets(assets) -> list:
+    """Lista de assets heterogéneos → lista de formas {url,caption,alt}.
+
+    None / no-lista → [] (el template muestra "Sin assets", nunca un <img> vacío).
+    """
+    if not isinstance(assets, list):
+        return []
+    return [_normalize_asset(a) for a in assets]
+
+
+_V5_MODULE_ID = "V5_listing_comparison_competitor"
+
+
+def _transform_v5_assets(effective_data: dict) -> dict:
+    """V5: normaliza client_assets/competitor_assets de cada comparison_group.
+
+    Pura: devuelve estructuras nuevas, no muta el input. El template recibe assets
+    ya uniformados a {url,caption,alt}, sin tener que distinguir str vs dict.
+    """
+    groups = effective_data.get("comparison_groups")
+    if not isinstance(groups, list):
+        return effective_data
+    new_groups = []
+    for g in groups:
+        g = dict(g) if isinstance(g, dict) else {}
+        g["client_assets"] = _normalize_assets(g.get("client_assets"))
+        g["competitor_assets"] = _normalize_assets(g.get("competitor_assets"))
+        new_groups.append(g)
+    out = dict(effective_data)
+    out["comparison_groups"] = new_groups
+    return out
+
+
+# Transforms Python por módulo: normalizan/derivan effective_data antes de renderizar.
+# La lógica de forma vive en Python (no en el template), por decisión de S5.
+_BLOCK_TRANSFORMS = {_V5_MODULE_ID: _transform_v5_assets}
+
+
 def _template_exists(name: str) -> bool:
     """¿Existe un sub-template propio para este module_id?"""
     return (_TEMPLATES_ABS / name).is_file()
@@ -190,6 +249,10 @@ def render_proposal_html(proposal: dict, lang: str) -> str:
         block_data = block.get("data") or {}  # {} es estado normal (FIXED + V17-V22)
         # Overlay (approach B): default del catálogo como base, block.data lo pisa.
         effective_data = _effective_data(module, block_data)
+        # Transform Python por módulo (ej. V5 normaliza assets a {url,caption,alt}).
+        transform = _BLOCK_TRANSFORMS.get(module_id)
+        if transform:
+            effective_data = transform(effective_data)
         copy_overrides = block.get("copy_overrides") or {}
         # copy_overrides shape: {en: {...}, es: {...}} → el sub-dict del lang activo.
         copy = copy_overrides.get(lang) or copy_overrides.get("es") or {}

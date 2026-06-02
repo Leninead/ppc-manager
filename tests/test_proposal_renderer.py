@@ -13,6 +13,8 @@ from core.proposal_renderer import (
     _catalog_module_index,
     _effective_data,
     _md_bold,
+    _normalize_asset,
+    _normalize_assets,
     render_proposal_html,
 )
 
@@ -284,4 +286,97 @@ def test_render_v4_badges_english():
     assert "Present" in html
     assert "Weak" in html
     assert "Missing" in html
+    assert "None" not in html
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMIT G — normalización assets V5 (renderer) + template V5_listing_comparison
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_normalize_asset_string():
+    """str → {url: str, caption: '', alt: ''}."""
+    assert _normalize_asset("http://x/img.jpg") == {
+        "url": "http://x/img.jpg", "caption": "", "alt": ""
+    }
+
+
+def test_normalize_asset_dict_defaults():
+    """dict → campos con defaults; alt cae a caption si no viene."""
+    assert _normalize_asset({"url": "u", "caption": "cap"}) == {
+        "url": "u", "caption": "cap", "alt": "cap"
+    }
+    # alt explícito gana sobre caption
+    assert _normalize_asset({"url": "u", "caption": "cap", "alt": "ALT"})["alt"] == "ALT"
+    # dict vacío → todo ""
+    assert _normalize_asset({}) == {"url": "", "caption": "", "alt": ""}
+
+
+def test_normalize_assets_empty_and_nonlist():
+    """None / no-lista → []; lista mixta str+dict → todas forma única."""
+    assert _normalize_assets(None) == []
+    assert _normalize_assets("not a list") == []
+    assert _normalize_assets([]) == []
+    out = _normalize_assets(["http://x.jpg", {"url": "u", "caption": "c"}])
+    assert out == [
+        {"url": "http://x.jpg", "caption": "", "alt": ""},
+        {"url": "u", "caption": "c", "alt": "c"},
+    ]
+
+
+def _proposal_with_v5_data() -> dict:
+    """Proposal launch + block V5 inyectado con assets heterogéneos (str + dict + vacío)."""
+    p = _launch_proposal()
+    return _inject_block(p, "V5_listing_comparison_competitor", {
+        "comparison_groups": [
+            {
+                "type": "main_image",
+                "client_assets": ["https://example.com/ZEBRA-client-main.jpg"],   # str
+                "competitor_assets": [
+                    {"url": "https://example.com/comp-main.jpg", "caption": "ZEBRA_CAPTION"}  # dict
+                ],
+                "commentary": "El competidor satura el fondo; nuestro main queda más limpio.",
+            },
+            {
+                "type": "a_plus",
+                "client_assets": [],                                              # vacío → "Sin assets"
+                "competitor_assets": [{"url": "https://example.com/comp-aplus.jpg", "caption": "A+ comp"}],
+                "commentary": {"en": "Competitor has A+, we don't.", "es": "El competidor tiene A+, nosotros no."},
+            },
+        ]
+    })
+
+
+def test_render_v5_assets_normalized():
+    """V5: str→<img>, dict→<img>+caption, array vacío→'Sin assets', sin 'None'."""
+    p = _proposal_with_v5_data()
+    html = render_proposal_html(p, "es")
+    # str asset → <img src=...>
+    assert "ZEBRA-client-main.jpg" in html
+    assert "<img" in html
+    # dict asset → caption renderizada
+    assert "ZEBRA_CAPTION" in html
+    # array vacío (client_assets de a_plus) → "Sin assets"
+    assert "Sin assets" in html
+    # subtítulo de tipo lang-aware
+    assert "Imagen principal" in html
+    assert "Contenido A+" in html
+    # commentary (str y {en,es} resuelto por pick_lang)
+    assert "El competidor satura el fondo" in html
+    assert "El competidor tiene A+, nosotros no." in html
+    # defensivo: onerror presente para degradar a caption
+    assert "onerror" in html
+    # Gotcha B3-d-bis
+    assert "None" not in html
+
+
+def test_render_v5_english_labels():
+    """V5: type subtitle y column heads en inglés con lang='en'."""
+    p = _proposal_with_v5_data()
+    html = render_proposal_html(p, "en")
+    assert "Main image" in html
+    assert "A+ Content" in html
+    assert "No assets" in html
+    # El apóstrofo se autoescapa (&#39;) — correcto; asserto la parte sin comilla.
+    assert "Competitor has A+, we don" in html
     assert "None" not in html
