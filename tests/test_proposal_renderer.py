@@ -555,3 +555,23 @@ def test_render_v3_english():
     assert "Needs listing" in html
     assert "(you)" in html
     assert "None" not in html
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMIT J — smoke combinado con V3 (chart poblado) + cierre S5
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_smoke_v3_with_chart_render_clean():
+    """V3 con chart poblado renderiza limpio (0 None/{{}}/dicts) + barra cliente."""
+    chart = [{"label": "Tu Marca", "value": 3},
+             {"label": "Competidor A", "value": 8},
+             {"label": "Competidor B", "value": 5}]
+    p = _proposal_with_v3_data(chart)
+    html = render_proposal_html(p, "es")
+    assert "None" not in html                       # B3-d-bis
+    assert "{{" not in html and "{%" not in html    # nada de Jinja sin renderizar
+    assert "{'en'" not in html and "{&#39;en&#39;" not in html  # sin dicts crudos
+    assert "{'es'" not in html and "{&#39;es&#39;" not in html
+    assert 'data-module="V3_seo_opportunity"' in html
+    assert "(vos)" in html                          # chart pintado, barra cliente flaggeada

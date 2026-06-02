@@ -102,4 +102,4 @@ outputs/
 # Settings locales de Claude Code (permisos por máquina, no compartibles)
 .claude/settings.local.json
 # M29-S5 — smoke render del renderer HTML (artefacto regenerable, no código)
-_smoke_render.html
+_smoke_render*.html
