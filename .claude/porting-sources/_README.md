@@ -20,6 +20,6 @@ Streamlit del Agency OS via el agente `html-to-streamlit-porter`.
 
 - sku-progress-report.html → M28 (HTML con persistencia simple, requiere
   coordinación con data-persistence-specialist Caso 2)
-- pricing-dashboard.html → M29 (HTML complejo con scoring multi-fuente,
+- pricing-dashboard.html → M30 (HTML complejo con scoring multi-fuente,
   1-2 días de trabajo. Bug heredado conocido: 30 vs 37 días en
   restock_alert)
