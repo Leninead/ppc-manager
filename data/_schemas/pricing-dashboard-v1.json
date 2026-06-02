@@ -1,0 +1,309 @@
+{
+  "module": "pricing-dashboard",
+  "version": 1,
+  "created": "2026-06-02",
+  "description": "Pricing Dashboard (M30) — snapshot diario por SKU con métricas de stock, ventas multi-ventana (T7/T30/T90), márgenes, scoring de clasificación (bajar/subir/liquidar/mantener), precio sugerido y rationale. Caso 2 (local Parquet, multi-cliente). Espejo fiel del HTML standalone de pricing del compañero (F3.1: solo schema + test, sin codear scoring ni módulo). Idempotente por snapshot_date: re-importar el mismo día sobreescribe el .parquet (replica el dedup-by-date del HTML L1163 findIndex h.date===snapshotDate). El cliente y el snapshot_date van PATH-ENCODED (data/account-health/<cliente>/pricing-dashboard/<YYYY-MM-DD>.parquet) — NO son columnas del DataFrame de persistencia. snapshot_date SÍ se mantiene como columna por conveniencia y paridad con HTML (igual que M28 mantiene year/week_label aunque el period las codifique).",
+  "primary_key": ["sku"],
+  "period_column": "_period",
+  "columns": {
+    "snapshot_date": {
+      "dtype": "string",
+      "required": true,
+      "description": "Fecha del snapshot en formato ISO 8601 YYYY-MM-DD. Coincide con el nombre del archivo (2026-04-17.parquet → snapshot_date='2026-04-17'). Redundante con el path, pero se preserva como columna para facilitar queries downstream y paridad con HTML (h.date)."
+    },
+    "sku": {
+      "dtype": "string",
+      "required": true,
+      "description": "Identificador SKU del cliente. Clave primaria del snapshot. Igual que M28: si el cliente no usa SKU, se cae a ASIN como fallback en este campo."
+    },
+    "asin": {
+      "dtype": "string",
+      "required": false,
+      "description": "ASIN child de Amazon. Opcional cuando el cliente trabaja por SKU."
+    },
+    "product_name": {
+      "dtype": "string",
+      "required": true,
+      "description": "Título del producto. Tomado del inventory report o del FBA inventory feed al importar."
+    },
+    "modelo": {
+      "dtype": "string",
+      "required": false,
+      "description": "Modelo del producto (segmentación intra-cliente). Opcional — depende de cómo el cliente segmente su catálogo."
+    },
+    "talla": {
+      "dtype": "string",
+      "required": false,
+      "description": "Talla / size variant. Opcional."
+    },
+    "temporada": {
+      "dtype": "string",
+      "required": false,
+      "description": "Temporada (verano/invierno/all-season). Drive el flag is_liquidar cuando temporada está vencida. Opcional."
+    },
+    "categoria": {
+      "dtype": "string",
+      "required": false,
+      "description": "Categoría top-level del producto. Opcional."
+    },
+    "subcategoria": {
+      "dtype": "string",
+      "required": false,
+      "description": "Subcategoría — clave para el cálculo de subcat_avg_price y el benchmark de fee promedio (subcat_fee_avg del config)."
+    },
+    "price": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Precio actual de listado en USD/MXN según marketplace del cliente. Métrica core del módulo."
+    },
+    "fba_available": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Unidades disponibles en FBA. Default 0 si el inventory report no expone el campo."
+    },
+    "awd_available": {
+      "dtype": "int64",
+      "required": false,
+      "description": "Unidades en Amazon Warehousing & Distribution. Opcional — no todos los clientes usan AWD."
+    },
+    "izzi_available": {
+      "dtype": "int64",
+      "required": false,
+      "description": "Stock en almacén externo Izzi (legacy del HTML para clientes con 3PL). Opcional."
+    },
+    "total_stock": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Stock total consolidado: fba_available + awd_available + izzi_available. Métrica core para DOS."
+    },
+    "has_backup": {
+      "dtype": "bool",
+      "required": false,
+      "description": "Flag: true si hay stock fuera de FBA (AWD o Izzi) que puede reabastecer FBA. Default false."
+    },
+    "t7": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Unidades vendidas en últimos 7 días. Ventana de velocidad reciente."
+    },
+    "t30": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Unidades vendidas en últimos 30 días. Ventana de velocidad estándar."
+    },
+    "t90": {
+      "dtype": "int64",
+      "required": false,
+      "description": "Unidades vendidas en últimos 90 días. Ventana de velocidad estabilizada para SKUs con baja rotación. Opcional."
+    },
+    "daily_rate": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Velocidad diaria de venta calculada (típicamente t30/30). Driver de fba_dos y total_dos."
+    },
+    "fba_dos": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Days of Supply solo considerando stock FBA: fba_available / daily_rate. Inf si daily_rate=0."
+    },
+    "total_dos": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Days of Supply considerando stock TOTAL (FBA+AWD+Izzi): total_stock / daily_rate. Inf si daily_rate=0."
+    },
+    "cogs": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Cost of Goods Sold por unidad. Driver del cálculo de gross_margin y suggested_price."
+    },
+    "ff": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Fulfillment Fee por unidad (Amazon FBA fee). Driver del cálculo de net_margin."
+    },
+    "rf": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Referral Fee por unidad (Amazon referral fee, típicamente ~15%). Driver del cálculo de net_margin."
+    },
+    "ppc": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Costo PPC por unidad (advertising spend / units). Driver del cálculo de net_margin. Opcional — 0 si el cliente no reporta PPC."
+    },
+    "ff_est": {
+      "dtype": "bool",
+      "required": false,
+      "description": "Flag: true si ff fue estimado (no viene del fee report real). Default false."
+    },
+    "rf_est": {
+      "dtype": "bool",
+      "required": false,
+      "description": "Flag: true si rf fue estimado (usando subcat_fee_avg del config en lugar del fee report). Default false."
+    },
+    "gross_margin": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Margen bruto = (price - cogs) / price. Métrica core para clasificación bajar/subir."
+    },
+    "net_margin": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Margen neto = (price - cogs - ff - rf - ppc) / price. Métrica de rentabilidad real."
+    },
+    "aging_181_270": {
+      "dtype": "int64",
+      "required": false,
+      "description": "Unidades con aging 181-270 días en FBA. Driver de presión de liquidación (storage fees)."
+    },
+    "aging_271_365": {
+      "dtype": "int64",
+      "required": false,
+      "description": "Unidades con aging 271-365 días en FBA. Driver mayor de presión de liquidación."
+    },
+    "aging_366plus": {
+      "dtype": "int64",
+      "required": false,
+      "description": "Unidades con aging 366+ días en FBA. Trigger directo de is_liquidar (long-term storage fee)."
+    },
+    "ais_total": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Amazon Inventory Score total (si el cliente lo expone). Métrica de salud de inventario."
+    },
+    "health": {
+      "dtype": "string",
+      "required": false,
+      "description": "Etiqueta cualitativa de salud (ej: 'green', 'yellow', 'red') derivada de combinación de DOS + aging + AIS. Opcional."
+    },
+    "no_sale": {
+      "dtype": "string",
+      "required": false,
+      "description": "Razón si el SKU no tuvo ventas en la ventana (ej: 'out_of_stock', 'paused', 'aged_inventory'). Opcional."
+    },
+    "buybox_price": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Precio del competidor en BuyBox (si nuestro listado lo perdió). Nullable — solo presente cuando hay competidor con BB."
+    },
+    "subcat_avg_price": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Precio promedio de la subcategoría calculado a partir de los SKUs del propio cliente. Nullable. Driver del flag de pricing competitivo."
+    },
+    "model_avg_price": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Precio promedio del modelo dentro del catálogo del cliente. Nullable. Driver de consistencia intra-modelo."
+    },
+    "score": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Score numérico -100 a +100 (signo indica dirección: positivo=subir, negativo=bajar). Salida del pipeline computeScore del HTML."
+    },
+    "classification": {
+      "dtype": "string",
+      "required": true,
+      "description": "Clasificación accionable: 'bajar' | 'subir' | 'liquidar' | 'mantener'. Salida del pipeline runAnalysis del HTML."
+    },
+    "reasons_down": {
+      "dtype": "string",
+      "required": false,
+      "description": "Lista de razones para bajar precio, serializada como JSON string (ej: '[\"DOS>180\", \"BuyBox lost\"]'). Parquet no tiene tipo list nativo bien soportado en multi-cliente cross-version — se serializa como string."
+    },
+    "reasons_up": {
+      "dtype": "string",
+      "required": false,
+      "description": "Lista de razones para subir precio, serializada como JSON string. Misma razón de serialización."
+    },
+    "suggested_price": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Precio sugerido en USD/MXN. Salida final del pipeline."
+    },
+    "suggested_rationale": {
+      "dtype": "string",
+      "required": false,
+      "description": "Texto humano-legible explicando el rationale del precio sugerido (ej: 'Match buybox -5%', 'Push margin to subcat avg')."
+    },
+    "restock_alert": {
+      "dtype": "string",
+      "required": false,
+      "description": "Alerta de restock generada por el comparador DOS vs lead time. Nullable. Ver deuda heredada del bug 30-vs-37 en evolution_notes."
+    },
+    "liq_min_price": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Precio mínimo de liquidación calculado (default 0 si no aplica). Driver de la clasificación 'liquidar'."
+    },
+    "is_liquidar": {
+      "dtype": "bool",
+      "required": true,
+      "description": "Flag derivado: true si el SKU debe entrar en liquidación (aging_366plus alto, temporada vencida, etc.). Driver de la branch 'liquidar' en classification."
+    }
+  },
+  "entities": {
+    "snapshot": {
+      "filename_pattern": "<YYYY-MM-DD>.parquet",
+      "path": "data/account-health/<cliente>/pricing-dashboard/<YYYY-MM-DD>.parquet",
+      "frequency": "daily (idempotente: re-importar mismo snapshot_date sobreescribe)",
+      "primary_key": ["sku"],
+      "columns_ref": "see top-level 'columns' key (this is the main entity validated by _validate_against_schema). 47 columnas en total: 21 required + 26 opcionales/nullables.",
+      "io_helpers": "Persiste vía core.persistence._save_snapshot(df, 'account-health', <cliente>, 'pricing-dashboard', <YYYY-MM-DD>). Lee vía _load_snapshot(...). Lista periods vía _list_periods(...). El re-save con mismo period sobreescribe — equivalente al dedup-by-date del HTML L1163 findIndex h.date===snapshotDate.",
+      "idempotency_rationale": "El HTML legacy hace dedup en L1163 (history.findIndex(h => h.date === snapshotDate)) reemplazando la entry existente. Replicar esa semántica con _save_snapshot.to_parquet (que sobreescribe el .parquet) preserva el contrato de 'el snapshot del día gana sobre cualquier import previo del mismo día'. NO requiere lógica extra en el módulo."
+    },
+    "history": {
+      "filename": "_history.parquet",
+      "path": "data/account-health/<cliente>/pricing-dashboard/_history.parquet",
+      "frequency": "agregador derivado (no se escribe directo)",
+      "description": "NO es una entidad almacenada aparte. Es la concatenación FULL de todos los <YYYY-MM-DD>.parquet del cliente, generada por core.persistence._rebuild_history y leída por _load_history. Las columnas son TODAS las del snapshot + una columna adicional '_period' (string YYYY-MM-DD, agregada por _rebuild_history). La vista WoW reducida de ~11 columnas (price/dos/t30/t7/score/classification/gross_margin/health/...) es un SELECT en query-time del módulo M30, NO una entidad persistida.",
+      "io_helpers": "core.persistence._rebuild_history('account-health', <cliente>, 'pricing-dashboard') para reconstruir. _load_history(...) para leer.",
+      "wow_view_columns_reference": [
+        "snapshot_date / _period",
+        "sku",
+        "price",
+        "fba_dos",
+        "total_dos",
+        "t30",
+        "t7",
+        "score",
+        "classification",
+        "gross_margin",
+        "health"
+      ]
+    },
+    "config_per_client": {
+      "filename": "<cliente>-v1.json",
+      "path": "data/account-health/pricing-dashboard/<cliente>-v1.json",
+      "frequency": "low (cambia cuando se actualiza el fee report del cliente o se renombra una subcategoría)",
+      "format": "JSON",
+      "description": "Config per-cliente almacenado con la API client-agnostic de core.persistence._save_config. El cliente se path-encodea como 'name' del config (_save_config(cfg, 'account-health', 'pricing-dashboard', name=<cliente-slug>, version=1)) → archivo en data/account-health/pricing-dashboard/<cliente-slug>-v1.json. NO se hardcodea SUBCAT_FEE_AVG en código Python: el seed del HTML queda como dato de referencia (notes/), no como literal en el módulo. El módulo M30 inyecta subcat_fee_avg al config solo si el usuario lo provee (típicamente desde el Amazon fee report).",
+      "structure": {
+        "cliente": "string (slug del cliente, redundante con el path pero útil para validación cross-check)",
+        "last_snapshot_date": "string YYYY-MM-DD (último snapshot importado, sirve para que el módulo sepa dónde retomar)",
+        "subcat_fee_avg": "object {<subcategoria>: <float promedio de referral fee de la subcat>} — opcional, vacío si el cliente no proveyó fee report. Cuando vacío y rf no viene del CSV, rf_est=true.",
+        "year": "int (hardcoded 2026 en v1 — bloqueado por decisión Lenin para consistencia con M28)",
+        "schema_version": "string ('v1')"
+      }
+    }
+  },
+  "evolution_notes": {
+    "v1_baseline": "Schema baseline derivado del HTML standalone de pricing del compañero. Las 47 columnas matchean con los campos que el pipeline runAnalysis + computeScore del HTML produce por SKU. Se omite 'cliente' como columna (va path-encoded igual que M28 con week_iso); se mantiene 'snapshot_date' como columna por conveniencia (paridad con HTML h.date) aunque también va path-encoded en el filename del .parquet.",
+    "inherited_bug_restock_30_vs_37": {
+      "description": "El HTML legacy tiene una inconsistencia en el multiplicador de lead-time para el cálculo de restock_alert: el path runAnalysis (L837 del HTML) usa multiplicador 37, mientras que el path computeScore (L1029 del HTML) usa multiplicador 30. En el pipeline vivo gana el path runAnalysis (37), por lo que el path computeScore (30) es dead-code efectivo.",
+      "constants_for_F3.2": {
+        "_RESTOCK_PRIMARY_MULT": 37,
+        "_RESTOCK_FALLBACK_MULT": 30,
+        "note": "F3.1 NO codea el scoring. Cuando F3.2 implemente el pipeline en modules/pages/pricing_dashboard.py, debe declarar estas dos constantes nombradas explícitamente (NO inline magic numbers) y documentar que la primaria gana sobre la fallback. NO se definen en core/persistence.py porque son lógica de negocio del módulo, no infra. NO se arregla en F3.1: se hereda fielmente para paridad con HTML."
+      }
+    },
+    "future_v2_candidates": [
+      "marketplace (USD/MXN/etc.) — actualmente implícito por cliente, explícito en v2 para dashboards cross-marketplace",
+      "currency (separar marketplace del currency code: ej. cliente operando en MX vende en MXN pero costos pueden estar en USD)",
+      "competitor_count (cantidad de competidores en BuyBox, driver adicional para clasificación de pricing competitivo)",
+      "reasons_down/reasons_up como columnas list nativas — actualmente serializadas como JSON string porque pyarrow list<string> tiene quirks cross-version multi-cliente; en v2 evaluar si pyarrow es estable suficiente para soportarlas nativas",
+      "resolver bug heredado 30-vs-37: decidir si _RESTOCK_PRIMARY_MULT pasa a 30 (fix matemático real) o se mantiene 37 (paridad histórica con HTML); requiere validación con Marcos y backfill de snapshots viejos",
+      "linkear classification con un append-only log de pricing-decisions (decisions-log.parquet) que registre qué precios sugeridos efectivamente se aplicaron — necesario para reporte de impacto"
+    ]
+  }
+}
