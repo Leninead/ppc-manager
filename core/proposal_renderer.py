@@ -22,10 +22,11 @@ Diseño:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from markupsafe import Markup
+from markupsafe import Markup, escape
 
 from core.proposal_paths import CATALOG_FILE, TEMPLATES_HTML_DIR
 
@@ -68,12 +69,39 @@ def _pick_lang(field, lang):
     return field
 
 
+# Markdown-mínimo: solo **bold**. Non-greedy, multilínea (re.DOTALL) por si el
+# narrative trae saltos de línea dentro de un par de asteriscos.
+_MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+
+
+def _md_bold(text):
+    """`**x**` → `<strong>x</strong>`, seguro contra inyección HTML.
+
+    ORDEN DE SEGURIDAD (no invertir — al revés abre XSS):
+      1. escape() PRIMERO → neutraliza HTML hostil del input (`<script>` →
+         `&lt;script&gt;`). Los `**` son asteriscos literales, no chars
+         especiales de HTML, así que sobreviven intactos al escape.
+      2. regex `**x**`→`<strong>x</strong>` DESPUÉS, sobre el texto YA escapado
+         → inyectamos NUESTROS `<strong>` de confianza, no los del cliente.
+      3. Markup() AL FINAL → marca el resultado como seguro para que Jinja2 (con
+         autoescape ON) no re-escape nuestros tags y el bold renderice.
+
+    None → "". Otros tipos → se castean a str antes de escapar.
+    """
+    if text is None:
+        return Markup("")
+    escaped = str(escape(str(text)))            # paso 1: <script> ya neutralizado
+    bolded = _MD_BOLD_RE.sub(r"<strong>\1</strong>", escaped)  # paso 2: bold de confianza
+    return Markup(bolded)                        # paso 3: seguro en el punto de inyección
+
+
 def _build_env() -> Environment:
     """Environment Jinja2 anclado al dir absoluto de templates, autoescape ON.
 
-    Registra el filtro `pick_lang` para resolver campos bilingües {en, es} dentro
-    de los templates: `{{ campo | pick_lang(lang) }}`. Infra compartida por todos
-    los sub-templates (FIXED con defaults bilingües + V4/V5/V6 futuros).
+    Registra dos filtros compartidos por todos los sub-templates:
+    - `pick_lang`: resuelve campos bilingües {en, es} → `{{ campo | pick_lang(lang) }}`.
+    - `md_bold`: markdown-mínimo `**x**`→<strong>, escape-first (anti-XSS) →
+      `{{ campo | pick_lang(lang) | md_bold }}`.
     """
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_ABS)),
@@ -82,6 +110,7 @@ def _build_env() -> Environment:
         lstrip_blocks=True,
     )
     env.filters["pick_lang"] = _pick_lang
+    env.filters["md_bold"] = _md_bold
     return env
 
 

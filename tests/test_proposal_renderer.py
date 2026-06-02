@@ -12,6 +12,7 @@ import core.proposal_persistence as pp
 from core.proposal_renderer import (
     _catalog_module_index,
     _effective_data,
+    _md_bold,
     render_proposal_html,
 )
 
@@ -151,3 +152,88 @@ def test_render_missing_template_uses_placeholder():
     # Y en inglés usa el texto en inglés del placeholder.
     html_en = render_proposal_html(p, "en")
     assert "content pending" in html_en
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMIT E — filtro md_bold + template V6_growth_plan_phases
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_md_bold_converts_bold():
+    """`**x**` → `<strong>x</strong>` (markdown-mínimo)."""
+    out = str(_md_bold("**Phase 1** del plan"))
+    assert "<strong>Phase 1</strong>" in out
+    assert "**" not in out  # los marcadores se consumieron
+
+
+def test_md_bold_escapes_html_injection():
+    """TEST DE SEGURIDAD: HTML hostil del input queda escapado, NO inyectado.
+
+    Orden escape→bold→Markup: el <script> se neutraliza ANTES del bold, así que
+    nunca llega crudo al HTML final.
+    """
+    out = str(_md_bold("**Hola** <script>alert(1)</script>"))
+    assert "&lt;script&gt;" in out          # escapado
+    assert "<script>" not in out            # NO inyectado crudo
+    assert "<strong>Hola</strong>" in out   # el bold legítimo sí renderiza
+
+
+def test_md_bold_none_is_empty():
+    """None → Markup vacío (no 'None')."""
+    assert str(_md_bold(None)) == ""
+
+
+def _inject_block(proposal: dict, module_id: str, data: dict) -> dict:
+    """Agrega un block {module_id, data} a la proposal (el render solo necesita eso).
+
+    Algunos módulos (V5, V6) no están en el archetype 'launch', así que se inyectan
+    directos para testear su template sin depender de qué archetype los incluye.
+    """
+    proposal["blocks"].append({"module_id": module_id, "data": data})
+    return proposal
+
+
+def _proposal_with_v6_data(narrative_es: str) -> dict:
+    """Proposal launch + block V6 inyectado: 3 fases, narrative bilingüe con **bold**."""
+    p = _launch_proposal()
+    return _inject_block(p, "V6_growth_plan_phases", {
+        "phases": [
+            {
+                "number": 1,
+                "name": {"en": "Foundations", "es": "Fundaciones"},
+                "duration": "Mes 1-2",
+                "narrative": {"en": "**Phase 1.** Base.", "es": narrative_es},
+            },
+            {
+                "number": 2,
+                "name": {"en": "Expansion", "es": "Expansión"},
+                "duration": "Mes 3-6",
+                "narrative": {"en": "Scale.", "es": "Escalar."},
+            },
+            {
+                "number": 3,
+                "name": {"en": "Defense", "es": "Defensa"},
+                "duration": "Mes 7+",
+                "narrative": {"en": "Hold.", "es": "Sostener."},
+            },
+        ]
+    })
+
+
+def test_render_v6_bold_renders():
+    """V6 renderiza el narrative con **bold** → <strong> en el HTML."""
+    p = _proposal_with_v6_data("**Fase 1 — Fundaciones.** Estabilizar ASINs core.")
+    html = render_proposal_html(p, "es")
+    assert "<strong>Fase 1 — Fundaciones.</strong>" in html
+    assert "Fundaciones" in html       # name.es resuelto por pick_lang
+    assert "Mes 1-2" in html           # duration
+    assert "None" not in html
+
+
+def test_render_v6_narrative_xss_escaped():
+    """TEST DE SEGURIDAD end-to-end: un <script> en el narrative queda escapado."""
+    p = _proposal_with_v6_data("**Ok** <script>steal()</script>")
+    html = render_proposal_html(p, "es")
+    assert "&lt;script&gt;" in html
+    assert "<script>steal()</script>" not in html
+    assert "<strong>Ok</strong>" in html
