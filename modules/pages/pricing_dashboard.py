@@ -577,3 +577,256 @@ def _compute_score(record: dict, config: dict) -> dict:
         "liq_min_price": liq_min_price,
         "is_liquidar": is_liquidar,
     }
+
+
+# =====================================================================
+# B7 — _enrich_record + _run_analysis (port de runAnalysis, HTML L800-924)
+# =====================================================================
+def _js_truthy(v) -> bool:
+    """Replica la verdad de JS para cadenas `a || b`: None/NaN/0/0.0/''/False -> False;
+    '0' (string no vacío) -> True (como en JS)."""
+    if v is None:
+        return False
+    if isinstance(v, float) and math.isnan(v):
+        return False
+    return bool(v)
+
+
+def _strip_row(raw: dict) -> dict:
+    """Trim de la frontera de enrichment (decisión consciente F3.3).
+
+    El HTML trimea cada celda del CSV en parseCSV (L733). Nuestros parsers F3.2 leen
+    crudo (cerrados, NO se tocan). Acá replicamos el efecto NETO: strip de las celdas
+    STRING de la fila FBA antes de las comparaciones del scoring (p.ej. health
+    '  Excess  ' -> 'Excess'). Sólo aplica a la fila FBA (CSV); los valores del
+    maestro vienen de XLSX y el HTML NO los trimea, así que NO se tocan.
+
+    El descarte de filas con < 2 campos del parseCSV NO se portea: pd.read_csv deja
+    esas filas con celdas NaN (ver tests TestCsvDivergenciasHTML), por lo que su
+    'available' queda vacío y el filtro de activos de _run_analysis (available > 0)
+    las descarta igual — sin necesidad de portear el descarte explícito.
+    """
+    return {k: (v.strip() if isinstance(v, str) else v) for k, v in raw.items()}
+
+
+def _row_sku(raw: dict) -> str:
+    """Replica `r['sku'] || r['SKU'] || ''` (con str()/strip de robustez)."""
+    v = raw.get("sku")
+    if not _js_truthy(v):
+        v = raw.get("SKU")
+    if not _js_truthy(v):
+        return ""
+    return str(v).strip()
+
+
+def _effective_price(raw: dict) -> float:
+    """Port de effectivePrice (HTML L927-932).
+
+    sales-price || effective_price, luego featuredoffer-price || featured_price,
+    luego your-price || your_price. Devuelve el primero > 0 (sp -> fp -> yp).
+    """
+    sp = raw.get("sales-price")
+    if not _js_truthy(sp):
+        sp = raw.get("effective_price")
+    sp = _to_float(sp)
+    fp = raw.get("featuredoffer-price")
+    if not _js_truthy(fp):
+        fp = raw.get("featured_price")
+    fp = _to_float(fp)
+    yp = raw.get("your-price")
+    if not _js_truthy(yp):
+        yp = raw.get("your_price")
+    yp = _to_float(yp)
+    return sp if sp > 0 else (fp if fp > 0 else yp)
+
+
+def _enrich_record(raw: dict, lookups: dict) -> dict:
+    """Port del bloque de construcción de `rec` de runAnalysis (HTML L814-913).
+
+    `enrichRecord` del HTML (L925) es passthrough (solo se usa para sample data); el
+    enriquecimiento real es este bloque inline, que acá se factoriza a una función.
+
+    `raw` = fila FBA (ya trim-eada por _strip_row). `lookups` = bag de contexto que
+    arma _run_analysis con las claves: maestro, fee, cogs, awd, izzi (los lookups de
+    F3.2), más subcat_avg, model_avg, snapshot_date y subcat_fee_avg (de config).
+
+    Setea restock_alert con el PATH-37 (L835-844: round(daily_rate*37)) — por eso el
+    PATH-30 de _compute_score queda como dead-code (su guard `not restock_alert`).
+    """
+    maestro = lookups.get("maestro", {})
+    fee_lk = lookups.get("fee", {})
+    cogs_lk = lookups.get("cogs", {})
+    awd_lk = lookups.get("awd", {})
+    izzi_lk = lookups.get("izzi", {})
+
+    sku = _row_sku(raw)
+    sku_low = sku.lower()
+    m = maestro.get(sku_low, {})
+    fee = fee_lk.get(sku) or fee_lk.get(sku_low) or {}
+    cogs = cogs_lk.get(sku) or cogs_lk.get(sku_low)
+    price = _effective_price(raw)
+    subcat_key = m.get("Subcategoria") or ""
+    model_key = m.get("Modelo") or ""
+
+    fba_av = _to_float(raw.get("available"))
+    awd_av = awd_lk.get(sku) or awd_lk.get(sku_low) or 0
+    izzi_av = izzi_lk.get(sku) or izzi_lk.get(sku_low) or 0
+    tot_st = fba_av + awd_av + izzi_av
+    has_bkp = (awd_av + izzi_av) > 0
+    t7 = _to_float(raw.get("units-shipped-t7"))
+    t30 = _to_float(raw.get("units-shipped-t30"))
+    t90 = _to_float(raw.get("units-shipped-t90"))
+    daily_r = (t30 * 0.7 + (t90 / 3) * 0.3) / 30
+    fba_dos = _to_float(raw.get("days-of-supply"))
+    if daily_r > 0:
+        tot_dos = min(tot_st / daily_r, 999)
+    else:
+        tot_dos = 999 if tot_st > 0 else 0
+
+    rst_alert = None
+    if fba_dos <= 30 and has_bkp and tot_dos > 30:  # PATH-37 (sin guard daily_rate>0)
+        to_mv = max(0, _round_half_up(daily_r * 37) - fba_av)
+        mx = awd_av + izzi_av
+        un = min(to_mv, mx)
+        if un > 0:
+            src = "AWD" if awd_av >= un else ("IZZI" if izzi_av >= un else "AWD+IZZI")
+            rst_alert = f"Mover {_js_num(un)}u a FBA desde {src}"
+
+    rec = {
+        "sku": sku,
+        "price": price,
+        "your_price": _to_float(raw.get("your-price")),
+        "asin": raw.get("asin") or "",
+        "product_name": raw.get("product-name") or "",
+        "snapshot_date": lookups.get("snapshot_date"),
+        "Modelo": m.get("Modelo") or "",
+        "Talla": m.get("Talla") or "",
+        "Temporada": m.get("Temporada") or "",
+        "Categoria": m.get("Categoria") or "",
+        "Subcategoria": subcat_key,
+        "fba_available": fba_av,
+        "awd_available": awd_av,
+        "izzi_available": izzi_av,
+        "total_stock": tot_st,
+        "available": fba_av,
+        "has_backup": has_bkp,
+        "restock_alert": rst_alert,
+        "stock_incoming": _to_float(raw.get("inbound-quantity")) + _to_float(raw.get("Total Reserved Quantity")),
+        "fba_dos": fba_dos,
+        "total_dos": _round_half_up(tot_dos * 10) / 10,
+        "daily_rate": _round_half_up(daily_r * 1000) / 1000,
+        "sell_through": _to_float(raw.get("sell-through")),
+        "dos": fba_dos,
+        "t7": t7,
+        "t30": t30,
+        "t60": _to_float(raw.get("units-shipped-t60")),
+        "t90": t90,
+        "aging_0_180": _to_float(raw.get("inv-age-0-to-90-days")) + _to_float(raw.get("inv-age-91-to-180-days")),
+        "aging_181_270": _to_float(raw.get("inv-age-181-to-270-days")),
+        "aging_271_365": _to_float(raw.get("inv-age-271-to-365-days")),
+        "aging_366plus": _to_float(raw.get("inv-age-366-to-455-days")) + _to_float(raw.get("inv-age-456-plus-days")),
+        "health": raw.get("fba-inventory-level-health-status") or "",
+        "rec_action": raw.get("recommended-action") or "",
+        "alert": raw.get("alert") or "",
+        "no_sale_6m": raw.get("no-sale-last-6-months") or "",
+        "sales_rank": _to_float(raw.get("sales-rank")),
+        "storage_cost": _to_float(raw.get("estimated-storage-cost-next-month")),
+        "featuredoffer_price": _to_float(raw.get("featuredoffer-price")),
+        "buybox_price": _to_float(raw.get("featuredoffer-price")),
+        "cogs": cogs or None,
+        "cogs_as_of": cogs_lk.get("__month__" + sku) or cogs_lk.get("__month__" + sku_low) or None,
+        "fulfillment_fee": fee.get("fulfillment_fee") or None,
+        "referral_fee": fee.get("referral_fee") or None,
+        "ppc_fee": fee.get("ppc_fee") or None,
+        "returns_fee": fee.get("returns_fee") or None,
+        "units_sold_week": fee.get("units_sold_week") or 0,
+        "subcat_avg": lookups.get("subcat_avg", {}).get(subcat_key) or None,
+        "model_avg": lookups.get("model_avg", {}).get(model_key) or None,
+        "ais_total": _compute_ais(raw),
+    }
+
+    # === Márgenes ===
+    if (rec["price"] > 0 and rec["cogs"] is not None
+            and rec["fulfillment_fee"] is not None and rec["referral_fee"] is not None):
+        rec["gross_margin"] = (rec["price"] - rec["cogs"] - rec["fulfillment_fee"] - rec["referral_fee"]) / rec["price"] * 100
+        rec["net_margin"] = rec["gross_margin"] - ((rec["ppc_fee"] or 0) / rec["price"] * 100)
+    else:
+        rec["gross_margin"] = None
+        rec["net_margin"] = None
+
+    # === Estimación de fees por subcat para los que faltan ===
+    if rec["fulfillment_fee"] is None or rec["referral_fee"] is None:
+        avg_fees = lookups.get("subcat_fee_avg", {}).get(rec["Subcategoria"]) or {}
+        if rec["fulfillment_fee"] is None and avg_fees.get("ff") is not None:
+            rec["fulfillment_fee"] = avg_fees["ff"]
+            rec["fulfillment_fee_est"] = True
+        if rec["referral_fee"] is None and avg_fees.get("rf") is not None:
+            rec["referral_fee"] = avg_fees["rf"]
+            rec["referral_fee_est"] = True
+        if rec["ppc_fee"] is None and avg_fees.get("ppc") is not None:
+            rec["ppc_fee"] = avg_fees["ppc"]
+            rec["ppc_fee_est"] = True
+        # Recalcular margen con fees estimadas
+        if (rec["price"] > 0 and rec["cogs"]
+                and rec["fulfillment_fee"] is not None and rec["referral_fee"] is not None):
+            rec["gross_margin"] = (rec["price"] - rec["cogs"] - rec["fulfillment_fee"] - rec["referral_fee"]) / rec["price"] * 100
+            rec["net_margin"] = rec["gross_margin"] - ((rec["ppc_fee"] or 0) / rec["price"] * 100)
+
+    return rec
+
+
+def _run_analysis(records: list, lookups: dict, config: dict) -> list:
+    """Port de runAnalysis (HTML L800-924). Orquestador del scoring.
+
+    `records` = filas FBA crudas (list[dict]). `lookups` = {maestro, fee, cogs, awd,
+    izzi} (los lookups de F3.2 ya construidos). `config` aporta SUBCAT_FEE_AVG y
+    current_month. Devuelve la lista de records activos enriquecidos + scoreados (la
+    forma del HTML: cada item es el dict que retorna _compute_score, con
+    classification / suggestedPrice / restock_alert / score / etc.).
+
+    is_liquidar y la clasificación (subir/bajar/liquidar/mantener) se resuelven dentro
+    de _compute_score (igual que el HTML, donde están en computeScore): is_liquidar
+    PRECEDE a la clasificación por puntaje.
+    """
+    rows = [_strip_row(r) for r in records]
+    active = [r for r in rows if _to_float(r.get("available")) > 0]
+
+    # Promedios por subcat y por modelo (sobre los activos), igual que el HTML.
+    price_map: dict = {}
+    for r in active:
+        sku = _row_sku(r)
+        m = lookups.get("maestro", {}).get(sku.lower(), {})
+        price = _effective_price(r)
+        subcat = m.get("Subcategoria") or ""
+        modelo = m.get("Modelo") or ""
+        price_map.setdefault(subcat, []).append(price)
+        price_map.setdefault("__model__" + modelo, []).append(price)
+
+    subcat_avg: dict = {}
+    model_avg: dict = {}
+    for k, arr0 in price_map.items():
+        arr = [v for v in arr0 if v > 0]
+        if k.startswith("__model__"):
+            modelo = k.replace("__model__", "", 1)
+            if len(arr) > 1:
+                model_avg[modelo] = sum(arr) / len(arr)
+        else:
+            if len(arr) >= 10:
+                subcat_avg[k] = sum(arr) / len(arr)
+
+    if rows:
+        snapshot_date = rows[0].get("snapshot-date") or date.today().isoformat()
+    else:
+        snapshot_date = date.today().isoformat()
+
+    ctx = dict(lookups)
+    ctx["subcat_avg"] = subcat_avg
+    ctx["model_avg"] = model_avg
+    ctx["snapshot_date"] = snapshot_date
+    ctx["subcat_fee_avg"] = config.get("SUBCAT_FEE_AVG") or {}
+
+    processed = []
+    for raw in active:
+        rec = _enrich_record(raw, ctx)
+        processed.append(_compute_score(rec, config))
+    return processed
