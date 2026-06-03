@@ -63,7 +63,7 @@ Misma condición de disparo (`fba_dos <= 30 && has_backup && total_dos > 30`). P
 | F1 Pasada 2 (lógica) | ✅ | (sin commit, análisis) |
 | F2 (diseño) | ✅ | (sin commit, revisión) |
 | F3.1 (schema + persistencia) | ✅ APROBADO | 8d79e9e |
-| F3.2 (parsers + lookups) | pendiente | — |
+| F3.2 (parsers + lookups) | ✅ CERRADO | cfaa83d→86afa4d (4 commits) |
 | F3.3 (scoring engine) | pendiente | — |
 | F3.4 (UI tabs) | pendiente | — |
 | F3.5 (exports XLSX) | pendiente | — |
@@ -71,4 +71,4 @@ Misma condición de disparo (`fba_dos <= 30 && has_backup && total_dos > 30`). P
 
 ## Branch
 
-`feature/m30-pricing-port` desde main 6223700. HEAD actual: 8d79e9e.
+`feature/m30-pricing-port` desde main 6223700. HEAD actual: 86afa4d.

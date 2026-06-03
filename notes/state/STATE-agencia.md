@@ -1,11 +1,37 @@
 ---
 tipo: state
-actualizado: 2026-05-28
+actualizado: 2026-06-03
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-06-03
+
+**Foco**: M30 Pricing Dashboard — F3.2 (parsers + lookups) CERRADA.
+
+**Output** (branch `feature/m30-pricing-port`, pusheado): `cfaa83d` parsers+lookups · `6b173b8` 3 fixes
+verbatim (izzi sheet + cogs hint + csv sep) · `a89fc4b` chore landmine · `86afa4d` blindaje 2 MAYOR. HEAD 86afa4d.
+
+**code-reviewer Opus 4.7 read-only**: APROBABLE, 0 bloqueantes, 2 MAYOR blindados.
+
+**Fix real F3.2**: izzi leía la primera hoja; el HTML lee 'Inventario 2526' con fallback + header=None.
+Sin el fix arrastraba hoja equivocada a F3.3.
+
+**Landmine pytest RESUELTO (branch-local)**: `pytest.ini testpaths=tests` neutraliza la contaminación de
+`sys.modules` de los scripts con `sys.path.insert` (scratch_M27, smoke_b6a). Vive solo en m30 → propaga al
+merge, o aplicar a main aparte.
+
+**Deuda pre-existente confirmada (no M30)**: 4 failed/2 errors en tests/ por fixtures ausentes (P2 ya
+documentada: v12 gitignored + secrets en worktree). Fix: fixtures trackeados.
+
+**Estado M30**: 2/6 fases de build cerradas (F3.1+F3.2). F3.3 (scoring engine) pendiente. Bug 30-vs-37 y
+decisión parseCSV-trim a resolver en F3.3. Ship objetivo: viernes 2026-06-05.
+
+Detalle en `daily/2026-06-03.md` y `modules/m30-pricing-dashboard.md`.
 
 ---
 
