@@ -40,15 +40,35 @@ _CSS_VAR_DEF_RE = re.compile(r"(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+);")
 # Usos `var(--name)` o `var(--name, fallback)`.
 _CSS_VAR_USE_RE = re.compile(r"var\(\s*(--[^)]*)\)")
 
+# letter-spacing en unidad `em`: xhtml2pdf no parsea `em` en esta propiedad y emite
+# "getSize: Not a float '0.0Xem'". Lo neutralizamos a `normal` (no fatal, solo ruido).
+# Solo toca la unidad em; otras unidades (px, etc.) quedan intactas.
+_LETTER_SPACING_EM_RE = re.compile(r"letter-spacing:\s*[\d.]+em\s*;")
+
+# Header de barra del chart V3 (`display: flex; justify-content: space-between`):
+# xhtml2pdf ignora flexbox, así que label y value colapsan en vez de quedar a los
+# extremos. No hay equivalente flex limpio por regex sin reestructurar el HTML
+# (prohibido tocar templates), así que removemos ese par de declaraciones para no
+# dejar un flex roto — el contenido cae a flujo normal. Degradación aceptada: el
+# chart fiel lo valida el QA sobre el HTML del browser, que queda intacto.
+_FLEX_SPACE_BETWEEN_RE = re.compile(
+    r"display:\s*flex;\s*justify-content:\s*space-between;\s*"
+)
+
 
 def _sanitize_html_for_pdf(html: str) -> str:
     """Ajusta el HTML a las limitaciones del motor xhtml2pdf, sin cambiar semántica.
 
-    1. Quita los `<link>` a fuentes remotas (Google Fonts) que reportlab no puede
-       cargar; el texto cae a las fuentes default del motor.
-    2. Resuelve las CSS custom properties: junta las definiciones `--name: value;`
-       y reemplaza cada `var(--name[, fallback])` por su valor resuelto (o el
-       fallback). xhtml2pdf no entiende `var()` y rompe en propiedades de color.
+    1. Fonts: quita los `<link>` a fuentes remotas (Google Fonts) que reportlab no
+       puede cargar; el texto cae a las fuentes default del motor.
+    2. CSS vars: junta las definiciones `--name: value;` y reemplaza cada
+       `var(--name[, fallback])` por su valor resuelto (o el fallback). xhtml2pdf
+       no entiende `var()` y rompe en propiedades de color.
+    3. letter-spacing en `em` → `letter-spacing: normal;`. xhtml2pdf no parsea la
+       unidad em en esta propiedad (warning "getSize: Not a float '0.0Xem'").
+    4. Flex del header de barra del chart V3 (`display: flex; justify-content:
+       space-between`) → removido. xhtml2pdf ignora flexbox; sin esto el flex queda
+       roto. Degradación aceptada (ver comentario de _FLEX_SPACE_BETWEEN_RE).
     """
     html = _REMOTE_FONT_LINK_RE.sub("", html)
 
@@ -68,6 +88,9 @@ def _sanitize_html_for_pdf(html: str) -> str:
         if resolved == html:
             break
         html = resolved
+
+    html = _LETTER_SPACING_EM_RE.sub("letter-spacing: normal;", html)
+    html = _FLEX_SPACE_BETWEEN_RE.sub("", html)
 
     return html
 

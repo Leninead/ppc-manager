@@ -11,8 +11,10 @@ no vacío y que el flujo corre en 'es' y 'en' sin levantar excepción.
 
 from __future__ import annotations
 
+import re
+
 import core.proposal_persistence as pp
-from core.proposal_pdf import render_proposal_pdf
+from core.proposal_pdf import render_proposal_pdf, _sanitize_html_for_pdf
 
 
 def _launch_proposal(client_name: str = "Capybaras Test Client") -> dict:
@@ -48,3 +50,26 @@ def test_render_pdf_smoke_es_en():
         assert isinstance(pdf, bytes)
         assert len(pdf) > 0
         assert pdf[:4] == b"%PDF"
+
+
+def test_sanitize_strips_em_letterspacing_and_flex_header():
+    """Tras el sanitizado, el HTML que entra al motor PDF NO tiene letter-spacing en
+    `em` ni el flex `display: flex; justify-content: space-between` (xhtml2pdf no los
+    maneja). Se testea _sanitize_html_for_pdf directamente sobre un HTML mínimo."""
+    raw = (
+        "<style>.k { letter-spacing: 0.08em; } "
+        ".j { letter-spacing: 0.02em; }</style>"
+        '<div style="display: flex; justify-content: space-between; '
+        'align-items: baseline; font-size: 0.83rem;">'
+        "<span>label</span><span>value</span></div>"
+    )
+    out = _sanitize_html_for_pdf(raw)
+
+    # Ninguna letter-spacing en em sobrevive (regex precisa: no confundir con `rem`).
+    assert re.search(r"letter-spacing:\s*[\d.]+em", out) is None
+    assert "letter-spacing: normal;" in out
+    # El patrón flex roto desapareció.
+    assert "display: flex; justify-content: space-between" not in out
+    # El resto del style inline se preserva (degradación mínima, no destructiva).
+    assert "align-items: baseline" in out
+    assert "<span>label</span>" in out and "<span>value</span>" in out
