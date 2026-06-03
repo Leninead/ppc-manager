@@ -26,6 +26,12 @@ Notas de fidelidad documentadas en el reporte de F3.2:
       encoding='utf-8-sig'. El utf-8-sig preserva los nombres de columna verbatim
       (el HTML elimina el BOM con h.replace(/^\\uFEFF/,'')); sin él el primer
       header quedaría con prefijo BOM y el match por SKU fallaría en silencio.
+    - DIVERGENCIA CONOCIDA: los parsers CSV usan pd.read_csv, NO replican el
+      parseCSV custom del HTML (L704-739), que hace .trim() por celda, descarta
+      filas con < 2 campos y filtra líneas vacías. Sin efecto en CSVs de Amazon
+      bien formados; portear el trim/filtrado se difiere a F3.3 (donde el trim de
+      columnas string sí impacta las comparaciones verbatim del scoring).
+      Congelada en tests TestCsvDivergenciasHTML.
     - Las strings de Amazon NO se normalizan (verbatim).
 """
 
@@ -96,25 +102,34 @@ def _detect_sep(data: bytes) -> str:
 # =====================================================================
 @st.cache_data(show_spinner=False)
 def _parse_fba(data: bytes) -> pd.DataFrame:
-    """CSV FBA (Amazon FBA Inventory). Lectura cruda, columnas verbatim.
+    """CSV FBA (Amazon FBA Inventory). Lectura cruda con pd.read_csv.
 
-    Separador autodetectado (;/,) y encoding utf-8-sig como el HTML.
+    Separador autodetectado (;/,) y encoding utf-8-sig como el HTML. NO replica el
+    parseCSV custom del HTML (L704-739: .trim() por celda, descarte de filas con
+    < 2 campos, filtro de líneas vacías) — divergencia conocida sin efecto en CSVs
+    de Amazon bien formados; el trim/filtrado se difiere a F3.3.
     """
     return pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=_detect_sep(data))
 
 
 @st.cache_data(show_spinner=False)
 def _parse_fee(data: bytes) -> pd.DataFrame:
-    """CSV Fee (Amazon fee preview / settlement). Lectura cruda (sep ;/, autodetect)."""
+    """CSV Fee (Amazon fee preview / settlement). Lectura cruda con pd.read_csv.
+
+    sep ;/, autodetect + utf-8-sig. NO replica el parseCSV custom del HTML
+    (trim/descarte/filtro) — divergencia conocida, diferida a F3.3.
+    """
     return pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=_detect_sep(data))
 
 
 @st.cache_data(show_spinner=False)
 def _parse_awd(data: bytes) -> pd.DataFrame:
-    """CSV AWD (Amazon Warehousing & Distribution). Lectura cruda (sep ;/, autodetect).
+    """CSV AWD (Amazon Warehousing & Distribution). Lectura cruda con pd.read_csv.
 
-    El filtrado de filas metadata (Timestamp / Merchant ID) y la conversión a
-    lookup `{SKU: Available in AWD (units)}` que hace el HTML al cargar quedan
+    sep ;/, autodetect + utf-8-sig. NO replica el parseCSV custom del HTML
+    (trim/descarte/filtro) — divergencia conocida, diferida a F3.3. El filtrado de
+    filas metadata (Timestamp / Merchant ID) y la conversión a lookup
+    `{SKU: Available in AWD (units)}` que hace el HTML al cargar también quedan
     para F3.3 (no hay builder de awd en el contrato de F3.2).
     """
     return pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=_detect_sep(data))

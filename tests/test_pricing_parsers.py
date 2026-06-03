@@ -15,6 +15,7 @@ import pytest
 from openpyxl import Workbook
 
 from modules.pages.pricing_dashboard import (
+    _detect_sep,
     _parse_fba,
     _parse_fee,
     _parse_awd,
@@ -158,6 +159,52 @@ class TestParseAwd:
         df = _parse_awd(_csv_bytes("SKU;Available in AWD (units)\nABC;50\n"))
         assert list(df.columns) == ["SKU", "Available in AWD (units)"]
         assert df.iloc[0]["SKU"] == "ABC"
+
+
+# =====================================================================
+# B3 — Divergencias CONOCIDAS HTML ↔ pandas (congeladas, NO son bugs a arreglar)
+# =====================================================================
+class TestCsvDivergenciasHTML:
+    """Congelan divergencias conocidas entre los parsers CSV (pd.read_csv) y el
+    parseCSV custom del HTML. NO son bugs a arreglar en F3.2: son comportamiento
+    verbatim/heredado que estos tests blindan contra refactors accidentales."""
+
+    def test_detect_sep_cuenta_crudo_dentro_de_comillas(self):
+        # Congela el bug verbatim del HTML (L666-669): _detect_sep cuenta ';' vs
+        # ',' SIN respetar comillas. El comentario del JS prometía "outside quotes"
+        # pero nunca se implementó. Si una F-futura portea un parser con
+        # quote-awareness, este test debe actualizarse conscientemente.
+        # Primera línea '"a;b;c",d' → conteo crudo: 2 ';' vs 1 ',' → gana ';'
+        # (el separador "correcto fuera de comillas" sería ',').
+        data = _csv_bytes('"a;b;c",d\n"x;y;z",w\n')
+        assert _detect_sep(data) == ";"  # bug heredado: gana ';'
+        df = _parse_fba(data)
+        # Con ';' los únicos ';' viven DENTRO de comillas → no hay split real → la
+        # línea colapsa a UNA sola columna. Un parser quote-aware habría usado ','
+        # y dado 2 columnas (['a;b;c', 'd']).
+        assert df.shape[1] == 1
+        assert list(df.columns) == ["a;b;c,d"]
+
+    def test_divergencia_parsecsv_comportamiento_actual(self):
+        # Congela la divergencia HTML↔pandas. El parseCSV del HTML (L704-739) hace
+        # .trim() por celda, filtra líneas vacías y descarta filas con < 2 campos.
+        # pd.read_csv NO hace nada de eso. Si F3.3 decide portear parseCSV, estas
+        # aserciones deben actualizarse conscientemente.
+
+        # (a) celda con espacios alrededor → pandas NO trimea (el HTML sí lo haría)
+        df_ws = _parse_fba(_csv_bytes("sku,val\nABC, hello \n"))
+        assert df_ws.iloc[0]["val"] == " hello "
+
+        # (b) fila completamente vacía → pandas la saltea (skip_blank_lines=True)
+        df_blank = _parse_fba(_csv_bytes("sku,val\nABC,1\n\nDEF,2\n"))
+        assert len(df_blank) == 2
+        assert df_blank["sku"].tolist() == ["ABC", "DEF"]
+
+        # (c) fila con un solo campo → pandas NO la descarta (el HTML sí, por
+        # vals.length < 2): la fila queda con NaN en la 2da columna.
+        df_short = _parse_fba(_csv_bytes("sku,val\nABC\nDEF,2\n"))
+        assert len(df_short) == 2
+        assert pd.isna(df_short.iloc[0]["val"])
 
 
 # =====================================================================
