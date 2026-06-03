@@ -9,6 +9,34 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
+## Última sesión — 2026-06-02
+
+**Foco**: doble frente — LTD-MX (sesión paralela) + M30 Pricing Dashboard.
+
+### Frente M30 — Pricing Dashboard
+
+**Output**:
+- `f93a37d` docs(porting): README pricing-dashboard M29 → M30
+- `8d79e9e` feat(M30): schema v1 + test persistencia (en feature/m30-pricing-port)
+- `a4d159a` docs(M30): daily appendeado + módulo M30 en notes/
+
+**Agentes**: `data-persistence-specialist` Caso 2 (6/6) + `code-reviewer` Opus 4.7 (APROBADO).
+
+**Bug heredado registrado**: restock 30-vs-37 días en HTML L837 + L1029. Replicar verbatim en F3.3, fix consciente posterior.
+
+**Decisiones arquitectónicas M30** (5 cerradas en F2):
+1. Snapshot HTML self-contained eliminado
+2. SAMPLE_DATA Gamboa no porteada
+3. SUBCAT_FEE_AVG hardcoded → config per-cliente
+4. enrichRecord passthrough → _enrich_record Python
+5. Year hardcoded 2026 en v1
+
+**Estado M30**: 1/6 sesiones completas. F3.2 (parsers + lookups) pendiente. Branch `feature/m30-pricing-port` HEAD `8d79e9e`.
+
+Detalle completo en `daily/2026-06-02.md` (sección M30 al final) y `modules/m30-pricing-dashboard.md`.
+
+---
+
 ## Última sesión — 2026-05-26 (4 frentes: M4 fix + M29 D3+D4+DataDive + M27 ship + Setex)
 
 > Día multi-frente (worktrees-flow v1.0). Una sub-sección por frente.
