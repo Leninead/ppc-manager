@@ -68,6 +68,22 @@ def _xlsx_bytes(columns, rows, sheet_name="Sheet1") -> bytes:
     return bio.getvalue()
 
 
+def _xlsx_multi(sheets) -> bytes:
+    """Construye un workbook multi-hoja. sheets = [(nombre, [fila, ...]), ...]
+    donde cada fila es una lista posicional de celdas. La primera tupla es la
+    hoja en índice 0."""
+    wb = Workbook()
+    first_ws = wb.active
+    for idx, (name, rows) in enumerate(sheets):
+        ws = first_ws if idx == 0 else wb.create_sheet()
+        ws.title = name
+        for row in rows:
+            ws.append(list(row))
+    bio = BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
+
+
 # =====================================================================
 # B3 — Parsers CSV (_parse_fba / _parse_fee / _parse_awd)
 # =====================================================================
@@ -100,6 +116,11 @@ class TestParseFba:
         df = _parse_fba(_csv_bytes("sku,available\nABC,10\n", bom=True))
         assert list(df.columns) == ["sku", "available"]  # no '﻿sku'
 
+    def test_separador_semicolon_autodetect(self):
+        df = _parse_fba(_csv_bytes("sku;available;asin\nABC;10;B00X\n"))
+        assert list(df.columns) == ["sku", "available", "asin"]
+        assert df.iloc[0]["sku"] == "ABC"
+
 
 class TestParseFee:
     def test_completo(self):
@@ -124,6 +145,11 @@ class TestParseFee:
         df = _parse_fee(_csv_bytes("MSKU,otra\nABC,x\n"))
         assert "Units sold" not in df.columns
 
+    def test_separador_semicolon_autodetect(self):
+        df = _parse_fee(_csv_bytes("MSKU;Units sold\nABC;10\n"))
+        assert list(df.columns) == ["MSKU", "Units sold"]
+        assert df.iloc[0]["MSKU"] == "ABC"
+
 
 class TestParseAwd:
     def test_completo(self):
@@ -144,6 +170,11 @@ class TestParseAwd:
     def test_col_core_ausente_no_crashea(self):
         df = _parse_awd(_csv_bytes("SKU,nota\nABC,hola\n"))
         assert "Available in AWD (units)" not in df.columns
+
+    def test_separador_semicolon_autodetect(self):
+        df = _parse_awd(_csv_bytes("SKU;Available in AWD (units)\nABC;50\n"))
+        assert list(df.columns) == ["SKU", "Available in AWD (units)"]
+        assert df.iloc[0]["SKU"] == "ABC"
 
 
 # =====================================================================
@@ -204,31 +235,45 @@ class TestParseMaestro:
 
 
 class TestParseIzzi:
-    def test_completo(self):
-        data = _xlsx_bytes(
-            ["SKU", "col1", "col2", "col3", "col4", "stock"],
-            [{"SKU": "ABC", "stock": 12}],
-            sheet_name="Inventario 2526",
-        )
-        df = _parse_izzi(data)
-        assert df.iloc[0]["SKU"] == "ABC"
-        assert df.iloc[0]["stock"] == 12
+    # header=None -> columnas posicionales (enteros) y NINGUNA fila consumida como
+    # header. La hoja se selecciona por nombre 'Inventario 2526' (fallback a la 1ra).
 
-    def test_minimo_solo_core(self):
-        data = _xlsx_bytes(["SKU"], [{"SKU": "ABC"}])
+    def test_selecciona_hoja_inventario_2526_no_indice_0(self):
+        # hoja basura en índice 0; la data real vive en 'Inventario 2526'
+        data = _xlsx_multi([
+            ("Basura", [["x", "y"], ["1", "2"], ["3", "4"]]),
+            ("Inventario 2526",
+             [["SKU", "c1", "c2", "c3", "c4", "stock"],
+              ["meta", None, None, None, None, None],
+              ["ABC", None, None, None, None, 12]]),
+        ])
         df = _parse_izzi(data)
-        assert list(df.columns) == ["SKU"]
+        # devuelve la data de 'Inventario 2526', NO de 'Basura' (índice 0)
+        assert df.iloc[2, 0] == "ABC"   # offset 2 + col 0 = SKU (lo consume F3.3)
+        assert df.iloc[2, 5] == 12      # col 5 = stock
+        assert df.iloc[0, 0] == "SKU"   # fila 0 preservada (header NO consumido)
+
+    def test_fallback_primera_hoja_si_no_existe_inventario(self):
+        data = _xlsx_multi([
+            ("HojaUnica", [["SKU", "stock"], ["meta", None], ["ABC", 7]]),
+        ])
+        df = _parse_izzi(data)
+        assert df.iloc[2, 0] == "ABC"   # cae a la primera hoja
+
+    def test_header_none_preserva_todas_las_filas(self):
+        data = _xlsx_multi([
+            ("Inventario 2526", [["SKU", "stock"], ["ABC", 5], ["DEF", 9]]),
+        ])
+        df = _parse_izzi(data)
+        assert len(df) == 3            # 3 filas: ninguna se pierde como header
+        assert df.iloc[0, 0] == "SKU"  # la 1ra fila sigue siendo data
+        assert df.iloc[1, 0] == "ABC"
 
     def test_dash_unicode_verbatim(self):
         sku = f"ABC{EN_DASH}7"
-        data = _xlsx_bytes(["SKU"], [{"SKU": sku}])
+        data = _xlsx_multi([("Inventario 2526", [["SKU"], ["meta"], [sku]])])
         df = _parse_izzi(data)
-        assert df.iloc[0]["SKU"] == sku
-
-    def test_col_core_ausente_no_crashea(self):
-        data = _xlsx_bytes(["otra"], [{"otra": 1}])
-        df = _parse_izzi(data)
-        assert "SKU" not in df.columns
+        assert df.iloc[2, 0] == sku
 
 
 # =====================================================================
