@@ -271,3 +271,28 @@ def _build_maestro_lookup(df_maestro: pd.DataFrame) -> dict[str, dict]:
         if sku:
             lookup[sku.lower()] = r
     return lookup
+
+
+# =====================================================================
+# B5 — Scoring: _compute_ais (port de computeAIS, HTML L934-940)
+# =====================================================================
+# AIS = Aged Inventory Surcharge (NO "Amazon Inventory Score"). 8 buckets.
+_AIS_BUCKETS = (
+    "estimated-ais-181-210-days",
+    "estimated-ais-211-240-days",
+    "estimated-ais-241-270-days",
+    "estimated-ais-271-300-days",
+    "estimated-ais-301-330-days",
+    "estimated-ais-331-365-days",
+    "estimated-ais-366-455-days",
+    "estimated-ais-456-plus-days",
+)
+
+
+def _compute_ais(record: dict) -> float:
+    """Port de computeAIS (HTML L934-940). AIS = Aged Inventory Surcharge.
+
+    Suma los 8 buckets `estimated-ais-*`. Cada celda pasa por _to_float (replica
+    `parseFloat(r[c]||0)||0`): ausente / None / '' -> 0. Función pura.
+    """
+    return sum(_to_float(record.get(c)) for c in _AIS_BUCKETS)
