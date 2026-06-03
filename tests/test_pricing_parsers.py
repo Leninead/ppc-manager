@@ -8,24 +8,7 @@ Fuente del comportamiento esperado: pricing-dashboard.html
     parseFile / loadFile (L611), parseCSV (L704).
 """
 
-import sys
 from io import BytesIO
-from pathlib import Path
-
-# --- Path hardening (landmine pre-existente, ajeno a F3.2) ---------------------
-# El runner de pytest recolecta `scripts/_scratch_M27/test_b5b_extract.py` (un
-# script tracked, sin funciones de test) cuyo código top-level hace
-# `sys.path.insert(0, <otro repo>)` + `from modules.pages.flat_file_migrator`.
-# Eso deja `modules` / `modules.pages` cacheados en sys.modules apuntando a OTRO
-# repo (que no tiene este módulo) y rompe el import de abajo bajo `pytest -q`.
-# Forzamos que la raíz de ESTE worktree gane y purgamos las entradas cross-repo.
-_ROOT = str(Path(__file__).resolve().parents[1])
-sys.path.insert(0, _ROOT)
-for _n in [n for n in list(sys.modules) if n == "modules" or n.startswith("modules.")]:
-    _loc = str(getattr(sys.modules[_n], "__path__", "") or getattr(sys.modules[_n], "__file__", ""))
-    if _ROOT not in _loc:
-        del sys.modules[_n]
-# ------------------------------------------------------------------------------
 
 import pandas as pd
 import pytest
