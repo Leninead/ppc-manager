@@ -33,6 +33,10 @@ decisión parseCSV-trim a resolver en F3.3. Ship objetivo: viernes 2026-06-05.
 
 Detalle en `daily/2026-06-03.md` y `modules/m30-pricing-dashboard.md`.
 
+**F3.3 CERRADA (misma sesión)**: scoring engine pusheado — `84765f5` _compute_ais · `fb7a030`
+_compute_score · `880967e` _enrich_record+_run_analysis. HEAD 880967e. code-reviewer MERGE 9.5/10,
+0 bloqueantes. Estado M30: **3/6 fases de build cerradas**. Falta F3.4 (UI) + F3.5+F3.6. Ship viernes intacto.
+
 ---
 
 ## Última sesión — 2026-06-02
