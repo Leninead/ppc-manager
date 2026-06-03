@@ -31,6 +31,7 @@ import streamlit as st
 from datetime import datetime, timezone
 import core.proposal_persistence as pp
 from core.proposal_renderer import render_proposal_html
+from core.proposal_pdf import render_proposal_pdf
 from modules.sales.b7_importer import extract_blocks, merge_blocks
 from modules.parsers.datadive import parse_mkl as _dd_parse_mkl
 from modules.sales.mappers.datadive_to_v3 import datadive_to_v3_block
@@ -2615,6 +2616,18 @@ def _render_detail_screen() -> None:
             mime="text/html",
             key="detail_download_html",
         )
+        try:
+            _proposal_pdf = render_proposal_pdf(proposal, _render_lang)
+        except Exception as e:
+            st.warning(f"PDF no disponible: {type(e).__name__}: {e}")
+        else:
+            st.download_button(
+                "⬇️ Descargar PDF",
+                data=_proposal_pdf,
+                file_name=f"propuesta-{_slug}-v{pversion}.pdf",
+                mime="application/pdf",
+                key="detail_download_pdf",
+            )
 
     with st.expander("🔍 Ver propuesta cruda (debug)", expanded=False):
         st.code(json.dumps(proposal, indent=2, ensure_ascii=False), language="json")
