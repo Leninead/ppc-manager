@@ -45,6 +45,54 @@ import re
 import pandas as pd
 import streamlit as st
 
+from core.persistence import _load_config, _save_config
+
+
+# =====================================================================
+# Catálogo built-in de clientes (display → slug)
+# =====================================================================
+# No existe (todavía) un catálogo canónico de slugs en core/constants.py ni dirs
+# en data/account-health/ — se usa este catálogo built-in. Ajustar si más adelante
+# aparece una convención de slugs de Account Health.
+_CLIENTES: dict[str, str] = {
+    "Dermaglos": "dermaglos",
+    "LTD / Love To Dream": "ltd",
+    "Setex": "setex",
+    "Mott & Bow": "mott-bow",
+    "OPTIPET": "optipet",
+}
+
+# Defaults de SUBCAT_FEE_AVG: VERBATIM del HTML fuente (const SUBCAT_FEE_AVG, L578).
+# Shape: {subcat: {ff, rf, ppc}} (NO float plano) — null del HTML -> None.
+# Usado como seed inicial del config per-cliente la primera vez (replica HTML).
+_DEFAULT_SUBCAT_FEE_AVG: dict[str, dict] = {
+    "Poncho Clasico": {"ff": 7.0575, "rf": 12.6286, "ppc": 0.664},
+    "Suéter": {"ff": 6.2794, "rf": 12.6367, "ppc": 0.4905},
+    "Sombrero": {"ff": 10.3487, "rf": 24.3885, "ppc": 0.4609},
+    "Gorro": {"ff": 4.452, "rf": 3.3375, "ppc": 0.2738},
+    "Western Nueva CH": {"ff": 3.0259, "rf": 0.4263, "ppc": 0.2232},
+    "Medias": {"ff": 4.5, "rf": None, "ppc": 0.915},
+    "Banda de Tela Clasica EC": {"ff": 3.5497, "rf": 0.8685, "ppc": 0.2715},
+    "Poncho Ecuador": {"ff": 7.8555, "rf": 14.7333, "ppc": 0.4108},
+    "Banda de Tela Nueva EC": {"ff": 3.4073, "rf": 0.9042, "ppc": None},
+    "Crin de Caballo": {"ff": 3.576, "rf": 6.3384, "ppc": 0.2912},
+    "Cuerdas": {"ff": 3.32, "rf": None, "ppc": None},
+    "Poncho Bandera": {"ff": 6.04, "rf": 8.5, "ppc": 0.4525},
+    "Guantes": {"ff": 4.5, "rf": 2.0, "ppc": 0.4822},
+    "Chinstrap Clasica CH": {"ff": 3.51, "rf": 0.75, "ppc": 0.3643},
+    "Western Clasica CH": {"ff": 3.534, "rf": 0.96, "ppc": 0.2386},
+    "Poncho Rayado": {"ff": None, "rf": None, "ppc": 0.1},
+    "Hoodie Mexicano": {"ff": 7.45, "rf": 5.95, "ppc": 0.267},
+    "Tagua": {"ff": None, "rf": None, "ppc": 0.347},
+    "Bufanda": {"ff": 4.72, "rf": 5.95, "ppc": 0.4896},
+    "Poncho Clint": {"ff": None, "rf": None, "ppc": 0.72},
+    "Chinstrap Nueva CH": {"ff": 3.9489, "rf": 0.9083, "ppc": 0.3283},
+    "Cavarly Band PK": {"ff": 4.3, "rf": 0.6067, "ppc": 0.251},
+    "Ponchohoodie": {"ff": None, "rf": None, "ppc": 0.625},
+    "Poncho Reversible": {"ff": 8.25, "rf": 7.65, "ppc": 0.3819},
+    "Whiphala": {"ff": 3.42, "rf": 1.95, "ppc": 0.44},
+}
+
 
 # =====================================================================
 # Helpers internos
@@ -830,3 +878,64 @@ def _run_analysis(records: list, lookups: dict, config: dict) -> list:
         rec = _enrich_record(raw, ctx)
         processed.append(_compute_score(rec, config))
     return processed
+
+
+# =====================================================================
+# F3.4 / C1 — Config per-cliente + render scaffold
+# =====================================================================
+def _load_or_seed_config(cliente: str) -> dict:
+    """Carga el config per-cliente; si no existe o le falta SUBCAT_FEE_AVG lo
+    seedea con los defaults verbatim del HTML y lo persiste.
+
+    CRÍTICO: nunca persiste current_month — ese valor vive solo en runtime
+    (ver render). Persistir el mes congelaría isOffSeason en disco.
+    """
+    config = _load_config(
+        area="account-health",
+        modulo="pricing-dashboard",
+        name=cliente,
+        version=1,
+    )
+    if not config or "SUBCAT_FEE_AVG" not in config:
+        config = {"SUBCAT_FEE_AVG": dict(_DEFAULT_SUBCAT_FEE_AVG)}
+        _save_config(
+            config,
+            area="account-health",
+            modulo="pricing-dashboard",
+            name=cliente,
+            version=1,
+        )
+    return config
+
+
+def render() -> None:
+    """Entry point del Pricing Dashboard (M30) — sección Account Health.
+
+    F3.4/C1 — scaffold: header + selector de cliente + seed de config per-cliente.
+    Uploaders (C2), tabla principal + styler + filtros (C3) y vistas + histórico
+    (C4) se agregan en commits posteriores de esta misma fase.
+    """
+    st.title("💲 Pricing Dashboard")
+    st.caption("Account Health · scoring de pricing semanal por SKU")
+
+    # current_month derivado UNA sola vez por run. NO se persiste (ver _load_or_seed_config).
+    current_month = date.today().month
+
+    # Selector de cliente (catálogo built-in). Sin key= (disciplina Plan D); se usa el return.
+    cliente_display = st.selectbox("Cliente", list(_CLIENTES.keys()))
+    cliente = _CLIENTES[cliente_display]
+
+    # Config per-cliente: seed de SUBCAT_FEE_AVG la primera vez.
+    config = _load_or_seed_config(cliente)
+
+    # Config de corrida: mes inyectado en memoria, SIN mutar el de disco.
+    run_config = {**config, "current_month": current_month}
+
+    # ── stub temporal (se reemplaza en C2/C3/C4) ──
+    st.divider()
+    st.write(f"Cliente activo: **{cliente_display}** (`{cliente}`)")
+    st.caption(
+        f"mes runtime={current_month} (no persistido) · "
+        f"SUBCAT_FEE_AVG={len(config.get('SUBCAT_FEE_AVG', {}))} subcats"
+    )
+    # run_config queda listo para alimentar _run_analysis en C2.
