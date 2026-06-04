@@ -37,6 +37,20 @@ Detalle en `daily/2026-06-03.md` y `modules/m30-pricing-dashboard.md`.
 _compute_score · `880967e` _enrich_record+_run_analysis. HEAD 880967e. code-reviewer MERGE 9.5/10,
 0 bloqueantes. Estado M30: **3/6 fases de build cerradas**. Falta F3.4 (UI) + F3.5+F3.6. Ship viernes intacto.
 
+### Frente M29-S6 — Proposal Studio: export PDF (branch `feature/m29-renderer-s5`)
+
+**S6 (export PDF) cerrado del lado del código** — branch `feature/m29-renderer-s5`, 4 commits pusheados, **sin mergear a main** (merge va post-QA, viernes): `fdf2b35` pytest.ini testpaths · `66f104f` export PDF + sanitizado fonts/var · `9fe6b1f` requirements xhtml2pdf==0.2.17 · `a75fbf3` sanitizado letter-spacing em + flex chart V3. HEAD `a75fbf3`.
+
+**Motor PDF: xhtml2pdf 0.2.17** — weasyprint descartado (dependencia GTK en Windows bloqueaba el setup local de Marcos).
+
+**Arquitectura**: capa PDF separada en `core/proposal_pdf.py` (NO toca el renderer puro `core/proposal_renderer.py` ni los templates). `_sanitize_html_for_pdf` adapta el HTML a las limitaciones del motor — fonts remotas (Google Fonts → woff2 que reportlab no parsea), `var()` (CSS custom properties), `letter-spacing` en `em`, y el flex del header de barra del chart V3 — sin tocar el template: el HTML que el cliente ve en el browser queda intacto, solo se ajusta el que entra al motor PDF.
+
+**Suite**: 136 verde (135 + test del sanitizado).
+
+**Pendiente**: QA local con Marcos (jueves) + verificar que el chart V3 (barras CSS) aparece bien en el PDF con datos reales — hoy NO se pudo verificar (la inyección de datos de prueba no llegó al render por el overlay de transform del chart V3).
+
+Detalle en `daily/2026-06-03.md` (sección M29-S6).
+
 ---
 
 ## Última sesión — 2026-06-02
