@@ -897,7 +897,7 @@ def _load_or_seed_config(cliente: str) -> dict:
         version=1,
     )
     if not config or "SUBCAT_FEE_AVG" not in config:
-        config = {"SUBCAT_FEE_AVG": dict(_DEFAULT_SUBCAT_FEE_AVG)}
+        config = {**(config or {}), "SUBCAT_FEE_AVG": dict(_DEFAULT_SUBCAT_FEE_AVG)}
         _save_config(
             config,
             area="account-health",
