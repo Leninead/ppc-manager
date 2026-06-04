@@ -911,8 +911,8 @@ def _load_or_seed_config(cliente: str) -> dict:
 def render() -> None:
     """Entry point del Pricing Dashboard (M30) — sección Account Health.
 
-    F3.4/C1 — scaffold: header + selector de cliente + seed de config per-cliente.
-    Uploaders (C2), tabla principal + styler + filtros (C3) y vistas + histórico
+    F3.4/C2 — uploaders + wiring de _run_analysis (en memoria, sin disco).
+    Tabla principal + styler + filtros (C3) y vistas + histórico / persistencia
     (C4) se agregan en commits posteriores de esta misma fase.
     """
     st.title("💲 Pricing Dashboard")
@@ -931,11 +931,65 @@ def render() -> None:
     # Config de corrida: mes inyectado en memoria, SIN mutar el de disco.
     run_config = {**config, "current_month": current_month}
 
-    # ── stub temporal (se reemplaza en C2/C3/C4) ──
+    # ── Carga de fuentes (en memoria, sin disco) ──
     st.divider()
-    st.write(f"Cliente activo: **{cliente_display}** (`{cliente}`)")
-    st.caption(
-        f"mes runtime={current_month} (no persistido) · "
-        f"SUBCAT_FEE_AVG={len(config.get('SUBCAT_FEE_AVG', {}))} subcats"
-    )
-    # run_config queda listo para alimentar _run_analysis en C2.
+    st.caption(f"Cliente activo: **{cliente_display}** (`{cliente}`)")
+
+    st.subheader("Cargar fuentes")
+    col_csv, col_xlsx = st.columns(2)
+    with col_csv:
+        fba_file = st.file_uploader("FBA (CSV)", type="csv")
+        fee_file = st.file_uploader("Fees (CSV)", type="csv")
+        awd_file = st.file_uploader("AWD (CSV)", type="csv")
+    with col_xlsx:
+        pl_file = st.file_uploader("P&L / COGS (XLSX)", type=["xlsx"])
+        maestro_file = st.file_uploader("Maestro (XLSX)", type=["xlsx"])
+        izzi_file = st.file_uploader("Izzi inventario (XLSX)", type=["xlsx"])
+
+    # FBA es la espina dorsal: sin FBA no hay análisis. El resto enriquece (opcional).
+    if st.button("Analizar", disabled=fba_file is None):
+        # Parseo: los parsers F3.2 toman bytes (.getvalue()).
+        fba_df = _parse_fba(fba_file.getvalue())
+        fee_df = _parse_fee(fee_file.getvalue()) if fee_file else None
+        pl_df = _parse_pl(pl_file.getvalue()) if pl_file else None
+        maestro_df = _parse_maestro(maestro_file.getvalue()) if maestro_file else None
+        # awd/izzi se parsean para validar legibilidad, pero NO se integran todavía:
+        # no existe builder df -> lookup {sku: unidades} (deuda F3.2→F3.3, ver aviso abajo).
+        awd_df = _parse_awd(awd_file.getvalue()) if awd_file else None
+        izzi_df = _parse_izzi(izzi_file.getvalue()) if izzi_file else None
+
+        # Lookups SOLO de las fuentes con builder presente; ausentes -> {} (tolerado por
+        # los .get() de _enrich_record). Keys = las que lee _run_analysis (PASO 0c).
+        lookups = {
+            "cogs": _build_cogs_lookup(pl_df) if pl_df is not None else {},
+            "fee": _build_fee_lookup(fee_df) if fee_df is not None else {},
+            "maestro": _build_maestro_lookup(maestro_df) if maestro_df is not None else {},
+            "awd": {},   # sin builder todavía -> backup stock AWD = 0
+            "izzi": {},  # sin builder todavía -> backup stock Izzi = 0
+        }
+
+        # records = espina FBA como lista de dicts; run_config trae current_month en memoria.
+        records = fba_df.to_dict("records")
+        st.session_state["m30_resultados"] = _run_analysis(records, lookups, run_config)
+
+        # Deuda visible: AWD/Izzi cargados pero no integrados (no hay builder de lookup).
+        pendientes = [n for n, df in (("AWD", awd_df), ("Izzi", izzi_df)) if df is not None]
+        st.session_state["m30_aviso_backup"] = (
+            f"⚠ {' y '.join(pendientes)} cargado(s) pero NO integrado(s) al análisis: "
+            "falta el builder de lookup {sku: unidades} (deuda F3.2→F3.3). "
+            "Backup stock = 0 por ahora." if pendientes else ""
+        )
+
+    # ── Readout temporal de smoke (se reemplaza por tabla + styler en C3) ──
+    resultados = st.session_state.get("m30_resultados")
+    if resultados:
+        clasifs = [r.get("classification") for r in resultados]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Subir", clasifs.count("subir"))
+        c2.metric("Bajar", clasifs.count("bajar"))
+        c3.metric("Liquidar", clasifs.count("liquidar"))
+        c4.metric("Mantener", clasifs.count("mantener"))
+        st.caption(f"{len(resultados)} SKUs analizados")
+        aviso = st.session_state.get("m30_aviso_backup")
+        if aviso:
+            st.caption(aviso)
