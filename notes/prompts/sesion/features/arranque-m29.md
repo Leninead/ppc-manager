@@ -1,6 +1,6 @@
 ---
 tipo: prompt
-actualizado: 2026-05-26
+actualizado: 2026-06-03
 categoria: sesion
 subcategoria: feature
 version: v1
@@ -39,7 +39,7 @@ alcanza para responder con certeza, decilo.
 Antes de responder, leé en este orden — sin pedir permiso:
 1. notes/CLAUDE.md (convenciones del vault)
 2. notes/state/STATE-agencia.md secciones M29 (estado editores + B7 importer)
-3. notes/daily/2026-05-22.md sección "M29 Proposal Studio" (cierre más reciente)
+3. notes/daily/2026-06-03.md (cierre S6) sección "M29 Proposal Studio" (cierre más reciente)
 4. notes/meetings/2026-05-22-ramiro-b7-sync.md (acuerdos V3/V5 + roadmap al 28/05)
 5. Este archivo completo (secciones "Estado actual", "Pendientes activos",
    "Próxima sesión")
@@ -174,42 +174,21 @@ Al final del bloque <background>, devolveme un briefing de 4-6 bullets:
 > Esta sección se actualiza automáticamente al cierre de cada sesión que toque
 > esta feature.
 
-**Último commit relevante:** `0aa5261` — test(M29): E5 - smoke E2E DataDive → V3
-validado — 2026-05-26 (branch feature/m29-datadive-mapper, pendiente merge).
+**Último commit:** `a75fbf3` (branch `feature/m29-renderer-s5`, 4 commits sin mergear a main).
 
-**Progreso global:** 6/6 editores CORE + B7 v1 + UI dispatcher B7 D3+D4 SHIPPED
-(mergeado a main, 458fb4b) + DataDive → V3 mapper en branch
-(feature/m29-datadive-mapper @ 0aa5261, pendiente merge). Ship target: jueves
-28/05 (adelantado — el plan original era refactor DataDive el martes).
+**Progreso:** S5 renderer HTML + S6 export PDF cerrados del lado del código. Suite 136 verde.
 
-**Sub-bloques cerrados:**
-- V1 (brand_overview) + V2 (market_opportunity) — editables Plan D
-- V3 (seo_opportunity) + V4 (listing_improvements) + V5 (listing_comparison) +
-  V6 (growth_plan_phases) — readonly Class B
-- B7 Importer v1: `extract_blocks` (capa 1) + `merge_blocks` (capa 2) + fix D6
-- UI dispatcher B7 D1: discovery cerrado (catalog crudo confirmado para
-  importer; `pp.save_proposal` auto-bumpea version e ignora input; naming
-  `<uuid>__v<N>.json`)
-- UI dispatcher B7 D2: expander en `_render_detail_screen` + file_uploader +
-  parser → ImportReport preview (counts, tablas warning/error, cards
-  apply/skip, debug expander, footer condicional `report.ok`). +168 LOC en
-  `_render_b7_importer_section`. Smoke E2E con `b7_sample_v3v4.html` PASS
-  (Blocks=2, Warnings=6, Errors=0).
+**Motor PDF:** xhtml2pdf 0.2.17 (weasyprint descartado por dependencia GTK en Windows).
 
-**Sub-bloques pendientes (hacia ship 28/05):**
-- UI dispatcher B7 D3 (apply + 2-clicks + save) — 60min
-- UI dispatcher B7 D4 (hardening + smoke E2E final) — 40min
-- Refactor DataDive parsers → `modules/parsers/` + mapper V3 — 3-4h (martes)
-- Editor manual V5 (URLs pareadas) + testing + smoke — 3-4h (miércoles)
-- Testing E2E + bugfixing + SOP + ship — 3h (jueves)
+**Arquitectura S6:** `core/proposal_pdf.py` (capa separada del renderer puro);
+`_sanitize_html_for_pdf` adapta el HTML al motor (fonts remotas / `var()` /
+letter-spacing em / flex del chart) SIN tocar el renderer ni el template.
 
-**Tests:** B7 importer 10/10 verde (`tests/test_b7_importer.py`, suite 0.20s).
-FALTA: tests AppTest E2E del flujo UI (deuda ALTA — agudizada por incidente
-"edits fantasma" del 25/05 que el smoke manual no detectó hasta el commit).
+**4 commits:** `fdf2b35` (pytest.ini testpaths), `66f104f` (S6 export PDF),
+`9fe6b1f` (requirements xhtml2pdf), `a75fbf3` (sanitizado CSS).
 
-**Smoke status:** D2 dispatcher UI PASS con fixture canónica
-`tests/fixtures/b7_sample_v3v4.html` (25/05). B7 extract 10/10 + merge 5/5 +
-fix D6 3 hitos verde (22/05).
+**Pendiente:** QA local con Marcos + verificar chart V3 en PDF con datos reales +
+merge a main (viernes).
 
 ---
 
@@ -220,33 +199,21 @@ fix D6 3 hitos verde (22/05).
 **P0 — bloqueante:**
 - (ninguno)
 
-**P1 — alta prioridad (camino al ship 28/05):**
-- Merge `feature/m29-datadive-mapper` a main (con fixture trackeado pre-merge)
-- Editor manual V5 (URLs pareadas)
-- Testing E2E completo (miércoles)
-- Ship + SOP (jueves)
-- Tests AppTest E2E (deuda ALTA — agravada por incidente fantasma 25/05)
-- ✅ Cerrados 26/05: UI dispatcher B7 D3+D4 (mergeado a main) + Refactor DataDive
-  parsers → `modules/parsers/` + mapper V3 (branch, pendiente merge)
+**P1 — alta:**
+- QA local con Marcos (jueves).
+- Verificar chart V3 en PDF con datos reales.
+- Merge `feature/m29-renderer-s5` a main (viernes, post-QA).
 
 **P2 — media:**
-- NUEVA (26/05) — Test fixture trackeado: mover v12 a
-  `tests/fixtures/_DEMO_AgencyOS_v12.json` + refactorear `DEMO_PROPOSAL_PATH`.
-  `test_b7_importer` + el test de integración del mapper dependen del proposal
-  gitignored → `FileNotFoundError` en worktree/clone limpio. ~20 min, ANTES del merge.
-- Validar con consolidador #5 si el commit `252f286` (mensaje M27, contenido
-  -147 LOC en flat_file_migrator.py, ex-`64e3d6f` mal etiquetado M29) era
-  intencional del chat #2 o accidente capturado
-- Template launch desactualizado vs catálogo (`_DEMO_AgencyOS` 20 vs 35 blocks)
+- [M27] `scripts/_scratch_M27/test_b5b_extract.py` con `sys.path.insert` hardcodeado —
+  renombrar/limpiar desde el frente M27. Golpeó M29-S6 y M30 el mismo día (causa raíz
+  del bug de tests del 03/06). Resuelto temporalmente con `pytest.ini testpaths=tests`.
 
 **P3 — baja / deuda blanda:**
-- NUEVA (26/05) — Flag-collision DataDive vs B7 (ambos usan
-  `ps_b7_confirm_apply_{pid}`). Parametrizar `flag_key` en `_render_b7_apply_flow`. ~15 min.
-- Refactor genérico Class B (`_render_class_b_readonly`) — ~400→~80 LOC
-- Cleanup 44 versiones del proposal `6861bbce-...`
-- Schema `items_schema: {}` vs `null` en `_catalog.json` (D6 catalog)
-- Short-circuit en `_extract_block_data` (~3 LOC)
-- Imágenes V5 automáticas → post-ship
+- `_sanitize_html_for_pdf` con regex frágil si cambia el template (fix futuro: variante
+  print-friendly del template — toca S5).
+- "List@" F8 + nombres de equipo F7 visibles en PDF client-facing (decisión pendiente).
+- `requirements.txt` con `anthropic`/`python-dotenv` duplicados (preexistente).
 
 ---
 
@@ -255,33 +222,13 @@ fix D6 3 hitos verde (22/05).
 > Esta sección se actualiza al cierre con el bloque concreto a ejecutar la
 > próxima vez que se trabaje esta feature.
 
-**Bloque a ejecutar:** Martes 27/05 — (1) mover v12 a `tests/fixtures/` +
-refactorear `DEMO_PROPOSAL_PATH` (P2, ~20 min) ANTES del merge; (2) merge
-`feature/m29-datadive-mapper` → main (`--no-ff`, ~30 min); (3) arrancar V5
-manual editor (URLs pareadas, ~3-4h, resto del día).
+**Jueves 2026-06-04:** (1) verificar chart V3 en PDF con datos reales — ayer no se
+pudo, la data cruda en `block['data']` no llegó al render por el overlay
+`_transform_v3_chart` (`core/proposal_renderer.py` ~L245); (2) QA local con Marcos
+(setup: `pip install -r requirements.txt`, xhtml2pdf sin GTK); (3) según QA, fixes +
+merge a main.
 
-**Pre-flight:**
-- Revisar P3 flag-collision DataDive vs B7 (`ps_b7_confirm_apply_{pid}`
-  compartido entre ambos importers) ANTES del merge — decidir si se
-  parametriza `flag_key` en `_render_b7_apply_flow` o se difiere
-- Sincronizar main del principal y re-chequear conflictos antes del merge
-  (main puede haber avanzado con otros frentes)
-- Confirmar suite 95/95 bajo venv 3.12 en la branch antes de mergear
-  (recordar: la suite necesita el v12 — por eso conviene moverlo a fixtures)
-
-**Estimación:** ~50 min (fixture + merge) + 3-4h (V5).
-
-**Sub-agentes Claude Code que podrían usarse:** code-reviewer (Opus 4.7) para
-audit post-D4 antes de commit final. NO usar ppc-module-builder.
-
-**Riesgos/dependencias:**
-- Riesgo: bug en `_validate_proposal` si el merge produce un dict que pierde
-  FK válida contra catalog (baja probabilidad — merge solo toca `block['data']`)
-- Si el incidente "edits fantasma" se repite en D3, revisar si Streamlit
-  está corriendo contra un buffer stale: matar proceso + re-ejecutar antes
-  de smoke
-- Sync Ramiro: viernes 30/05 (corregido del arranque previo). M29 debería
-  estar shippeado el jueves 28/05 — un día antes de la sync
+**Worktree:** `C:\proyectos\ppc-manager-s5`, branch `feature/m29-renderer-s5`.
 
 ---
 
@@ -298,6 +245,7 @@ audit post-D4 antes de commit final. NO usar ppc-module-builder.
 - 2026-05-22 — B7 Importer v1 completo (extract + merge + fix D6 + 10 tests) + sync Ramiro. [[2026-05-22]]
 - 2026-05-25 — UI dispatcher B7 D1 discovery + D2 skeleton/preview cerrados (chat #1/4 multi-frente; incidente fantasma de edits + bug commit cross-frente documentados). [[2026-05-25]]
 - 2026-05-26 — D3+D4 mergeado a main (458fb4b) + DataDive mapper en branch (0aa5261, pendiente merge). E1→E5 cerrados, suite 95/95. [[2026-05-26]]
+- 2026-06-03 — S5 renderer cerrado + S6 export PDF (xhtml2pdf, 4 commits, suite 136). Bug de discovery (scratch M27) resuelto con pytest.ini. [[2026-06-03]]
 
 ---
 

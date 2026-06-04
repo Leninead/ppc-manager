@@ -14,7 +14,7 @@ actualizado: 2026-05-25
 | Feature | Archivo | Slug | Status | Última sesión |
 |---|---|---|---|---|
 | M27 Flat File Migrator v1.1 | `arranque-m27.md` | `m27` | activa (87%) | 2026-05-22 |
-| M29 Proposal Studio | `arranque-m29.md` | `m29` | activa (ship 28/05) | 2026-05-22 |
+| M29 Proposal Studio | `arranque-m29.md` | `m29` | activa (S6 PDF, QA pendiente) | 2026-06-03 |
 
 ## Features shippeadas (en `_shipped/`)
 
