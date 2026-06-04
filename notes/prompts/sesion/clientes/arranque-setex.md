@@ -140,40 +140,23 @@ Devolveme un briefing de 4-6 bullets:
 
 > Se actualiza al cierre de cada sesión Setex vía `cierre-acotado`.
 
-Última sesión: 26/05/2026 — análisis imagen Inventory Tati + hallazgo categoría B08PZF22R1.
-
-Sesión previa (25/05): Hot Sale push +$430/d redirigido a winners. KPIs cuenta: ACoS 18.5% · ROAS 5.41× · 448 orders/30d · 78 camps ENABLED. Push Thin/Thick corriendo.
-
-Mensaje 26/05 a Tati: status Hot Sale push + hallazgo categoría B08PZF22R1 + plan Fase 2. Enviado. Verificar respuesta al iniciar sesión.
-
-Frente categoría abierto: B08PZF22R1 P0 + B09T7BF9TK P1 esperando acción Tati.
+Ultima sesion 2026-06-03: WoW desde export cliente (SETEX.xlsx), sin bulks.
+Cuenta sana WoW: Sales +17.8% / Units +20.5% / ACoS 16.8% (target 18%).
+B081GB8F89 = 75% de ventas. Reporte HTML bilingue generado (outputs Claude,
+no repo). 3 findings accionables pendientes de validacion live.
 
 ## Pendientes activos
 
 > Se actualiza al cierre vía `cierre-acotado`. Ordenar P0 → P3.
 
-**P0 — Respuesta Tati frente categoría:**
-- Confirmación edit B08PZF22R1 (browse node a Salud y Cuidado Personal)
-- Confirmación edit/validación B09T7BF9TK
-- Reports prometidos: BR por ASIN 30d, Inventory completo, SQP semana 22
+**P0 — Validar live Campaign Manager + decidir:** (a) pausar/negativizar Thumbstick
+XG9J821 (ACoS 112%); (b) investigar BuyBox B0BQ8GJFQH 93.2% (precio/competidor).
 
-**P0 — Bid hold Thin family:** mantener push 25/05 sin escalar hasta categoría corregida.
+**P1 — Vigilar / evaluar:** B0F63LTD92 Ear Hook TACoS 21.4%; evaluar B08C2T72ND
+(ads -84% pero organico fuerte, CVR 19.35%).
 
-**P1 — Eval D+3 push Hot Sale (28/05):** primer corte data limpia post-bulks 25/05.
-
-**P1 — Sesión 01/06 (eval D+7):**
-- Eval impacto Hot Sale push completo
-- Re-pull SQP queries técnicas si categoría ya corregida (validar reframe diagnóstico)
-- Fase 2 Temple: bulk dedicado reactivación rank (stock validado B0C7WPFVGV 49u + B0B94KBY8H 96u, $0 sales 30d)
-- Si reports BR por ASIN llegaron: separar problema de tráfico vs conversión por SKU Thin/Thick
-
-**P1 — B09F7P8GBZ trip wire:** check lunes 02/06 (stock 6u OnHand sin inbound, trip wire <3u).
-
-**P2 — Bug list M4 consolidado (8 bugs):** entregable Ramiro pendiente.
-
-**P2 — Consolidación duplicados brand defense** + CLUSTER Core ES case-by-case (del 22/05).
-
-**P3 — Listing audit B081GB8F89 ES:** re-priorizado — el diagnóstico ahora apunta a contexto categórico, no copy. Pendiente validar post-fix B08PZF22R1.
+**P2 — Atom11 v2026.3 Fase 1:** Neha sin responder desde 22/05. SBV B08PZF22R1
+owner Adam. Flags Tati abiertos.
 
 ## Bloqueos
 
@@ -183,21 +166,10 @@ Frente categoría abierto: B08PZF22R1 P0 + B09T7BF9TK P1 esperando acción Tati.
 
 ## Próxima sesión propuesta
 
-**Próxima sesión Setex: 01/06/2026 (día 7 post-bulks Hot Sale)**
-
-**Bloque a ejecutar:** Eval Hot Sale post-ventana + status pendientes Tati.
-
-**Pre-flight obligatorio:**
-1. BSE fresco Setex (período 25/05-01/06) → verificar UUIDs aterrizaron y no hubo rollbacks parciales
-2. Cruce Seller Central completo:
-   - B09F7P8GBZ stock check (trip wire 3u)
-   - B086H3TZ6B confirmación recovery sostenido
-   - B0F63LTD92 / B0C7WPFVGV listing tracking (¿empezaron a vender?)
-   - B0DW9Z2H2W status missing offer
-3. STR + SQP semana 22 (25-31/05) — primer dato de ventana Hot Sale completa
-4. Si Neha confirmó Atom11 v2026.3 → activar Fase 1 (22 rules)
-
-**Estimación duración:** 90-120 min (eval + posibles ajustes finos + comunicación Tati)
+Validacion live de findings WoW 03/06 + ejecucion. Pre-flight: BSE fresco +
+cruce Seller Central (B09F7P8GBZ trip wire 3u, B086H3TZ6B recovery, flags Tati).
+Bloque: confirmar Thumbstick XG9J821 / B0BQ8GJFQH / B08C2T72ND -> bulks si
+procede. Estimacion 60-90 min.
 
 ## Historial de sesiones
 
@@ -206,6 +178,8 @@ Frente categoría abierto: B08PZF22R1 P0 + B09T7BF9TK P1 esperando acción Tati.
 - 2026-05-12 — Análisis 360° + Campaign Analyzer M6 + descubrimiento gotcha KW typo "almoadillas". [[2026-05-12]]
 - 2026-05-22 — 5 bulks ejecutados (157 cambios) + Atom11 v2026.3 setup enviado a Neha. [[2026-05-22]]
 - 2026-05-25 — Hot Sale push táctico 6 bulks 100% Success (UUIDs registrados), cuenta 86→78 camps, flag B09F7P8GBZ stock 6u opción B, corrección diagnóstico listing EN, +8 bugs M4 acumulados para Ramiro. Ver [[daily/2026-05-25]]
+- 2026-06-03 — Analisis WoW desde export cliente + reporte HTML bilingue ES/EN,
+  sin bulks. 3 findings a validar. [[daily/2026-06-03]]
 
 ## Referencias cruzadas
 
