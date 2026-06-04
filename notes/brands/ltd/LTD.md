@@ -4,7 +4,7 @@ marketplace: Amazon MX
 am: Agustín
 escalation: Adam (Sales Director), Aaron (compliance)
 tags: [brand, ltd-mx, swaddle, baby-sleep]
-last_updated: 2026-06-02
+last_updated: 2026-06-04
 ---
 
 # 🛏️ Love To Dream MX
@@ -891,3 +891,29 @@ Análisis 360° cruzando 6 fuentes: STR + SQP (4 weeklies de mayo consolidados �
 6. Crear EXACT "sleeping bag niños" (SQV 1,235, IS LTD 0.16%)
 7. Bid up SU-CORE PT CONQUEST SwaddleMe (1,334 imp / 0 sales — bid actual muy bajo)
 8. Fix bugs M4 con Marcos/Ramiro (sesión viernes)
+
+---
+
+## Sesión 2026-06-04 — Pull-back inventario (directiva Aaron) + WoW
+
+**Directiva cliente:** restock congelado (inbound 0 en toda la cuenta). Aaron pidió
+frenar ads en SKUs cerca de stockout y reasignar a stock profundo.
+
+**Ejecutado:** bulk Product Ad pull-back, 22 filas → paused (Success 13:42 ART). Sin
+pausar campañas — solo product ads en campañas compartidas; budget se reabsorbe a in-stock.
+- Thin pulled: B09S14W4SS (5u ~1.8 sem), B0F8PB4NHX (15u ~2.5 sem) — brand defense viva.
+- Waste: B0FHHV9CZN ($75/$0).
+- B005ULUZIQ: solo ad groups $0; convertidoras intactas (es BB/precio, no stock).
+
+**Estructura de cuenta (nuevo):** 84% del spend en 4 cajones catálogo-completo, sin
+campañas por-ASIN. Directivas de inventario ⇒ nivel Product Ad.
+
+**Flags actualizados:**
+- B005ULUZIQ BB **84.4%** (peor que 89.4% del WoW) — precio/competidor, escalar Adam/Edu.
+- Inbound 0 en toda la cuenta — runway es techo duro.
+- 111 camps ENABLED — verificar reversión de zombies del 02/06.
+
+**Pendientes:** SBV B09MG2CVCR (pausa SB aparte) · B005 precio · restock ETA (Agustín) ·
+monitor TIB 48–72h.
+
+**Deliverables (no en repo):** Love_To_Dream_WoW.html · LTD_bulk_pullback_2026-06-04.xlsx

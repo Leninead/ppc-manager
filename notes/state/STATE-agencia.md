@@ -1,11 +1,25 @@
 ---
 tipo: state
-actualizado: 2026-06-03
+actualizado: 2026-06-04
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+### Última sesión — 2026-06-04 (LTD pull-back inventario)
+
+Directiva de Aaron (LTD): restock congelado (inbound 0 cuenta completa), frenar ads en
+thin-stock + reasignar a stock profundo. Ejecutado bulk Product Ad pull-back (22 filas →
+paused, Success 13:42 ART) — sin pausar campañas, solo product ads en cajones compartidos.
+Thin: B09S14W4SS + B0F8PB4NHX (brand defense viva). Waste: B0FHHV9CZN. B005ULUZIQ: solo
+ad groups $0 (es BB 84.4%/precio, no stock → Adam/Edu).
+Hallazgo estructural: 84% del spend en 4 campañas catálogo-completo, sin campañas por-ASIN.
+Deliverables no commiteados: WoW HTML bilingüe + bulk xlsx.
+Pendientes: SBV B09MG2CVCR (SB aparte) · B005 precio · restock ETA Agustín · TIB 48–72h.
+Bloqueos: B005 BB 84.4% · thin-stock sin reposición (inbound 0).
 
 ---
 
