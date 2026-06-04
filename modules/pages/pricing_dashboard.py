@@ -908,6 +908,188 @@ def _load_or_seed_config(cliente: str) -> dict:
     return config
 
 
+# =====================================================================
+# F3.4 / C3 — Tabla principal (display) + styler + filtros
+# =====================================================================
+# El HTML NO tiene una "tabla principal" única: tiene 7 tabs por clasificación /
+# criterio (bajar/subir/mantener/liquidar/awdfba/sinmargen/ais), cada uno con su
+# propio set de columnas (TABLE_COLS). C3 SINTETIZA una tabla unificada de todos los
+# SKUs con un filtro de Estado (clasificación). Los (key, header) son VERBATIM de las
+# defs del HTML; los 7 layouts especializados quedan para las vistas de C4.
+_COLS_PRINCIPAL: list[tuple[str, str]] = [
+    ("score", "Score"),
+    ("sku", "SKU"),
+    ("Categoria", "Categoría"),
+    ("Subcategoria", "Subcategoría"),
+    ("Temporada", "Temp."),
+    ("classification", "Estado"),
+    ("price", "Precio Actual"),
+    ("suggestedPrice", "Precio Sugerido"),
+    ("buybox_price", "Buy Box"),
+    ("gross_margin", "Margen"),
+    ("fba_dos", "DoS FBA"),
+    ("total_dos", "DoS Total"),
+    ("fba_available", "Stock FBA"),
+    ("t30", "T30"),
+    ("sell_through", "Sell-T"),
+    ("health", "Health"),
+    ("restock_alert", "Reposición"),
+]
+
+_CLASIFS: list[str] = ["subir", "bajar", "liquidar", "mantener"]
+
+# Tinte de fila por clasificación (síntesis para tabla unificada; en el HTML la
+# clasificación ES el tab, no había color de fila). Hex *-light verbatim del :root.
+_ROW_BG: dict[str, str] = {
+    "bajar": "rgba(239,68,68,0.12)",     # --red-light
+    "subir": "rgba(34,197,94,0.12)",     # --green-light
+    "liquidar": "rgba(168,85,247,0.12)",  # --purple (a855f7) @ 0.12
+    "mantener": "",                       # sin tinte
+}
+
+# Columnas que se muestran como moneda / % / redondeo (display; el valor sigue numérico).
+_FMT_USD_KEYS = ("Precio Actual", "Precio Sugerido", "Buy Box")
+_FMT_PCT_KEYS = ("Margen",)
+_FMT_ROUND_KEYS = ("DoS FBA", "DoS Total")
+_FMT_2DEC_KEYS = ("Sell-T",)
+
+
+def _resultados_to_df(resultados: list[dict]) -> pd.DataFrame:
+    """Convierte la lista de records de _run_analysis a un DataFrame de display.
+
+    PURO. Selecciona y ordena por _COLS_PRINCIPAL (solo keys presentes), renombra a
+    los headers verbatim, y reemplaza None/NaN -> '' SOLO en columnas object (para no
+    romper Arrow). Las columnas numéricas se dejan numéricas (sort/format en el styler).
+    resultados vacío -> DataFrame() vacío.
+    """
+    if not resultados:
+        return pd.DataFrame()
+    df = pd.DataFrame(resultados)
+    keys = [k for k, _ in _COLS_PRINCIPAL if k in df.columns]
+    df = df[keys].rename(columns={k: h for k, h in _COLS_PRINCIPAL})
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].where(df[col].notna(), "")
+    return df
+
+
+def _aplicar_filtros(df: pd.DataFrame, filtros: dict) -> pd.DataFrame:
+    """Filtra el DataFrame de display. PURO; devuelve copia, no muta el original.
+
+    Replica los filtros del HTML (populateTable): búsqueda substring + Categoría /
+    Temporada / Health exactos. Agrega el filtro de Estado (clasificación) — síntesis
+    de la tabla unificada. Filtro vacío/None = no filtra.
+
+    Divergencia con el HTML: la búsqueda allá matchea sku OR Modelo OR product_name;
+    acá la tabla principal solo expone SKU, así que la búsqueda es por SKU (substring).
+    """
+    if df.empty:
+        return df.copy()
+    out = df
+    search = (filtros.get("search") or "").strip().lower()
+    if search and "SKU" in out.columns:
+        out = out[out["SKU"].astype(str).str.lower().str.contains(search, regex=False)]
+    clasif = filtros.get("clasif") or []
+    if clasif and "Estado" in out.columns:
+        out = out[out["Estado"].isin(clasif)]
+    cat = filtros.get("cat") or ""
+    if cat and "Categoría" in out.columns:
+        out = out[out["Categoría"] == cat]
+    temp = filtros.get("temp") or ""
+    if temp and "Temp." in out.columns:
+        out = out[out["Temp."] == temp]
+    health = filtros.get("health") or ""
+    if health and "Health" in out.columns:
+        out = out[out["Health"] == health]
+    return out.copy()
+
+
+def _fmt_usd(v):
+    return "—" if pd.isna(v) else f"${v:.2f}"
+
+
+def _fmt_pct(v):
+    return "—" if pd.isna(v) else f"{v:.1f}%"
+
+
+def _fmt_round(v):
+    return "—" if pd.isna(v) else f"{v:.0f}"
+
+
+def _fmt_2dec(v):
+    return "—" if pd.isna(v) else f"{v:.2f}"
+
+
+def _margin_color(v):
+    """Color de Margen verbatim de la detail-view del HTML (L1547):
+    <0 rojo · <15 naranja · <25 dorado · >=25 verde."""
+    if pd.isna(v):
+        return ""
+    if v < 0:
+        return "color: #ef4444"
+    if v < 15:
+        return "color: #f59e0b"
+    if v < 25:
+        return "color: #eab308"
+    return "color: #22c55e"
+
+
+def _dosfba_color(v):
+    """DoS FBA verbatim (bajar/'dos' HTML L1257): >=180 rojo · >=120 naranja."""
+    if pd.isna(v):
+        return ""
+    if v >= 180:
+        return "color: #ef4444"
+    if v >= 120:
+        return "color: #f59e0b"
+    return ""
+
+
+def _dostotal_color(v):
+    """DoS Total verbatim (subir HTML L1275): <=30 rojo · <=60 naranja."""
+    if pd.isna(v):
+        return ""
+    if v <= 30:
+        return "color: #ef4444"
+    if v <= 60:
+        return "color: #f59e0b"
+    return ""
+
+
+def _style_principal(df: pd.DataFrame):
+    """Devuelve un Styler: tinte de fila por Estado + colores condicionales de celda
+    (hex verbatim del HTML) + formato moneda/%/round. NO stringifica numéricas."""
+    cols = set(df.columns)
+
+    def _row_style(row):
+        bg = _ROW_BG.get(row.get("Estado", ""), "")
+        css = f"background-color: {bg}" if bg else ""
+        return [css] * len(row)
+
+    sty = df.style.apply(_row_style, axis=1)
+    if "Margen" in cols:
+        sty = sty.map(_margin_color, subset=["Margen"])
+    if "DoS FBA" in cols:
+        sty = sty.map(_dosfba_color, subset=["DoS FBA"])
+    if "DoS Total" in cols:
+        sty = sty.map(_dostotal_color, subset=["DoS Total"])
+
+    fmt = {}
+    for k in _FMT_USD_KEYS:
+        if k in cols:
+            fmt[k] = _fmt_usd
+    for k in _FMT_PCT_KEYS:
+        if k in cols:
+            fmt[k] = _fmt_pct
+    for k in _FMT_ROUND_KEYS:
+        if k in cols:
+            fmt[k] = _fmt_round
+    for k in _FMT_2DEC_KEYS:
+        if k in cols:
+            fmt[k] = _fmt_2dec
+    return sty.format(fmt, na_rep="—")
+
+
 def render() -> None:
     """Entry point del Pricing Dashboard (M30) — sección Account Health.
 
@@ -980,16 +1162,56 @@ def render() -> None:
             "Backup stock = 0 por ahora." if pendientes else ""
         )
 
-    # ── Readout temporal de smoke (se reemplaza por tabla + styler en C3) ──
+    # ── Tabla principal + filtros (display en memoria) ──
     resultados = st.session_state.get("m30_resultados")
-    if resultados:
-        clasifs = [r.get("classification") for r in resultados]
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Subir", clasifs.count("subir"))
-        c2.metric("Bajar", clasifs.count("bajar"))
-        c3.metric("Liquidar", clasifs.count("liquidar"))
-        c4.metric("Mantener", clasifs.count("mantener"))
-        st.caption(f"{len(resultados)} SKUs analizados")
-        aviso = st.session_state.get("m30_aviso_backup")
-        if aviso:
-            st.caption(aviso)
+    if not resultados:
+        st.info("Cargá las fuentes y dale a **Analizar** para ver la tabla.")
+        return
+
+    df = _resultados_to_df(resultados)
+
+    # Strip de métricas resumen (la vista 'resumen' completa es C4).
+    clasifs = [r.get("classification") for r in resultados]
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Subir", clasifs.count("subir"))
+    m2.metric("Bajar", clasifs.count("bajar"))
+    m3.metric("Liquidar", clasifs.count("liquidar"))
+    m4.metric("Mantener", clasifs.count("mantener"))
+    aviso = st.session_state.get("m30_aviso_backup")
+    if aviso:
+        st.caption(aviso)
+
+    # Filtros — Plan D: buffer mutable en session_state, widgets sin key=, se usa el return.
+    buf = st.session_state.setdefault(
+        "m30_filtros", {"clasif": [], "cat": "", "temp": "", "health": "", "search": ""}
+    )
+    fc = st.columns(5)
+    with fc[0]:
+        buf["clasif"] = st.multiselect("Estado", _CLASIFS, default=buf["clasif"])
+    with fc[1]:
+        cats = [""] + sorted({c for c in df.get("Categoría", pd.Series(dtype=object)) if c})
+        buf["cat"] = st.selectbox(
+            "Categoría", cats,
+            index=cats.index(buf["cat"]) if buf["cat"] in cats else 0,
+            format_func=lambda c: c or "(todas)",
+        )
+    with fc[2]:
+        temps = [""] + sorted({t for t in df.get("Temp.", pd.Series(dtype=object)) if t})
+        buf["temp"] = st.selectbox(
+            "Temporada", temps,
+            index=temps.index(buf["temp"]) if buf["temp"] in temps else 0,
+            format_func=lambda t: t or "(todas)",
+        )
+    with fc[3]:
+        healths = [""] + sorted({h for h in df.get("Health", pd.Series(dtype=object)) if h})
+        buf["health"] = st.selectbox(
+            "Health", healths,
+            index=healths.index(buf["health"]) if buf["health"] in healths else 0,
+            format_func=lambda h: h or "(todas)",
+        )
+    with fc[4]:
+        buf["search"] = st.text_input("Buscar SKU", value=buf["search"])
+
+    df_f = _aplicar_filtros(df, buf)  # filtrar ANTES de estilizar (alineación de índice)
+    st.caption(f"{len(df_f)} de {len(df)} SKUs")
+    st.dataframe(_style_principal(df_f), use_container_width=True, hide_index=True)
