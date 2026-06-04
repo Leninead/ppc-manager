@@ -615,3 +615,35 @@ Resumen Hot Sale + flag B09F7P8GBZ + corrección diagnóstico EN + pendientes si
 **Patrón aprendido:** Sales rank en categoría distinta a hermanos = bloqueador estructural. Validar antes de invertir bid sobre el ASIN.
 
 **Conexión con SQP:** queries técnicas con CS 100% / PS 0% pueden ser síntoma de disonancia categórica del PDP, no problema de copy. Re-pull SQP D+7 post-fix para validar.
+
+## 2026-06-03 — Análisis WoW (export cliente) + reporte HTML bilingüe
+
+Análisis observacional sobre `SETEX.xlsx` (export del cliente). SIN bulks.
+Pendiente validación live en Campaign Manager.
+
+### KPIs cuenta WoW
+| Métrica | This Week | Prior Week | Δ |
+|---|---|---|---|
+| Sales | MX$52,677 | MX$44,715 | +17.8% |
+| Units | 223 | 185 | +20.5% |
+| Sessions | 2,108 | 1,827 | +15.4% |
+| CVR | 10.6% | 10.26% | +0.34 pts |
+| ACoS cuenta | 16.8% | — | target 18% |
+| TACoS | 11.3% | — | — |
+| Buy Box | 99.57% | — | — |
+
+### Findings accionables (validar live antes de ejecutar)
+- B081GB8F89 (badge): 75% de ventas, CVR 12.8%, ad sales +24.6% / spend -8.9%.
+- Thumbstick XG9J821 SP-AUTO CLOSE: ACoS 112.1% ($793/$707, 3 ord) -> pausa.
+- B0BQ8GJFQH: BuyBox 93.2% (unico <99%), spend +66% / sales -22% -> revisar precio.
+- B0F63LTD92 Ear Hook: push nuevo spend +466% -> $2,917 ad sales, TACoS 21.4% alto.
+- B08C2T72ND: ad sales -84%/ACoS 43.5% pero organico fuerte (MX$15,886, CVR 19.35%).
+- Bleeders Thumbstick fundas: B09VYCD9PB 108.2% · B09VYBLC7D 54%/TACoS 88.1%.
+
+### Caveats del export
+1. WoW por ASIN solo en Ad Sales/Ad Spend; resto solo valor semana actual.
+2. Panel Advertising (spend MX$11,008) != WoW ad spend cuenta (MX$5,975, ~1.8x):
+   otro periodo/agregado, validar contra BSE.
+
+### Deliverable
+`Setex_WoW_Report.html` — HTML dinámico ES/EN (no commiteado al repo).
