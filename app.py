@@ -44,6 +44,7 @@ from modules.pages.gamboa_generator import render as render_gamboa_generator
 from modules.pages.variation_builder import render as render_variation_builder
 from modules.pages.flat_file_migrator import render as render_flat_file_migrator
 from modules.pages.sku_progress_report import render as render_sku_progress
+from modules.pages.pricing_dashboard import render as render_pricing_dashboard
 from modules.pages.proposal_studio import render as render_proposal_studio
 import streamlit_authenticator as stauth
 
@@ -281,6 +282,8 @@ with st.sidebar:
                   args=("🗂️ Flat File Migrator",), key="nav_🗂️ Flat File Migrator")
         st.button("🏥 SKU Progress Report", use_container_width=True, on_click=_nav,
                   args=("🏥 SKU Progress Report",), key="nav_🏥 SKU Progress Report")
+        st.button("💲 Pricing Dashboard", use_container_width=True, on_click=_nav,
+                  args=("💲 Pricing Dashboard",), key="nav_💲 Pricing Dashboard")
 
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
     _pe_label = (
@@ -390,6 +393,9 @@ if selected == "🗂️ Flat File Migrator":
 
 if selected == "🏥 SKU Progress Report":
     render_sku_progress()
+
+if selected == "💲 Pricing Dashboard":
+    render_pricing_dashboard()
 
 if selected == "📋 Proposal Studio":
     render_proposal_studio()
