@@ -953,24 +953,108 @@ _FMT_PCT_KEYS = ("Margen",)
 _FMT_ROUND_KEYS = ("DoS FBA", "DoS Total")
 _FMT_2DEC_KEYS = ("Sell-T",)
 
+# ── Columnas por vista (verbatim de TABLE_COLS del HTML, L1286-1349) ──
+_COLS_LIQUIDAR: list[tuple[str, str]] = [
+    ("sku", "SKU"),
+    ("Categoria", "Categoría"),
+    ("Temporada", "Temp."),
+    ("price", "Precio Actual"),
+    ("suggestedPrice", "Precio Liquidación"),
+    ("liq_min_price", "Mín. Costo+Fees"),
+    ("fba_available", "Stock FBA"),
+    ("fba_dos", "DoS FBA"),
+    ("t30", "T30"),
+    ("aging_366plus", "Aging 366+"),
+    ("ais_total", "AIS"),
+    ("gross_margin", "Margen"),
+    ("reasons_down", "Motivo"),
+]
 
-def _resultados_to_df(resultados: list[dict]) -> pd.DataFrame:
-    """Convierte la lista de records de _run_analysis a un DataFrame de display.
+_COLS_AWDFBA: list[tuple[str, str]] = [
+    ("sku", "SKU"),
+    ("Categoria", "Categoría"),
+    ("fba_available", "Stock FBA"),
+    ("awd_available", "Stock AWD"),
+    ("izzi_available", "Stock IZZI"),
+    ("fba_dos", "DoS FBA"),
+    ("total_dos", "DoS Total"),
+    ("daily_rate", "Venta/día"),
+    ("t30", "T30"),
+    ("t7", "T7"),
+    ("restock_alert", "Acción"),
+    ("price", "Precio"),
+]
 
-    PURO. Selecciona y ordena por _COLS_PRINCIPAL (solo keys presentes), renombra a
-    los headers verbatim, y reemplaza None/NaN -> '' SOLO en columnas object (para no
-    romper Arrow). Las columnas numéricas se dejan numéricas (sort/format en el styler).
-    resultados vacío -> DataFrame() vacío.
+_COLS_SINMARGEN: list[tuple[str, str]] = [
+    ("sku", "SKU"),
+    ("Categoria", "Categoría"),
+    ("Subcategoria", "Subcategoría"),
+    ("Temporada", "Temp."),
+    ("price", "Precio Actual"),
+    ("cogs", "COGS"),
+    ("fulfillment_fee", "Fulfillment"),
+    ("referral_fee", "Referral"),
+    ("ppc_fee", "PPC"),
+    ("gross_margin", "Margen Bruto"),
+    ("net_margin", "Margen Neto"),
+    ("fba_dos", "DoS FBA"),
+    ("t30", "T30"),
+    ("health", "Health"),
+    ("classification", "Estado"),
+]
+
+_COLS_AIS: list[tuple[str, str]] = [
+    ("sku", "SKU"),
+    ("Categoria", "Categoría"),
+    ("Subcategoria", "Subcategoría"),
+    ("Temporada", "Temp."),
+    ("ais_total", "AIS Total"),
+    ("price", "Precio"),
+    ("fba_available", "Stock FBA"),
+    ("fba_dos", "DoS FBA"),
+    ("aging_181_270", "Aging 181-270d"),
+    ("aging_271_365", "Aging 271-365d"),
+    ("aging_366plus", "Aging 366+d"),
+    ("t30", "T30"),
+    ("sell_through", "Sell-T"),
+    ("gross_margin", "Margen"),
+    ("classification", "Estado"),
+    ("reasons_down", "Razones"),
+]
+
+
+def _clean_obj(x):
+    """Normaliza una celda object para Arrow: list/tuple -> 'a; b'; None/NaN -> ''."""
+    if isinstance(x, (list, tuple)):
+        return "; ".join(str(i) for i in x)
+    if x is None:
+        return ""
+    if isinstance(x, float) and pd.isna(x):
+        return ""
+    return x
+
+
+def _records_to_df(resultados: list[dict], cols: list[tuple[str, str]]) -> pd.DataFrame:
+    """Proyecta records a un DataFrame de display según `cols` = [(key, header), ...].
+
+    PURO. Selecciona y ordena por `cols` (solo keys presentes), renombra a headers, y
+    limpia columnas object (list -> join, None/NaN -> '') para no romper Arrow. Las
+    columnas numéricas se dejan numéricas. resultados vacío -> DataFrame() vacío.
     """
     if not resultados:
         return pd.DataFrame()
     df = pd.DataFrame(resultados)
-    keys = [k for k, _ in _COLS_PRINCIPAL if k in df.columns]
-    df = df[keys].rename(columns={k: h for k, h in _COLS_PRINCIPAL})
+    keys = [k for k, _ in cols if k in df.columns]
+    df = df[keys].rename(columns={k: h for k, h in cols})
     for col in df.columns:
         if df[col].dtype == object:
-            df[col] = df[col].where(df[col].notna(), "")
+            df[col] = df[col].apply(_clean_obj)
     return df
+
+
+def _resultados_to_df(resultados: list[dict]) -> pd.DataFrame:
+    """Tabla principal (C3). Wrapper de _records_to_df con _COLS_PRINCIPAL (back-compat)."""
+    return _records_to_df(resultados, _COLS_PRINCIPAL)
 
 
 def _aplicar_filtros(df: pd.DataFrame, filtros: dict) -> pd.DataFrame:
@@ -1090,6 +1174,70 @@ def _style_principal(df: pd.DataFrame):
     return sty.format(fmt, na_rep="—")
 
 
+# ── Vistas especializadas (criterios verbatim de finishAnalysis, HTML L1175-1181) ──
+def _vista_liquidar(resultados: list[dict]) -> pd.DataFrame:
+    """SKUs classification=='liquidar', orden t30 asc (HTML L1178). PURO."""
+    filtrados = [r for r in resultados if r.get("classification") == "liquidar"]
+    filtrados = sorted(filtrados, key=lambda r: r.get("t30") or 0)
+    return _records_to_df(filtrados, _COLS_LIQUIDAR)
+
+
+def _vista_sinmargen(resultados: list[dict]) -> pd.DataFrame:
+    """SKUs con gross_margin no-None y < 15, orden gross_margin asc (HTML L1180). PURO."""
+    filtrados = [
+        r for r in resultados
+        if r.get("gross_margin") is not None and r.get("gross_margin") < 15
+    ]
+    filtrados = sorted(filtrados, key=lambda r: r.get("gross_margin") or 0)
+    return _records_to_df(filtrados, _COLS_SINMARGEN)
+
+
+def _vista_ais(resultados: list[dict]) -> pd.DataFrame:
+    """SKUs con ais_total > 0, orden ais_total desc (HTML L1181). PURO."""
+    filtrados = [r for r in resultados if (r.get("ais_total") or 0) > 0]
+    filtrados = sorted(filtrados, key=lambda r: r.get("ais_total") or 0, reverse=True)
+    return _records_to_df(filtrados, _COLS_AIS)
+
+
+def _resumen_stats(resultados: list[dict]) -> dict:
+    """Conteos + alertas del Resumen (verbatim de finishAnalysis/populateResumenCharts).
+
+    PURO. Conteos por clasificación + ais (>0) + sinmargen (<15) + restock (alert truthy)
+    + alertas críticas (margen<0, ais>5, sin venta 6m) + distribución de Categoría entre
+    los 'bajar' (top 7). NO incluye WoW ni charts (eso es C4b / histórico).
+    """
+    def _g(r, k):
+        return r.get(k)
+
+    stats = {
+        "subir": sum(1 for r in resultados if _g(r, "classification") == "subir"),
+        "bajar": sum(1 for r in resultados if _g(r, "classification") == "bajar"),
+        "mantener": sum(1 for r in resultados if _g(r, "classification") == "mantener"),
+        "liquidar": sum(1 for r in resultados if _g(r, "classification") == "liquidar"),
+        "ais": sum(1 for r in resultados if (_g(r, "ais_total") or 0) > 0),
+        "sinmargen": sum(
+            1 for r in resultados
+            if _g(r, "gross_margin") is not None and _g(r, "gross_margin") < 15
+        ),
+        "restock": sum(1 for r in resultados if _g(r, "restock_alert")),
+        "margen_negativo": sum(
+            1 for r in resultados
+            if _g(r, "gross_margin") is not None and _g(r, "gross_margin") < 0
+        ),
+        "ais_gt5": sum(1 for r in resultados if (_g(r, "ais_total") or 0) > 5),
+        "sin_venta_6m": sum(1 for r in resultados if _g(r, "no_sale_6m") in ("1", 1)),
+    }
+
+    # Distribución de Categoría entre los 'bajar' (top 7 por conteo desc), HTML L1459-1462.
+    cat_count: dict = {}
+    for r in resultados:
+        if _g(r, "classification") == "bajar":
+            c = _g(r, "Categoria") or "?"
+            cat_count[c] = cat_count.get(c, 0) + 1
+    stats["cat_bajar"] = sorted(cat_count.items(), key=lambda kv: kv[1], reverse=True)[:7]
+    return stats
+
+
 def render() -> None:
     """Entry point del Pricing Dashboard (M30) — sección Account Health.
 
@@ -1162,56 +1310,108 @@ def render() -> None:
             "Backup stock = 0 por ahora." if pendientes else ""
         )
 
-    # ── Tabla principal + filtros (display en memoria) ──
+    # ── Navegación por tabs (display en memoria) ──
     resultados = st.session_state.get("m30_resultados")
     if not resultados:
-        st.info("Cargá las fuentes y dale a **Analizar** para ver la tabla.")
+        st.info("Cargá las fuentes y dale a **Analizar** para ver el análisis.")
         return
 
     df = _resultados_to_df(resultados)
-
-    # Strip de métricas resumen (la vista 'resumen' completa es C4).
-    clasifs = [r.get("classification") for r in resultados]
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Subir", clasifs.count("subir"))
-    m2.metric("Bajar", clasifs.count("bajar"))
-    m3.metric("Liquidar", clasifs.count("liquidar"))
-    m4.metric("Mantener", clasifs.count("mantener"))
-    aviso = st.session_state.get("m30_aviso_backup")
-    if aviso:
-        st.caption(aviso)
-
-    # Filtros — Plan D: buffer mutable en session_state, widgets sin key=, se usa el return.
-    buf = st.session_state.setdefault(
-        "m30_filtros", {"clasif": [], "cat": "", "temp": "", "health": "", "search": ""}
+    tabs = st.tabs(
+        ["Resumen", "Principal", "AWD/FBA", "Liquidar", "Sin Margen", "AIS", "Histórico"]
     )
-    fc = st.columns(5)
-    with fc[0]:
-        buf["clasif"] = st.multiselect("Estado", _CLASIFS, default=buf["clasif"])
-    with fc[1]:
-        cats = [""] + sorted({c for c in df.get("Categoría", pd.Series(dtype=object)) if c})
-        buf["cat"] = st.selectbox(
-            "Categoría", cats,
-            index=cats.index(buf["cat"]) if buf["cat"] in cats else 0,
-            format_func=lambda c: c or "(todas)",
-        )
-    with fc[2]:
-        temps = [""] + sorted({t for t in df.get("Temp.", pd.Series(dtype=object)) if t})
-        buf["temp"] = st.selectbox(
-            "Temporada", temps,
-            index=temps.index(buf["temp"]) if buf["temp"] in temps else 0,
-            format_func=lambda t: t or "(todas)",
-        )
-    with fc[3]:
-        healths = [""] + sorted({h for h in df.get("Health", pd.Series(dtype=object)) if h})
-        buf["health"] = st.selectbox(
-            "Health", healths,
-            index=healths.index(buf["health"]) if buf["health"] in healths else 0,
-            format_func=lambda h: h or "(todas)",
-        )
-    with fc[4]:
-        buf["search"] = st.text_input("Buscar SKU", value=buf["search"])
 
-    df_f = _aplicar_filtros(df, buf)  # filtrar ANTES de estilizar (alineación de índice)
-    st.caption(f"{len(df_f)} de {len(df)} SKUs")
-    st.dataframe(_style_principal(df_f), use_container_width=True, hide_index=True)
+    with tabs[0]:  # Resumen
+        stats = _resumen_stats(resultados)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Subir", stats["subir"])
+        m2.metric("Bajar", stats["bajar"])
+        m3.metric("Liquidar", stats["liquidar"])
+        m4.metric("Mantener", stats["mantener"])
+        a1, a2, a3 = st.columns(3)
+        a1.metric("AIS activo", stats["ais"])
+        a2.metric("Sin margen (<15%)", stats["sinmargen"])
+        a3.metric("Reposición", stats["restock"])
+        aviso = st.session_state.get("m30_aviso_backup")
+        if aviso:
+            st.caption(aviso)
+        # Alertas críticas (verbatim populateResumenCharts L1474-1480)
+        if stats["margen_negativo"]:
+            st.warning(f"⚠ {stats['margen_negativo']} SKUs con margen NEGATIVO — revisión urgente")
+        if stats["ais_gt5"]:
+            st.warning(f"🔥 {stats['ais_gt5']} SKUs con Aged Inventory Surcharge > $5")
+        if stats["sin_venta_6m"]:
+            st.warning(f"📭 {stats['sin_venta_6m']} SKUs sin ventas en los últimos 6 meses")
+        if stats["cat_bajar"]:
+            st.caption("Distribución de 'Bajar' por categoría (top 7)")
+            st.bar_chart(
+                pd.DataFrame(stats["cat_bajar"], columns=["Categoría", "SKUs"]).set_index("Categoría")
+            )
+
+    with tabs[1]:  # Principal — bloque de C3 (filtros Plan D + tabla styled)
+        buf = st.session_state.setdefault(
+            "m30_filtros", {"clasif": [], "cat": "", "temp": "", "health": "", "search": ""}
+        )
+        fc = st.columns(5)
+        with fc[0]:
+            buf["clasif"] = st.multiselect("Estado", _CLASIFS, default=buf["clasif"])
+        with fc[1]:
+            cats = [""] + sorted({c for c in df.get("Categoría", pd.Series(dtype=object)) if c})
+            buf["cat"] = st.selectbox(
+                "Categoría", cats,
+                index=cats.index(buf["cat"]) if buf["cat"] in cats else 0,
+                format_func=lambda c: c or "(todas)",
+            )
+        with fc[2]:
+            temps = [""] + sorted({t for t in df.get("Temp.", pd.Series(dtype=object)) if t})
+            buf["temp"] = st.selectbox(
+                "Temporada", temps,
+                index=temps.index(buf["temp"]) if buf["temp"] in temps else 0,
+                format_func=lambda t: t or "(todas)",
+            )
+        with fc[3]:
+            healths = [""] + sorted({h for h in df.get("Health", pd.Series(dtype=object)) if h})
+            buf["health"] = st.selectbox(
+                "Health", healths,
+                index=healths.index(buf["health"]) if buf["health"] in healths else 0,
+                format_func=lambda h: h or "(todas)",
+            )
+        with fc[4]:
+            buf["search"] = st.text_input("Buscar SKU", value=buf["search"])
+
+        df_f = _aplicar_filtros(df, buf)  # filtrar ANTES de estilizar (alineación de índice)
+        st.caption(f"{len(df_f)} de {len(df)} SKUs")
+        st.dataframe(_style_principal(df_f), use_container_width=True, hide_index=True)
+
+    with tabs[2]:  # AWD/FBA — panel pendiente (gap awd/izzi)
+        st.warning(
+            "Vista AWD/FBA pendiente: requiere la integración de los lookups AWD/Izzi "
+            "(builder {sku: unidades} no construido todavía). Disponible en una próxima versión."
+        )
+
+    with tabs[3]:  # Liquidar
+        dliq = _vista_liquidar(resultados)
+        st.caption(f"{len(dliq)} SKUs")
+        if dliq.empty:
+            st.info("Sin SKUs en esta vista.")
+        else:
+            st.dataframe(dliq, use_container_width=True, hide_index=True)
+
+    with tabs[4]:  # Sin Margen
+        dsm = _vista_sinmargen(resultados)
+        st.caption(f"{len(dsm)} SKUs")
+        if dsm.empty:
+            st.info("Sin SKUs en esta vista.")
+        else:
+            st.dataframe(dsm, use_container_width=True, hide_index=True)
+
+    with tabs[5]:  # AIS
+        dais = _vista_ais(resultados)
+        st.caption(f"{len(dais)} SKUs")
+        if dais.empty:
+            st.info("Sin SKUs en esta vista.")
+        else:
+            st.dataframe(dais, use_container_width=True, hide_index=True)
+
+    with tabs[6]:  # Histórico — placeholder (build real + persistencia en C4b)
+        st.info("Histórico — próximo commit (C4b: snapshots + persistencia).")
