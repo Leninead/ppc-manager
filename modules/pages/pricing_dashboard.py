@@ -39,13 +39,22 @@ from __future__ import annotations
 
 from datetime import date
 from io import BytesIO
+import json
 import math
 import re
 
 import pandas as pd
 import streamlit as st
 
-from core.persistence import _load_config, _save_config
+from core.persistence import (
+    _load_config,
+    _save_config,
+    _save_snapshot,
+    _list_periods,
+    _load_history,
+    _rebuild_history,
+    _validate_against_schema,
+)
 
 
 # =====================================================================
@@ -1238,6 +1247,167 @@ def _resumen_stats(resultados: list[dict]) -> dict:
     return stats
 
 
+# =====================================================================
+# F3.4 / C4b — Persistencia de snapshots + histórico + import JSON
+# =====================================================================
+# Mapeo record_key -> (schema_col, kind). Las 47 columnas del schema
+# (data/_schemas/pricing-dashboard-v1.json) en su orden. kind ∈ str/int/float/bool/json.
+# Los nombres del schema DIFIEREN de las keys del record (Modelo->modelo, fulfillment_fee->ff,
+# suggestedPrice->suggested_price, reasons_* list->JSON string, etc.).
+_SNAPSHOT_COLS: list[tuple[str, str, str]] = [
+    ("snapshot_date", "snapshot_date", "str"),
+    ("sku", "sku", "str"),
+    ("asin", "asin", "str"),
+    ("product_name", "product_name", "str"),
+    ("modelo", "Modelo", "str"),
+    ("talla", "Talla", "str"),
+    ("temporada", "Temporada", "str"),
+    ("categoria", "Categoria", "str"),
+    ("subcategoria", "Subcategoria", "str"),
+    ("price", "price", "float"),
+    ("fba_available", "fba_available", "int"),
+    ("awd_available", "awd_available", "int"),
+    ("izzi_available", "izzi_available", "int"),
+    ("total_stock", "total_stock", "int"),
+    ("has_backup", "has_backup", "bool"),
+    ("t7", "t7", "int"),
+    ("t30", "t30", "int"),
+    ("t90", "t90", "int"),
+    ("daily_rate", "daily_rate", "float"),
+    ("fba_dos", "fba_dos", "float"),
+    ("total_dos", "total_dos", "float"),
+    ("cogs", "cogs", "float"),
+    ("ff", "fulfillment_fee", "float"),
+    ("rf", "referral_fee", "float"),
+    ("ppc", "ppc_fee", "float"),
+    ("ff_est", "fulfillment_fee_est", "bool"),
+    ("rf_est", "referral_fee_est", "bool"),
+    ("gross_margin", "gross_margin", "float"),
+    ("net_margin", "net_margin", "float"),
+    ("aging_181_270", "aging_181_270", "int"),
+    ("aging_271_365", "aging_271_365", "int"),
+    ("aging_366plus", "aging_366plus", "int"),
+    ("ais_total", "ais_total", "float"),
+    ("health", "health", "str"),
+    ("no_sale", "no_sale_6m", "str"),
+    ("buybox_price", "buybox_price", "float"),
+    ("subcat_avg_price", "subcat_avg", "float"),
+    ("model_avg_price", "model_avg", "float"),
+    ("score", "score", "int"),
+    ("classification", "classification", "str"),
+    ("reasons_down", "reasons_down", "json"),
+    ("reasons_up", "reasons_up", "json"),
+    ("suggested_price", "suggestedPrice", "float"),
+    ("suggested_rationale", "suggestedRationale", "str"),
+    ("restock_alert", "restock_alert", "str"),
+    ("liq_min_price", "liq_min_price", "float"),
+    ("is_liquidar", "is_liquidar", "bool"),
+]
+
+
+def _str_or_empty(v) -> str:
+    """None/NaN -> ''; resto -> str(v). Strings de Amazon verbatim."""
+    if v is None:
+        return ""
+    if isinstance(v, float) and pd.isna(v):
+        return ""
+    return str(v)
+
+
+def _build_snapshot_df(resultados: list[dict], snapshot_date: str) -> pd.DataFrame:
+    """Arma el DataFrame de snapshot de 47 columnas EXACTAS del schema. PURO.
+
+    snapshot_date va como columna (el arg, no date.today()). Mapea record_key ->
+    schema_col (ver _SNAPSHOT_COLS) y coacciona dtypes: int (to_numeric+fillna(0)+int64),
+    float (to_numeric -> NaN ok), bool (fillna(False)), str (None/NaN -> ''), json
+    (list -> json.dumps -> string). Keys ausentes en el record -> default por dtype, así
+    SIEMPRE quedan las 47 columnas con dtype estable (evita drift en _rebuild_history).
+    """
+    n = len(resultados)
+    data: dict = {}
+    for schema_col, rkey, kind in _SNAPSHOT_COLS:
+        if schema_col == "snapshot_date":
+            data[schema_col] = pd.Series([snapshot_date] * n, dtype="object")
+            continue
+        raw = pd.Series([r.get(rkey) for r in resultados], dtype="object")
+        if kind == "int":
+            data[schema_col] = pd.to_numeric(raw, errors="coerce").fillna(0).astype("int64")
+        elif kind == "float":
+            data[schema_col] = pd.to_numeric(raw, errors="coerce").astype("float64")
+        elif kind == "bool":
+            data[schema_col] = pd.Series(
+                [bool(v) if (v is not None and not (isinstance(v, float) and pd.isna(v))) else False
+                 for v in raw],
+                dtype=bool,
+            )
+        elif kind == "json":
+            data[schema_col] = pd.Series(
+                [json.dumps(v) if isinstance(v, (list, tuple)) else "[]" for v in raw],
+                dtype="object",
+            )
+        else:  # str
+            data[schema_col] = pd.Series([_str_or_empty(v) for v in raw], dtype="object")
+    return pd.DataFrame(data, columns=[c for c, _, _ in _SNAPSHOT_COLS])
+
+
+def _snapshot_date_from_resultados(resultados: list[dict]) -> str:
+    """snapshot_date del DATO (lo derivó _run_analysis y vive en cada record); fallback hoy.
+    Única fuente de verdad para que period == columna snapshot_date."""
+    if resultados:
+        d = resultados[0].get("snapshot_date")
+        if d:
+            return d
+    return date.today().isoformat()
+
+
+def _importar_historico_json(data: bytes, cliente: str) -> int:
+    """Importa el JSON de histórico del HTML (array de {date, skus:{sku:{...}}}).
+
+    Cada sku trae el subset reducido del HTML (price, dos, t30, t7, score, classification,
+    gross_margin, health); se adapta a record-dict (dos->fba_dos) y _build_snapshot_df
+    completa las columnas faltantes con defaults (snapshots shape-completos, data-parciales).
+
+    Dos pasadas: construye TODOS los DataFrames en memoria primero (si una entrada tiene
+    shape inválido, raise ANTES de tocar disco) y recién después persiste + _rebuild_history
+    una sola vez. Devuelve la cantidad de períodos importados.
+    """
+    parsed = json.loads(data.decode("utf-8"))
+    if not isinstance(parsed, list):
+        raise ValueError("JSON inválido: se esperaba una lista de períodos {date, skus}.")
+
+    prepared: list[tuple[str, pd.DataFrame]] = []
+    for entry in parsed:
+        if not isinstance(entry, dict) or "date" not in entry or "skus" not in entry:
+            raise ValueError("Entrada de histórico inválida: falta 'date' o 'skus'.")
+        fecha = entry["date"]
+        skus = entry.get("skus") or {}
+        if not isinstance(skus, dict):
+            raise ValueError(f"'skus' inválido en período {fecha}: se esperaba un objeto.")
+        records = []
+        for sku, v in skus.items():
+            v = v or {}
+            records.append({
+                "sku": sku,
+                "snapshot_date": fecha,
+                "price": v.get("price"),
+                "fba_dos": v.get("dos"),  # HTML history usa 'dos' (= fba_dos)
+                "t30": v.get("t30"),
+                "t7": v.get("t7"),
+                "score": v.get("score"),
+                "classification": v.get("classification"),
+                "gross_margin": v.get("gross_margin"),
+                "health": v.get("health"),
+            })
+        prepared.append((fecha, _build_snapshot_df(records, fecha)))
+
+    # Recién acá tocamos disco (nada parcial si alguna entrada falló arriba).
+    for fecha, df in prepared:
+        _save_snapshot(df, "account-health", cliente, "pricing-dashboard", fecha)
+    if prepared:
+        _rebuild_history("account-health", cliente, "pricing-dashboard")
+    return len(prepared)
+
+
 def render() -> None:
     """Entry point del Pricing Dashboard (M30) — sección Account Health.
 
@@ -1413,5 +1583,37 @@ def render() -> None:
         else:
             st.dataframe(dais, use_container_width=True, hide_index=True)
 
-    with tabs[6]:  # Histórico — placeholder (build real + persistencia en C4b)
-        st.info("Histórico — próximo commit (C4b: snapshots + persistencia).")
+    with tabs[6]:  # Histórico — snapshots + persistencia + import JSON
+        snap_date = _snapshot_date_from_resultados(resultados)
+        st.caption(f"Snapshot del análisis actual: **{snap_date}**")
+
+        # Validación PREVIA al guardado (no persistir basura).
+        snap_df = _build_snapshot_df(resultados, snap_date)
+        errores = _validate_against_schema(snap_df, "pricing-dashboard", 1)
+        if errores:
+            st.error("El snapshot no cumple el schema:")
+            for e in errores[:10]:
+                st.caption(f"• {e}")
+        elif st.button(f"Guardar snapshot {snap_date}"):
+            _save_snapshot(snap_df, "account-health", cliente, "pricing-dashboard", snap_date)
+            _rebuild_history("account-health", cliente, "pricing-dashboard")
+            st.success(f"Snapshot {snap_date} guardado.")
+
+        # Períodos disponibles + tabla de historia.
+        periods = _list_periods("account-health", cliente, "pricing-dashboard")
+        if periods:
+            st.caption(f"{len(periods)} snapshots: {', '.join(periods)}")
+            hist = _load_history("account-health", cliente, "pricing-dashboard")
+            st.dataframe(hist, use_container_width=True, hide_index=True)
+        else:
+            st.info("Sin snapshots guardados todavía para este cliente.")
+
+        # Import JSON histórico (Plan D: uploader + botón aparte).
+        st.divider()
+        json_file = st.file_uploader("Importar histórico (JSON)", type="json")
+        if json_file is not None and st.button("Importar histórico"):
+            try:
+                n = _importar_historico_json(json_file.getvalue(), cliente)
+                st.success(f"{n} períodos importados.")
+            except (ValueError, KeyError, json.JSONDecodeError) as e:
+                st.error(f"Import fallido: {e}")
