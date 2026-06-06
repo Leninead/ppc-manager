@@ -74,9 +74,10 @@
         <span style="color: var(--text); font-weight: {% if bar['is_client'] %}600{% else %}400{% endif %};">{{ bar['label'] }}{% if bar['is_client'] %} <span style="font-size: 0.72rem; color: var(--accent);">{% if lang == 'en' %}(you){% else %}(vos){% endif %}</span>{% endif %}</span>
         <span style="color: var(--text-muted);">{{ bar['value'] }}</span>
       </div>
-      <div style="background: var(--surface); border-radius: 4px; height: 18px; overflow: hidden;">
-        <div style="width: {{ bar['width_pct'] }}%; height: 100%; border-radius: 4px; background: {% if bar['is_client'] %}var(--accent){% else %}var(--text-muted){% endif %};"></div>
-      </div>
+      <table style="width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 4px;"><tr>
+        <td style="width: {{ bar['width_pct'] }}%; height: 18px; background: {% if bar['is_client'] %}var(--accent){% else %}var(--text-muted){% endif %}; border-radius: 4px; font-size: 0; line-height: 18px;">&nbsp;</td>
+        <td style="width: {{ 100 - bar['width_pct'] }}%; font-size: 0;">&nbsp;</td>
+      </tr></table>
     </div>
     {% endfor %}
   </div>
