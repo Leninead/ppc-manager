@@ -1579,7 +1579,7 @@ def render() -> None:
     df = _resultados_to_df(resultados)
 
     # Export global (todos los SKUs) — header arriba de las tabs (port de exportResumen).
-    _fecha = (resultados[0].get("snapshot_date") if resultados else None) or date.today().isoformat()
+    _fecha = _snapshot_date_from_resultados(resultados)
     st.download_button(
         "⬇ SKU / Status / Stock",
         data=_build_resumen_excel(resultados, _fecha),
@@ -1662,6 +1662,7 @@ def render() -> None:
             disabled=df.empty,
             key="m30_export_principal",
         )
+        st.caption("El Excel exporta todos los SKUs, no el filtro aplicado.")
 
     with tabs[2]:  # AWD/FBA — panel pendiente (gap awd/izzi)
         st.warning(
