@@ -106,3 +106,51 @@ class TestBuildResumenExcel:
         ws = _wb(_build_resumen_excel([_rec()], "2026-04-17"))["Pricing"]
         assert ws.column_dimensions["A"].width == 26
         assert ws.column_dimensions["I"].width == 11
+
+
+# =====================================================================
+# _build_vista_excel
+# =====================================================================
+from modules.pages.pricing_dashboard import _build_vista_excel  # noqa: E402
+
+
+class TestBuildVistaExcel:
+    def _df(self):
+        return pd.DataFrame(
+            {"SKU": ["A", "B"], "Precio": [10.0, 20.0], "Margen": [15.0, float("nan")]}
+        )
+
+    def test_bytes_parseables(self):
+        data = _build_vista_excel(self._df(), "Liquidar")
+        assert isinstance(data, bytes) and len(data) > 0
+        assert load_workbook(BytesIO(data))  # abre sin error
+
+    def test_sheetname(self):
+        wb = _wb(_build_vista_excel(self._df(), "Liquidar"))
+        assert wb.sheetnames == ["Liquidar"]
+
+    def test_sheetname_truncado_31(self):
+        nombre = "X" * 40
+        wb = _wb(_build_vista_excel(self._df(), nombre))
+        assert wb.sheetnames == [nombre[:31]]
+        assert len(wb.sheetnames[0]) == 31
+
+    def test_header_en_orden(self):
+        ws = _wb(_build_vista_excel(self._df(), "V"))["V"]
+        fila1 = [ws.cell(row=1, column=j).value for j in range(1, 4)]
+        assert fila1 == ["SKU", "Precio", "Margen"]
+
+    def test_filas_igual_len_mas_header(self):
+        ws = _wb(_build_vista_excel(self._df(), "V"))["V"]
+        assert ws.max_row == len(self._df()) + 1  # 2 datos + 1 header
+
+    def test_df_vacio_solo_header(self):
+        df_vacio = pd.DataFrame(columns=["SKU", "Precio"])
+        ws = _wb(_build_vista_excel(df_vacio, "V"))["V"]
+        assert ws.max_row == 1  # solo header
+        assert [ws.cell(row=1, column=j).value for j in range(1, 3)] == ["SKU", "Precio"]
+
+    def test_nan_float_celda_vacia(self):
+        # Margen fila 2 (B) es NaN -> celda None/vacía
+        ws = _wb(_build_vista_excel(self._df(), "V"))["V"]
+        assert ws.cell(row=3, column=3).value is None  # B.Margen = NaN

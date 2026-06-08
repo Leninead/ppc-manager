@@ -1474,6 +1474,30 @@ def _build_resumen_excel(resultados: list[dict], snapshot_date: str) -> bytes:
     return buf.getvalue()
 
 
+def _build_vista_excel(df: pd.DataFrame, sheet_name: str) -> bytes:
+    """Serializa un DataFrame de vista (ya armado) a XLSX de 1 hoja. PURO, fuera de render().
+
+    Header = df.columns; anchos = max(12, len(header)); NaN float -> celda vacía (None)."""
+    if not _HAS_OPENPYXL:
+        raise RuntimeError("openpyxl no disponible")
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name[:31]  # límite de Excel
+    headers = list(df.columns)
+    for j, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=j, value=str(h))
+    for i, row in enumerate(df.itertuples(index=False), start=2):
+        for j, val in enumerate(row, start=1):
+            if isinstance(val, float) and pd.isna(val):
+                val = None
+            ws.cell(row=i, column=j, value=val)
+    for j, h in enumerate(headers, start=1):
+        ws.column_dimensions[get_column_letter(j)].width = max(12, len(str(h)))
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def render() -> None:
     """Entry point del Pricing Dashboard (M30) — sección Account Health.
 
@@ -1630,6 +1654,14 @@ def render() -> None:
         df_f = _aplicar_filtros(df, buf)  # filtrar ANTES de estilizar (alineación de índice)
         st.caption(f"{len(df_f)} de {len(df)} SKUs")
         st.dataframe(_style_principal(df_f), use_container_width=True, hide_index=True)
+        st.download_button(
+            "⬇ Excel",
+            data=_build_vista_excel(df, "Principal"),
+            file_name=f"{cliente}_Principal_{_fecha}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            disabled=df.empty,
+            key="m30_export_principal",
+        )
 
     with tabs[2]:  # AWD/FBA — panel pendiente (gap awd/izzi)
         st.warning(
@@ -1644,6 +1676,14 @@ def render() -> None:
             st.info("Sin SKUs en esta vista.")
         else:
             st.dataframe(dliq, use_container_width=True, hide_index=True)
+        st.download_button(
+            "⬇ Excel",
+            data=_build_vista_excel(dliq, "Liquidar"),
+            file_name=f"{cliente}_Liquidar_{_fecha}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            disabled=dliq.empty,
+            key="m30_export_liquidar",
+        )
 
     with tabs[4]:  # Sin Margen
         dsm = _vista_sinmargen(resultados)
@@ -1652,6 +1692,14 @@ def render() -> None:
             st.info("Sin SKUs en esta vista.")
         else:
             st.dataframe(dsm, use_container_width=True, hide_index=True)
+        st.download_button(
+            "⬇ Excel",
+            data=_build_vista_excel(dsm, "SinMargen"),
+            file_name=f"{cliente}_SinMargen_{_fecha}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            disabled=dsm.empty,
+            key="m30_export_sinmargen",
+        )
 
     with tabs[5]:  # AIS
         dais = _vista_ais(resultados)
@@ -1660,6 +1708,14 @@ def render() -> None:
             st.info("Sin SKUs en esta vista.")
         else:
             st.dataframe(dais, use_container_width=True, hide_index=True)
+        st.download_button(
+            "⬇ Excel",
+            data=_build_vista_excel(dais, "AIS"),
+            file_name=f"{cliente}_AIS_{_fecha}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            disabled=dais.empty,
+            key="m30_export_ais",
+        )
 
     with tabs[6]:  # Histórico — snapshots + persistencia + import JSON
         snap_date = _snapshot_date_from_resultados(resultados)
