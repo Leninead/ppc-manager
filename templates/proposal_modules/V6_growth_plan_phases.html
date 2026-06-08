@@ -1,0 +1,24 @@
+<section class="block" data-module="{{ module_id }}">
+  <h2 class="block-section-title">{{ title or ('Growth Plan — 3 Phases' if lang == 'en' else 'Plan de Crecimiento — 3 Fases') }}</h2>
+  {% if data.phases %}
+  <div class="phases">
+    {% for phase in data.phases %}
+    <div class="phase-card" style="margin-bottom: 0.9rem; padding: 0.85rem 1rem; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 6px 6px 0;">
+      <div style="display: flex; align-items: baseline; gap: 0.55rem;">
+        {% if phase.number is not none and phase.number != '' %}
+        <span style="font-size: 1.1rem; font-weight: 700; color: var(--accent);">{{ phase.number }}</span>
+        {% endif %}
+        <span style="font-size: 1rem; font-weight: 600; color: var(--text);">{{ phase.name | pick_lang(lang) }}</span>
+        {% if phase.duration %}
+        <span class="pill" style="margin-left: auto;">{{ phase.duration }}</span>
+        {% endif %}
+      </div>
+      {% set narr = phase.narrative | pick_lang(lang) | md_bold %}
+      {% if narr %}
+      <p style="margin: 0.5rem 0 0; font-size: 0.9rem; line-height: 1.5; color: var(--text);">{{ narr }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>

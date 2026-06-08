@@ -1,0 +1,34 @@
+<section class="block" data-module="{{ module_id }}">
+  <h2 class="block-section-title">{{ title or ('Category Overview' if lang == 'en' else 'Resumen de Categoría') }}</h2>
+  <table class="kv">
+    {% if data.category_name %}
+    <tr><th>{% if lang == 'en' %}Category{% else %}Categoría{% endif %}</th><td>{{ data.category_name }}</td></tr>
+    {% endif %}
+    {% if data.category_size_band %}
+    <tr><th>{% if lang == 'en' %}Category size{% else %}Tamaño de categoría{% endif %}</th><td>{{ data.category_size_band }}</td></tr>
+    {% endif %}
+    {% if data.competition_density %}
+    <tr><th>{% if lang == 'en' %}Competition{% else %}Competencia{% endif %}</th><td>{{ data.competition_density }}</td></tr>
+    {% endif %}
+    {% if data.median_price_band %}
+    <tr><th>{% if lang == 'en' %}Median price{% else %}Precio mediano{% endif %}</th><td>{{ data.median_price_band }}</td></tr>
+    {% endif %}
+    {% if data.median_reviews_band %}
+    <tr><th>{% if lang == 'en' %}Median reviews{% else %}Reviews medianos{% endif %}</th><td>{{ data.median_reviews_band }}</td></tr>
+    {% endif %}
+  </table>
+  {% if data.top_competitors %}
+  <div style="margin-top: 1rem;">
+    <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.3rem;">{% if lang == 'en' %}Top competitors{% else %}Competidores principales{% endif %}</div>
+    {% for c in data.top_competitors %}<span class="pill">{{ c }}</span>{% endfor %}
+  </div>
+  {% endif %}
+  {% if data.weaknesses %}
+  <div style="margin-top: 1rem;">
+    <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.3rem;">{% if lang == 'en' %}Detected weaknesses{% else %}Debilidades detectadas{% endif %}</div>
+    <ul style="margin: 0.2rem 0 0; padding-left: 1.2rem; color: var(--text);">
+      {% for w in data.weaknesses %}<li style="font-size: 0.9rem;">{{ w }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</section>

@@ -36,6 +36,12 @@ SCHEMAS_DIR = Path("data") / "_schemas"
 
 PROPOSAL_SCHEMA_FILE = SCHEMAS_DIR / "proposal-v1.json"
 
+TEMPLATES_HTML_DIR = Path("templates") / "proposal_modules"
+"""Templates Jinja2 del renderer HTML (S5): `_base.html`, `_placeholder.html` y
+un `{module_id}.html` por bloque. Versionado. Vive en la raíz del repo (NO bajo
+data/). Path relativo al cwd por coherencia con el resto del módulo; el renderer
+lo resuelve a absoluto contra la ubicación del paquete antes de pasarlo al loader."""
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Archivos NO versionados (data de cliente / operacional)
 # ─────────────────────────────────────────────────────────────────────────────
