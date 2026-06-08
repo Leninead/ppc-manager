@@ -647,3 +647,53 @@ Pendiente validación live en Campaign Manager.
 
 ### Deliverable
 `Setex_WoW_Report.html` — HTML dinámico ES/EN (no commiteado al repo).
+
+---
+
+## 2026-06-08 — Análisis 360° + 8 bulks (156 cambios)
+
+**Stack análisis:** STR 30d + SQP week+month + BR + Manage Inventory + BSE (5 fuentes).
+
+**Cruce M4 formal:** 237 intersección · 559 solo STR · 193 solo SQP. AGREGAR EXACT = **0 aprobados 7-checks** (4ta sesión consecutiva confirmando tesis cuenta cosechada estructural). FUNNEL BREAK formal = 21 queries / 2,800 SQV combined con PS 0% brand.
+
+**KPIs cuenta:** ACoS STR 30d 17.6% (bajo target 18% ✅) · TACoS 10.0% · Organic share 43% · 1mm = 64% ventas (52% orgánico) · B081GB8F89 99% orgánico (motor self-sustaining).
+
+**Bulks UUIDs:**
+- #1 Reactivar 20 Temple Capybaras → `2b136e1c-3be7-4c55-b26f-1df031bd430c`
+- #2 Pausar XG9J821 + bid down XG9J841 → `c592bf85-1e34-4c93-87af-c2e8b7604266`
+- #3 Pausar PA B09F7P8GBZ trip wire → `cd6458eb-96bd-4d74-bd19-656e48aaa541`
+- #4 Pausar 4 camps waste → `9f3d5d89-6a1d-4073-bbcc-a2e259fe5410`
+- #5 Bid UP +30% 8 heroes → `d7d1d6bc-e6cf-4006-be3f-ffaba756ac56`
+- #6 Bid DOWN −30% 4 degradados → `c7f5d20d-a995-47ad-bf8c-3d8935974080`
+- #7 Negativos quirúrgicos (4 KW × 28 camps = 111 filas) → `c80b93fe-bcb9-445f-83b1-e98b0e279324`
+- #8 Bid DOWN −40% 5 KW EN → `4dae9286-008a-4af0-b5c2-f1d37fae7b62`
+
+**Heroes bid up +30%:** `almohadillas para lentes` ($16.90→$21.97), `almohadillas nasales para lentes` ($15.72→$20.44), `gomas para lentes nariz` ($6→$7.80), `antiderrapante para lentes` ($8.45→$10.99), `gomas para lentes` ($12.96→$16.85), `antideslizante para lentes` ($10.50→$13.65), `setex nosepads` ($10→$13), `almohadillas antideslizantes para lentes` ($12→$15.60).
+
+**Degradados bid down −30%:** `almohadillas para lentes nariz` ($7→$4.90), `almohadillas de lentes nariz` ($7→$4.90), `gomas antideslizantes para lentes` ($13.10→$9.17). `sujetadores para lentes` THIN-PUSH bid down −20% ($6→$4.80) por estar borderline (ACoS 22% sobre target 18%).
+
+**Negativos creados (Campaign Negative Keyword negativeExact):**
+- `patitas para lentes` en AUTOs/PATs 1mm/Thin/UltraThin/Thick
+- `popsocket` en TODAS las non-brand (incluye Thumbstick antes de pausa)
+- `almohadillas para lentes oakley` en AUTOs/PATs 1mm/Thin/UltraThin/Thick
+- `sujetador de lentes` (singular) en AUTOs 1mm/UltraThin/Thick/Nano/EarHook → anti-canibalización vs EXACT THIN-PUSH plural
+
+**Camps pausadas (WASTE):** `Setex Ear Hook Grips | SQP | retenedores de lentes` (camp 232961850254770, $144 sin conv) · `Setex 1mm Nose Pads 15p Transp AUTO CLOSE` (270604897148142) · `Setex Thin PAT MATCH AA Rethan` (57369479396569) · `Setex Ultra Thin 5p Transp THIN-PUSH almohadillas para lentes nariz` (203735129297481, $67 sin conv del Bulk #9 12/05).
+
+**Findings WoW 03/06 validados:** F1 B081GB8F89 motor ✅, F2 corregido (BB 93.2% era B0BQ8GJFQH no B081), F3 B08C2T72ND CVR 17.3% 100% orgánico, F4 Ear Hook 87% paid-driven, F5 Thumbstick bleeders, F6 B086H3TZ6B restock OK (8u/30d), F7 B09F7P8GBZ trip wire 4u, F8 Temple recuperación orgánica 9u activó PENDIENTES_RESTOCK Bloque A.
+
+**Action items meet 03/06 respondidos:** Ear Hook "elepad" TACoS → 87% paid-driven + cluster funnel break (sin Tati no se puede progresar) · BuyBox B081GB8F89 → corregido, era B0BQ8GJFQH.
+
+**Flags Tati cerrados:** B086H3TZ6B + B0F63LTD92 stock.
+
+**Flags Tati abiertos (5):** B0DW9Z2H2W listing roto, B09F7P8GBZ trip wire OOS <7d, B08C2T72ND runway 14d (#2 catálogo orgánico), B0BT8HTGKM precio anómalo $672, B0BQ8GJFQH BB 96.1%.
+
+**Aprendizajes nuevos:**
+- 5 fuentes mínimas para 360° real (STR + SQP + BR + Inventory + BSE)
+- ACoS del BSE viene roto (recalcular desde Spend/Sales)
+- Patrón singular/plural en KW analysis (separar pre-bulk)
+- Thumbstick es problema de catálogo (508u parado, precio anómalo, 7 ASINs fantasma)
+- AGREGAR EXACT = 0 por 4ta sesión consecutiva (cuenta cosechada estructural)
+- Cruce M4 manual entrega calidad ≥ software M4
+
+**Próxima sesión:** D+7 (15/06) — evaluación impacto bid up heroes, decisión Ear Hook listing/A+, respuesta Tati 5 flags, BSE fresco pre-flight.

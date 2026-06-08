@@ -140,36 +140,66 @@ Devolveme un briefing de 4-6 bullets:
 
 > Se actualiza al cierre de cada sesión Setex vía `cierre-acotado`.
 
-Ultima sesion 2026-06-03: WoW desde export cliente (SETEX.xlsx), sin bulks.
-Cuenta sana WoW: Sales +17.8% / Units +20.5% / ACoS 16.8% (target 18%).
-B081GB8F89 = 75% de ventas. Reporte HTML bilingue generado (outputs Claude,
-no repo). 3 findings accionables pendientes de validacion live.
+Última sesión 2026-06-08: análisis 360° completo + 8 bulks ejecutados (156 cambios,
+todos Success). Cuenta dentro de target: ACoS 17.6% / TACoS 10.0% / Organic share 43%.
+1mm sigue siendo motor (64% ventas, 52% orgánico). B081GB8F89 = 39.5% catálogo BR
+con BB 99.6% y runway ~34d. Thumbstick XG9J821 pausada (era ACoS 122%), XG9J841 con
+bid down −50%. Temple Tips reactivadas (20 camps Capybaras, stock 141u combinado).
+Bid up +30% en 8 heroes confirmados. 111 negativos quirúrgicos creados (anti-
+canibalización + waste). Cruce M4: AGREGAR EXACT = 0 aprobados (4ta sesión
+consecutiva = cuenta cosechada estructural).
 
 ## Pendientes activos
 
 > Se actualiza al cierre vía `cierre-acotado`. Ordenar P0 → P3.
 
-**P0 — Validar live Campaign Manager + decidir:** (a) pausar/negativizar Thumbstick
-XG9J821 (ACoS 112%); (b) investigar BuyBox B0BQ8GJFQH 93.2% (precio/competidor).
+**P0 — Respuesta Tati a 5 flags abiertos:**
+- 🔴 B0DW9Z2H2W (Nano 15p Negros) listing roto — Missing offer + price $0
+- 🔴 B09F7P8GBZ (1mm 5p Azul) trip wire 4u — PA pausado preventivo, espera ETA
+- 🟡 B08C2T72ND (1mm 5p Negro) runway 14d — #2 catálogo 100% orgánico
+- 🚨 B0BT8HTGKM (Thumbstick funda PS5) precio anómalo $672 vs hermanos $262
+- 🟡 B0BQ8GJFQH (Thick 15p Transp) BB 96.1% persistente
 
-**P1 — Vigilar / evaluar:** B0F63LTD92 Ear Hook TACoS 21.4%; evaluar B08C2T72ND
-(ads -84% pero organico fuerte, CVR 19.35%).
+**P1 — Decisión Ear Hook B0F63LTD92 (action item meet 03/06):**
+Plan completo en sesión dedicada D+7. Decidir: invertir en variantes Ear Hook ES
+(listing/A+ adaptado al intent "soporte para lentes orejas") o bajar exposición
+controlada. Diagnóstico cerrado: 87% paid-driven + cluster funnel break SQP.
 
-**P2 — Atom11 v2026.3 Fase 1:** Neha sin responder desde 22/05. SBV B08PZF22R1
-owner Adam. Flags Tati abiertos.
+**P1 — Audit listing B081GB8F89 (cluster funnel break sistémico):**
+Cluster "sujetador/soporte/patitas/retenedores" = 2,800 SQV combined con PS 0% brand.
+Hipótesis confirmada: listing actual NO matchea intent "temple tip/patilla".
+Pendiente coordinación con Edu para audit de copy + bullets + A+.
+
+**P2 — Atom11 v2026.3 Fase 1:**
+Neha sin responder desde 22/05 (17 días). Pendiente: prefix STX + schedule Tue+Fri
+06:00 ART + timeline. Re-pinguear con resumen ejecutivo de optimización 360° hoy.
+
+**P2 — Categoría B08PZF22R1 + B09T7BF9TK (gotcha 26/05):**
+ASINs con categoría mal seteada. Depende de Tati / Seller Support.
+
+**P3 — Limpieza catálogo Thumbstick (508u parado, 7 ASINs fantasma):**
+Problema de catálogo, no de PPC. Coordinar con Tati ajustes precio o cierre SKUs.
 
 ## Bloqueos
 
-- Acción categoría B08PZF22R1 depende de Tati / Seller Support
-- Atom11 v2026.3 Fase 1: Neha sin responder desde 22/05 (prefix STX + schedule + timeline)
-- Tati: 4 flags abiertos previos (B09F7P8GBZ ETA, B0F63LTD92, B0C7WPFVGV listing tracción, B0DW9Z2H2W listing roto)
+- Decisión audit listing B081GB8F89 depende de Tati + Edu (cluster funnel break 2,800 SQV)
+- Decisión Ear Hook B0F63LTD92 depende de Tati (87% paid-driven, riesgo estructural)
+- Atom11 v2026.3 Fase 1 — Neha sin responder desde 22/05 (17 días)
+- B08PZF22R1 + B09T7BF9TK categoría — depende de Tati/Seller Support
+- 5 flags Tati abiertos (P0) requieren respuesta para varios next steps
 
 ## Próxima sesión propuesta
 
-Validacion live de findings WoW 03/06 + ejecucion. Pre-flight: BSE fresco +
-cruce Seller Central (B09F7P8GBZ trip wire 3u, B086H3TZ6B recovery, flags Tati).
-Bloque: confirmar Thumbstick XG9J821 / B0BQ8GJFQH / B08C2T72ND -> bulks si
-procede. Estimacion 60-90 min.
+D+7 (15/06/2026) — evaluación impacto bulks 08/06. Pre-flight obligatorio:
+BSE fresco + Manage Inventory live + respuesta Tati a 5 flags.
+
+**Foco esperado:** medir efecto bid up +30% en 8 heroes (esperar mejora ACoS hacia
+14-15% en KW escaladas), validar pausa Thumbstick (esperar caída TACoS familia
+de 56.8% a <20%), decisión Ear Hook (listing/A+ vs reducir exposición), decisión
+audit B081GB8F89 si Tati + Edu disponibles. Estimación 60–90 min.
+
+Si Tati no responde 5 flags antes del D+7, sesión se vuelve solo evaluación
+cuantitativa de bulks sin decisiones estratégicas nuevas.
 
 ## Historial de sesiones
 
@@ -180,6 +210,7 @@ procede. Estimacion 60-90 min.
 - 2026-05-25 — Hot Sale push táctico 6 bulks 100% Success (UUIDs registrados), cuenta 86→78 camps, flag B09F7P8GBZ stock 6u opción B, corrección diagnóstico listing EN, +8 bugs M4 acumulados para Ramiro. Ver [[daily/2026-05-25]]
 - 2026-06-03 — Analisis WoW desde export cliente + reporte HTML bilingue ES/EN,
   sin bulks. 3 findings a validar. [[daily/2026-06-03]]
+- 2026-06-08 — Análisis 360° completo + 8 bulks ejecutados (156 cambios) + cruce M4 formal (AGREGAR EXACT = 0 por 4ta sesión, tesis cuenta cosechada estructural confirmada). [[daily/2026-06-08]]
 
 ## Referencias cruzadas
 
