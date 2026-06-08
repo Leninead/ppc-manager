@@ -155,3 +155,27 @@ El arranque-{slug}.md puede ir en el mismo commit principal o en uno separado (`
 - Versionado = trazabilidad entre sesiones
 - Próximo chat lee directamente del repo, no depende de pegar prompt manualmente
 - Fuente única de verdad por marca
+
+## Walmart research — notes/walmart/
+
+Folder de research dedicado a Walmart (Marketplace Seller Central + Walmart Connect). Auditorías de plataforma para diseño futuro del módulo `walmart-manager` en Agency OS.
+
+Estado actual:
+- Sesión 1 (Seller Central): completa — ver `notes/walmart/seller-central-audit.md`
+- Sesión 2 (Walmart Connect): pendiente — ver `notes/walmart/open-questions-walmart-connect.md`
+- Sesión 3 (diseño módulo): pendiente — depende de sesión 2
+
+Archivos clave:
+- `notes/walmart/seller-central-audit.md` — sitemap, schemas (Account Health + LQS), URL map, plan remediación Pura Vida Moringa
+- `notes/walmart/spec-template-herbal-supplements.md` — schema técnico del template de bulk listings WFS, 131 cols
+- `notes/walmart/open-questions-walmart-connect.md` — backlog para sesión 2
+
+Cuenta de auditoría: Pura Vida Moringa (US Marketplace, 4 SKUs en WFS Pending Review). Evaluar si convertir el research en auditoría facturable para el cliente.
+
+Diferencia arquitectónica clave vs Amazon: Walmart usa multi-gate (5 gates secuenciales) en lugar de single-score ODR. El módulo Walmart NO debe portar el dashboard agregado de Amazon — debe modelar pipeline de validación secuencial con alerta al gate más temprano en rojo.
+
+Bug-traps conocidos:
+- Calendario fiscal Walmart (Q1=Feb-Apr, no Q1=Jan-Mar) — normalizar fechas en comparativas cross-platform.
+- OTD desglose accountable vs non-accountable — filtrar antes de calcular.
+- LQS Price Competitiveness excluye Walmart-funded incentives — cruzar reportes para PCS limpio.
+- Spec template versionado por Walmart — re-snapshot cuando bumpee.

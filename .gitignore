@@ -52,6 +52,8 @@ notes/*
 !notes/state/**
 !notes/daily/
 !notes/daily/**
+!notes/walmart/
+!notes/walmart/**
 !notes/personal/
 !notes/personal/**
 !notes/personal-projects-backup/
