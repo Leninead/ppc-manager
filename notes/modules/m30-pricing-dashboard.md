@@ -65,10 +65,34 @@ Misma condición de disparo (`fba_dos <= 30 && has_backup && total_dos > 30`). P
 | F3.1 (schema + persistencia) | ✅ APROBADO | 8d79e9e |
 | F3.2 (parsers + lookups) | ✅ CERRADO | cfaa83d→86afa4d (4 commits) |
 | F3.3 (scoring engine) | ✅ CERRADO | 84765f5→880967e (3 commits) |
-| F3.4 (UI tabs) | pendiente | — |
-| F3.5 (exports XLSX) | pendiente | — |
-| F3.6 (integración router) | pendiente | — |
+| F3.4 (UI tabs) | ✅ CERRADO | dceffc5→108fa8e (6 commits, C1-C4b) |
+| F3.5 (exports XLSX) | ✅ CERRADO | 1d420a4→12e7eb7 (3 commits, c1-c3) |
+| F3.6 (integración router) | ✅ CERRADO | 23cf6d8 |
+
+**BUILD 6/6 COMPLETO** — navegable en Account Health → `💲 Pricing Dashboard`.
 
 ## Branch
 
-`feature/m30-pricing-port` desde main 6223700. HEAD actual: 880967e.
+`feature/m30-pricing-port` desde main 6223700. HEAD actual: 12e7eb7 (pusheado).
+
+## F3.5 — Exports XLSX (cerrada 2026-06-08)
+
+**Discovery:** el HTML tenía 4 "exports" pero solo uno servía:
+- `exportResumen` — único real + wireado. Porteado **verbatim** (9 cols, hoja 'Pricing', orden por clasificación con `_RESUMEN_ORDER` incl. `awdfba` dead-key heredado, anchos `[26,14,11,11,11,11,13,14,11]`, defaults `||` vía `_js_truthy`, key real `suggestedPrice` camelCase).
+- `exportTracker` — definido pero **bloqueado**: depende de `RAW.tracker` (7º source no porteado). Feature aparte, fuera de M30.
+- `exportAllInOne` / `exportTable` — **fantasmas** (botones que llaman funciones inexistentes en el HTML). No se portean.
+
+**Scope real (Lenin):** `exportResumen` verbatim + 4 export-por-vista reconstruidos.
+
+**Helpers (puros, fuera de render, openpyxl→BytesIO):**
+- `_build_resumen_excel(resultados, snapshot_date) -> bytes`
+- `_build_vista_excel(df, sheet_name) -> bytes` (header=df.columns, sheet[:31], NaN→None, anchos max(12,len))
+
+**Wiring:** 5 `st.download_button` (1 resumen global + 4 por vista Principal/Liquidar/SinMargen/AIS), keys `m30_export_*`, `disabled` por `not resultados`/`df.empty`.
+
+**Desviación consciente:** filename `Gamboa_` (HTML) → `{cliente}_<Vista>_{fecha}.xlsx` (multi-cliente).
+
+**Commits:** `1d420a4` (c1) · `0755206` (c2) · `12e7eb7` (c3 menores reviewer). Tests: 16 passed. Reviewer: MERGE, 0 bloqueantes.
+
+## Deuda viva (fuera del build)
+**Builders awd/izzi `{sku: unidades}`** — port de izzi (hoja 'Inventario 2526', offset 2 filas, cols posicionales 0/5) + awd (filtrado filas metadata). Hasta entonces: tab AWD/FBA = panel pendiente, backup stock=0, restock PATH-37 inalcanzable. Flagueado en código y UI. Próxima sesión.

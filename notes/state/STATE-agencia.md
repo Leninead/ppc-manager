@@ -1,11 +1,27 @@
 ---
 tipo: state
-actualizado: 2026-06-04
+actualizado: 2026-06-08
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-06-08 (M30 Pricing Dashboard — F3.5 cerrada, BUILD 6/6)
+
+**Foco**: M30 Pricing Dashboard — F3.5 (exports XLSX), última fase del build.
+
+**Estado**: **BUILD 6/6 COMPLETO** (F3.1 schema · F3.2 parsers+lookups · F3.3 scoring · F3.4 UI C1-C4b · F3.5 exports · F3.6 router). Navegable en Account Health → `💲 Pricing Dashboard`.
+
+**Output** (`feature/m30-pricing-port`, pusheado, HEAD `12e7eb7`): `1d420a4` _build_resumen_excel (port verbatim exportResumen) + botón · `0755206` _build_vista_excel + 4 botones por vista · `12e7eb7` refactor menores reviewer. 16 tests verde. code-reviewer Opus 4.7 **MERGE, 0 bloqueantes**.
+
+**Discovery F3.5**: de los 4 "exports" del HTML, solo `exportResumen` era real+wireado; `exportTracker` bloqueado (depende de un 7º source no porteado); `exportAllInOne`/`exportTable` eran botones fantasma. Scope real = exportResumen verbatim + 4 export-por-vista reconstruidos. Desviación consciente: filename `Gamboa_`→`{cliente}`.
+
+**Learning operativo**: contención por concurrencia (pytest solapados + Defender post-kills) infló `import streamlit` de ~1.6s a 28min. Regla: UNA corrida pytest a la vez, no solapar, no relanzar sobre una en background.
+
+**Deuda viva (fuera del build)**: builders awd/izzi `{sku: unidades}` (restock PATH-37, panel awdfba) → próxima sesión.
 
 ---
 

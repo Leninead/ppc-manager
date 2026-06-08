@@ -2208,3 +2208,17 @@ Cierre funcional. Soak local de Marcos (~2 semanas) listo para arrancar una vez 
 - **Punto 5 — variantes (`csv_ids`) visibles en render por SKU:** requiere bump schema v1→v2 (se dropean en `_build_snapshot_df` L527-543). Diferido a schema-v2 + Supabase post-soak.
 - **HMAC `cookie.key` de 25 bytes** (<32 recomendado por RFC 7518) — regenerar en migración cloud/DPP. Warning no bloqueante.
 - **Docstring L6 de `sku_progress_report.py` menciona "Gamboa"** (atribución HTML original) — cosmético, no es UI. Limpiar con intención si se quiere 0 menciones.
+
+---
+
+## 📅 Sesión 2026-06-08 — M30 Pricing Dashboard: BUILD 6/6 COMPLETO (F3.5 exports cerrada)
+
+Módulo **💲 Pricing Dashboard** (Account Health) build completo y navegable. Port verbatim del HTML standalone del compañero a Streamlit, multi-cliente, persistencia vía `core.persistence`.
+
+**Fases (todas cerradas):** F3.1 schema+persistencia (`8d79e9e`) · F3.2 6 parsers + 3 lookups (`cfaa83d→86afa4d`) · F3.3 scoring engine (`84765f5→880967e`) · F3.4 UI tabs C1-C4b (`dceffc5→108fa8e`) · F3.5 exports XLSX (`1d420a4→12e7eb7`) · F3.6 router (`23cf6d8`). Branch `feature/m30-pricing-port` HEAD `12e7eb7` pusheado.
+
+**F3.5 (hoy):** `_build_resumen_excel` (port verbatim de `exportResumen`: 9 cols, hoja 'Pricing', `_js_truthy` para defaults `||`, key `suggestedPrice` camelCase) + `_build_vista_excel` (genérico) + 5 download_buttons (resumen global + 4 por vista). Discovery: de los 4 "exports" del HTML solo `exportResumen` era real; `exportTracker` bloqueado (7º source no porteado), `exportAllInOne`/`exportTable` fantasmas. Desviación consciente: filename `Gamboa_`→`{cliente}`. 16 tests verde, code-reviewer MERGE 0 bloqueantes.
+
+**Learning operativo:** correr UNA pytest a la vez (nunca solapar en background) — la contención + Defender infló `import streamlit` de ~1.6s a 28min.
+
+**Deuda viva (fuera del build):** builders awd/izzi `{sku: unidades}` (restock PATH-37, panel awdfba) → próxima sesión. Detalle en `notes/daily/2026-06-08.md` + `notes/modules/m30-pricing-dashboard.md`.
