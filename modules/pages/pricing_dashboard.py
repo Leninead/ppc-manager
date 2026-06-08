@@ -56,6 +56,13 @@ from core.persistence import (
     _validate_against_schema,
 )
 
+try:
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+    _HAS_OPENPYXL = True
+except ImportError:
+    _HAS_OPENPYXL = False
+
 
 # =====================================================================
 # Catálogo built-in de clientes (display → slug)
@@ -1408,6 +1415,65 @@ def _importar_historico_json(data: bytes, cliente: str) -> int:
     return len(prepared)
 
 
+# =====================================================================
+# F3.5 — Exports XLSX (openpyxl; el HTML usaba SheetJS XLSX.writeFile)
+# =====================================================================
+# BLOQUE A — port verbatim de exportResumen (HTML L2013-2046).
+_RESUMEN_STATUS_LABEL = {
+    "bajar": "Bajar Precio",
+    "subir": "Subir Precio",
+    "liquidar": "Liquidar",
+    "mantener": "Mantener",
+    "awdfba": "AWD→FBA",
+}
+# awdfba es dead key (ningún record tiene classification=='awdfba'); se hereda verbatim.
+_RESUMEN_ORDER = {"bajar": 1, "subir": 2, "liquidar": 3, "awdfba": 4, "mantener": 5}
+_RESUMEN_HEADERS = [
+    "SKU", "Status", "Stock FBA", "Stock AWD", "Stock IZZI",
+    "Stock Total", "Precio Actual", "Precio Sugerido", "Ventas T7",
+]
+_RESUMEN_WIDTHS = [26, 14, 11, 11, 11, 11, 13, 14, 11]
+
+
+def _build_resumen_excel(resultados: list[dict], snapshot_date: str) -> bytes:
+    """Port verbatim de exportResumen (HTML L2013-2046). PURO, fuera de render().
+
+    Todos los SKUs (no una vista), ordenados por clasificación (_RESUMEN_ORDER),
+    9 columnas fijas, 1 hoja 'Pricing', anchos verbatim, sin estilos. `snapshot_date`
+    es parte de la firma (el filename lo arma render); el HTML no lo mete en la hoja.
+    Defaults `|| 0` / `|| ''` replicados con _js_truthy (la verdad de JS para `a||b`).
+    """
+    if not _HAS_OPENPYXL:
+        raise RuntimeError("openpyxl no disponible")
+    ordered = sorted(resultados, key=lambda r: _RESUMEN_ORDER.get(r.get("classification"), 5))
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pricing"
+    for j, h in enumerate(_RESUMEN_HEADERS, start=1):
+        ws.cell(row=1, column=j, value=h)
+    for i, r in enumerate(ordered, start=2):
+        c = r.get("classification")
+        status = _RESUMEN_STATUS_LABEL.get(c) or (c if _js_truthy(c) else "")
+        vals = [
+            r.get("sku") if _js_truthy(r.get("sku")) else "",
+            status,
+            r.get("fba_available") if _js_truthy(r.get("fba_available")) else 0,
+            r.get("awd_available") if _js_truthy(r.get("awd_available")) else 0,
+            r.get("izzi_available") if _js_truthy(r.get("izzi_available")) else 0,
+            r.get("total_stock") if _js_truthy(r.get("total_stock")) else 0,
+            r.get("price") if _js_truthy(r.get("price")) else "",
+            r.get("suggestedPrice") if _js_truthy(r.get("suggestedPrice")) else "",
+            r.get("t7") if _js_truthy(r.get("t7")) else 0,
+        ]
+        for j, v in enumerate(vals, start=1):
+            ws.cell(row=i, column=j, value=v)
+    for j, w in enumerate(_RESUMEN_WIDTHS, start=1):
+        ws.column_dimensions[get_column_letter(j)].width = w
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def render() -> None:
     """Entry point del Pricing Dashboard (M30) — sección Account Health.
 
@@ -1487,6 +1553,18 @@ def render() -> None:
         return
 
     df = _resultados_to_df(resultados)
+
+    # Export global (todos los SKUs) — header arriba de las tabs (port de exportResumen).
+    _fecha = (resultados[0].get("snapshot_date") if resultados else None) or date.today().isoformat()
+    st.download_button(
+        "⬇ SKU / Status / Stock",
+        data=_build_resumen_excel(resultados, _fecha),
+        file_name=f"{cliente}_SKU_Status_Stock_{_fecha}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        disabled=not resultados,
+        key="m30_export_resumen",
+    )
+
     tabs = st.tabs(
         ["Resumen", "Principal", "AWD/FBA", "Liquidar", "Sin Margen", "AIS", "Histórico"]
     )
