@@ -25,6 +25,26 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
+### Última sesión — 2026-06-08 (Dermaglos PPC — 360° + 9 bulks F8)
+
+Análisis 360° manual (2da ejecución del SOP-360, [[sop-analisis-360]] v1.1). 5 inputs (STR 415 rows · SQP mensual 804q + W23 237q · BR 10 ASINs · MAI · BSE 5,670 filas). Cruce 3-vías STR×SQP×BSE = 1,211 queries / 9 buckets.
+
+**KPIs**: ACoS **64.3%** (↑ vs 58% 08/05, 56.3% 28/04 — subiendo) · TACoS 17.2% · paid share 27% · Brand IS 0.10% (cayendo).
+
+**Hallazgo principal**: listing roto REAL es **B0CYK4G2Y8** (Facial Cleanser, CVR 6.94%), NO B0CYLMJJJC. B0CYLM4L23 Body Lotion = ganador ROAS 10× (budget subido). Canibalización brand resuelta (Cream Defensive $5.25→$1.50).
+
+**9 bulks F8 ejecutados** (B1–B9, todos Amazon Success 17:25–17:28 ART): bid downs · 14 negatives · 16 zombies pausadas · budget up B0CYLDSQ5L + B0CYLM4L23 · pausa AUTO canónica B0CYLMJJJC (ACoS 171%) · grad Exact `vitamin e lotion for scars` · 2 camps nuevas (Night Cluster B0CYL1RLNQ $15/d + Serum Cluster B0CYKDSDJX $5/d) + 3 Exacts spanish/moisturizing.
+
+**5 P0 a Edu**: B0CYK4G2Y8 listing roto · B0F6VZMF2V delisting (confirmar) · pricing Hyaluronic $18.89→$14.99 · calendario sales cliente (5 ASINs) · B0F4KXZVNM 38u unfulfillable.
+
+**Decisiones senior**: Hipoglos → pausa permanente, relanzar 60–90d post-listing fix + bullet "Hipoglos alternative". Cleansing Gel Brand → paused a pedido del cliente, no tocar.
+
+**Diferido**: Bulk 9 PAT competitor → sesión propia post-revisión histórico 5 PATs paused (B07PV4RRXD / B0C9JWWTH9).
+
+**Próxima evaluación Dermaglos**: 2026-06-15 (D+7). Detalle en [[daily/2026-06-08]] + [[DERMAGLOS]] sección 2026-06-08.
+
+---
+
 ### Última sesión — 2026-06-04 (LTD pull-back inventario)
 
 Directiva de Aaron (LTD): restock congelado (inbound 0 cuenta completa), frenar ads en
@@ -965,7 +985,7 @@ Detalle completo en `daily/2026-05-08.md`.
 
 | Cliente | Mercado | ACoS cuenta | Focus Q2 | Bloqueo principal | Brand note |
 |---|---|---|---|---|---|
-| Dermaglos | Amazon USA 🇺🇸 | 58.0% (↓ de 76.1%) | Meta ≤55%, escalar vitamin A + allantoin + tattoo ES | Rufus analysis 4 heroes + confirmación equipo Atom11 ejecutó entregable | [[DERMAGLOS]] · [[DERMAGLOS_DATA]] · [[atom11-rules]] |
+| Dermaglos | Amazon USA 🇺🇸 | 64.3% (↑ de 58.0%, 360° 08/06) | Meta ≤55%, cortar canibalización B0CYLMJJJC (58 camps) + escalar Body Lotion ROAS 10× + listing fix B0CYK4G2Y8 | 5 P0 a Edu: B0CYK4G2Y8 listing roto · B0F6VZMF2V delisting · pricing Hyaluronic $18.89→$14.99 · calendario sales cliente · B0F4KXZVNM 38u unfulfillable | [[DERMAGLOS]] · [[DERMAGLOS_DATA]] · [[atom11-rules]] |
 | Mott & Bow | Amazon US 🇺🇸 | 10.6% TW (26 abr-2 may, sano) | Full-Funnel Women — Fase 2 en espera del cliente (SBV White Tee + SP Exact Premium Cotton) · transición de owner a Cuki 2026-05-11 | Video creativo + Brand Store Women — espera respuesta cliente para lanzar Fase 2 | [[MB]] |
 | Love To Dream | Amazon MX 🇲🇽 | 15.4% paid · TACoS 10.8% ✅ target | Post-bulks 02/06 — recovery $6K/mes · escalado +$810/d · próx: monitoreo 48-72h + fix M4 viernes | B005ULUZIQ BB 83% (flag 16/04) · 5 INACTIVE_BLOCKED (B0BKB7CJFQ 23u recuperable) · B09MG1J3LC missing del catálogo | [[LTD]] |
 | Setex Technologies | Amazon MX 🇲🇽 | 20.5% (↓ proyectado 16-17% post-bulks 12/05) | 🏆 Best Seller badge B081GB8F89 (lock-in) + push estratégico familia Thin (B0F3PSP82K, 1839u) — 5 EXACT nuevas SKU XG9G515 +$145/d · 154 negativos cross-camp anti-canibalización · pausa preventiva B086H3TZ6B (1u, 19 ads) | 4 urgencias Tati Slack 12/05: B086H3TZ6B 1u · B0F63LTD92 1u · Temple Tips OOS · audit listing EN B081GB8F89 (PS 0% queries anglo) | [[setex]] · [[PENDIENTES_RESTOCK]] |

@@ -546,3 +546,51 @@ Marketplace confirmado: **Amazon.com (USA)**, NO MX como estaba documentado prev
 - ⏳ Listing fix B0CYLMJJJC asumido 30+ días, mitigation con bid down ya implementado
 
 Detalle completo de bulks ejecutados, findings y métricas en [[daily/2026-05-08]] (sección "Sesión 2026-05-08 (Dermaglos PPC) — Deep optimization").
+
+## 2026-06-08 — Análisis 360° (2da ejecución SOP)
+
+> Detalle de sesión y bulks en [[daily/2026-06-08]] (sección "Dermaglos US — Análisis 360° + F8 9 bulks ejecutados"). SOP formal: [[sop-analisis-360]] v1.1.
+
+### Performance 30d (08/05 → 07/06)
+- Paid spend $1,325 · Paid sales $2,060 · **ACoS 64.3%** · TACoS 17.2%
+- BR sales totales $7,586 · paid share 27%
+
+### Estructura de campañas
+- 268 SP camps mapeadas (69 enabled · 187 paused · 12 archived)
+- **B0CYLMJJJC fragmentado en 58 camps** (canibalización sistémica)
+- 12 camps DG sin portfolio (10 enabled $203/d + 2 paused). Pendiente F1 del 28/04 "asignar portfolio" sigue abierto 41 días
+
+### Performance por ASIN
+- **B0CYLM4L23** Body Lotion = ganador **ROAS 10×** → budget subido $40→$50
+- **B0CYKDSDJX** Hyaluronic = pricing kill (+58% caro) → P0 pricing $18.89→$14.99
+- **B0CYL1RLNQ** Ultra Night = 54% paid share, no escalable
+- **B0CYK4G2Y8** Facial Cleanser = **listing roto REAL** (CVR 6.94%), no B0CYLMJJJC
+- **B0F548KTXD** = recuperado (sale del monitor)
+- **B0F6VZMF2V** = delisted (confirmar con Edu)
+- **B0F4KXZVNM** = 38u unfulfillable (riesgo)
+
+### Sales unilaterales del cliente (detectados en MAI)
+Micellar −51% · Body Cream −25% · Facial Cleanser −25% · Ultra Night −13% · Hyaluronic −9%
+
+### Cross-negation — gaps cubiertos
+- `hyaluronic acid` (cero negativos en cuenta hasta hoy)
+- typos `vitamin e`: `vitamin. e cream` / `vitamin e cream` (variante con char invisible)
+
+### Canibalización brand cuantificada
+- `dermaglos` Exact con bid $5.25 en Cream Defensive vs $1.17 en Body Lotion (el ganador ROAS 10×)
+- **Resuelto** bajando Cream Defensive a $1.50
+
+### Camps nuevas
+- **DG Night Cluster** (B0CYL1RLNQ) — 4 KW Exact, $15/d
+- **DG Serum Cluster** (B0CYKDSDJX) — `serum b5` Exact, $5/d
+- Total nuevo budget activo: $20/d
+
+### Decisiones senior
+- **Hipoglos:** pausa permanente (relanzar 60–90d post-listing fix + bullet "Hipoglos alternative"). Cambia el status de la Conquest creada el 28/04.
+- **Cleansing Gel Brand:** paused a pedido del cliente — no tocar.
+
+### Bulks ejecutados
+9 bulks F8 (B1–B9), todos Amazon Success 17:25–17:28 ART. Tabla detallada en [[daily/2026-06-08]].
+
+### Diferido
+- Bulk 9 PAT competitor → sesión propia (revisar histórico 5 PATs paused B07PV4RRXD / B0C9JWWTH9 antes de reactivar).
