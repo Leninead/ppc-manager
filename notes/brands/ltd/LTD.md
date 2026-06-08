@@ -917,3 +917,31 @@ campañas por-ASIN. Directivas de inventario ⇒ nivel Product Ad.
 monitor TIB 48–72h.
 
 **Deliverables (no en repo):** Love_To_Dream_WoW.html · LTD_bulk_pullback_2026-06-04.xlsx
+
+---
+
+## Sesión 2026-06-08 — Análisis 360° + 5 bulks (recovery ~$5K + 3 EXACT)
+
+**Contexto:** primera 360° manual completa en chat (software M4 con 10 bugs, fix pendiente). 6 fuentes cruzadas + matriz STR×SQP formal (5 buckets).
+
+**Diagnóstico:** cuenta saludable, Sales +12.4%, TACoS 9.4% under target. Orgánico absorbiendo el slack del pull-back 04/06. Heroes en expansión (8 nuevos en top 20). 84% spend en 4 cajones catálogo-completo (confirmado).
+
+**Matriz STR×SQP (non-brand):**
+- Q1 Doble Ganador: 9 queries, 23% spend → $34.5K sales. Las 4 EXACT del plan validadas como Q1.
+- Q2a STR convierte (own ASINs): ROAS 15.4x — NO negativar (regla anti-bug M4).
+- Q3 sagrado: 6 KWs confirmadas (sleep sack baby, baby swaddle, etc.).
+- Q4 Doble Perdedor: 315 queries, $5.4K waste → negativos.
+
+**EXACT nuevas creadas (live 09/06):**
+- costalito para dormir bebe — $5.50, heroes 0-3M (B0F8P9GBZN, B0F8PCWD6J, B0CK2KCBLS, B0CLCBQQN2)
+- swaddle bebe — $5.00, mismos heroes
+- saco de dormir bebe 0.5 tog — $4.50, overstock (B0081GJ038, B0081GIZ52)
+
+**SKIPs por verificación anti-duplicado:**
+- "swaddle para bebe" EXACT — canibalizaría "swaddle para bebe 0-3" (SU-NB, ROAS 3.54x). En su lugar reactivada Phrase histórica (swaddle v2).
+- "saco para dormir bebe" EXACT — ya existe en 6 camps. Bid up SU-612M en su lugar.
+- "sleeping bag niña/niños" — CVR L31 0.8-1.8% + campaña existente $58/$0. Pausada la existente.
+
+**Heroes oficiales actualizados (top, BR 30d):** B0F8P9GBZN ($42K), B09MG1PM6L ($40K, runway 3.7 sem ⚠️), B0F8PCWD6J ($26K +28.6%), B0081GIZ52 ($16K +33.3%), B0F8PB4NHX ($21K thin). Línea L31 sleeping bag validada como stock (85u) pero NO como destino spend.
+
+**Flags abiertos:** B005ULUZIQ (competidor desapareció, monitor), patrón competidor -20% (7 ASINs, escalación Adam), B0BKB7CJFQ (23u unfulfillable + Inactive 01/06), B09MG1J3LC (missing catálogo).

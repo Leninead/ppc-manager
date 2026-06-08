@@ -999,21 +999,16 @@ Detalle completo en `daily/2026-05-08.md`.
 ## LTD (Love To Dream) — MX
 
 - **AM**: Agustín | **Escalación**: Adam (Sales Director), Aaron (compliance)
-- **Estado**: post-bulks 02/06/2026 — recovery $6K/mes aplicado, escalado en marcha
-- **Última sesión**: 2026-06-02 ([[daily/2026-06-02]] · [[brands/ltd/LTD]])
-- **Próxima acción**: monitorear TimeInBudget 48-72h post-escalado, sesión fix M4 viernes con Marcos/Ramiro
+- **Estado**: saludable post 360° 08/06 — Sales +12.4%, TACoS 9.4% (under target Junio 10-12%). 3 EXACT nuevas live 09/06.
+- **Última sesión**: 2026-06-08 — Análisis 360° manual + 5 bulks (SB Success, SP 154/172) ([[daily/2026-06-08]] · [[brands/ltd/LTD]])
+- **Próxima acción**: monitor 3 EXACT nuevas 48-72h post 09/06 · budget CATEGORY DISCOVERY $525→$625 post-restock · auditoría tog 0.5 (35 KWs) con fix M4
 - **Heroes count**: 35 (actualizado de 10, ver brands/ltd/LTD.md sección 🦸 Heroes oficiales canónico)
-- **KPIs cuenta**: TACoS real 10.8% (en target Junio 10-12%), ACoS paid 15.4%, Sales total 30d $308K
-- **Stock alerts** (mandado a Agustín 02/06):
-  - B0F8PB4NHX (OAT M) — 2.8 sem runway, hero $17K/mes
-  - B09S14W4SS (WHT M Trans) — 3 sem runway, $11K/mes
-  - B0088HVGHS — OOS confirmado, ads pausados
+- **Stock alerts** (a Agustín): B09MG1PM6L (hero #2, runway 3.7 sem, 0 inbound) · B0DJSF2N6P (6.2 sem) · B09S14W4SS (1.5 sem). Inbound 0 cuenta completa.
 - **Bloqueos pendientes**:
-  - B005ULUZIQ BuyBox 83% (flag 16/04 sin resolver, competidor con precio menor)
-  - 5 ASINs INACTIVE_BLOCKED (B0BKB7CJFQ tiene 23u stock recuperable — alta prioridad)
+  - B005ULUZIQ BuyBox 86% subiendo — competidor -20% desapareció, monitor 7-14d antes de reactivar ad groups
+  - Patrón competidor -20% en 7 ASINs (gray market/MAP) — escalación Adam (no PPC)
+  - B0BKB7CJFQ 23u UNFULFILLABLE + Inactive desde 01/06 — revisión bloqueo + recovery
   - B09MG1J3LC missing del catálogo (esperando confirmación Agustín)
-- **Bulks 02/06**: 4 aplicados (Pausas 7 ✅ / Budget +$810/d ✅ / NegKW 33 ✅ / NegPT 16 nuevos + 16 dupes Amazon ⚠️)
-- **Pendientes arrastrados (de sesión 05-20, no cerrados)**: validar ASINs MX para 3 PAT pausadas (Halo, Swaddelini, Kyte Baby) · B09MG2CVCR SBV PROBLEM sin owner
 
 ## API Integration — SPP Case · 20/05/2026
 **Status**: SUBMITTED · esperando review Amazon

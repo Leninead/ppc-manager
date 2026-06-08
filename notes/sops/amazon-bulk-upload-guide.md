@@ -1,6 +1,6 @@
 ---
 tipo: sop
-actualizado: 2026-04-28
+actualizado: 2026-06-08
 ambito: agency-wide
 ---
 
@@ -262,3 +262,19 @@ Si AUTO captura a ACoS <10%, **NO crear EXACT** — solo escalar AUTO budget.
 
 ### Bulks M4 ahora ejecutables (commit b2763cb)
 El Plan de Acción bulk de M4 dejó de ser inejecutable: Max Bid calculado (CVR × precio × target ACoS), Match Type variable por acción (ESCALAR→exact, AGREGAR→phrase, DEFENDER→exact), contrato con M10 Campaign Builder preservado (4 columnas inmutables). **Verificar `target_acos` antes de descargar el bulk** (default 35, ajustar según cliente: Setex 18, Dermaglos 50, LTD 35) — un target más estricto reduce las filas ESCALAR y baja el Max Bid calculado.
+
+---
+
+## Learnings 2026-06-08
+
+### #1 — Sites column opcional / "amazon.com.mx" inválido
+Para Campaign Create, el valor `"amazon.com.mx"` en columna Sites es RECHAZADO por Amazon. Las campañas del cliente lo tienen vacío (NaN). El marketplace ya está implícito desde la seller account. REGLA: dejar Sites vacío en Create.
+
+### #2 — "Negative Product Targeting" es ad-group-level
+Entity "Negative Product Targeting" REQUIERE Ad Group ID (es ad-group-level). NO existe "Campaign Negative Product Targeting". Para cobertura campaign-wide de un ASIN competidor hay que crearlo en cada ad group. EN CONTRASTE: "Campaign Negative Keyword" SÍ es campaign-level y NO requiere Ad Group ID.
+
+### #3 — Verificar negativos PRE-EXISTENTES antes de CREATE
+La verificación anti-duplicado debe incluir entities `Negative Product Targeting` + `Campaign Negative Keyword` existentes (no solo KWs positivas). CATEGORY DISCOVERY tenía 48 neg PT preexistentes → 18 errores "already exists" en el upload (benignos, CREATE es row-by-row y aplica el resto, pero ensucian el reporte). REGLA: cross-check pre-bulk debe extraer neg PT/KW existentes por ad group y excluir duplicados del CREATE.
+
+### #4 — CREATE row-by-row confirmado
+Upload con 18 errores sobre 172 filas → 154 aplicados igual. El header "Failed" del upload NO significa rollback: significa que el archivo tuvo ≥1 error. Los records exitosos SÍ se aplican (CREATE row-by-row). Verificar siempre "Number of records successful" en el reporte, no el header.
