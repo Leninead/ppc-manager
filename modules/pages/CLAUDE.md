@@ -936,3 +936,40 @@ Trigger de promoción a `core/persistence.py`: si aparece un 2do módulo Account
 - ❌ NO portar el CSS dark del HTML — el Agency OS es light theme.
 - ❌ NO mezclar lógica I/O en `render()` — pasar todo por `_save_snapshot`/`_append_log`/`_rebuild_history` después de la acción del usuario.
 
+
+---
+
+## M30 — Pricing Dashboard
+**Archivo:** modules/pages/pricing_dashboard.py
+**Sección sidebar:** Account Health (label `💲 Pricing Dashboard`)
+**Session state prefix:** m30_ (m30_resultados, m30_aviso_backup, m30_filtros)
+**Fuente:** porteado de `.claude/porting-sources/pricing-dashboard.html` (Caso 2, port verbatim)
+**Schema:** `data/_schemas/pricing-dashboard-v1.json` (47 col, 21 required, primary_key sku)
+**Persistencia:** `data/account-health/<cliente>/pricing-dashboard/<YYYY-MM-DD>.parquet` + config `data/account-health/pricing-dashboard/<cliente>-v1.json`
+
+### Propósito
+Scoring de pricing semanal por SKU: clasifica cada SKU en bajar / subir / liquidar / mantener con precio sugerido y rationale, cruzando FBA inventory + fees + P&L (COGS) + maestro de productos. Espejo fiel del HTML standalone del compañero.
+
+### Arquitectura (F3.1–F3.6)
+- **F3.1** schema v1 + test persistencia. **F3.2** 6 parsers (`_parse_fba/_fee/_awd/_pl/_maestro/_izzi`, bytes→DataFrame, `@st.cache_data`) + 3 lookups (`_build_cogs/_fee/_maestro_lookup`). **F3.3** scoring (`_compute_ais`, `_compute_score` 20+ reglas umbrales asimétricos, `_enrich_record`, `_run_analysis`). **F3.4** UI: render() + selector cliente + 6 uploaders + `st.tabs` (Resumen/Principal/AWD-FBA/Liquidar/Sin Margen/AIS/Histórico) + styler + filtros + persistencia/import JSON. **F3.6** integración router.
+- **Config per-cliente** vía `core.persistence._save_config/_load_config` (`_load_or_seed_config` seedea SUBCAT_FEE_AVG verbatim del HTML la primera vez; NUNCA persiste current_month).
+- **Snapshots/histórico** vía `core.persistence` verbatim (`_save_snapshot/_load_history/_list_periods/_rebuild_history/_validate_against_schema`). `_build_snapshot_df` mapea record_key→schema_col (los nombres DIFIEREN: Modelo→modelo, fulfillment_fee→ff, suggestedPrice→suggested_price, reasons_* list→JSON string, etc.) y coacciona dtypes a las 47 col exactas.
+- **Import JSON** (`_importar_historico_json`): array `{date, skus:{...}}` del HTML; 2-pasadas (build+valida todo en memoria, recién después persiste + rebuild) → all-or-nothing.
+
+### Reglas de negocio (porteadas literal del HTML)
+- **Umbrales asimétricos**: `score <= -50` → bajar; `score >= 20` → subir; is_liquidar PRECEDE a la clasificación por score.
+- **Bug 30-vs-37 (heredado, NO arreglar)**: `_enrich_record` setea restock con PATH-37 (`round(daily_rate*37)`, msg "a FBA desde"); el PATH-30 de `_compute_score` (`*30`, "desde", guard `not restock_alert`) queda dead-code.
+- **Rounding**: `_round_half_up` (=floor(x+0.5)) replica `Math.round` (NO `round()` nativo). `_to_fixed`/`_js_num` para strings.
+- **Separador CSV** autodetectado (;/, en primera línea) + utf-8-sig; NO replica el parseCSV custom del HTML (trim/descarte <2 campos) — divergencia conocida congelada en `TestCsvDivergenciasHTML`.
+- **current_month** desde config (fallback `date.today().month`) para isOffSeason determinístico.
+
+### Deuda / gaps conocidos
+- **AWD/Izzi sin builder**: `_parse_awd/_parse_izzi` devuelven DataFrame crudo; no hay builder df→lookup `{sku: unidades}`. La tab AWD/FBA es un panel pendiente (`st.warning`), backup stock = 0. Diferido (F3.2→F3.3 nunca lo construyó).
+- **F3.5 (export XLSX) pendiente**.
+
+### Anti-patterns / reglas
+- ❌ NO tocar parsers/lookups/scoring de F3.2-F3.3 (cerrados, reviewer-aprobados).
+- ❌ NO crear helpers de persistencia nuevos — todo I/O via `core.persistence` verbatim.
+- ❌ NO normalizar strings de Amazon ('Excess','Invierno'...) — verbatim.
+- ❌ NO usar `round()` nativo donde el HTML usa `Math.round` — usar `_round_half_up`.
+- ❌ NO persistir current_month en el config.
