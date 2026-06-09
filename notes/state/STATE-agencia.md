@@ -87,19 +87,19 @@ Detalle en `daily/2026-06-03.md` y `modules/m30-pricing-dashboard.md`.
 _compute_score · `880967e` _enrich_record+_run_analysis. HEAD 880967e. code-reviewer MERGE 9.5/10,
 0 bloqueantes. Estado M30: **3/6 fases de build cerradas**. Falta F3.4 (UI) + F3.5+F3.6. Ship viernes intacto.
 
-### Frente M29-S6 — Proposal Studio: export PDF (branch `feature/m29-renderer-s5`)
+### Frente M29 — Proposal Studio: S5+S6 CERRADO, mergeado a main, deploy operativo
 
-**S6 (export PDF) cerrado del lado del código** — branch `feature/m29-renderer-s5`, 4 commits pusheados, **sin mergear a main** (merge va post-QA, viernes): `fdf2b35` pytest.ini testpaths · `66f104f` export PDF + sanitizado fonts/var · `9fe6b1f` requirements xhtml2pdf==0.2.17 · `a75fbf3` sanitizado letter-spacing em + flex chart V3. HEAD `a75fbf3`.
+**M29-S5/S6 CERRADO** — mergeado a main (`--no-ff`, `3a999ac`) y deploy operativo en **capybaras-os.streamlit.app**. HEAD de main: `2e50695`. Ciclo S5 (renderer HTML) + S6 (export PDF) completo.
 
-**Motor PDF: xhtml2pdf 0.2.17** — weasyprint descartado (dependencia GTK en Windows bloqueaba el setup local de Marcos).
+**Chart V3 (Dominación Page 1):** bug de barras invisibles en PDF resuelto con patrón **table-cell** (`9328d29`) — el `<div>` vacío con `height`+`background` colapsaba en xhtml2pdf/reportlab. Verificado con datos reales (barras proporcionales, cliente en `--accent`).
 
-**Arquitectura**: capa PDF separada en `core/proposal_pdf.py` (NO toca el renderer puro `core/proposal_renderer.py` ni los templates). `_sanitize_html_for_pdf` adapta el HTML a las limitaciones del motor — fonts remotas (Google Fonts → woff2 que reportlab no parsea), `var()` (CSS custom properties), `letter-spacing` en `em`, y el flex del header de barra del chart V3 — sin tocar el template: el HTML que el cliente ve en el browser queda intacto, solo se ajusta el que entra al motor PDF.
+**Fix deploy (`2e50695`):** Streamlit Cloud rompía con "Error installing requirements" — `xhtml2pdf` → `svglib 1.6.0` → `rlpycairo` → `pycairo` (no compila sin libcairo). Pin `svglib==1.5.0` (última pre-rlpycairo, satisface `>=1.2.1`) saca pycairo del grafo. Verificado en venv limpio (dry-run). De paso dedup `anthropic`/`python-dotenv`.
 
-**Suite**: 136 verde (135 + test del sanitizado).
+**Motor PDF: xhtml2pdf 0.2.17** — weasyprint descartado (dependencia GTK en Windows). Arquitectura: capa PDF separada en `core/proposal_pdf.py` (`_sanitize_html_for_pdf` adapta fonts remotas / `var()` / letter-spacing em / flex del chart) sin tocar el renderer puro ni los templates. **Suite 136 verde.**
 
-**Pendiente**: QA local con Marcos (jueves) + verificar que el chart V3 (barras CSS) aparece bien en el PDF con datos reales — hoy NO se pudo verificar (la inyección de datos de prueba no llegó al render por el overlay de transform del chart V3).
+**M29 LISTO para demo Ramiro.** Pendientes restantes son **post-demo** (no bloquean): (1) dato fuente del chart V3 (`page1_domination_chart_data` vacío en prod → importer B7 o carga manual); (2) persistencia efímera (propuestas untracked + FS efímero Cloud → no sobreviven redeploys; pendiente `SupabaseStorage`, capa abstracta lista); (3) contrato v2 Ramiro (desbloquea V5 asset gallery); (4) rediseño visual del template (color/tipografía Capybaras).
 
-Detalle en `daily/2026-06-03.md` (sección M29-S6).
+Detalle en `daily/2026-06-08.md` (sección "M29 — Cierre") y `prompts/sesion/features/arranque-m29.md`.
 
 ---
 

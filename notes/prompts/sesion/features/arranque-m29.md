@@ -174,9 +174,11 @@ Al final del bloque <background>, devolveme un briefing de 4-6 bullets:
 > Esta sección se actualiza automáticamente al cierre de cada sesión que toque
 > esta feature.
 
-**Último commit:** `a75fbf3` (branch `feature/m29-renderer-s5`, 4 commits sin mergear a main).
+**Último commit:** `2e50695` (branch `main` — M29 mergeado, deploy operativo).
 
-**Progreso:** S5 renderer HTML + S6 export PDF cerrados del lado del código. Suite 136 verde.
+**Branch:** `main` (M29-S5/S6 ya mergeado vía `3a999ac`; la branch `feature/m29-renderer-s5` queda como histórico).
+
+**Progreso:** S5 renderer HTML + S6 export PDF **CERRADOS y mergeados a main**. Deploy operativo en capybaras-os.streamlit.app. Suite 136 verde.
 
 **Motor PDF:** xhtml2pdf 0.2.17 (weasyprint descartado por dependencia GTK en Windows).
 
@@ -200,9 +202,9 @@ merge a main (viernes).
 - (ninguno)
 
 **P1 — alta:**
-- QA local con Marcos (jueves).
-- Verificar chart V3 en PDF con datos reales.
-- Merge `feature/m29-renderer-s5` a main (viernes, post-QA).
+- ✅ RESUELTO (08/06) — Chart V3 en PDF: fix patrón table-cell (`9328d29`), verificado con datos reales (barras 45/30/15/10, cliente en `--accent`).
+- ✅ RESUELTO (08/06) — Merge `feature/m29-renderer-s5` → main (`--no-ff`, `3a999ac`).
+- ✅ RESUELTO (08/06) — Deploy operativo en capybaras-os.streamlit.app (fix pin `svglib==1.5.0`, `2e50695`). Reemplaza el QA local con Marcos: verificación end-to-end hecha directo en el deploy.
 
 **P2 — media:**
 - [M27] `scripts/_scratch_M27/test_b5b_extract.py` con `sys.path.insert` hardcodeado —
@@ -213,7 +215,19 @@ merge a main (viernes).
 - `_sanitize_html_for_pdf` con regex frágil si cambia el template (fix futuro: variante
   print-friendly del template — toca S5).
 - "List@" F8 + nombres de equipo F7 visibles en PDF client-facing (decisión pendiente).
-- `requirements.txt` con `anthropic`/`python-dotenv` duplicados (preexistente).
+- ✅ RESUELTO (08/06) — `requirements.txt` `anthropic`/`python-dotenv` duplicados (deduplicado junto al pin svglib, `2e50695`).
+
+---
+
+## Pendientes post-demo (NO bloquean mañana)
+
+> Quedan para después de la demo con Ramiro. Ninguno bloquea que él entre al deploy y cree/testee una propuesta.
+
+- **Dato fuente del chart V3:** `page1_domination_chart_data` viene vacío en prod (todas las propuestas reales: `[]` o sin key). Se popula vía importer B7 (skills de Ramiro) o carga manual. Hoy solo se ve poblado inyectando data a mano.
+- **Persistencia efímera:** las propuestas son untracked + FS efímero en Streamlit Cloud → NO sobreviven redeploys/reinicios. Pendiente implementar `SupabaseStorage` (la capa abstracta `StorageBackend` ya está lista en `core/proposal_persistence.py`).
+- **Contrato v2 Ramiro:** desbloquea V5 (asset gallery).
+- **Rediseño visual del template:** color/tipografía Capybaras (sí van en PDF). NO animaciones (xhtml2pdf es estático, las ignora). Toca `_base.html` + templates → re-verificar PDF después.
+- **"List@" en F8 visible en PDF client-facing:** decisión de contenido pendiente.
 
 ---
 
@@ -246,6 +260,7 @@ merge a main.
 - 2026-05-25 — UI dispatcher B7 D1 discovery + D2 skeleton/preview cerrados (chat #1/4 multi-frente; incidente fantasma de edits + bug commit cross-frente documentados). [[2026-05-25]]
 - 2026-05-26 — D3+D4 mergeado a main (458fb4b) + DataDive mapper en branch (0aa5261, pendiente merge). E1→E5 cerrados, suite 95/95. [[2026-05-26]]
 - 2026-06-03 — S5 renderer cerrado + S6 export PDF (xhtml2pdf, 4 commits, suite 136). Bug de discovery (scratch M27) resuelto con pytest.ini. [[2026-06-03]]
+- 2026-06-08 — M29 mergeado a main (3a999ac) + deploy operativo. Chart V3 table-cell (9328d29). Fix deploy: pin svglib==1.5.0 evita pycairo en Cloud (2e50695). Verificado end-to-end en capybaras-os.streamlit.app. Listo para demo Ramiro. [[2026-06-08]]
 
 ---
 
