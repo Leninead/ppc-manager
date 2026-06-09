@@ -260,7 +260,7 @@ Payments            /payments/statements
 Performance         /performance/order-and-fulfillment
 Analytics           /analytics/overview
 Growth              /growth/success-hub
-Advertising         /advertising/home              [= Walmart Connect, sesión 2]
+Advertising         /advertising/home              [= Walmart Connect, sesión 2 — vive DENTRO de Seller Center]
 Reports             /reports/overview
 Apps                /apps/app-listings
 Settings (overlay)  /settings → /settings/account/personal-info
@@ -361,6 +361,14 @@ Apps store      /apps/app-listings
 Connected Apps  /apps/connected-apps   [URL inferida, a verificar]
 ```
 
+### Sub-secciones Advertising (Walmart Connect) — preview de sesión 2
+```
+Sponsored Search                /advertising/home                [vive dentro de Seller Center, NO en dominio aparte]
+Display and Brand Shop          [URL a confirmar sesión 2]
+Search Engine Marketing         [URL a confirmar sesión 2]
+Sales Rewards and Attribution   [URL a confirmar sesión 2]
+```
+
 ### Sub-secciones Settings (overlay)
 ```
 Account
@@ -406,7 +414,8 @@ Developer Portal       developer.walmart.com           [Marketplace API + Connec
 Marketplace Learn      [URL a verificar]               [Education]
 Support Hub            seller.walmart.com/supporthub/  [Cases]
 WFS Public Pricing     marketplace.walmart.com/walmart-fulfillment-services-pricing/
-Walmart Connect        advertising.walmart.com         [Sesión 2 del scan]
+Walmart Connect        seller.walmart.com/advertising/home   [vive dentro de Seller Center — corrección descubierta al cierre de sesión 1]
+                       advertising.walmart.com               [dominio público marketing, NO operativo]
 ```
 
 ## Próximos pasos

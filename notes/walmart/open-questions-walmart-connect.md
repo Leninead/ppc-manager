@@ -90,9 +90,23 @@ WFS Public Pricing Calculator. Releva cuando necesitemos modelar fees WFS vs FBA
 ### 18. brandportal.walmart.com
 Brand Portal — AR / ABO registration flow + brand assets management.
 
+## Hallazgo adicional al cierre de sesión 1
+
+Al finalizar la sesión 1, se abrió seller.walmart.com/advertising/home/ y se confirmó visualmente que Walmart Advertising vive DENTRO de Seller Center, no en el dominio separado advertising.walmart.com (que es el sitio público de marketing).
+
+Sub-secciones visibles del sidebar Walmart Advertising:
+- Sponsored Search
+- Display and Brand Shop  (probable equivalente a Sponsored Display + Brand Stores de Amazon)
+- Search Engine Marketing  (probable Walmart-funded SEM hacia walmart.com — feature distintiva, sin equivalente Amazon)
+- Sales Rewards and Attribution  (probable equivalente a Brand Referral Bonus de Amazon)
+
+Esto cambia el approach de sesión 2: NO abrir dominio separado, seguir en la misma sesión de Claude Chrome sobre seller.walmart.com con scan del /advertising/* tree.
+
+Estado de la cuenta auditada al ver Advertising: el landing muestra success stories de GreatStar (Sponsored Search) y Evenflo (Onsite Display) + recursos educativos. No quedó claro si la cuenta tiene Walmart Connect activado o si todavía es onboarding. A confirmar en sesión 2.
+
 ## Notas para arrancar sesión 2
 
-- Mega-prompt para Claude Chrome debe arrancar pidiendo navegación a `advertising.walmart.com` (NO a `seller.walmart.com/advertising/home` que es solo el link de entry).
+- Mega-prompt para Claude Chrome debe arrancar pidiendo navegación a `seller.walmart.com/advertising/home` (corrección de sesión 1: Walmart Advertising vive DENTRO de Seller Center). El dominio `advertising.walmart.com` es solo marketing público, no operativo.
 - Mantener el mismo modo "Ask before acting" para no tocar campaigns activas.
 - Si la cuenta auditada de Pura Vida Moringa no tiene Walmart Connect activado todavía (probable, dado que los SKUs siguen sin publicar), buscar acceso a otra cuenta para sesión 2. Sino, scan será de empty state otra vez.
 - Replicar pattern de captura: URL, sub-secciones, KPIs, columnas, formatos, schedulable.
