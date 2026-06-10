@@ -30,6 +30,7 @@ Reglas duras:
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -169,6 +170,154 @@ class LocalJsonStorage(ProposalStorage):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Supabase storage (Fase 2) — PostgREST vía requests (sin SDK)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PROPOSALS_TABLE = "proposals"
+_VOTES_TABLE = "proposal_votes"
+_VOTE_COLUMNS = ["id", "module_id", "voter_name", "voted_at", "proposal_id"]
+
+
+class _RequestsTransport:
+    """Transport HTTP por defecto sobre la API PostgREST de Supabase.
+
+    Aislado en su propia clase para que `SupabaseStorage` sea testeable sin red:
+    los tests inyectan un transport en memoria con la misma interfaz (get/post).
+    No se importa `requests` a nivel módulo (solo al instanciar) para no pagar el
+    import si el backend activo es el local.
+    """
+
+    def __init__(self, url: str, key: str):
+        import requests  # import diferido: solo si se usa el backend Supabase
+
+        self._requests = requests
+        self._base = url.rstrip("/") + "/rest/v1"
+        self._headers = {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+
+    def get(self, table: str, params: dict) -> list[dict]:
+        r = self._requests.get(
+            f"{self._base}/{table}", params=params, headers=self._headers, timeout=30
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def post(self, table: str, rows: list[dict], upsert: bool = False) -> list[dict]:
+        headers = dict(self._headers)
+        prefer = "return=representation"
+        if upsert:
+            prefer += ",resolution=merge-duplicates"
+        headers["Prefer"] = prefer
+        r = self._requests.post(
+            f"{self._base}/{table}", json=rows, headers=headers, timeout=30
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+class SupabaseStorage(ProposalStorage):
+    """Fase 2: persistencia en Supabase vía PostgREST (REST puro, sin SDK).
+
+    Esquema SQL (ejecutar una vez en el proyecto Supabase antes de wirear):
+
+        create table if not exists proposals (
+            id          text        not null,
+            version     integer     not null,
+            client_name text,
+            status      text,
+            archetype   text,
+            updated_at  text,
+            data        jsonb       not null,
+            primary key (id, version)
+        );
+        create index if not exists proposals_id_idx on proposals (id);
+
+        create table if not exists proposal_votes (
+            id          text        primary key,
+            module_id   text        not null,
+            voter_name  text,
+            voted_at    text,
+            proposal_id text
+        );
+
+    El JSON completo de la propuesta vive en `data` (jsonb); las columnas
+    client_name/status/archetype/updated_at se denormalizan solo para acelerar
+    filtros futuros (hoy `list_proposals` filtra en Python sobre `data`).
+
+    `transport` es inyectable (default: PostgREST sobre requests) → los tests
+    pasan un fake en memoria sin tocar la red.
+    """
+
+    def __init__(self, url: str = "", key: str = "", transport=None):
+        self._t = transport if transport is not None else _RequestsTransport(url, key)
+
+    # — Proposals —
+
+    def write_proposal(self, proposal: dict) -> str:
+        row = {
+            "id": proposal["id"],
+            "version": proposal["version"],
+            "client_name": proposal.get("client_name", ""),
+            "status": proposal.get("status", ""),
+            "archetype": proposal.get("archetype", ""),
+            "updated_at": proposal.get("updated_at", ""),
+            "data": proposal,
+        }
+        # upsert por PK (id, version): idempotente si se reintenta el mismo save.
+        self._t.post(_PROPOSALS_TABLE, [row], upsert=True)
+        return f"{proposal['id']}__v{proposal['version']}"
+
+    def read_proposal(self, proposal_id: str, version: int) -> dict | None:
+        rows = self._t.get(
+            _PROPOSALS_TABLE,
+            {
+                "id": f"eq.{proposal_id}",
+                "version": f"eq.{version}",
+                "select": "data",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return None
+        return rows[0]["data"]
+
+    def list_proposal_files(self) -> Iterable[dict]:
+        rows = self._t.get(_PROPOSALS_TABLE, {"select": "data"})
+        for r in rows:
+            data = r.get("data")
+            if data is not None:
+                yield data
+
+    def max_version_for(self, proposal_id: str) -> int:
+        rows = self._t.get(
+            _PROPOSALS_TABLE,
+            {
+                "id": f"eq.{proposal_id}",
+                "select": "version",
+                "order": "version.desc",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return 0
+        return int(rows[0]["version"])
+
+    # — Votes —
+
+    def append_vote(self, vote_row: dict) -> None:
+        self._t.post(_VOTES_TABLE, [vote_row])
+
+    def read_votes(self) -> pd.DataFrame:
+        rows = self._t.get(_VOTES_TABLE, {"select": "*"})
+        if not rows:
+            return pd.DataFrame(columns=_VOTE_COLUMNS)
+        return pd.DataFrame(rows)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Default storage selector
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -176,10 +325,34 @@ class LocalJsonStorage(ProposalStorage):
 _STORAGE: ProposalStorage | None = None
 
 
+def _storage_config() -> tuple[str, str] | None:
+    """Credenciales Supabase si están configuradas; None → backend local.
+
+    Orden: variables de entorno (SUPABASE_URL/SUPABASE_KEY) primero, luego
+    `st.secrets["supabase"]` (Streamlit Cloud). El acceso a st.secrets va con
+    import diferido + try/except para no romper fuera de un runtime Streamlit
+    (tests, scripts) ni acoplar este módulo a streamlit.
+    """
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    if url and key:
+        return url, key
+    try:
+        import streamlit as st
+
+        sb = st.secrets.get("supabase")
+        if sb and sb.get("url") and sb.get("key"):
+            return sb["url"], sb["key"]
+    except Exception:
+        pass
+    return None
+
+
 def _default_storage() -> ProposalStorage:
     global _STORAGE
     if _STORAGE is None:
-        _STORAGE = LocalJsonStorage()
+        cfg = _storage_config()
+        _STORAGE = SupabaseStorage(*cfg) if cfg else LocalJsonStorage()
     return _STORAGE
 
 
