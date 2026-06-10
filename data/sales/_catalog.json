@@ -182,8 +182,8 @@
       "frequency": 5,
       "title": {"en": "Assigned Team", "es": "Equipo Asignado"},
       "description": {
-        "en": "Core team assigned to the account (Account Manager, PPC Expert, Graphic Designer + optional Shopify Dev / Meta Ads Expert) plus cross-support team (Freddy, Guille, Ramiro always).",
-        "es": "Equipo core asignado a la cuenta (Account Manager, PPC Expert, Graphic Designer + opcionales Shopify Dev / Meta Ads Expert) y equipo de cross-support (Freddy, Guille, Ramiro siempre)."
+        "en": "Core team assigned to the account (Account Manager, PPC Expert, Graphic Designer + optional Shopify Dev / Meta Ads Expert) plus cross-support team (Freddy, Guille always).",
+        "es": "Equipo core asignado a la cuenta (Account Manager, PPC Expert, Graphic Designer + opcionales Shopify Dev / Meta Ads Expert) y equipo de cross-support (Freddy, Guille siempre)."
       },
       "schema": {
         "core_team": {
@@ -194,11 +194,10 @@
         "cross_support_team": {
           "dtype": "array<object>",
           "required": true,
-          "description": "Default: Freddy, Guille, Ramiro. Cada objeto: {name, role}",
+          "description": "Default: Freddy, Guille. Cada objeto: {name, role}",
           "default": [
             {"name": "Freddy", "role": "Strategic Director"},
-            {"name": "Guille", "role": "Operations Lead"},
-            {"name": "Ramiro", "role": "Tech & OS Lead"}
+            {"name": "Guille", "role": "Operations Lead"}
           ]
         }
       },

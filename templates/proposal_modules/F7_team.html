@@ -1,10 +1,14 @@
 <section class="block" data-module="{{ module_id }}">
   <h2 class="block-section-title">{{ title or module_id }}</h2>
 
-  <!-- TODO: contenido real pendiente de Lenin (core_team sin default en catálogo) -->
-  <p style="color: var(--text-muted); font-style: italic; margin: 0 0 1.1rem;">
-    {% if lang == 'en' %}Core team — content pending.{% else %}Equipo core — contenido pendiente.{% endif %}
-  </p>
+  {% if data.core_team %}
+  <h3 style="font-size: 1rem; margin: 0 0 0.5rem;">{% if lang == 'en' %}Core team{% else %}Equipo core{% endif %}</h3>
+  <table class="kv">
+    {% for member in data.core_team %}
+    <tr><th>{{ member.name }}</th><td>{{ member.role }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
 
   {% if data.cross_support_team %}
   <h3 style="font-size: 1rem; margin: 0 0 0.5rem;">{% if lang == 'en' %}Cross-support team{% else %}Equipo de soporte transversal{% endif %}</h3>
