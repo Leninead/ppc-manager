@@ -1,11 +1,29 @@
 ---
 tipo: state
-actualizado: 2026-06-08
+actualizado: 2026-06-10
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-06-10 (M29 pendientes post-demo)
+
+**M29-S5+S6 mergeado a main hace tiempo; hoy cierre de 2 pendientes post-demo. HEAD `d21870f`, pusheado.**
+
+- **Deuda #5 PDF client-facing CERRADA**: F8 sin "@" inclusivo (rama ES), F7 sin placeholder roto (bloque condicional core_team) + Ramiro fuera del cross_support default (`_catalog.json`, solo Freddy+Guille). Verificado en deploy capybaras-os.streamlit.app.
+- **Supabase: código + 10 tests listos, NO wired**. `SupabaseStorage` inline en `core/proposal_persistence.py` (REST/requests, NO supabase-py). Swap en `_default_storage()` con default local → cero regresión. `tests/test_proposal_supabase_storage.py` (requests mockeado). 2 tablas diseñadas (proposals + proposal_votes). **Wiring credenciales = viernes (pago plan)**: crear proyecto + URL/key en secrets + smoke real.
+- Suite 310 verde, 0 regresiones.
+- Commits: `9b68dc3` (Supabase) + `d21870f` (deuda #5).
+- venv local le faltaba xhtml2pdf (resuelto con pip install -r requirements.txt; no afecta deploy).
+
+**Pendientes M29 restantes**: rediseño visual del PDF (auto-contenido, ~3-4h) · datos chart V3 (importer B7/Ramiro) · galería V5 (contrato v2 Ramiro) · hidratado de bloques.
+
+**Plan migración Supabase proyecto completo**: prioridad Sales Director → Account Health → PPC. Patrón M29 replicable. ~1 semana arrancando viernes.
+
+Detalle en `daily/2026-06-10.md`.
 
 ---
 

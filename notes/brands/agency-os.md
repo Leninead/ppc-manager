@@ -443,3 +443,13 @@ Working tree de M27 quedó limpio respecto a archivos M29 al cierre del chat. `g
 | B6 UI Streamlit | ⏳ pendiente | — |
 
 Con B5-b cerrado, las 7 piezas de "knowledge extraction + data extraction" están listas. Falta solo B5-c (composición B5-b + B4b para traducción row-by-row) y B6 (UI). La parte difícil del módulo ya terminó.
+
+---
+
+### 2026-06-10 — M29 pendientes post-demo (deuda #5 + Supabase código)
+
+M29 avanza hacia el 100% post-demo. Dos pendientes cerrados y pusheados (HEAD `d21870f`):
+1. **Deuda #5 PDF client-facing**: F8 sin "@" inclusivo, F7 sin placeholder roto y sin Ramiro en cross-support default (partner externo, contrato v2 pendiente — no va en PDFs a prospects). Verificado en deploy.
+2. **Persistencia Supabase — código + 10 tests**, detrás de feature flag con default local (cero regresión). Wiring de credenciales pendiente al viernes (pago del plan). Cliente REST/requests, no SDK.
+
+Suite 310 verde. Decisión de migración del proyecto completo a Supabase definida con prioridad: Sales Director (1) → Account Health (2) → PPC (3). Pipeline ~1 semana de trabajo efectivo arrancando viernes.
