@@ -9,31 +9,40 @@
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      /* Light-document tokens (cliente recibe + S6 imprime a PDF) */
+      /* Paleta Capybaras canónica (alineada con .claude/skills/ppc-reporting-standard.md) */
       --bg: #ffffff;
       --surface: #f7f7f7;
+      --surface-soft: #FFF3E0;
       --surface-accent: #fff8f0;
       --text: #1F1F1F;
       --text-muted: #666666;
-      --accent: #E84000;          /* naranja canónico Capybaras */
+      --text-soft: #888888;
+      --accent: #E84000;
+      --accent-strong: #FF6B00;
       --accent-soft: #FFD9B3;
       --border: #e0e0e0;
+      --border-accent: #FFD9B3;
+      --success: #1B6B2F;
+      --success-bg: #E8F5E9;
+      --warn: #F57F17;
+      --warn-bg: #FFF8E1;
+      --danger: #B71C1C;
+      --danger-bg: #FFEBEE;
       --font-display: 'Bricolage Grotesque', sans-serif;
       --font-body: 'Geist', -apple-system, system-ui, sans-serif;
       --font-mono: 'JetBrains Mono', monospace;
-      --page-w: 820px;            /* ancho tipo A4 centrado */
+      --page-w: 820px;
     }
 
     * { box-sizing: border-box; }
 
     html, body {
-      margin: 0;
-      padding: 0;
+      margin: 0; padding: 0;
       background: var(--surface);
       color: var(--text);
       font-family: var(--font-body);
       font-size: 15px;
-      line-height: 1.55;
+      line-height: 1.6;
       -webkit-font-smoothing: antialiased;
     }
 
@@ -41,17 +50,34 @@
       max-width: var(--page-w);
       margin: 0 auto;
       background: var(--bg);
-      padding: 0;
+      border-top: 6px solid var(--accent);
     }
 
-    h1, h2, h3 { font-family: var(--font-display); font-weight: 700; color: var(--text); margin: 0 0 0.4em; line-height: 1.15; }
-    h1 { font-size: 2.2rem; }
-    h2 { font-size: 1.5rem; }
-    h3 { font-size: 1.15rem; }
+    h1, h2, h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      color: var(--text);
+      margin: 0 0 0.5em;
+      line-height: 1.15;
+      letter-spacing: -0.5px;
+    }
+    h1 { font-size: 2.4rem; line-height: 1.05; }
+    h2 { font-size: 1.55rem; }
+    h3 { font-size: 1.1rem; font-weight: 600; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin: 0 0 0.5rem;
+      display: block;
+    }
 
     .mono { font-family: var(--font-mono); }
 
-    /* Cada bloque = una sección de documento, corta limpio en PDF (S6) */
     .block {
       padding: 2.4rem 2.8rem;
       border-bottom: 1px solid var(--border);
@@ -59,37 +85,137 @@
     }
     .block:last-child { border-bottom: none; }
 
+    .block.cover {
+      border-bottom: none;
+      padding: 0;
+    }
+
     .block-section-title {
       font-family: var(--font-display);
-      font-size: 1.5rem;
+      font-size: 1.55rem;
       font-weight: 700;
       color: var(--text);
-      margin: 0 0 1rem;
+      margin: 0 0 1.1rem;
       padding-bottom: 0.5rem;
       border-bottom: 3px solid var(--accent);
       display: inline-block;
+      letter-spacing: -0.3px;
     }
 
-    /* Tabla label/valor genérica para bloques de pares */
-    table.kv { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
-    table.kv th, table.kv td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-    table.kv th { width: 38%; color: var(--text-muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.02em; }
+    table.kv { width: 100%; border-collapse: collapse; margin: 0.6rem 0; }
+    table.kv th, table.kv td {
+      text-align: left;
+      padding: 0.6rem 0.8rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    table.kv th {
+      width: 38%;
+      color: var(--text-soft);
+      font-weight: 600;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
     table.kv td { font-weight: 500; }
 
-    .pill { display: inline-block; background: var(--surface-accent); border: 1px solid var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.82rem; margin: 0.12rem 0.2rem 0.12rem 0; }
+    .pill {
+      display: inline-block;
+      background: var(--surface-accent);
+      border: 1px solid var(--accent-soft);
+      color: var(--accent);
+      border-radius: 999px;
+      padding: 0.2rem 0.75rem;
+      font-size: 0.82rem;
+      font-weight: 500;
+      margin: 0.15rem 0.25rem 0.15rem 0;
+    }
 
-    /* Badge de estado con LABEL adentro (color + texto): daltónicos + PDF B/N. */
-    .status-badge { display: inline-block; border-radius: 4px; padding: 0.12rem 0.55rem; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; }
+    .status-badge {
+      display: inline-block;
+      border-radius: 4px;
+      padding: 0.15rem 0.6rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+    .status-badge.success { background: var(--success-bg); color: var(--success); }
+    .status-badge.warn    { background: var(--warn-bg);    color: var(--warn); }
+    .status-badge.danger  { background: var(--danger-bg);  color: var(--danger); }
+    .status-badge.neutral { background: var(--surface);    color: var(--text-muted); }
 
-    /* Tabla multi-columna con fila de header (distinta de .kv key-value). */
-    .data-table { width: 100%; border-collapse: collapse; margin: 0.4rem 0 0.8rem; font-size: 0.88rem; }
-    .data-table th { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 2px solid var(--border); color: var(--text-muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.02em; }
-    .data-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .callout {
+      background: var(--surface-soft);
+      border: 1px solid var(--border-accent);
+      border-left: 4px solid var(--accent);
+      padding: 1rem 1.2rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+    }
+    .callout-title {
+      font-weight: 700;
+      color: var(--accent);
+      margin: 0 0 0.3rem;
+      font-size: 0.95rem;
+    }
+
+    .metric { display: inline-block; margin: 0.4rem 1.2rem 0.4rem 0; }
+    .metric-value {
+      font-family: var(--font-display);
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1;
+      display: block;
+    }
+    .metric-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 0.2rem;
+      display: block;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.5rem 0 0.9rem;
+      font-size: 0.88rem;
+    }
+    .data-table th {
+      text-align: left;
+      padding: 0.5rem 0.7rem;
+      border-bottom: 2px solid var(--accent);
+      color: var(--text);
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .data-table td {
+      padding: 0.5rem 0.7rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
 
     @media print {
-      html, body { background: #fff; }
-      .doc { max-width: none; }
+      html, body {
+        background: #fff;
+        font-family: Helvetica, Arial, sans-serif;
+      }
+      h1, h2, h3, .block-section-title, .metric-value, .callout-title {
+        font-family: Helvetica-Bold, Helvetica, sans-serif;
+        letter-spacing: -0.2px;
+      }
+      .mono, .eyebrow, .metric-label, .status-badge, table.kv th, .data-table th {
+        font-family: Courier, monospace;
+      }
+      .doc { max-width: none; border-top-width: 8px; }
       .block { padding: 1.8rem 1.6rem; }
+      .block.cover { padding: 2.4rem 1.6rem; }
     }
   </style>
 </head>

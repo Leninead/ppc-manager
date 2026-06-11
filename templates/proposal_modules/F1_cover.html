@@ -1,15 +1,22 @@
 <section class="block cover" data-module="{{ module_id }}">
-  <div style="padding: 2.5rem 0 1.5rem;">
-    <div class="mono" style="color: var(--accent); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.8rem;">Capybaras Agency</div>
-    <h1 style="font-size: 2.6rem; margin-top: 0.6rem;">{% if lang == 'en' %}Commercial Proposal{% else %}Propuesta Comercial{% endif %}</h1>
-    {% if proposal.client_name %}
-    <p style="font-size: 1.3rem; font-weight: 600; margin: 0.6rem 0 0;">{{ proposal.client_name }}</p>
-    {% endif %}
-    {% if proposal.client_industry %}
-    <p style="color: var(--text-muted); margin: 0.2rem 0 0;">{{ proposal.client_industry }}</p>
-    {% endif %}
-    {% if proposal.version %}
-    <p class="mono" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 1.6rem;">v{{ proposal.version }}{% if proposal.archetype %} &middot; {{ proposal.archetype }}{% endif %}</p>
-    {% endif %}
-  </div>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="background: #1F1F1F; padding: 3.5rem 2.8rem;">
+        <div style="font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; color: #FF6B00; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 0.8rem;">{% if lang == 'en' %}Commercial Proposal{% else %}Propuesta Comercial{% endif %}{% if proposal.created_at %} · {{ proposal.created_at[:10] }}{% endif %}</div>
+        <h1 style="color: #ffffff; font-size: 2.4rem; margin: 0 0 1rem; line-height: 1.05;">{% if proposal.client_name %}{{ proposal.client_name }}{% else %}{% if lang == 'en' %}New Proposal{% else %}Nueva Propuesta{% endif %}{% endif %}</h1>
+        {% if proposal.client_industry %}
+        <div style="font-family: var(--font-display); font-size: 1.2rem; font-weight: 500; color: #FF6B00; margin-bottom: 0.4rem;">{{ proposal.client_industry }}</div>
+        {% endif %}
+        {% if proposal.archetype %}
+        <div style="font-family: var(--font-mono); color: #FFD9B3; font-size: 0.82rem; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 0.6rem;">{{ proposal.archetype }}{% if proposal.version %} · v{{ proposal.version }}{% endif %}</div>
+        {% endif %}
+        <table style="width: 100%; border-collapse: collapse; margin-top: 3rem; border-top: 1px solid #444444;">
+          <tr>
+            <td style="font-family: var(--font-mono); font-size: 0.78rem; color: #FFD9B3; letter-spacing: 1.2px; text-transform: uppercase; padding-top: 1.2rem;">Capybaras Agency</td>
+            <td align="right" style="font-family: var(--font-mono); font-size: 0.78rem; color: #FFD9B3; letter-spacing: 1.2px; text-transform: uppercase; padding-top: 1.2rem;">{{ proposal.language|upper }}</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </section>
