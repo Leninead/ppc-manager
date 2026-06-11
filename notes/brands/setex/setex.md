@@ -697,3 +697,43 @@ Pendiente validación live en Campaign Manager.
 - Cruce M4 manual entrega calidad ≥ software M4
 
 **Próxima sesión:** D+7 (15/06) — evaluación impacto bid up heroes, decisión Ear Hook listing/A+, respuesta Tati 5 flags, BSE fresco pre-flight.
+
+---
+
+## 2026-06-10 — WoW analysis post-bulks D+2 (sin bulks)
+
+**Foco:** análisis WoW desde export cliente, diagnóstico de caída −21% sales, sin ejecución.
+
+### KPIs cuenta WoW
+- Sales MX$41,633 vs prior MX$52,677 (**−21.0%**)
+- Units 159 vs 223 (−28.7%)
+- Sessions 1,909 vs 2,108 (−9.4%)
+- CVR 8.25% vs 10.60% (−2.35 pts)
+- ACoS 18.8% (dentro target 18% · prior 16.5%)
+- TACoS 13.4% (prior 11.3% · +2.1 pts)
+
+### Diagnóstico de la caída (4 causas, Σ delta ad sales = −$6,198)
+
+| ASIN | Δ Ad Sales | Hipótesis |
+|---|---|---|
+| B081GB8F89 | **−$4,040** (−22%) | Rebote post-Hot Sale · sin OOS · explica 65% del delta cuenta |
+| B0BQ8FNGR5 | **−$1,759** (−86%) | Sangrado nuevo · ACoS 60.1% · no detectado en M4 del 08/06 |
+| B0DK7PHXXC + B0DK7Q4ZTY | **−$1,322** (−53%) | Familia Nano Gen2 degradándose · no estaban en bid up heroes |
+| B0BQ8GJFQH | **−$617** (−54%) | BB 96.1% → 92.1% · flag P0 Tati abierto |
+
+### Compensación parcial (bulks 08/06 funcionando)
+- B0F63LTD92 Ear Hook · ad sales +95% (+$2,784) · ACoS 9.4% — pausa `retenedores de lentes` validada
+- B08C2T72ND 1mm Negro · ad sales +215% (+$968) — bid up heroes validado
+- Σ gains = +$4,144 (no alcanza para compensar Σ losses −$6,198)
+
+### Waste residual Thumbstick
+- XG9J841 · bid down −50% del 08/06 insuficiente · ACoS 99.7% en pestaña Advertising del export
+- B09VYCD9PB + B09VYBLC7D · $532 spend combined / $0 ad sales
+
+### Lecturas validadas (acumular para vault)
+1. **Bid down −50% no siempre alcanza para ACoS catastróficos.** Threshold sugerido: si ACoS pre-acción >100% → pausar directo, no intentar bid down.
+2. **El cruce M4 puede tener blind spots por bucket.** B0BQ8FNGR5 sangró sin entrar al bucket BAJAR BID porque sus campañas alimentadoras estaban en grey zone. Revisar criterios de bucket.
+3. **Post-Hot Sale rebound es real y cuantificable.** -22% en motor con todo OK (stock, BB, CVR) sugiere efecto promocional cola que no se modeló al planificar bulks 08/06.
+
+### Output
+`Setex_WoW_10jun.html` (outputs Claude, no commiteado · política igual 2026-06-03).
