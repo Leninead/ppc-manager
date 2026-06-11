@@ -945,3 +945,29 @@ monitor TIB 48–72h.
 **Heroes oficiales actualizados (top, BR 30d):** B0F8P9GBZN ($42K), B09MG1PM6L ($40K, runway 3.7 sem ⚠️), B0F8PCWD6J ($26K +28.6%), B0081GIZ52 ($16K +33.3%), B0F8PB4NHX ($21K thin). Línea L31 sleeping bag validada como stock (85u) pero NO como destino spend.
 
 **Flags abiertos:** B005ULUZIQ (competidor desapareció, monitor), patrón competidor -20% (7 ASINs, escalación Adam), B0BKB7CJFQ (23u unfulfillable + Inactive 01/06), B09MG1J3LC (missing catálogo).
+
+---
+
+## Sesión 2026-06-10 — WoW post Hot Sale + análisis de causas (deliverable)
+
+**Tipo:** análisis WoW + deliverable HTML bilingüe. Sin cambios en cuenta.
+
+**Resumen:** WoW reportó -31.9% sales / -34.1% units / -49% ad sales. Diagnóstico:
+explicación 100% benigna — (1) PW coincide con Hot Sale México (que ya generó
++33.3% boost en el WoW 04/06), (2) ~MX$33K de ad sales pausados deliberadamente
+en pull-back 04/06 + bulks 08/06 (15 ASINs con -100% ad sales coinciden 1:1 con
+las pausas). El ~89% de la caída de ad sales es decisión propia.
+
+**Winners reales:** B0F8P9GBZN (hero #1 OAT S) ad sales +325% post bid up 08/06 ·
+B005ULUZIQ +42% post desaparición competidor -20% · B0DJSGBR4P +103%.
+
+**Salud subyacente:** CVR -11.8% vs sessions -30.7% (calidad tráfico se sostiene) ·
+BuyBox 99.63% · TACoS 12.1% (cerca target Junio 10-12%) · ACoS 19.1% sano.
+
+**Deliverable:** `LTD_WoW_2026-06-10.html` (46KB, standalone, toggle ES/EN, 7
+causas ranqueadas, 5 recos). Distribución directa Adam/Aaron/Agustín. NO en repo.
+
+**Pendientes confirmados:** ETA restock (Agustín) · monitoreo B005ULUZIQ 7-14d ·
+evaluación D+7 (15/06) · 5 P0 a Edu sin resolver · 7 ASINs gray market a Adam/Edu.
+
+Detalle completo en [[2026-06-10]].

@@ -27,6 +27,29 @@ Detalle en `daily/2026-06-10.md`.
 
 ---
 
+### Última sesión — 2026-06-10 (LTD WoW post Hot Sale)
+
+Análisis WoW sobre weekly report del cliente. Sin cambios en cuenta. Diagnóstico:
+-31.9% sales WoW / -49% ad sales explicado 100% por comparador Hot Sale México
+(PW = TW del WoW 04/06 con +33.3% boost) + pausas intencionales (15 ASINs con
+-100% ad sales coinciden 1:1 con pull-back 04/06 + bulks 08/06, ~MX$33K
+pausados deliberadamente = 89% de la caída de ad sales).
+
+Salud subyacente confirmada: CVR -11.8% vs sessions -30.7% (calidad sostenida),
+BuyBox 99.63%, eficiencia spend mantenida, TACoS 12.1% (cerca target Junio).
+Winners reales: B0F8P9GBZN (hero #1 OAT S) ad sales +325% post bid up 08/06 ·
+B005ULUZIQ +42% post desaparición competidor -20% · B0DJSGBR4P +103%.
+
+Deliverable: `LTD_WoW_2026-06-10.html` (HTML bilingüe ES/EN, 7 causas ranqueadas,
+5 recos operativas). Distribución directa Adam/Aaron/Agustín. NO en repo (patrón
+WoW 04/06).
+
+Pendientes: ETA restock (Agustín) · monitoreo B005ULUZIQ 7-14d antes reactivar
+ad groups pausados · evaluación D+7 (15/06) impacto bulks 08/06 · cerrar reporte
+gray market 7 ASINs con Adam/Edu.
+
+---
+
 ## Última sesión — 2026-06-08 (M30 Pricing Dashboard — F3.5 cerrada, BUILD 6/6)
 
 **Foco**: M30 Pricing Dashboard — F3.5 (exports XLSX), última fase del build.
