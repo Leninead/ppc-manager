@@ -1,33 +1,43 @@
 <section class="block" data-module="{{ module_id }}">
-  <h2 class="block-section-title">{{ title or module_id }}</h2>
-  <!-- TODO: contenido real pendiente de Lenin (stats sin default en catálogo) -->
-  {% set scalar_stats = [
-    ('years_experience', 'Years of experience', 'Años de experiencia'),
-    ('monthly_revenue_usd', 'Monthly revenue managed', 'Revenue mensual gestionado'),
-    ('monthly_ad_spend_usd', 'Monthly ad spend', 'Ad spend mensual'),
-    ('average_roas', 'Average ROAS', 'ROAS promedio'),
-    ('conversion_rate_advantage', 'CVR advantage', 'Ventaja de CVR')
-  ] %}
-  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; margin-top: 0.6rem;">
-    {% for field, lbl_en, lbl_es in scalar_stats %}
-    <div style="border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem;">
-      <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-muted);">{{ lbl_en if lang == 'en' else lbl_es }}</div>
-      <div style="font-size: 1.4rem; font-weight: 700; font-family: var(--font-display); margin-top: 0.2rem;">{{ data[field] | default('—', true) }}</div>
-    </div>
+  <h2 class="block-section-title">{% if lang == 'en' %}About Capybaras{% else %}Sobre Capybaras{% endif %}</h2>
+
+  <table style="width: 100%; border-collapse: separate; border-spacing: 12px 12px; margin: 0 -12px;">
+    <tr>
+      <td style="width: 33%; background: #FFF3E0; border: 1px solid #FFD9B3; border-radius: 4px; padding: 1.2rem 1.4rem; vertical-align: top;">
+        <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: #888888; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 0.4rem;">{% if lang == 'en' %}Years of Experience{% else %}Años de experiencia{% endif %}</div>
+        <div style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 700; color: #E84000; line-height: 1;">{{ data.years_experience or '—' }}</div>
+      </td>
+      <td style="width: 33%; background: #FFF3E0; border: 1px solid #FFD9B3; border-radius: 4px; padding: 1.2rem 1.4rem; vertical-align: top;">
+        <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: #888888; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 0.4rem;">{% if lang == 'en' %}Monthly Revenue Managed{% else %}Revenue mensual gestionado{% endif %}</div>
+        <div style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 700; color: #E84000; line-height: 1;">{{ data.monthly_revenue_usd or '—' }}</div>
+      </td>
+      <td style="width: 33%; background: #FFF3E0; border: 1px solid #FFD9B3; border-radius: 4px; padding: 1.2rem 1.4rem; vertical-align: top;">
+        <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: #888888; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 0.4rem;">{% if lang == 'en' %}Monthly Ad Spend{% else %}Ad spend mensual{% endif %}</div>
+        <div style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 700; color: #E84000; line-height: 1;">{{ data.monthly_ad_spend_usd or '—' }}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="width: 33%; background: #FFF3E0; border: 1px solid #FFD9B3; border-radius: 4px; padding: 1.2rem 1.4rem; vertical-align: top;">
+        <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: #888888; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 0.4rem;">{% if lang == 'en' %}Average ROAS{% else %}ROAS promedio{% endif %}</div>
+        <div style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 700; color: #E84000; line-height: 1;">{{ data.average_roas or '—' }}</div>
+      </td>
+      <td style="width: 33%; background: #FFF3E0; border: 1px solid #FFD9B3; border-radius: 4px; padding: 1.2rem 1.4rem; vertical-align: top;">
+        <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: #888888; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 0.4rem;">{% if lang == 'en' %}CVR Advantage{% else %}Ventaja de CVR{% endif %}</div>
+        <div style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 700; color: #E84000; line-height: 1;">{{ data.conversion_rate_advantage or '—' }}</div>
+      </td>
+      <td style="width: 33%; background: #FFF3E0; border: 1px solid #FFD9B3; border-radius: 4px; padding: 1.2rem 1.4rem; vertical-align: top;">
+        <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: #888888; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 0.4rem;">{% if lang == 'en' %}Certifications{% else %}Certificaciones{% endif %}</div>
+        <div style="font-family: var(--font-display); font-size: 1rem; font-weight: 600; color: #1F1F1F; line-height: 1.3;">{% if data.certifications %}{{ data.certifications | join(', ') }}{% else %}{{ 'pending' if lang == 'en' else 'pendiente' }}{% endif %}</div>
+      </td>
+    </tr>
+  </table>
+
+  {% if data.partners %}
+  <p style="margin: 1.4rem 0 0.4rem 0; font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: #888888; text-transform: uppercase; letter-spacing: 0.8px;">Partners</p>
+  <div>
+    {% for partner in data.partners %}
+    <span class="pill">{{ partner }}</span>
     {% endfor %}
   </div>
-  {% set lists = [
-    ('certifications', 'Certifications', 'Certificaciones'),
-    ('partners', 'Partners', 'Partners')
-  ] %}
-  {% for field, lbl_en, lbl_es in lists %}
-  <div style="margin-top: 1rem;">
-    <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.3rem;">{{ lbl_en if lang == 'en' else lbl_es }}</div>
-    {% if data[field] %}
-      {% for item in data[field] %}<span class="pill">{{ item }}</span>{% endfor %}
-    {% else %}
-      <span style="color: var(--text-muted); font-style: italic;">{{ 'pending' if lang == 'en' else 'pendiente' }}</span>
-    {% endif %}
-  </div>
-  {% endfor %}
+  {% endif %}
 </section>
