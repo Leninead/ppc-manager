@@ -1,5 +1,6 @@
 <section class="block" data-module="{{ module_id }}">
   <h2 class="block-section-title">{{ title or ('Brand Overview' if lang == 'en' else 'Resumen de Marca') }}</h2>
+  {% if data.brand_name or (data.sku_count is not none and data.sku_count != '') or data.categories or data.markets or data.amazon_account_type or data.ppc_maturity or data.hero_asins or data.monthly_revenue_band or data.current_acos_band %}
   <table class="kv">
     {% if data.brand_name %}
     <tr><th>{% if lang == 'en' %}Brand{% else %}Marca{% endif %}</th><td>{{ data.brand_name }}</td></tr>
@@ -8,10 +9,10 @@
     <tr><th>SKUs</th><td>{{ data.sku_count }}</td></tr>
     {% endif %}
     {% if data.categories %}
-    <tr><th>{% if lang == 'en' %}Categories{% else %}Categorías{% endif %}</th><td>{% for c in data.categories %}<span class="pill">{{ c }}</span>{% endfor %}</td></tr>
+    <tr><th>{% if lang == 'en' %}Categories{% else %}Categorías{% endif %}</th><td>{{ data.categories | join(', ') }}</td></tr>
     {% endif %}
     {% if data.markets %}
-    <tr><th>{% if lang == 'en' %}Markets{% else %}Mercados{% endif %}</th><td>{% for m in data.markets %}<span class="pill">{{ m }}</span>{% endfor %}</td></tr>
+    <tr><th>{% if lang == 'en' %}Markets{% else %}Mercados{% endif %}</th><td>{{ data.markets | join(', ') }}</td></tr>
     {% endif %}
     {% if data.amazon_account_type %}
     <tr><th>{% if lang == 'en' %}Account type{% else %}Tipo de cuenta{% endif %}</th><td>{{ data.amazon_account_type }}</td></tr>
@@ -20,7 +21,7 @@
     <tr><th>{% if lang == 'en' %}PPC maturity{% else %}Madurez PPC{% endif %}</th><td>{{ data.ppc_maturity }}</td></tr>
     {% endif %}
     {% if data.hero_asins %}
-    <tr><th>Hero ASINs</th><td>{% for a in data.hero_asins %}<span class="pill mono">{{ a }}</span>{% endfor %}</td></tr>
+    <tr><th>Hero ASINs</th><td><span class="mono">{{ data.hero_asins | join(', ') }}</span></td></tr>
     {% endif %}
     {% if data.monthly_revenue_band %}
     <tr><th>{% if lang == 'en' %}Monthly revenue{% else %}Revenue mensual{% endif %}</th><td>{{ data.monthly_revenue_band }}</td></tr>
@@ -29,4 +30,5 @@
     <tr><th>{% if lang == 'en' %}Current ACoS{% else %}ACoS actual{% endif %}</th><td>{{ data.current_acos_band }}</td></tr>
     {% endif %}
   </table>
+  {% endif %}
 </section>
