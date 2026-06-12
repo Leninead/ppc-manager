@@ -1,5 +1,6 @@
 <section class="block" data-module="{{ module_id }}">
   <h2 class="block-section-title">{{ title or ('Category Overview' if lang == 'en' else 'Resumen de Categoría') }}</h2>
+  {% if data.category_name or data.category_size_band or data.competition_density or data.median_price_band or data.median_reviews_band %}
   <table class="kv">
     {% if data.category_name %}
     <tr><th>{% if lang == 'en' %}Category{% else %}Categoría{% endif %}</th><td>{{ data.category_name }}</td></tr>
@@ -17,6 +18,7 @@
     <tr><th>{% if lang == 'en' %}Median reviews{% else %}Reviews medianos{% endif %}</th><td>{{ data.median_reviews_band }}</td></tr>
     {% endif %}
   </table>
+  {% endif %}
   {% if data.top_competitors %}
   <div style="margin-top: 1rem;">
     <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.3rem;">{% if lang == 'en' %}Top competitors{% else %}Competidores principales{% endif %}</div>
