@@ -1,21 +1,31 @@
 <section class="block" data-module="{{ module_id }}">
   <h2 class="block-section-title">{{ title or module_id }}</h2>
-  <!-- TODO: contenido real pendiente de Lenin (ejemplos de marca sin default en catálogo) -->
   {% set stages = [
-    ('create_brands', 'Create', 'Crear'),
-    ('launch_brands', 'Launch', 'Lanzar'),
-    ('scale_brands', 'Scale', 'Escalar')
+    ('create_brands', 'Create', 'Crear',
+     'Brands we built from concept to go-live.',
+     'Marcas que construimos desde el concepto hasta el go-live.'),
+    ('launch_brands', 'Launch', 'Lanzar',
+     'Brands we launched to market and ramped to hero status.',
+     'Marcas que llevamos al mercado y rampeamos al hero status.'),
+    ('scale_brands', 'Scale', 'Escalar',
+     'Established brands we grew in organic share and TACoS.',
+     'Marcas establecidas que hicimos crecer share orgánico y TACoS.')
   ] %}
-  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 0.6rem;">
-    {% for field, lbl_en, lbl_es in stages %}
-    <div style="border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
-      <h3 style="margin: 0 0 0.5rem; font-size: 1.05rem;">{{ lbl_en if lang == 'en' else lbl_es }}</h3>
-      {% if data[field] %}
-        {% for brand in data[field] %}<div style="font-size: 0.9rem;">{{ brand.name | default('—', true) }}</div>{% endfor %}
-      {% else %}
-        <span style="color: var(--text-muted); font-style: italic; font-size: 0.9rem;">{{ 'pending' if lang == 'en' else 'pendiente' }}</span>
-      {% endif %}
-    </div>
-    {% endfor %}
-  </div>
+  <table style="width: 100%; border-collapse: separate; border-spacing: 12px 12px; margin: 0 -12px;">
+    <tr>
+      {% for field, lbl_en, lbl_es, tag_en, tag_es in stages %}
+      <td style="width: 33%; background: #FFF3E0; border: 1px solid #FFD9B3; border-radius: 4px; padding: 1.4rem 1.4rem; vertical-align: top;">
+        <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: #E84000; text-transform: uppercase; letter-spacing: 0.8px; line-height: 1; margin-bottom: 0.6rem;">{% if lang == 'en' %}{{ lbl_en }}{% else %}{{ lbl_es }}{% endif %}</div>
+        <p style="margin: 0 0 0.8rem 0; line-height: 1.4; color: #1F1F1F; font-size: 0.95rem;">{% if lang == 'en' %}{{ tag_en }}{% else %}{{ tag_es }}{% endif %}</p>
+        {% if data[field] %}
+        <div style="margin-top: 0.6rem;">
+          {% for brand in data[field] %}<div style="font-size: 0.85rem; color: #1F1F1F; line-height: 1.5;">{{ brand.name | default('—', true) }}</div>{% endfor %}
+        </div>
+        {% else %}
+        <p style="color: #888888; font-style: italic; font-size: 0.85rem; line-height: 1; margin: 0;">{% if lang == 'en' %}Pending{% else %}Pendiente{% endif %}</p>
+        {% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+  </table>
 </section>

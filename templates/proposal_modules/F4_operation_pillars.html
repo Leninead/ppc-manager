@@ -1,13 +1,15 @@
 <section class="block" data-module="{{ module_id }}">
   <h2 class="block-section-title">{{ title or module_id }}</h2>
   {% if data.pillars %}
-  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.6rem;">
+  <table style="width: 100%; border-collapse: separate; border-spacing: 12px 12px; margin: 0 -12px;">
     {% for pillar in data.pillars %}
-    <div style="border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.1rem;">
-      <h3 style="margin: 0 0 0.3rem; font-size: 1.05rem;">{{ pillar.name }}</h3>
-      <p style="margin: 0; color: var(--text-muted); font-size: 0.9rem;">{{ pillar.tagline | pick_lang(lang) }}</p>
-    </div>
+    {% if loop.index0 % 2 == 0 %}<tr>{% endif %}
+    <td style="width: 50%; background: #FFF3E0; border: 1px solid #FFD9B3; border-radius: 4px; padding: 1.4rem 1.4rem; vertical-align: top;">
+      <h3 style="margin: 0 0 0.6rem 0; font-size: 1.1rem; font-weight: 700; color: #E84000; line-height: 1.2;">{{ pillar.name }}</h3>
+      <p style="margin: 0; line-height: 1.4; color: #1F1F1F; font-size: 0.95rem;">{{ pillar.tagline | pick_lang(lang) }}</p>
+    </td>
+    {% if loop.index0 % 2 == 1 %}</tr>{% endif %}
     {% endfor %}
-  </div>
+  </table>
   {% endif %}
 </section>
