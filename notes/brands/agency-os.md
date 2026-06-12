@@ -453,3 +453,42 @@ M29 avanza hacia el 100% post-demo. Dos pendientes cerrados y pusheados (HEAD `d
 2. **Persistencia Supabase — código + 10 tests**, detrás de feature flag con default local (cero regresión). Wiring de credenciales pendiente al viernes (pago del plan). Cliente REST/requests, no SDK.
 
 Suite 310 verde. Decisión de migración del proyecto completo a Supabase definida con prioridad: Sales Director (1) → Account Health (2) → PPC (3). Pipeline ~1 semana de trabajo efectivo arrancando viernes.
+
+---
+
+## 2026-06-11 — M29 Proposal Studio rediseño visual PDF (Fases 1+2)
+
+Rediseño visual del PDF de propuestas comerciales avanzó M29 del 95% al 97%. 2 commits feat acumulados en main, sin push (consolidador del día).
+
+Commit `f5ee8c4` — paleta Capybaras canónica + cover dark hero:
+- `_base.html` expandido con 6 nuevas custom properties para semáforos (success/warn/danger + bg variants), surface-soft para callouts, accent-strong para énfasis, text-soft para captions. 4 clases utilitarias nuevas (.eyebrow .callout .metric .status-badge.{success,warn,danger,neutral}) que abren paths para hidratar Tier 2-3 sin reinventar layouts.
+- Sello visual del documento: `border-top: 6px solid var(--accent)` en `.doc` (8px en `@media print`).
+- `@media print` con override de fonts core PDF (Helvetica/Helvetica-Bold/Courier) — decisión consciente de NO embeber TTFs (Bricolage Grotesque, Geist, JetBrains Mono) por scope de hoy. Aceptable: paleta + jerarquía + layout dan personalidad sin custom fonts.
+- F1 cover dark hero: canvas continuo via `<table><td bg #1F1F1F>` (workaround del bug xhtml2pdf que fragmentaba `background` en `<section>` con múltiples children). Cliente protagonista en h1 blanco grande sobre fondo dark. Eyebrow naranja con fecha desde `proposal.created_at[:10]`. Industry/archetype/version en jerarquía descendente. Footer mono Capybaras Agency + idioma.
+
+Commit `7695310` — pulida spacing + F2 stats como cards:
+- Padding `.block` 2.4rem → 3rem para respiración entre bloques en todo el documento.
+- F1 cover: `<div>` hijos del canvas dark → `<p>` con `margin: 0 0 X 0` + `line-height` explícito para neutralizar inheritance de `line-height: 1.6` del body (root cause de los gaps verticales excesivos en xhtml2pdf).
+- F2_about_stats rediseñado completamente: kv plano → grid 3x2 de cards naranja-pálidas (#FFF3E0 bg, #FFD9B3 border, #E84000 value 1.8rem). Layout via `<table border-spacing: 12px>` — patrón validado por primera vez en este block, abre camino para F3/F4/F5/V-blocks usando mismo enfoque. Campos shape real (monthly_revenue_usd, monthly_ad_spend_usd, conversion_rate_advantage), divergentes del catálogo pero confirmados en el archivo. Heading hardcodeado bilingüe (decisión justificada por CC: ningún test asserta el texto del heading).
+
+### Aprendizajes operativos del run (4 turnos CC + 1 chat de discovery)
+
+**Patrón discovery → diseño → edit validado**: cada turno arrancó con read-only check del shape de variables Jinja2 y conteo de violations xhtml2pdf antes de tocar. En 2 ocasiones el discovery evitó bugs reales (F1 con shape diferente al catálogo, F2 con field names divergentes del catalog schema).
+
+**Guard de HEAD esperado funcionó como red de seguridad**: 3 veces detectó drift benigno entre turnos (cierre de vault, commit Setex WoW). El CC paró cada vez, reportó, esperó OK explícito. Cero edits con árbol contaminado.
+
+**Inventario completo de gotchas xhtml2pdf 0.2.17** descubiertos hoy (suma a los conocidos por el chart V3):
+1. `background` en `<section>/<div>` con múltiples children → fragmenta. Solución: bg en `<td>` wrapper.
+2. `letter-spacing` en `em` → warning getSize. Usar `px`.
+3. `text-align: right` en `<td>` falla a veces. Usar `align="right"` atributo HTML.
+4. `line-height` del body se hereda y NO colapsa adjacent block margins. Solución: `<p>` con `margin: 0 0 X 0` + `line-height` explícito.
+5. `border-spacing` en `<table>` SÍ funciona para grids de cards (bg + border + spacing OK).
+6. `display: flex` / `grid` ignorados silenciosamente.
+7. `var()` resuelve OK vía sanitizer, pero hex literales son zero-ambiguity en contextos críticos.
+8. `@media print` con selector compound (`table.kv th`) no siempre honora — falla a Helvetica en lugares donde queremos Courier.
+
+Estos 8 + los 4 que ya manejaba el sanitizer cubren el universo de surprises del motor. Vale la pena destilarlos en una skill `.claude/skills/m29-pdf-rendering.md` post-cierre.
+
+### Estado del módulo al cierre del día
+
+Visualmente: cover dark hero + paleta canónica aplicada en todo el documento + F2 con cards premium + más respiración entre bloques. Pendientes específicos del rediseño visual: F3/F4 hidratados como cards (turno 2 de mañana). Pendientes del módulo: hidratado de Tier 2-3 (con clases ya disponibles), Supabase wiring (viernes post-pago plan), chart V3 data source (vía B7 Ramiro), galería V5 (vía contrato v2 Ramiro).

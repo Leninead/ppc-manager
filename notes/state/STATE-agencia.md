@@ -1,6 +1,6 @@
 ---
 tipo: state
-actualizado: 2026-06-10
+actualizado: 2026-06-11
 ---
 
 # STATE Agencia — Capybaras
@@ -9,21 +9,27 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
-## Última sesión — 2026-06-10 (M29 pendientes post-demo)
+## Última sesión — 2026-06-11 (M29 rediseño visual PDF Fases 1+2)
 
-**M29-S5+S6 mergeado a main hace tiempo; hoy cierre de 2 pendientes post-demo. HEAD `d21870f`, pusheado.**
+**M29 avanzó del 95% al 97%. 3 commits acumulados en main local, NO pusheados (consolidador del día). HEAD `7695310`.**
 
-- **Deuda #5 PDF client-facing CERRADA**: F8 sin "@" inclusivo (rama ES), F7 sin placeholder roto (bloque condicional core_team) + Ramiro fuera del cross_support default (`_catalog.json`, solo Freddy+Guille). Verificado en deploy capybaras-os.streamlit.app.
-- **Supabase: código + 10 tests listos, NO wired**. `SupabaseStorage` inline en `core/proposal_persistence.py` (REST/requests, NO supabase-py). Swap en `_default_storage()` con default local → cero regresión. `tests/test_proposal_supabase_storage.py` (requests mockeado). 2 tablas diseñadas (proposals + proposal_votes). **Wiring credenciales = viernes (pago plan)**: crear proyecto + URL/key en secrets + smoke real.
-- Suite 310 verde, 0 regresiones.
-- Commits: `9b68dc3` (Supabase) + `d21870f` (deuda #5).
-- venv local le faltaba xhtml2pdf (resuelto con pip install -r requirements.txt; no afecta deploy).
+- **Commit `f5ee8c4` — paleta + cover dark hero**: `_base.html` con paleta Capybaras canónica expandida (semáforos success/warn/danger, surface-soft callouts, accent-strong, text-soft, border-accent), 4 clases utilitarias nuevas (.eyebrow .callout .metric .status-badge.{success,warn,danger,neutral}), border-top naranja en `.doc`, @media print con Helvetica/Courier core + letter-spacing -0.2px. F1_cover.html cover dark hero con canvas continuo via `<table><td bg #1F1F1F>` (cliente protagonista en h1 blanco, eyebrow naranja con fecha, footer mono).
+- **Commit `7695310` — pulida spacing + F2 cards**: padding .block 2.4→3rem. F1 con `<p>` + line-height explícito (fix inheritance). F2_about_stats rediseñado completamente como grid 3x2 de cards naranja-pálidas via `<table border-spacing>`. Campos shape real (monthly_revenue_usd, monthly_ad_spend_usd, conversion_rate_advantage). Heading hardcodeado bilingüe.
+- **Suite 310 verde** en cada checkpoint (3 corridas). PDF generado y verificado visualmente.
 
-**Pendientes M29 restantes**: rediseño visual del PDF (auto-contenido, ~3-4h) · datos chart V3 (importer B7/Ramiro) · galería V5 (contrato v2 Ramiro) · hidratado de bloques.
+**Aprendizajes xhtml2pdf** suman 4 nuevos al inventario: (1) `background` en section/div con múltiples children fragmenta — solución bg en td wrapper; (2) inheritance de line-height del body NO colapsa adjacent block margins en xhtml2pdf — solución `<p>` con margin/line-height explícitos; (3) `text-align: right` en td falla a veces, usar `align="right"` atributo HTML; (4) `border-spacing` en table SÍ funciona para grids de cards. Patrón table-based para layouts horizontales validado.
 
-**Plan migración Supabase proyecto completo**: prioridad Sales Director → Account Health → PPC. Patrón M29 replicable. ~1 semana arrancando viernes.
+**Pendientes M29 restantes**:
+- Turno 2 mañana (Fases 3-4): F3 Crear/Lanzar/Escalar como 3 cards + F4 Cómo Operamos 4 Pilares como cards 2x2 (~45 min CC).
+- Después: M29 ~98%. Restantes son externos: Supabase wiring (viernes), chart V3 data source (B7 Ramiro), galería V5 (contrato v2 Ramiro), hidratado Tier 2-3.
 
-Detalle en `daily/2026-06-10.md`.
+**Deudas anotadas durante el run** (P3 baja):
+- Warning xhtml2pdf "<table> is empty" en tablas kv vacías. Ruido en logs, benigno.
+- Bug paginación F6 pre-existente: "El Fin de la Improvisación" se separa del primer pillar en page break.
+- Mono inconsistente en `<th>` de table.kv (selector compound `table.kv th` en @media print no siempre honora). No bloqueante.
+- Heading F2 cambió de configurable ({{ title or module_id }} del catálogo) a hardcodeado bilingüe. Reversible.
+
+Detalle en `daily/2026-06-11.md` y `prompts/sesion/features/arranque-m29.md` (actualizar mañana al cierre del Turno 2).
 
 ---
 
