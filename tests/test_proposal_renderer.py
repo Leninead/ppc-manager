@@ -146,16 +146,22 @@ def test_render_v2_fields():
     assert "None" not in html
 
 
-def test_render_missing_template_uses_placeholder():
-    """Un module_id sin template propio cae al placeholder (no rompe)."""
+def test_render_skips_modules_without_own_template():
+    """Un module_id sin template propio se OMITE del documento (no client-ready).
+
+    P5.bis: antes caía a _placeholder.html con texto "contenido pendiente"; ahora
+    los Tier 2-3 sin template (V17-V22) no se emiten en el PDF al cliente.
+    """
     p = _launch_proposal()
-    # V2_category_overview aún no tiene template propio en S5 → placeholder.
-    assert any(b["module_id"] == "V2_category_overview" for b in p["blocks"])
+    # La instancia launch incluye V17 (specialized, sin template propio).
+    assert any(b["module_id"] == "V17_made_in_country_advantage" for b in p["blocks"])
     html = render_proposal_html(p, "es")
-    assert "contenido pendiente" in html
-    # Y en inglés usa el texto en inglés del placeholder.
     html_en = render_proposal_html(p, "en")
-    assert "content pending" in html_en
+    # El texto de placeholder ya no aparece en ningún idioma.
+    assert "contenido pendiente" not in html
+    assert "content pending" not in html_en
+    # El bloque sin template no se emite como <section>.
+    assert 'data-module="V17_made_in_country_advantage"' not in html
 
 
 # ─────────────────────────────────────────────────────────────────────────────

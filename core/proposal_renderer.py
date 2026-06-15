@@ -320,7 +320,9 @@ def render_proposal_html(proposal: dict, lang: str) -> str:
 
         template_name = f"{module_id}.html"
         if not _template_exists(template_name):
-            template_name = _PLACEHOLDER_TEMPLATE
+            # Sin template propio = bloque no client-ready → se omite del documento.
+            # (Antes caía a _placeholder.html, que imprimía "contenido pendiente".)
+            continue
 
         tmpl = env.get_template(template_name)
         block_html = tmpl.render(

@@ -1,7 +1,6 @@
+{% if data.selected_cases %}
 <section class="block" data-module="{{ module_id }}">
   <h2 class="block-section-title">{{ title or module_id }}</h2>
-  <!-- TODO: contenido real pendiente de Lenin (casos sin default en catálogo) -->
-  {% if data.selected_cases %}
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.6rem;">
     {% for case in data.selected_cases %}
     <div style="border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
@@ -9,7 +8,5 @@
     </div>
     {% endfor %}
   </div>
-  {% else %}
-  <p style="color: var(--text-muted); font-style: italic; margin: 0.5rem 0 0;">{{ 'Case studies pending.' if lang == 'en' else 'Casos pendientes.' }}</p>
-  {% endif %}
 </section>
+{% endif %}
