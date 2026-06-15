@@ -8,8 +8,8 @@ Diseño:
   escritura a disco, sin side effects. Lee el catálogo (solo lectura) para los
   títulos bilingües de sección.
 - Jinja2 con un template por bloque (`{module_id}.html`) + `_base.html` de layout.
-  Si un module_id no tiene template propio → cae a `_placeholder.html` (no rompe).
-- La lógica "qué template toca cada bloque + fallback a placeholder" vive ACÁ
+  Si un module_id no tiene template propio → el bloque se OMITE del render (no rompe).
+- La lógica "qué template toca cada bloque + omisión si no existe" vive ACÁ
   (Python). El template solo itera e inyecta el HTML pre-renderizado de cada bloque.
 - Autoescape ACTIVO: los datos de cliente que van DENTRO de cada sub-template se
   escapan contra HTML injection. El HTML pre-renderizado de cada bloque se marca
@@ -39,7 +39,6 @@ _TEMPLATES_ABS = (_REPO_ROOT / TEMPLATES_HTML_DIR).resolve()
 _CATALOG_ABS = (_REPO_ROOT / CATALOG_FILE).resolve()
 
 _BASE_TEMPLATE = "_base.html"
-_PLACEHOLDER_TEMPLATE = "_placeholder.html"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
