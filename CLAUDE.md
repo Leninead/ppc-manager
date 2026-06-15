@@ -2222,3 +2222,45 @@ Módulo **💲 Pricing Dashboard** (Account Health) build completo y navegable. 
 **Learning operativo:** correr UNA pytest a la vez (nunca solapar en background) — la contención + Defender infló `import streamlit` de ~1.6s a 28min.
 
 **Deuda viva (fuera del build):** builders awd/izzi `{sku: unidades}` (restock PATH-37, panel awdfba) → próxima sesión. Detalle en `notes/daily/2026-06-08.md` + `notes/modules/m30-pricing-dashboard.md`.
+
+---
+
+## 📅 Sesión 2026-06-12 — M29 rediseño visual PDF Turno 2 (cierre al 100%)
+
+**M29 rediseño visual del PDF cerrado al 100% del scope nuestro.** 5 commits del día sobre HEAD `e9ece76`. Suite 310 verde.
+
+### Commits del día
+- `bcf29db` feat(M29): F3/F4 cards rediseñadas + saneo violations xhtml2pdf
+- `8e4864f` polish(M29): cierre 3 deudas P3 (warning kv, selector Courier, page-break F6)
+- `ecf3a61` polish(M29): V1 cierre deudas (arrays join + guard tabla kv vacía)
+- `9bf251a` polish(M29): skip bloques sin template propio
+- `e9ece76` chore(M29): eliminar dead code _placeholder + docstrings stale
+
+### Output principal
+- F3 brand stages como tabla 1×3 de cards naranja-pálidas (empty-state premium).
+- F4 operation pillars como tabla 2×2 (default catálogo 4 pilares vía overlay).
+- V1, V2 con guard tabla kv + V1 arrays con `| join(', ')` (bug `.pill` no renderiza en PDF).
+- F6 con `page-break-after: avoid` en pillars.
+- `_base.html` con selector `th` simple en `@media print`.
+- Renderer skipea bloques sin template propio (en lugar de fallback `_placeholder.html` con texto "contenido pendiente").
+- Dead code `_PLACEHOLDER_TEMPLATE` + archivo + 2 docstrings stale eliminados.
+
+PDF: 14598 → 12854 bytes. Secciones: 18 → 11.
+
+### xhtml2pdf 0.2.17 — 9 gotchas inventariadas
+Ver `notes/arranque-m29.md` sección "Inventario xhtml2pdf 0.2.17". 8 del 11/06 + 1 nueva: `.pill` no renderiza arrays correctamente.
+
+### Pendientes M29 (no dependen de nosotros)
+- Supabase wiring productivo: espera pago Edu. Código + tests listos, swap day playbook en `notes/modules/m29-proposal-studio.md`.
+- Chart V3 + galería V5: contrato v2 Ramiro.
+- F3 marcas reales: Freddy + compliance clientes.
+- Hidratado Tier 2-3: inputs externos.
+
+### Deudas P3 silenciosas (~30-40 min CC futuro)
+8 ítems en `notes/daily/2026-06-12.md` sección "Deudas P3 silenciosas". No urgentes.
+
+### Lessons learned del día
+1. CC auto-aplicó Opción B (renderer skip) antes del safety check S1+S2 que el mego-prompt pedía. Transparente al reportarlo. Approach correcto, sin reversión. Reforzar wording de safety check en próximos prompts.
+2. Régimen de commits mixto en una iteración (CC vs terminal). Sin pérdida funcional.
+
+Detalle completo en `notes/daily/2026-06-12.md`.

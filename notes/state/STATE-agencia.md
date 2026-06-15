@@ -1,11 +1,43 @@
 ---
 tipo: state
-actualizado: 2026-06-11
+actualizado: 2026-06-12
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-06-12 (M29 rediseño visual PDF Turno 2 + cierre al 100%)
+
+**M29 cerró el rediseño visual al 100% del scope nuestro. 5 commits acumulados en main local, NO pusheados (consolidador del día). HEAD `e9ece76`.**
+
+- **Commit `bcf29db` — F3/F4 cards rediseñadas**: F3 brand stages como tabla 1×3 de cards naranja-pálidas con empty-state premium (eyebrow + tagline + Pendiente/Pending). Taglines bilingües hardcoded (estructura fija, decisión documentada). F4 operation pillars como tabla 2×2 con `loop.index0 % 2` para tr open/close. Default canónico del catálogo (4 pilares) consume vía `_effective_data` overlay. Violations xhtml2pdf saneadas: `display: grid` → tabla, `var()` color → hex literales, `<p>` con `line-height` explícito.
+- **Commit `8e4864f` — 3 deudas P3 cerradas**: V2 con guard `{% if ... %}` envolviendo `<table class="kv">` (warning "table is empty" desaparece). `_base.html` con selector `th` simple en `@media print` (todos los th del documento van mono, verificado). F6 con `page-break-after: avoid` en `<h3>` del loop de pillars ("El Fin de la Improvisación" + cuerpo juntos).
+- **Commit `ecf3a61` — V1 cierre deudas**: hallazgo visual en Turno 2 (arrays sin separador → "Cat ACat B"). Discovery reveló causa: loops con `<span class="pill">` que xhtml2pdf no renderiza. Fix: `{{ data.X | join(', ') }}` plano + `<span class="mono">` para hero_asins. Guard tabla kv aplicado (mismo patrón que V2).
+- **Commit `9bf251a` — Skip bloques sin template propio**: 7 secciones mostraban "contenido pendiente" textual (V17-V22 + F5). Opción B (renderer skip) en `proposal_renderer.py`: `continue` en lugar de fallback `_placeholder.html`. F5 envuelta en `{% if data.selected_cases %}`. Test reescrito. PDF de 14598 → 12854 bytes. Secciones de 18 → 11.
+- **Commit `e9ece76` — Cleanup dead code _placeholder**: constante `_PLACEHOLDER_TEMPLATE` + archivo `_placeholder.html` + 2 docstrings stale eliminados.
+
+**Suite 310 verde** en cada checkpoint. PDF verificado visualmente: F1 cover, F2 cards, F3 cards, F4 pilares, V1 con join, V2 con guard, F6 page-break OK, sin "contenido pendiente", sin warnings stderr.
+
+**Pendientes M29 restantes** (NO dependen de nosotros):
+- Supabase wiring productivo: depende del pago de Edu. Código + tests listos, playbook documentado en `notes/modules/m29-proposal-studio.md` sección "Supabase swap day".
+- Chart V3 data real: contrato v2 Ramiro (B7).
+- Galería V5: contrato v2 Ramiro.
+- F3 marcas reales: Freddy + compliance LTD/M&B/Setex.
+- Hidratado Tier 2-3: inputs externos por cliente.
+
+**Deudas P3 silenciosas** (no rompen hoy, registradas en `notes/daily/2026-06-12.md`):
+F5 grid+var dentro del `{% if %}`, F4 par/impar pillars, heading F2 hardcoded, bug visual títulos colapsados pág 3, F7 roles incorrectos en seed, F6 flex pre-existente, .pill no renderiza en PDF (bug latente otros bloques), naming test_template_split misleading.
+
+**xhtml2pdf 0.2.17 — 9 gotchas inventariadas** (8 del 11/06 + 1 nueva: `.pill` no renderiza). Patrón table-based con `border-spacing` validado para grids 3×2, 1×3 y 2×2.
+
+**Lessons learned operativas del día**:
+1. CC auto-aplicó Opción B antes de ejecutar safety check S1+S2 (transparente al reportarlo). Approach correcto, sin reversión. Reforzar wording de safety check en próximos prompts.
+2. Régimen de commits mixto en una iteración (CC vs terminal). Sin pérdida funcional.
+
+Detalle en `notes/daily/2026-06-12.md` y `prompts/sesion/features/arranque-m29.md` (actualizado).
 
 ---
 
