@@ -581,3 +581,53 @@ def test_smoke_v3_with_chart_render_clean():
     assert "{'es'" not in html and "{&#39;es&#39;" not in html
     assert 'data-module="V3_seo_opportunity"' in html
     assert "(vos)" in html                          # chart pintado, barra cliente flaggeada
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HOTFIX-B — regresión: render con propuesta fresh + blocks vacío (post-Cloud)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_render_fresh_launch_no_template_errors():
+    """Render NO debe lanzar TemplateNotFound con propuesta launch fresh.
+
+    Regresión (2026-06-16): este escenario rompió en Cloud post-cleanup de
+    _placeholder.html (commit e9ece76) por deploy stale del módulo
+    proposal_renderer cacheado en memoria. El código en HEAD estaba correcto
+    pero los tests no cubrían el render de una propuesta-skeleton sin blocks
+    editados (shape exacto post-wizard). Si alguien rompe el `continue` del
+    renderer en el futuro, este test lo caza.
+    """
+    p = _launch_proposal("Test Regression Fresh")
+    # NO editamos blocks — render con el shape de instanciación fresh.
+    html = render_proposal_html(p, "es")
+    html_en = render_proposal_html(p, "en")
+
+    # Render exitoso = HTML no vacío con el cliente en el cover/título.
+    assert html, "Render fresh no debe ser vacío"
+    assert "Test Regression Fresh" in html, "Cliente debe aparecer en el cover"
+
+    # NO debe emitir texto placeholder (en ningún idioma).
+    assert "contenido pendiente" not in html
+    assert "content pending" not in html_en
+
+    # Módulos sin template propio (V17-V22) NO deben emitir <section>.
+    assert 'data-module="V17_made_in_country_advantage"' not in html
+
+
+def test_render_empty_blocks_returns_valid_html():
+    """Render con blocks=[] devuelve HTML válido (sin secciones, sin errores).
+
+    Edge case extremo: propuesta sin ningún block instanciado todavía. El
+    client_name sigue apareciendo porque _base.html lo emite en el <title>,
+    no depende del block F1_cover.
+
+    Cerrado: 2026-06-16.
+    """
+    p = _launch_proposal("Test Empty Blocks")
+    p["blocks"] = []  # forzar empty
+
+    html = render_proposal_html(p, "es")
+
+    assert html, "HTML no debe ser vacío incluso con blocks=[]"
+    assert "Test Empty Blocks" in html, "El título debe usar client_name"
