@@ -66,6 +66,16 @@ python scripts\smoke_b6a_e2e_pipeline.py
 | 24 | 🛡️ Listing Compliance | Account Manager | ✅ nuevo 2026-04-16 — detector keywords weighted product |
 | 25 | 📊 Gamboa Generator | Account | ✅ nuevo 2026-04-22 (SQP mensual + BR semanal → HTML integral) |
 | 26 | 🧬 Variation Builder | Account Manager | ✅ nuevo 2026-04-26 — flat file parent+N children Pet Food, parser dinámico 220 cols, themes, preserva macros |
+| 27 | 🗂️ Flat File Migrator | Account Health | ✅ M27 — port HTML de Marcos (`flat_file_migrator.py`) |
+| 28 | 🏥 SKU Progress Report | Account Health | ✅ M28 — port HTML de Marcos (`sku_progress_report.py`) |
+| 30 | 💲 Pricing Dashboard | Account Health | ✅ M30 — port HTML de Marcos (`pricing_dashboard.py`) |
+
+**Account Health — 3 herramientas, todas ports de HTML de Marcos vía `html-to-streamlit-porter`:**
+- M27 Flat File Migrator (`flat_file_migrator.py`)
+- M28 SKU Progress Report (`sku_progress_report.py`)
+- M30 Pricing Dashboard (`pricing_dashboard.py`)
+
+"El compañero" en CLAUDE.md / skills = **Marcos**.
 
 Navegación por `st.session_state["selected_page"]` + `_nav(page)` callback.
 Sidebar colapsable con `st.expander` por sección: PPC (expanded) | Research | Account | Knowledge.
