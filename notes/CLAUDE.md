@@ -112,6 +112,8 @@ Crear en notes/sops/slug.md. Estructura mínima: propósito, cuándo aplica, pas
 - **Antes de cualquier bulk Negative PT/KW**: validar dtype de Ad Group ID con `.astype("Int64").astype(str)` o cross-check fallará silenciosamente. Ver `notes/knowledge/2026-06-02-gotcha-bulk-export-adgroup-id-float.md`.
 - **Amazon "already exists" en CREATE**: no es falla real, es duplicado preexistente, descartar. Ver `notes/knowledge/2026-06-02-amazon-bulk-error-already-exists.md`.
 - **CREATE vs UPDATE rollback**: CREATE procesa row-a-row (falla aislada); UPDATE rollback completo si una row falla. Filtrar `State != archived` antes de UPDATE bulks.
+- **Filas Entity=Campaign — `Start Date` y `State` vacíos se leen como "0" → upload Failed** (LTD 17/06): poblarlas con el valor REAL aunque no se cambien — `Start Date` como TEXTO `yyyyMMdd`, `State` con el estado actual. Aplica también a updates de budget (son filas Entity=Campaign).
+- **Budget Rules: por UI, no por bulk** (LTD 17/06): hacerlas en UI (Add budget rule → Schedule → date range → % increase). La hoja "Budget Rules" del BSE viene vacía y los enums (Budget Rule Type / Recurrence Type / Increase By Type) no son confiables → riesgo Failed. UI = 60 seg, confiable, auto-revert.
 
 ## Protocolo de cierre — arranque-{slug}.md (institucionalizado 02/06)
 
