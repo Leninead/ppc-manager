@@ -971,3 +971,33 @@ causas ranqueadas, 5 recos). Distribución directa Adam/Aaron/Agustín. NO en re
 evaluación D+7 (15/06) · 5 P0 a Edu sin resolver · 7 ASINs gray market a Adam/Edu.
 
 Detalle completo en [[2026-06-10]].
+
+---
+
+## 2026-06-17 — Meeting dueño + setup Prime Day (automatizado)
+
+**Diagnóstico validado en meeting (dueño: Aaron/Adam):** la caída NO es PPC ni tráfico, es PRECIO.
+- Ventas semana -24.6%; sesiones -4.1% (tráfico plano); ACoS 19.8% (en target); inversión bajada a propósito -16.9%.
+- Lo único que se desplomó: conversión 3.28% → 2.37% (-27.7%).
+- Causa raíz = precio post-Hot Sale. SQP: `saco para dormir bebe` (7.590 búsq/mes) +41% vs mercado, share compras 13%; clúster competitivo (+13–26%) share 17–25%. Relación precio↔share r=-0.80.
+- Deliverables NO commiteados (Slack/email): WoW HTML bilingüe + Slack interno.
+
+**Aplicado en cuenta HOY (bulk F0, Success):**
+- Pausadas (gasto, 0 ventas): SwaddleMe conquest (83224187587218), TOP20 conquest (46454515480248), SU-612M EXACT saco (23317942635275).
+- Bid-down kw `swaddle para bebe 0-3` (camp 193516125919152, kw 224802796255016): $12 → $8 (ACoS 38.9%).
+- 6 negative PT nuevos en Scavenger AUTO (248432611628745 / AG 346216960359945): B0FB3XFSM1, B0FLP81RZF, B0FLPLW9N9, B09MMNT5X6, B08HG28MW6, B0F8PCWD6J (este último ASIN propio = auto-canibalización). momcozy ya estaba negativado (skip).
+
+**Prime Day 23–30 jun — AUTOMATIZADO (se revierte solo el 1/jul):**
+- Campaña Grey creada (bulk F1b, Success): `SU-PUSH | MX | SP | KW | GREY | PRIMEDAY`, product ads B0081GIZ52 (SKU L20 01 002 GR M) + B0081GIYTE (GR L), kws: `saco para dormir bebe` Exact $7 / `saquitos para dormir bebe 0-3` Exact $6 / `swaddle` Phrase $6; budget $200/d; Start 20260623 / End 20260630 horneadas; Dynamic down-only.
+- Budget Rules (UI, schedule-based, 23–30): PT Category (272400834797969) +33% → ~$698/d; Broad (131721462546833) +30% → $455/d. Bases verificadas $525/$350.
+
+**Grey = B0081GIZ52** (Swaddle UP transición gris; CVR 8.25%; stock profundo; con -20% queda +13% vs mercado en query #1). Pedido del cliente vía Agustín ("Grey"), identificación asumida — pendiente confirmación final.
+
+**Pendientes (Agustín):**
+- ETA restock B09MG1PM6L (hero #2, ~18d runway, inbound 0) → gatilla pull-back de ese ASIN (bulk listo en 2 min cuando responda).
+- Confirmar que "Grey" del cliente = B0081GIZ52.
+- Verificar elegibilidad de los 2 product ads de Grey (si GR M sale no-elegible → SKU `L20 01 002 GR M-stickerless`).
+
+**Aprendizajes de bulk (PROMOVER A CLAUDE.md — lo hace el consolidador):**
+1. Bulksheets 2.0: celdas VACÍAS de `Start Date` y `State` en filas Entity=Campaign se leen como "0" → upload Failed. Fix: poblarlas con el valor REAL aunque no las cambies (Start Date como TEXTO yyyyMMdd, State actual). Aplica también a updates de budget (son filas Campaign).
+2. Budget Rules: hacerlas por UI (Add budget rule → Schedule → date range → % increase), NO por bulk. La hoja "Budget Rules" del BSE viene vacía y los enum (Budget Rule Type / Recurrence Type / Increase By Type) no están documentados de forma confiable → riesgo de Failed. UI = 60 seg, confiable, auto-revert.
