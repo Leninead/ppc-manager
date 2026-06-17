@@ -32,6 +32,8 @@ Ver `.claude/skills/data-persistence-standard.md` para contexto completo.
 from __future__ import annotations
 
 import json
+import os
+from io import StringIO
 from pathlib import Path
 
 import pandas as pd
@@ -221,19 +223,330 @@ class _LocalBackend:
         return json.loads(p.read_text(encoding="utf-8"))
 
 
-_BACKEND: "_LocalBackend | None" = None
+# ─────────────────────────────────────────────────────────────────────────────
+# Backend Supabase (Fase 2) — PostgREST vía requests (sin SDK)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Adaptado del patrón de M29 (`core/proposal_persistence.py`). Persiste snapshots
+# y configs de Account Health en dos tablas PostgREST. El history NO se almacena:
+# es derivado (concat de snapshots en query-time), igual que en local.
+
+_SNAPSHOTS_TABLE = "ah_snapshots"
+_CONFIGS_TABLE = "ah_configs"
+
+
+class _PersistenceTransport:
+    """Transport HTTP por defecto sobre la API PostgREST de Supabase.
+
+    Copia adaptada del `_RequestsTransport` de M29. Aislado en su propia clase
+    para que `_SupabaseBackend` sea testeable sin red: los tests inyectan un
+    transport en memoria con la misma interfaz (get/post). No se importa
+    `requests` a nivel módulo (solo al instanciar) para no pagar el import si el
+    backend activo es el local.
+    """
+
+    def __init__(self, url: str, key: str):
+        import requests  # import diferido: solo si se usa el backend Supabase
+
+        self._requests = requests
+        self._base = url.rstrip("/") + "/rest/v1"
+        self._headers = {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+
+    def get(self, table: str, params: dict) -> list[dict]:
+        r = self._requests.get(
+            f"{self._base}/{table}", params=params, headers=self._headers, timeout=30
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def post(self, table: str, rows: list[dict], upsert: bool = False) -> list[dict]:
+        headers = dict(self._headers)
+        prefer = "return=representation"
+        if upsert:
+            prefer += ",resolution=merge-duplicates"
+        headers["Prefer"] = prefer
+        r = self._requests.post(
+            f"{self._base}/{table}", json=rows, headers=headers, timeout=30
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+class _SupabaseBackend:
+    """Backend Fase 2: persistencia en Supabase vía PostgREST (REST puro, sin SDK).
+
+    Esquema SQL (ejecutar UNA vez en el proyecto Supabase antes del swap-day —
+    este código NO crea las tablas):
+
+        create table if not exists ah_snapshots (
+            area     text    not null,
+            cliente  text    not null,
+            modulo   text    not null,
+            period   text    not null,
+            data     text    not null,   -- df.to_json(orient="table")
+            primary key (area, cliente, modulo, period)
+        );
+
+        create table if not exists ah_configs (
+            area     text    not null,
+            modulo   text    not null,
+            name     text    not null,
+            version  integer not null,
+            data     jsonb   not null,
+            primary key (area, modulo, name, version)
+        );
+
+    El history NO es una tabla: `load_history` concatena los snapshots de
+    (area, cliente, modulo) en query-time (paridad con el `_history.parquet`
+    derivado del backend local). `rebuild_history` NO persiste — solo valida que
+    haya snapshots (raise FileNotFoundError si no, igual que local).
+
+    `transport` es inyectable (default: PostgREST sobre requests) → los tests
+    pasan un fake en memoria sin tocar la red.
+
+    Retornos tipo Path: pseudo-paths informativos `supabase://...`. M30 NO lee el
+    valor de retorno de _save_snapshot/_rebuild_history/_save_config (verificado
+    en Bloque 1), así que el sentinel es seguro.
+    """
+
+    def __init__(self, url: str = "", key: str = "", transport=None):
+        self._t = transport if transport is not None else _PersistenceTransport(url, key)
+
+    @staticmethod
+    def _is_snapshot_period(name: str | None) -> bool:
+        """Mismo filtro de exclusión que `_LocalBackend.list_periods`."""
+        if not name or name.startswith("_"):
+            return False
+        if name in ("optimizations", "events", "decisions-log"):
+            return False
+        return True
+
+    # — Snapshots —
+
+    def save_snapshot(
+        self,
+        df: pd.DataFrame,
+        area: str,
+        cliente: str,
+        modulo: str,
+        period: str,
+    ) -> Path:
+        row = {
+            "area": area,
+            "cliente": cliente,
+            "modulo": modulo,
+            "period": period,
+            "data": df.to_json(orient="table"),
+        }
+        # upsert por PK (area,cliente,modulo,period): idempotente por period,
+        # igual que el sobreescribir del .parquet en local.
+        self._t.post(_SNAPSHOTS_TABLE, [row], upsert=True)
+        return Path(f"supabase://{_SNAPSHOTS_TABLE}/{area}/{cliente}/{modulo}/{period}")
+
+    def load_snapshot(
+        self,
+        area: str,
+        cliente: str,
+        modulo: str,
+        period: str,
+    ) -> pd.DataFrame | None:
+        rows = self._t.get(
+            _SNAPSHOTS_TABLE,
+            {
+                "area": f"eq.{area}",
+                "cliente": f"eq.{cliente}",
+                "modulo": f"eq.{modulo}",
+                "period": f"eq.{period}",
+                "select": "data",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return None
+        return pd.read_json(StringIO(rows[0]["data"]), orient="table")
+
+    def list_periods(self, area: str, cliente: str, modulo: str) -> list[str]:
+        rows = self._t.get(
+            _SNAPSHOTS_TABLE,
+            {
+                "area": f"eq.{area}",
+                "cliente": f"eq.{cliente}",
+                "modulo": f"eq.{modulo}",
+                "select": "period",
+            },
+        )
+        periods = [
+            r["period"] for r in rows if self._is_snapshot_period(r.get("period"))
+        ]
+        return sorted(periods)
+
+    # — History —
+
+    def load_history(self, area: str, cliente: str, modulo: str) -> pd.DataFrame:
+        rows = self._t.get(
+            _SNAPSHOTS_TABLE,
+            {
+                "area": f"eq.{area}",
+                "cliente": f"eq.{cliente}",
+                "modulo": f"eq.{modulo}",
+                "select": "period,data",
+            },
+        )
+        snapshots = sorted(
+            (r for r in rows if self._is_snapshot_period(r.get("period"))),
+            key=lambda r: r["period"],
+        )
+        frames = []
+        for r in snapshots:
+            df = pd.read_json(StringIO(r["data"]), orient="table")
+            df = df.copy()
+            df["_period"] = r["period"]
+            frames.append(df)
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
+    def rebuild_history(self, area: str, cliente: str, modulo: str) -> Path:
+        # History es derivado (load_history concatena en query-time): NO se
+        # persiste. Replicamos el raise del local para paridad de contrato.
+        periods = self.list_periods(area, cliente, modulo)
+        if not periods:
+            raise FileNotFoundError(
+                f"No hay snapshots en supabase://{_SNAPSHOTS_TABLE}/{area}/{cliente}/"
+                f"{modulo} para reconstruir history"
+            )
+        return Path(
+            f"supabase://{_SNAPSHOTS_TABLE}/{area}/{cliente}/{modulo}/_history"
+        )
+
+    # — Configs —
+
+    def save_config(
+        self,
+        config: dict,
+        area: str,
+        modulo: str,
+        name: str,
+        version: int,
+    ) -> Path:
+        row = {
+            "area": area,
+            "modulo": modulo,
+            "name": name,
+            "version": version,
+            "data": config,
+        }
+        self._t.post(_CONFIGS_TABLE, [row], upsert=True)
+        return Path(f"supabase://{_CONFIGS_TABLE}/{area}/{modulo}/{name}-v{version}")
+
+    def load_config(self, area: str, modulo: str, name: str, version: int) -> dict:
+        rows = self._t.get(
+            _CONFIGS_TABLE,
+            {
+                "area": f"eq.{area}",
+                "modulo": f"eq.{modulo}",
+                "name": f"eq.{name}",
+                "version": f"eq.{version}",
+                "select": "data",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return {}
+        return rows[0]["data"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Selector de backend — opt-in explícito (creds + flag), default local
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _storage_config() -> tuple[str, str] | None:
+    """Credenciales Supabase si están configuradas; None → no hay creds.
+
+    Orden: env (SUPABASE_URL/SUPABASE_KEY) primero, luego
+    `st.secrets["supabase"]` (Streamlit Cloud). Acceso a st.secrets con import
+    diferido + try/except para no romper fuera de un runtime Streamlit (tests,
+    scripts) ni acoplar este módulo a streamlit. Mismo patrón que M29.
+    """
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    if url and key:
+        return url, key
+    try:
+        import streamlit as st
+
+        sb = st.secrets.get("supabase")
+        if sb and sb.get("url") and sb.get("key"):
+            return sb["url"], sb["key"]
+    except Exception:
+        pass
+    return None
+
+
+def _backend_flag() -> str:
+    """Resuelve el flag de selección de backend Account Health (normalizado).
+
+    Precedencia: env `AGENCY_OS_AH_BACKEND` GANA sobre secrets (permite forzar
+    local por env aunque secrets diga supabase). Si la env no está seteada, lee
+    el campo `backend` dentro de `[supabase]` en `st.secrets` — único lugar
+    editable en swap-day sobre Streamlit Cloud. Acceso a st.secrets con import
+    diferido + try/except (no rompe fuera de Streamlit).
+
+    Devuelve el valor lowercase/strip, o "" si no hay nada.
+    """
+    env_flag = os.environ.get("AGENCY_OS_AH_BACKEND")
+    if env_flag is not None:
+        return env_flag.strip().lower()
+    try:
+        import streamlit as st
+
+        sb = st.secrets.get("supabase")
+        if sb:
+            val = sb.get("backend")
+            if val:
+                return str(val).strip().lower()
+    except Exception:
+        pass
+    return ""
+
+
+def _supabase_opt_in() -> bool:
+    """True solo si el operador habilitó explícitamente el backend Supabase.
+
+    La mera presencia de credenciales NO activa el backend remoto (eso rutearía
+    a la red los tests que persisten a disco con creds vivas en secrets.toml). El
+    swap productivo se hace seteando el flag a exactamente "supabase".
+    """
+    return _backend_flag() == "supabase"
+
+
+_BACKEND: "_LocalBackend | _SupabaseBackend | None" = None
 
 
 def _get_backend():
     """Devuelve el backend de persistencia activo (singleton por proceso).
 
-    Fase 1 (Bloque 1): siempre `_LocalBackend`. El selector con credenciales
-    Supabase entra en el Bloque 2 — acá se mantiene el comportamiento histórico
-    (todo a disco local).
+    Selección opt-in explícito: devuelve `_SupabaseBackend` SOLO si hay
+    credenciales (`_storage_config()`) Y el flag resuelto == "supabase"
+    (`_supabase_opt_in()`). Si falta cualquiera de los dos → `_LocalBackend`.
+
+    Consecuencia: al mergear a main sin flag, todo sigue local (cero regresión).
+    El swap real se activa agregando `backend = "supabase"` al secrets de Cloud
+    DESPUÉS de crear las tablas.
     """
     global _BACKEND
     if _BACKEND is None:
-        _BACKEND = _LocalBackend()
+        if _supabase_opt_in():
+            cfg = _storage_config()
+            if cfg:
+                _BACKEND = _SupabaseBackend(*cfg)
+        if _BACKEND is None:
+            _BACKEND = _LocalBackend()
     return _BACKEND
 
 
