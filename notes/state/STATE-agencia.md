@@ -21,6 +21,22 @@ Detalle: [[2026-06-17]] · [[m30-pricing-dashboard]]
 
 ---
 
+## Última sesión — 2026-06-17 (Frentes cliente — LTD meeting precio + Setex Prime Day)
+
+Día multi-frente (en paralelo al wiring Supabase). Dos frentes de cuenta cerrados: LTD (meeting dueño + setup Prime Day) y Setex (armado Prime Day). Ambos con automatización que se auto-revierte post-evento.
+
+**LTD — meeting dueño (Aaron/Adam):** caída de ventas validada como **PRECIO, no PPC**. Semana -24.6% sales, tráfico plano (-4.1%), ACoS 19.8% en target; lo único que se desplomó fue conversión 3.28%→2.37% (-27.7%). Causa = precio post-Hot Sale (SQP relación precio↔share r=-0.80). Aplicado HOY (bulk F0 Success): pausadas 3 camps gasto/0 ventas (SwaddleMe + TOP20 conquest + SU-612M EXACT saco), bid-down `swaddle para bebe 0-3` $12→$8, 6 negative PT en Scavenger AUTO (incl. B0F8PCWD6J ASIN propio = auto-canibalización). Prime Day 23–30 jun AUTOMATIZADO (auto-revert 1/jul): campaña Grey `SU-PUSH | MX | SP | KW | GREY | PRIMEDAY` (bulk F1b Success, product ads B0081GIZ52 + B0081GIYTE) + Budget Rules schedule-based por UI (PT Category +33% → ~$698/d, Broad +30% → $455/d). Grey = B0081GIZ52 (identificación asumida, pendiente confirmación Agustín). Pendientes Agustín: ETA restock B09MG1PM6L (~18d runway → gatilla pull-back, bulk listo), confirmar Grey, verificar elegibilidad 2 product ads (fallback SKU `L20 01 002 GR M-stickerless`).
+
+**Setex — Prime Day (23–30/06, −20%):** armado con Bulk A (conservación Negro) + Bulk B (budget ceilings subidos), ambos Success. Tati aprobó budget de evento $1.300–1.400/día. B08C2T72ND (1mm Negro, #2 en ventas) SIN restock → modo conservación (solo orgánico), se agota ~arranque del evento. STANDBY: re-consultar reposición a Tati; al reponer, re-activar Bulk A (20 product ads → enabled). Thick PAT MOCOFLY corregida: pausados 3 product ads (el 123% era colapso de junio, no estructural), queda el converter B09HW4VWQR.
+
+**Setex — pendientes vivos:** Componente C (bids + ToS) BLOQUEADO por inventario (falta runway B081GB8F89 + stock B08SNRCL63). Clearance overstock Thin (1.280u B08PZF22R1): sin vehículo (no hay Thin AUTO) + falta OK de Tati. ~22/06: re-activar product ad B0BQ8FNGR5 en Thick PAT MOCOFLY.
+
+**Aprendizajes de bulk (de ambos frentes — PENDIENTE promover a CLAUDE.md raíz):** (1) celdas vacías de `Start Date`/`State` en filas Entity=Campaign → upload Failed; poblar con el valor REAL aunque no se cambie (Start Date como TEXTO yyyyMMdd, State actual); aplica también a updates de budget. (2) Budget Rules por UI (Add budget rule → Schedule → date range → % increase), NO por bulk (hoja "Budget Rules" del BSE viene vacía + enums no confiables → riesgo Failed).
+
+Detalle: [[LTD]] · [[setex]] · [[2026-06-17]]
+
+---
+
 ## Última sesión — 2026-06-16 (M29 Supabase wiring productivo + hotfix Cloud)
 
 **Supabase wiring PRODUCTIVO cerrado end-to-end (local + Cloud). Pendiente externo #1 de M29 resuelto antes de lo esperado. 1 commit técnico + 1 docs. HEAD post-cierre.**
@@ -1095,7 +1111,7 @@ Detalle completo en `daily/2026-05-08.md`.
 | Dermaglos | Amazon USA 🇺🇸 | 64.3% (↑ de 58.0%, 360° 08/06) | Meta ≤55%, cortar canibalización B0CYLMJJJC (58 camps) + escalar Body Lotion ROAS 10× + listing fix B0CYK4G2Y8 | 5 P0 a Edu: B0CYK4G2Y8 listing roto · B0F6VZMF2V delisting · pricing Hyaluronic $18.89→$14.99 · calendario sales cliente · B0F4KXZVNM 38u unfulfillable | [[DERMAGLOS]] · [[DERMAGLOS_DATA]] · [[atom11-rules]] |
 | Mott & Bow | Amazon US 🇺🇸 | 10.6% TW (26 abr-2 may, sano) | Full-Funnel Women — Fase 2 en espera del cliente (SBV White Tee + SP Exact Premium Cotton) · transición de owner a Cuki 2026-05-11 | Video creativo + Brand Store Women — espera respuesta cliente para lanzar Fase 2 | [[MB]] |
 | Love To Dream | Amazon MX 🇲🇽 | 15.4% paid · TACoS 10.8% ✅ target | Post-bulks 02/06 — recovery $6K/mes · escalado +$810/d · próx: monitoreo 48-72h + fix M4 viernes | B005ULUZIQ BB 83% (flag 16/04) · 5 INACTIVE_BLOCKED (B0BKB7CJFQ 23u recuperable) · B09MG1J3LC missing del catálogo | [[LTD]] |
-| Setex Technologies | Amazon MX 🇲🇽 | 20.5% (↓ proyectado 16-17% post-bulks 12/05) | 🏆 Best Seller badge B081GB8F89 (lock-in) + push estratégico familia Thin (B0F3PSP82K, 1839u) — 5 EXACT nuevas SKU XG9G515 +$145/d · 154 negativos cross-camp anti-canibalización · pausa preventiva B086H3TZ6B (1u, 19 ads) | 4 urgencias Tati Slack 12/05: B086H3TZ6B 1u · B0F63LTD92 1u · Temple Tips OOS · audit listing EN B081GB8F89 (PS 0% queries anglo) | [[setex]] · [[PENDIENTES_RESTOCK]] |
+| Setex Technologies | Amazon MX 🇲🇽 | 20.5% (↓ proyectado 16-17% post-bulks 12/05) | 🏆 Best Seller badge B081GB8F89 (lock-in) + push estratégico familia Thin (B0F3PSP82K, 1839u) — 5 EXACT nuevas SKU XG9G515 +$145/d · 154 negativos cross-camp anti-canibalización · pausa preventiva B086H3TZ6B (1u, 19 ads) · **Prime Day 23–30/06 (−20%) armado 17/06** (Bulk A conservación Negro + Bulk B ceilings, Tati OK $1.3–1.4K/d) | B08C2T72ND standby restock (modo conservación, se agota ~arranque evento) · Componente C (bids+ToS) bloqueado por inventario (runway B081GB8F89 + stock B08SNRCL63) · clearance Thin overstock 1.280u B08PZF22R1 sin vehículo + falta OK Tati · 4 urgencias Tati Slack 12/05: B086H3TZ6B 1u · B0F63LTD92 1u · Temple Tips OOS · audit listing EN B081GB8F89 (PS 0% queries anglo) | [[setex]] · [[PENDIENTES_RESTOCK]] |
 | 360 Essentials | Amazon USA 🇺🇸 | 23.0% (✅ target 35%) | SBV FreedomPlus branded + test incrementalidad + relanzar SD bid $1 | Video creativo FreedomPlus para SBV (3 camps) | [[360ESSENTIALS]] |
 | Pura Vida Moringa | Amazon MX 🇲🇽 | 45.5% marzo (proyectado 48-52% post-opt) | Bajar ACoS a 40-45% · consolidar rank orgánico top 2-5 | Sin crédito Atom11 — optimización manual | [[Puravidamoringa]] |
 
@@ -1107,8 +1123,9 @@ Detalle completo en `daily/2026-05-08.md`.
 
 - **AM**: Agustín | **Escalación**: Adam (Sales Director), Aaron (compliance)
 - **Estado**: saludable post 360° 08/06 — Sales +12.4%, TACoS 9.4% (under target Junio 10-12%). 3 EXACT nuevas live 09/06.
-- **Última sesión**: 2026-06-08 — Análisis 360° manual + 5 bulks (SB Success, SP 154/172) ([[daily/2026-06-08]] · [[brands/ltd/LTD]])
-- **Próxima acción**: monitor 3 EXACT nuevas 48-72h post 09/06 · budget CATEGORY DISCOVERY $525→$625 post-restock · auditoría tog 0.5 (35 KWs) con fix M4
+- **Última sesión**: 2026-06-17 — meeting dueño (caída = PRECIO, no PPC) + bulk F0 (3 pausas, bid-down, 6 negative PT) + setup Prime Day automatizado ([[daily/2026-06-17]] · [[brands/ltd/LTD]]). Previa: 2026-06-08 análisis 360° + 5 bulks ([[daily/2026-06-08]])
+- **Prime Day 23–30/06 (auto-revert 1/jul)**: campaña Grey `SU-PUSH | MX | SP | KW | GREY | PRIMEDAY` (B0081GIZ52 + B0081GIYTE) + Budget Rules UI (PT Category +33% ~$698/d · Broad +30% $455/d). Grey = B0081GIZ52 pendiente confirmación Agustín
+- **Próxima acción**: confirmar Grey + elegibilidad 2 product ads con Agustín · ETA restock B09MG1PM6L (~18d runway → gatilla pull-back, bulk listo) · monitor evento · auditoría tog 0.5 (35 KWs) con fix M4
 - **Heroes count**: 35 (actualizado de 10, ver brands/ltd/LTD.md sección 🦸 Heroes oficiales canónico)
 - **Stock alerts** (a Agustín): B09MG1PM6L (hero #2, runway 3.7 sem, 0 inbound) · B0DJSF2N6P (6.2 sem) · B09S14W4SS (1.5 sem). Inbound 0 cuenta completa.
 - **Bloqueos pendientes**:
