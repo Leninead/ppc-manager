@@ -96,3 +96,13 @@ Misma condición de disparo (`fba_dos <= 30 && has_backup && total_dos > 30`). P
 
 ## Deuda viva (fuera del build)
 **Builders awd/izzi `{sku: unidades}`** — port de izzi (hoja 'Inventario 2526', offset 2 filas, cols posicionales 0/5) + awd (filtrado filas metadata). Hasta entonces: tab AWD/FBA = panel pendiente, backup stock=0, restock PATH-37 inalcanzable. Flagueado en código y UI. Próxima sesión.
+
+## 2026-06-17 — Vinculación a Supabase (vía capa compartida)
+
+M30 quedó vinculado a Supabase NO con código propio, sino a través del swap de la capa compartida core/persistence.py (mismo mecanismo servirá a M28). Sin flag, M30 sigue en disco local (cero regresión). Con flag backend="supabase" en secrets de Cloud → persiste en ah_snapshots/ah_configs.
+
+- Tablas: ah_snapshots PK (area,cliente,modulo,period), ah_configs PK (area,modulo,name,version). jsonb genérico.
+- M30 usa: _save_snapshot/_load_snapshot/_load_history/_rebuild_history/_save_config/_load_config/_list_periods → todos delegando al backend activo. pricing_dashboard.py NO se tocó.
+- Verificado end-to-end local (write/read/list/config) contra Supabase real, datos de prueba limpiados.
+- Migración inicial: N/A (0 snapshots locales previos).
+- Pendiente: swap-day en Cloud (flag + reboot). Branch feature/supabase-account-health mergeada a main (faf1ab6).

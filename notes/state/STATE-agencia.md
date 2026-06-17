@@ -1,11 +1,23 @@
 ---
 tipo: state
-actualizado: 2026-06-16
+actualizado: 2026-06-17
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-06-17 (Wiring Supabase Account Health — Fase 1)
+
+Capa de persistencia de Account Health vinculada a Supabase replicando el patrón M29 a nivel de la capa COMPARTIDA core/persistence.py (un swap sirve M28+M30+futuros). Backend-swap interno (_LocalBackend + _SupabaseBackend + selector), jsonb genérico (ah_snapshots + ah_configs), activación opt-in por flag (NO auto-on-creds — desacopla merge de activación). M30 verificado end-to-end contra Supabase real y mergeado a main DORMIDO (sin flag = todo local, cero regresión). Suite 327 verde / 3 known M29.
+
+Commits (3, en main por ff): f8ea195 refactor _LocalBackend · e24ff24 feat _SupabaseBackend+transport · faf1ab6 test 18 fake-transport. HEAD main faf1ab6.
+
+Pendiente: swap-day Cloud (flag backend="supabase" en secrets + reboot, 3 min). M28 el lunes (más pesado: 4 escrituras fuera de banda + helpers de borrado nuevos + ah_logs, ~2-2.5h). Deuda: test-isolation M29 (3 rojos por secrets vivas, sesión aparte), endurecer .gitignore a secrets.toml*.
+
+Detalle: [[2026-06-17]] · [[m30-pricing-dashboard]]
 
 ---
 
