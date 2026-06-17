@@ -107,6 +107,144 @@ def _cache_data(func):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Backend de almacenamiento — capa swappeable (local / Supabase)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Los 7 helpers públicos de snapshot/history/config delegan en el backend activo.
+# Fase 1 = `_LocalBackend` (Parquet/JSON en disco). El swap a Supabase (Bloque 2)
+# solo cambia qué backend devuelve `_get_backend()`; los wrappers públicos, sus
+# firmas y el manejo de cache NO cambian. `_append_log`/`_load_log` quedan fuera
+# de esta abstracción por ahora (siguen siendo I/O local directa).
+
+
+class _LocalBackend:
+    """Backend Fase 1: Parquet/JSON en disco local bajo DATA_ROOT.
+
+    Contiene la implementación histórica de los 7 helpers de snapshot/history/
+    config. NO cachea (el cacheo vive en los wrappers públicos `@_cache_data`) y
+    NO invalida cache (eso lo hacen los wrappers tras una escritura). Lee el
+    global `DATA_ROOT` en cada llamada para respetar el monkeypatch de los tests.
+    """
+
+    # — Snapshots —
+
+    def save_snapshot(
+        self,
+        df: pd.DataFrame,
+        area: str,
+        cliente: str,
+        modulo: str,
+        period: str,
+    ) -> Path:
+        base = _module_dir(area, cliente, modulo)
+        out = base / f"{period}.parquet"
+        df.to_parquet(out, compression="snappy", index=False)
+        return out
+
+    def load_snapshot(
+        self,
+        area: str,
+        cliente: str,
+        modulo: str,
+        period: str,
+    ) -> pd.DataFrame | None:
+        p = DATA_ROOT / area / cliente / modulo / f"{period}.parquet"
+        if not p.exists():
+            return None
+        return pd.read_parquet(p)
+
+    def list_periods(self, area: str, cliente: str, modulo: str) -> list[str]:
+        base = DATA_ROOT / area / cliente / modulo
+        if not base.exists():
+            return []
+        periods = []
+        for p in base.glob("*.parquet"):
+            name = p.stem
+            # Excluir: history aggregator (_*) + logs append-only canonicos del Agency OS
+            if name.startswith("_"):
+                continue
+            if name in ("optimizations", "events", "decisions-log"):
+                continue
+            periods.append(name)
+        return sorted(periods)
+
+    # — History —
+
+    def load_history(self, area: str, cliente: str, modulo: str) -> pd.DataFrame:
+        p = DATA_ROOT / area / cliente / modulo / "_history.parquet"
+        if not p.exists():
+            return pd.DataFrame()
+        return pd.read_parquet(p)
+
+    def rebuild_history(self, area: str, cliente: str, modulo: str) -> Path:
+        base = _module_dir(area, cliente, modulo)
+        periods = self.list_periods(area, cliente, modulo)
+        if not periods:
+            raise FileNotFoundError(
+                f"No hay snapshots en {base} para reconstruir history"
+            )
+
+        frames = []
+        for period in periods:
+            df = pd.read_parquet(base / f"{period}.parquet")
+            df = df.copy()
+            df["_period"] = period
+            frames.append(df)
+
+        history = pd.concat(frames, ignore_index=True)
+        out = base / "_history.parquet"
+        history.to_parquet(out, compression="snappy", index=False)
+        return out
+
+    # — Configs —
+
+    def save_config(
+        self,
+        config: dict,
+        area: str,
+        modulo: str,
+        name: str,
+        version: int,
+    ) -> Path:
+        base = _module_dir_agnostic(area, modulo)
+        out = base / f"{name}-v{version}.json"
+        out.write_text(
+            json.dumps(config, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return out
+
+    def load_config(self, area: str, modulo: str, name: str, version: int) -> dict:
+        p = DATA_ROOT / area / modulo / f"{name}-v{version}.json"
+        if not p.exists():
+            return {}
+        return json.loads(p.read_text(encoding="utf-8"))
+
+
+_BACKEND: "_LocalBackend | None" = None
+
+
+def _get_backend():
+    """Devuelve el backend de persistencia activo (singleton por proceso).
+
+    Fase 1 (Bloque 1): siempre `_LocalBackend`. El selector con credenciales
+    Supabase entra en el Bloque 2 — acá se mantiene el comportamiento histórico
+    (todo a disco local).
+    """
+    global _BACKEND
+    if _BACKEND is None:
+        _BACKEND = _LocalBackend()
+    return _BACKEND
+
+
+def _set_backend_for_testing(backend) -> None:
+    """Inyecta un backend alternativo (tests). Pasar None resetea el singleton
+    para que la próxima llamada a `_get_backend()` lo reconstruya."""
+    global _BACKEND
+    _BACKEND = backend
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Snapshots — datos cambiantes en el tiempo (semanal/mensual/diario)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -134,9 +272,7 @@ def _save_snapshot(
         - Sobreescribe el archivo si ya existe (idempotente por period).
         - Invalida el cache de _load_snapshot automáticamente.
     """
-    base = _module_dir(area, cliente, modulo)
-    out = base / f"{period}.parquet"
-    df.to_parquet(out, compression="snappy", index=False)
+    out = _get_backend().save_snapshot(df, area, cliente, modulo, period)
     # Invalidar cache de lecturas
     if _HAS_STREAMLIT and hasattr(_load_snapshot, "clear"):
         _load_snapshot.clear()
@@ -152,10 +288,7 @@ def _load_snapshot(
     period: str,
 ) -> pd.DataFrame | None:
     """Lee un snapshot. Devuelve None si el archivo no existe."""
-    p = DATA_ROOT / area / cliente / modulo / f"{period}.parquet"
-    if not p.exists():
-        return None
-    return pd.read_parquet(p)
+    return _get_backend().load_snapshot(area, cliente, modulo, period)
 
 
 @_cache_data
@@ -165,19 +298,7 @@ def _list_periods(area: str, cliente: str, modulo: str) -> list[str]:
     Filtra archivos especiales (que empiezan con `_`) y solo cuenta los `.parquet`
     que parecen snapshots (`YYYY-WW`, `YYYY-MM`, `YYYY-MM-DD`).
     """
-    base = DATA_ROOT / area / cliente / modulo
-    if not base.exists():
-        return []
-    periods = []
-    for p in base.glob("*.parquet"):
-        name = p.stem
-        # Excluir: history aggregator (_*) + logs append-only canonicos del Agency OS
-        if name.startswith("_"):
-            continue
-        if name in ("optimizations", "events", "decisions-log"):
-            continue
-        periods.append(name)
-    return sorted(periods)
+    return _get_backend().list_periods(area, cliente, modulo)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -192,10 +313,7 @@ def _load_history(area: str, cliente: str, modulo: str) -> pd.DataFrame:
     Devuelve DataFrame vacío si no existe. Cada fila tiene columna `_period`
     indicando de qué snapshot proviene.
     """
-    p = DATA_ROOT / area / cliente / modulo / "_history.parquet"
-    if not p.exists():
-        return pd.DataFrame()
-    return pd.read_parquet(p)
+    return _get_backend().load_history(area, cliente, modulo)
 
 
 def _rebuild_history(area: str, cliente: str, modulo: str) -> Path:
@@ -210,23 +328,7 @@ def _rebuild_history(area: str, cliente: str, modulo: str) -> Path:
     Raises:
         FileNotFoundError si no hay ningún snapshot para concatenar.
     """
-    base = _module_dir(area, cliente, modulo)
-    periods = _list_periods(area, cliente, modulo)
-    if not periods:
-        raise FileNotFoundError(
-            f"No hay snapshots en {base} para reconstruir history"
-        )
-
-    frames = []
-    for period in periods:
-        df = pd.read_parquet(base / f"{period}.parquet")
-        df = df.copy()
-        df["_period"] = period
-        frames.append(df)
-
-    history = pd.concat(frames, ignore_index=True)
-    out = base / "_history.parquet"
-    history.to_parquet(out, compression="snappy", index=False)
+    out = _get_backend().rebuild_history(area, cliente, modulo)
 
     # Invalidar cache
     if _HAS_STREAMLIT and hasattr(_load_history, "clear"):
@@ -349,12 +451,7 @@ def _save_config(
     Returns:
         Path al archivo escrito.
     """
-    base = _module_dir_agnostic(area, modulo)
-    out = base / f"{name}-v{version}.json"
-    out.write_text(
-        json.dumps(config, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    out = _get_backend().save_config(config, area, modulo, name, version)
     # Invalidar cache
     if _HAS_STREAMLIT and hasattr(_load_config, "clear"):
         _load_config.clear()
@@ -364,10 +461,7 @@ def _save_config(
 @_cache_data
 def _load_config(area: str, modulo: str, name: str, version: int) -> dict:
     """Lee un config JSON. Devuelve {} si no existe."""
-    p = DATA_ROOT / area / modulo / f"{name}-v{version}.json"
-    if not p.exists():
-        return {}
-    return json.loads(p.read_text(encoding="utf-8"))
+    return _get_backend().load_config(area, modulo, name, version)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
