@@ -1,26 +1,30 @@
 ---
 tipo: modulo
-actualizado: 2026-06-12
+actualizado: 2026-06-16
 ---
 
 # M29 — Proposal Studio
 
 Módulo Sales Director del Agency OS. Generación de propuestas comerciales bilingües (ES/EN) en HTML + PDF.
 
-## Estado al 2026-06-12
+## Estado al 2026-06-16
 
-- **Rediseño visual PDF**: 100% del scope nuestro cerrado.
-- **Persistencia**: LocalJsonStorage activo. SupabaseStorage codeada + testeada (10 tests con FakeTransport), esperando wiring productivo (pago Edu).
-- **Suite**: 310 verde.
+- **Rediseño visual PDF**: 100% del scope nuestro cerrado (2026-06-12).
+- **Persistencia**: **Supabase PRODUCTIVO** en local + Cloud (wired 2026-06-16). 60 propuestas migradas (62 filas, 6 únicas). LocalJsonStorage queda como fallback automático si se quitan las credenciales.
+- **Suite**: 312 verde (310 + 2 tests de regresión render fresh).
 
-## Supabase swap day — el día que Edu pague
+## Supabase swap day — EJECUTADO 2026-06-16
 
-### Estado actual (2026-06-12)
-- Clase `SupabaseStorage` operativa en `core/proposal_persistence.py` L221+.
+> Este playbook se ejecutó con éxito el 2026-06-16. Se conserva como referencia operativa y para futuros entornos (staging, re-setup, otro proyecto). Funcionó casi al pie de la letra; la única sorpresa fue RLS (ver Paso 1.5 agregado abajo).
+
+### Estado post-wiring (2026-06-16)
+- Clase `SupabaseStorage` PRODUCTIVA en local + Cloud.
 - Cliente REST propio (`_RequestsTransport` L190-218), sin dependencia `supabase` SDK.
-- 10 tests verdes en `tests/test_proposal_supabase_storage.py`.
-- Auto-detección por credenciales en `_storage_config()` L328 — sin feature flag.
-- En local sin env vars: corre `LocalJsonStorage` por default.
+- 10 tests verdes en `tests/test_proposal_supabase_storage.py` (FakeTransport).
+- Auto-detección por credenciales en `_storage_config()` — sin feature flag.
+- Proyecto: `capybaras-os-prod` (org Capybaras PRO, region West US Oregon, MICRO).
+- 60 propuestas migradas (62 filas con versiones, 6 únicas en UI).
+- **RLS deshabilitado** en ambas tablas (decisión single-tenant — ver deuda de seguridad).
 
 ### Prerequisitos
 - Plan Supabase Pro habilitado en workspace Capybaras (pendiente — espera pago Edu).
@@ -55,6 +59,14 @@ create table if not exists proposal_votes (
 **Modelo de datos**:
 - `proposals`: blob JSONB en `data` + 6 columnas denormalizadas (client_name, status, archetype, updated_at) para filtros futuros. PK compuesta `(id, version)` → upsert idempotente vía PostgREST `Prefer: resolution=merge-duplicates`.
 - `proposal_votes`: append-only por interest tracking. Schema en `_VOTE_COLUMNS = ["id", "module_id", "voter_name", "voted_at", "proposal_id"]`.
+
+### Paso 1.5 — RLS (sorpresa no documentada originalmente)
+
+**Tablas nuevas en Supabase tienen RLS activado por default.** Con RLS on y sin políticas, las lecturas (GET) funcionan pero las escrituras (POST/upsert) fallan con PostgREST `42501` que PostgREST traduce a **HTTP 401** (engañoso — parece auth pero es RLS).
+
+Dos caminos:
+- **Single-tenant (lo que hicimos 2026-06-16)**: deshabilitar RLS. Table Editor → cada tabla → Edit table → uncheck "Enable Row Level Security" → Save. Hacerlo en `proposals` Y `proposal_votes`.
+- **Multi-tenant / exposición pública**: mantener RLS on + crear políticas INSERT/SELECT, o usar service_role key (server-side only).
 
 ### Paso 2 — Inyección de credenciales
 
@@ -120,6 +132,7 @@ Comentar las líneas `[supabase]` del `secrets.toml`, restart. Sin código que c
 
 ### Pendientes después del swap
 
+- **Deuda de seguridad (P2)**: hoy RLS off + anon key. La anon key se compartió en un chat de trabajo durante el wiring. Rotar a service_role + RLS con políticas antes de cualquier exposición pública o multi-tenant.
 - Decisión RLS (Row Level Security): hoy single-tenant, RLS off aceptable. Si en algún momento se abre a multi-cliente, evaluar políticas por `client_name`.
 - Tests E2E con instancia Supabase real (los actuales son 10 con FakeTransport).
 

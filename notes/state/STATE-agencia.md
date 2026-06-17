@@ -1,11 +1,27 @@
 ---
 tipo: state
-actualizado: 2026-06-12
+actualizado: 2026-06-16
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-06-16 (M29 Supabase wiring productivo + hotfix Cloud)
+
+**Supabase wiring PRODUCTIVO cerrado end-to-end (local + Cloud). Pendiente externo #1 de M29 resuelto antes de lo esperado. 1 commit técnico + 1 docs. HEAD post-cierre.**
+
+- **Hotfix Cloud**: incidente `TemplateNotFound: '_placeholder.html'` en propuesta fresh post-rediseño. Causa raíz = deploy stale (módulo cacheado en memoria del proceso Cloud). Fix = Reboot de la app. NO era bug de código (reproducción local imposible).
+- **Test de regresión** (`8b4400c`): 2 tests nuevos cubren render con propuesta fresh + blocks vacío. Suite 310 → 312 verde. Cierra el blindspot que causó el incidente.
+- **Supabase wiring productivo**: proyecto `capybaras-os-prod` creado, DDL ejecutado (tablas `proposals` + `proposal_votes`), credenciales en secrets.toml local + Streamlit Cloud. Incidente 401 = RLS activado sin política INSERT para anon (PostgREST traduce a 401). Resuelto deshabilitando RLS (single-tenant). 60 propuestas migradas (62 filas, 6 únicas en UI). Verificado: local + Cloud leen/escriben Supabase, persistencia sobrevive redeploys.
+
+**Deuda de seguridad (P2)**: RLS off + anon key expuesta en chat de trabajo. Rotar a service_role + RLS con políticas antes de exposición pública/multi-tenant.
+
+**Pendientes M29 restantes** (dependencias externas): chart V3 data (Ramiro B7), galería V5 (Ramiro contrato v2), F3 marcas reales (Freddy + compliance), hidratado Tier 2-3.
+
+Detalle en `notes/daily/2026-06-16.md`. Swap day playbook (que funcionó) en `notes/modules/m29-proposal-studio.md`.
 
 ---
 

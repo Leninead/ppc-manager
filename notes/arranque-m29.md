@@ -1,22 +1,23 @@
 ---
 tipo: arranque
 modulo: M29
-actualizado: 2026-06-12
+actualizado: 2026-06-16
 ---
 
 # Arranque M29 — Proposal Studio
 
 Prompt de arranque rápido para sesiones de continuación de M29. Pegar al inicio de un nuevo chat.
 
-## Estado al 2026-06-12
+## Estado al 2026-06-16
 
-**M29 rediseño visual del PDF cerrado al 100% del scope nuestro.** HEAD `e9ece76`. Suite 310 verde.
+**M29 rediseño visual del PDF cerrado al 100% (2026-06-12) + Supabase PRODUCTIVO (2026-06-16).** Suite 312 verde.
 
 Pendientes externos (no dependen de nosotros):
-- Supabase wiring productivo (espera pago Edu).
 - Chart V3 data real + galería V5 (contrato v2 Ramiro).
 - F3 con marcas reales (Freddy + compliance LTD/M&B/Setex).
 - Hidratado Tier 2-3 (V17-V22) por cliente.
+
+Deuda de seguridad (P2): Supabase RLS off + anon key expuesta. Rotar a service_role + RLS antes de exposición pública/multi-tenant.
 
 8 deudas P3 silenciosas registradas en `notes/daily/2026-06-12.md` (no urgentes, ~30-40 min CC en turno corto).
 
@@ -30,8 +31,8 @@ En este orden:
 
 ## Próximas sesiones triggereables
 
-### Cuando Edu pague Supabase
-Seguir el playbook en `notes/modules/m29-proposal-studio.md` sección "Supabase swap day". Cero código nuevo.
+### Supabase (DONE 2026-06-16)
+Wiring productivo ejecutado. Playbook en `notes/modules/m29-proposal-studio.md` sección "Supabase swap day — EJECUTADO" queda como referencia para futuros entornos. Próximo paso de seguridad: rotar key + RLS (deuda P2).
 
 ### Cuando llegue el contrato v2 de Ramiro
 - Activar chart V3 con data real vía importer B7.
