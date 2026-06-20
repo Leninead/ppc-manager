@@ -45,14 +45,16 @@ class _FakeTransport:
     _PK = {
         P._SNAPSHOTS_TABLE: ("area", "cliente", "modulo", "period"),
         P._CONFIGS_TABLE: ("area", "modulo", "name", "version"),
+        P._CLIENT_CONFIGS_TABLE: ("area", "cliente", "modulo", "name"),
     }
     _NON_FILTER = {"select", "limit", "order", "offset"}
 
     def __init__(self):
         self.tables = {
-            P._SNAPSHOTS_TABLE: {},   # dict por PK
-            P._CONFIGS_TABLE: {},     # dict por PK
-            P._LOGS_TABLE: [],        # list append-only (sin PK)
+            P._SNAPSHOTS_TABLE: {},        # dict por PK
+            P._CONFIGS_TABLE: {},          # dict por PK
+            P._CLIENT_CONFIGS_TABLE: {},   # dict por PK (con dimensión cliente)
+            P._LOGS_TABLE: [],             # list append-only (sin PK)
         }
         self._log_seq = 0
 
@@ -711,3 +713,92 @@ def test_fake_transport_post_logs_apenda_no_mergea():
                                  "modulo": "eq.m", "log_name": "eq.l"})
     assert len(rows) == 2  # apendó, no mergeó
     assert {r["id"] for r in rows} == {1, 2}  # surrogate id incremental
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Client-configs per-cliente (Bloque 3) — Local (tmp_path) y Supabase (fake)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _tracked_skus_dict(cliente: str) -> dict:
+    return {
+        "version": 1,
+        "cliente": cliente,
+        "skus": [
+            {"sku": "DEMARPA0001S56", "asin": "B0A", "title": "Prod A",
+             "image_url": "", "link": "", "added_at": "2026-W14"},
+            {"sku": "DEMARPA0002S56", "asin": "B0B", "title": "Prod B",
+             "image_url": "", "link": "", "added_at": "2026-W15"},
+        ],
+    }
+
+
+def test_local_client_config_roundtrip_y_path_exacto(local_backend):
+    """save/load round-trip + el archivo queda en el path histórico de M28."""
+    lb = local_backend
+    cfg = _tracked_skus_dict(CLIENTE)
+    out = lb.save_client_config(cfg, AREA, CLIENTE, MODULO, "tracked-skus")
+
+    # path EXACTO = data/<area>/<cliente>/<modulo>/tracked-skus.json (paridad M28)
+    expected = P.DATA_ROOT / AREA / CLIENTE / MODULO / "tracked-skus.json"
+    assert out == expected
+    assert expected.exists()
+
+    loaded = lb.load_client_config(AREA, CLIENTE, MODULO, "tracked-skus")
+    assert loaded == cfg
+
+
+def test_local_client_config_inexistente_devuelve_dict_vacio(local_backend):
+    assert local_backend.load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == {}
+
+
+def test_supabase_client_config_roundtrip(backend):
+    cfg = _tracked_skus_dict(CLIENTE)
+    backend.save_client_config(cfg, AREA, CLIENTE, MODULO, "tracked-skus")
+    assert backend.load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == cfg
+
+
+def test_supabase_client_config_pk_incluye_cliente(backend):
+    """Mismo modulo+name pero distinto cliente NO colisiona (PK lleva cliente)."""
+    cfg_a = _tracked_skus_dict("cli-a")
+    cfg_b = _tracked_skus_dict("cli-b")
+    backend.save_client_config(cfg_a, AREA, "cli-a", MODULO, "tracked-skus")
+    backend.save_client_config(cfg_b, AREA, "cli-b", MODULO, "tracked-skus")
+
+    assert backend.load_client_config(AREA, "cli-a", MODULO, "tracked-skus") == cfg_a
+    assert backend.load_client_config(AREA, "cli-b", MODULO, "tracked-skus") == cfg_b
+
+
+def test_supabase_client_config_upsert_pisa_mismo_pk(backend):
+    backend.save_client_config({"v": 1}, AREA, CLIENTE, MODULO, "tracked-skus")
+    backend.save_client_config({"v": 2}, AREA, CLIENTE, MODULO, "tracked-skus")
+    # 1 sola fila, pisada
+    assert backend.load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == {"v": 2}
+    assert len(backend._t.tables[P._CLIENT_CONFIGS_TABLE]) == 1
+
+
+def test_supabase_client_config_inexistente_devuelve_dict_vacio(backend):
+    assert backend.load_client_config(AREA, CLIENTE, MODULO, "nope") == {}
+
+
+def test_supabase_delete_cliente_tambien_borra_client_configs(backend):
+    """delete_cliente encadena el borrado de ah_client_configs (acotado al módulo):
+    el client-config del módulo target se va, el de OTRO módulo del mismo cliente
+    SOBREVIVE."""
+    backend.save_snapshot(_mini("a"), AREA, CLIENTE, MODULO, "2026-W14")
+    backend.save_client_config(_tracked_skus_dict(CLIENTE), AREA, CLIENTE, MODULO, "tracked-skus")
+    # client-config de OTRO módulo del mismo cliente
+    backend.save_client_config({"k": "v"}, AREA, CLIENTE, "pricing-dashboard", "prefs")
+
+    assert backend.delete_cliente(AREA, CLIENTE, MODULO) is True
+    assert backend.load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == {}
+    # hermano SOBREVIVE
+    sib = backend.load_client_config(AREA, CLIENTE, "pricing-dashboard", "prefs")
+    assert sib == {"k": "v"}
+
+
+def test_supabase_delete_cliente_solo_client_config_devuelve_true(backend):
+    """Si no hay snapshots ni logs pero sí client-config, delete_cliente → True."""
+    backend.save_client_config({"k": "v"}, AREA, CLIENTE, MODULO, "tracked-skus")
+    assert backend.delete_cliente(AREA, CLIENTE, MODULO) is True
+    assert backend.load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == {}

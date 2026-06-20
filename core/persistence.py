@@ -4,7 +4,7 @@ Toda I/O de módulos pasa por estos helpers. Implementa el contrato definido en
 `.claude/skills/data-persistence-standard.md`. Los módulos NO leen ni escriben
 Parquet/JSON/CSV directamente — siempre pasan por aquí.
 
-API pública (13 helpers):
+API pública (15 helpers):
     _save_snapshot(df, area, cliente, modulo, period) -> Path
     _load_snapshot(area, cliente, modulo, period) -> pd.DataFrame | None
     _load_history(area, cliente, modulo) -> pd.DataFrame
@@ -13,6 +13,8 @@ API pública (13 helpers):
     _load_log(area, cliente, modulo, log_name, filters=None) -> pd.DataFrame
     _save_config(config, area, modulo, name, version) -> Path
     _load_config(area, modulo, name, version) -> dict
+    _save_client_config(config, area, cliente, modulo, name) -> Path
+    _load_client_config(area, cliente, modulo, name) -> dict
     _list_periods(area, cliente, modulo) -> list[str]
     _validate_against_schema(df, modulo, version) -> list[str]
     _delete_snapshot(area, cliente, modulo, period) -> bool
@@ -309,6 +311,44 @@ class _LocalBackend:
                     df = df[df[col] == val]
         return df
 
+    # — Client-configs (config JSON PER-CLIENTE) —
+
+    def save_client_config(
+        self,
+        config: dict,
+        area: str,
+        cliente: str,
+        modulo: str,
+        name: str,
+    ) -> Path:
+        """Guarda un config JSON per-cliente en
+        `data/<area>/<cliente>/<modulo>/<name>.json`.
+
+        A diferencia de save_config (client-agnostic, con version), este vive en
+        el dir del cliente/módulo y NO lleva version. Con name="tracked-skus"
+        escribe EXACTAMENTE el path histórico de M28 (`_tracked_skus_path`), así
+        los tracked-skus.json existentes se siguen leyendo igual.
+        """
+        base = _module_dir(area, cliente, modulo)
+        out = base / f"{name}.json"
+        out.write_text(
+            json.dumps(config, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return out
+
+    def load_client_config(
+        self,
+        area: str,
+        cliente: str,
+        modulo: str,
+        name: str,
+    ) -> dict:
+        p = DATA_ROOT / area / cliente / modulo / f"{name}.json"
+        if not p.exists():
+            return {}
+        return json.loads(p.read_text(encoding="utf-8"))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Backend Supabase (Fase 2) — PostgREST vía requests (sin SDK)
@@ -321,6 +361,7 @@ class _LocalBackend:
 _SNAPSHOTS_TABLE = "ah_snapshots"
 _CONFIGS_TABLE = "ah_configs"
 _LOGS_TABLE = "ah_logs"
+_CLIENT_CONFIGS_TABLE = "ah_client_configs"
 
 
 class _PersistenceTransport:
@@ -593,34 +634,24 @@ class _SupabaseBackend:
         return True
 
     def delete_cliente(self, area: str, cliente: str, modulo: str) -> bool:
-        """ACOTADO al módulo: borra snapshots + logs de (area, cliente, modulo).
+        """ACOTADO al módulo: borra snapshots + logs + client-configs de
+        (area, cliente, modulo).
 
-        El local cubre los logs implícitamente (rmtree del dir del módulo arrastra
-        `optimizations.parquet`); acá hay que encadenar el DELETE de `ah_logs`.
+        El local cubre las tres cosas implícitamente (rmtree del dir del módulo
+        arrastra `<period>.parquet`, `optimizations.parquet` y `*.json`); acá hay
+        que encadenar el DELETE en las tres tablas.
 
-        TODO(bloque 3): encadenar el borrado de client-configs cuando
-        `_SupabaseBackend` tenga ese método (hoy los configs per-cliente de M28
-        —tracked-skus.json— viven solo en local).
-
-        Devuelve True si se borró algo (snapshots o logs).
+        Devuelve True si se borró algo (snapshots, logs o client-configs).
         """
-        snap_deleted = self._t.delete(
-            _SNAPSHOTS_TABLE,
-            {
-                "area": f"eq.{area}",
-                "cliente": f"eq.{cliente}",
-                "modulo": f"eq.{modulo}",
-            },
-        )
-        log_deleted = self._t.delete(
-            _LOGS_TABLE,
-            {
-                "area": f"eq.{area}",
-                "cliente": f"eq.{cliente}",
-                "modulo": f"eq.{modulo}",
-            },
-        )
-        return bool(snap_deleted) or bool(log_deleted)
+        flt = {
+            "area": f"eq.{area}",
+            "cliente": f"eq.{cliente}",
+            "modulo": f"eq.{modulo}",
+        }
+        snap_deleted = self._t.delete(_SNAPSHOTS_TABLE, flt)
+        log_deleted = self._t.delete(_LOGS_TABLE, flt)
+        ccfg_deleted = self._t.delete(_CLIENT_CONFIGS_TABLE, flt)
+        return bool(snap_deleted) or bool(log_deleted) or bool(ccfg_deleted)
 
     # — Logs append-only —
 
@@ -693,6 +724,55 @@ class _SupabaseBackend:
                 else:
                     df = df[df[col] == val]
         return df
+
+    # — Client-configs (config JSON PER-CLIENTE) —
+
+    def save_client_config(
+        self,
+        config: dict,
+        area: str,
+        cliente: str,
+        modulo: str,
+        name: str,
+    ) -> Path:
+        """Upsert en `ah_client_configs` por PK (area, cliente, modulo, name).
+
+        Tabla dedicada con dimensión cliente (a diferencia de `ah_configs`, que es
+        client-agnostic y versionado). El `data` jsonb guarda el config completo.
+        """
+        row = {
+            "area": area,
+            "cliente": cliente,
+            "modulo": modulo,
+            "name": name,
+            "data": config,
+        }
+        self._t.post(_CLIENT_CONFIGS_TABLE, [row], upsert=True)
+        return Path(
+            f"supabase://{_CLIENT_CONFIGS_TABLE}/{area}/{cliente}/{modulo}/{name}"
+        )
+
+    def load_client_config(
+        self,
+        area: str,
+        cliente: str,
+        modulo: str,
+        name: str,
+    ) -> dict:
+        rows = self._t.get(
+            _CLIENT_CONFIGS_TABLE,
+            {
+                "area": f"eq.{area}",
+                "cliente": f"eq.{cliente}",
+                "modulo": f"eq.{modulo}",
+                "name": f"eq.{name}",
+                "select": "data",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return {}
+        return rows[0]["data"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -985,6 +1065,41 @@ def _load_config(area: str, modulo: str, name: str, version: int) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Client-configs — JSON PER-CLIENTE (con dimensión cliente, sin version)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# A diferencia de los configs client-agnostic (`_save_config`/`_load_config`,
+# tabla ah_configs), estos llevan cliente en la clave. Caso de uso: el
+# tracked-skus.json per-cliente de M28. Local → data/<area>/<cliente>/<modulo>/
+# <name>.json (mismo path histórico de M28); Supabase → tabla ah_client_configs
+# (PK area,cliente,modulo,name). Mismo patrón de cache que `_load_config`.
+
+
+def _save_client_config(
+    config: dict,
+    area: str,
+    cliente: str,
+    modulo: str,
+    name: str,
+) -> Path:
+    """Guarda un config JSON per-cliente. Invalida el cache de _load_client_config.
+
+    Con name="tracked-skus" escribe (local) el path histórico de M28, así los
+    archivos existentes se siguen leyendo igual tras el swap.
+    """
+    out = _get_backend().save_client_config(config, area, cliente, modulo, name)
+    if _HAS_STREAMLIT and hasattr(_load_client_config, "clear"):
+        _load_client_config.clear()
+    return out
+
+
+@_cache_data
+def _load_client_config(area: str, cliente: str, modulo: str, name: str) -> dict:
+    """Lee un config JSON per-cliente. Devuelve {} si no existe."""
+    return _get_backend().load_client_config(area, cliente, modulo, name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Borrados — disparados explícitamente por el usuario (NUNCA automáticos)
 # ─────────────────────────────────────────────────────────────────────────────
 #
@@ -1020,12 +1135,13 @@ def _delete_cliente(area: str, cliente: str, modulo: str) -> bool:
     """Borra todo el módulo de un cliente (ACOTADO a `<area>/<cliente>/<modulo>/`).
 
     Devuelve True si había algo que borrar. Invalida todos los caches de lectura
-    relevantes (snapshots, periods, history, logs — el borrado local del dir del
-    módulo arrastra también el `optimizations.parquet`).
+    relevantes (snapshots, periods, history, logs, client-configs — el borrado
+    local del dir del módulo arrastra también `optimizations.parquet` y los .json).
     """
     out = _get_backend().delete_cliente(area, cliente, modulo)
     if _HAS_STREAMLIT:
-        for _fn in (_load_snapshot, _list_periods, _load_history, _load_log):
+        for _fn in (_load_snapshot, _list_periods, _load_history, _load_log,
+                    _load_client_config):
             if hasattr(_fn, "clear"):
                 _fn.clear()
     return out
