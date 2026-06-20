@@ -32,10 +32,14 @@ from core import persistence as P
 class _FakeTransport:
     """Replica en memoria la porción de PostgREST que usa `_SupabaseBackend`.
 
-    - `post(table, rows, upsert=True)`: guarda por PK; si la PK ya existe, la
-      reemplaza (merge-duplicates).
-    - `get(table, params)`: aplica filtros `eq.<valor>` por igualdad EXACTA de
-      string (NO substring/prefijo) + `limit`. Ignora `select`/`order`/`offset`.
+    Dos tipos de store según la tabla:
+    - Tablas con PK (`ah_snapshots`, `ah_configs`) → dict[pk_tuple, row]. `post`
+      hace merge-duplicates por PK (upsert).
+    - Tabla append-only sin PK (`ah_logs`) → list. `post` APENDA (NO mergea) y
+      asigna un surrogate `id` incremental si la fila no lo trae.
+
+    `get`/`delete` aplican filtros `eq.<valor>` por igualdad EXACTA de string (NO
+    substring/prefijo). Ignoran `select`/`limit`/`order`/`offset`.
     """
 
     _PK = {
@@ -45,61 +49,73 @@ class _FakeTransport:
     _NON_FILTER = {"select", "limit", "order", "offset"}
 
     def __init__(self):
-        self.tables: dict[str, dict[tuple, dict]] = {
-            P._SNAPSHOTS_TABLE: {},
-            P._CONFIGS_TABLE: {},
+        self.tables = {
+            P._SNAPSHOTS_TABLE: {},   # dict por PK
+            P._CONFIGS_TABLE: {},     # dict por PK
+            P._LOGS_TABLE: [],        # list append-only (sin PK)
         }
+        self._log_seq = 0
 
     def _pk(self, table: str, row: dict) -> tuple:
         return tuple(row[c] for c in self._PK[table])
 
-    def post(self, table: str, rows: list[dict], upsert: bool = False) -> list[dict]:
+    def _rows(self, table: str) -> list[dict]:
         store = self.tables[table]
-        out = []
-        for row in rows:
-            pk = self._pk(table, row)
-            store[pk] = dict(row)  # upsert: reemplaza la fila con misma PK
-            out.append(dict(row))
-        return out
+        return list(store.values()) if isinstance(store, dict) else list(store)
 
-    def get(self, table: str, params: dict) -> list[dict]:
-        rows = list(self.tables[table].values())
-        limit = None
+    def _matches(self, row: dict, params: dict) -> bool:
         for key, raw in params.items():
             if key in self._NON_FILTER:
-                if key == "limit":
-                    limit = int(raw)
                 continue
             op, _, target = str(raw).partition(".")
             assert op == "eq", f"_FakeTransport solo soporta eq, recibido {raw!r}"
             # Igualdad EXACTA (replica eq de PostgREST; period con guiones como
             # '2026-W18' NO debe matchear '2026-W1' por prefijo).
-            rows = [r for r in rows if str(r.get(key)) == target]
+            if str(row.get(key)) != target:
+                return False
+        return True
+
+    def post(self, table: str, rows: list[dict], upsert: bool = False) -> list[dict]:
+        store = self.tables[table]
+        out = []
+        for row in rows:
+            if isinstance(store, dict):
+                pk = self._pk(table, row)
+                store[pk] = dict(row)  # upsert: reemplaza la fila con misma PK
+                out.append(dict(row))
+            else:
+                # append-only (logs): NUNCA mergea; asigna surrogate id si falta
+                r = dict(row)
+                if "id" not in r:
+                    self._log_seq += 1
+                    r["id"] = self._log_seq
+                store.append(r)
+                out.append(dict(r))
+        return out
+
+    def get(self, table: str, params: dict) -> list[dict]:
+        rows = [r for r in self._rows(table) if self._matches(r, params)]
+        limit = params.get("limit")
         if limit is not None:
-            rows = rows[:limit]
+            rows = rows[: int(limit)]
         return [dict(r) for r in rows]
 
     def delete(self, table: str, params: dict) -> list[dict]:
         """Borra las filas que matchean TODOS los filtros `eq` (igualdad exacta).
 
         Devuelve la lista de filas borradas (replica `Prefer: return=representation`
-        del transport real). Ignora `select`/`limit`/`order`/`offset`.
+        del transport real). Soporta store dict (por PK) y list (append-only).
         """
         store = self.tables[table]
-        deleted = []
-        for pk in list(store.keys()):
-            row = store[pk]
-            match = True
-            for key, raw in params.items():
-                if key in self._NON_FILTER:
-                    continue
-                op, _, target = str(raw).partition(".")
-                assert op == "eq", f"_FakeTransport solo soporta eq, recibido {raw!r}"
-                if str(row.get(key)) != target:
-                    match = False
-                    break
-            if match:
-                deleted.append(dict(store.pop(pk)))
+        if isinstance(store, dict):
+            deleted = []
+            for pk in list(store.keys()):
+                if self._matches(store[pk], params):
+                    deleted.append(dict(store.pop(pk)))
+            return deleted
+        # list store (logs): conservar las que NO matchean
+        deleted = [dict(r) for r in store if self._matches(r, params)]
+        store[:] = [r for r in store if not self._matches(r, params)]
         return deleted
 
 
@@ -577,3 +593,121 @@ def test_fake_transport_delete_eq_es_exacto():
     remaining = t.get(P._SNAPSHOTS_TABLE, {"area": "eq.a", "cliente": "eq.c",
                                            "modulo": "eq.m", "period": "eq.2026-W1"})
     assert len(remaining) == 1 and remaining[0]["period"] == "2026-W1"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logs append-only (Bloque 2) — _LocalBackend (tmp_path) y _SupabaseBackend (fake)
+# ─────────────────────────────────────────────────────────────────────────────
+
+MODULO = "sku-progress"
+
+
+def test_local_append_load_log_roundtrip(local_backend):
+    """Comportamiento local histórico: 2 appends → load_log 2 filas + timestamp
+    inyectado + filtro por igualdad."""
+    lb = local_backend
+    lb.append_log({"sku": "A", "label": "img"}, AREA, CLIENTE, MODULO, "optimizations")
+    lb.append_log({"sku": "B", "label": "bullets"}, AREA, CLIENTE, MODULO, "optimizations")
+
+    df = lb.load_log(AREA, CLIENTE, MODULO, "optimizations")
+    assert len(df) == 2
+    assert "timestamp" in df.columns
+    assert df["timestamp"].notna().all()  # inyectado en cada fila
+    # orden de inserción preservado (append-order del parquet)
+    assert df["sku"].tolist() == ["A", "B"]
+
+    # filtro por igualdad
+    only_a = lb.load_log(AREA, CLIENTE, MODULO, "optimizations", filters={"sku": "A"})
+    assert only_a["sku"].tolist() == ["A"]
+
+
+def test_local_append_log_respeta_timestamp_provisto(local_backend):
+    """Si el row ya trae timestamp, NO se sobreescribe (verbatim del comportamiento)."""
+    lb = local_backend
+    lb.append_log(
+        {"sku": "A", "label": "x", "timestamp": "2026-01-01T00:00:00"},
+        AREA, CLIENTE, MODULO, "optimizations",
+    )
+    df = lb.load_log(AREA, CLIENTE, MODULO, "optimizations")
+    assert df.loc[0, "timestamp"] == "2026-01-01T00:00:00"
+
+
+def test_supabase_append_log_es_insert_no_upsert(backend):
+    """append_log INSERTA (no mergea por PK): 2 appends iguales = 2 filas."""
+    backend.append_log({"sku": "A", "label": "img"}, AREA, CLIENTE, MODULO, "optimizations")
+    backend.append_log({"sku": "A", "label": "img"}, AREA, CLIENTE, MODULO, "optimizations")
+
+    df = backend.load_log(AREA, CLIENTE, MODULO, "optimizations")
+    assert len(df) == 2  # NO se pisaron entre sí
+    assert "timestamp" in df.columns and df["timestamp"].notna().all()
+
+
+def test_supabase_load_log_reconstruye_y_filtra(backend):
+    """load_log reconstruye el DF desde el jsonb `data` y aplica filters (igualdad/isin)."""
+    backend.append_log({"sku": "A", "label": "img"}, AREA, CLIENTE, MODULO, "optimizations")
+    backend.append_log({"sku": "B", "label": "bullets"}, AREA, CLIENTE, MODULO, "optimizations")
+    backend.append_log({"sku": "C", "label": "a+"}, AREA, CLIENTE, MODULO, "optimizations")
+
+    full = backend.load_log(AREA, CLIENTE, MODULO, "optimizations")
+    assert len(full) == 3 and set(full["sku"]) == {"A", "B", "C"}
+
+    # igualdad
+    only_b = backend.load_log(AREA, CLIENTE, MODULO, "optimizations", filters={"sku": "B"})
+    assert only_b["sku"].tolist() == ["B"]
+    # isin (lista)
+    ac = backend.load_log(AREA, CLIENTE, MODULO, "optimizations", filters={"sku": ["A", "C"]})
+    assert sorted(ac["sku"].tolist()) == ["A", "C"]
+
+
+def test_supabase_load_log_separado_por_log_name(backend):
+    """Distintos log_name del mismo módulo no se mezclan."""
+    backend.append_log({"sku": "A"}, AREA, CLIENTE, MODULO, "optimizations")
+    backend.append_log({"sku": "Z"}, AREA, CLIENTE, MODULO, "events")
+    opt = backend.load_log(AREA, CLIENTE, MODULO, "optimizations")
+    ev = backend.load_log(AREA, CLIENTE, MODULO, "events")
+    assert opt["sku"].tolist() == ["A"]
+    assert ev["sku"].tolist() == ["Z"]
+
+
+def test_supabase_load_log_vacio_devuelve_df_vacio(backend):
+    df = backend.load_log(AREA, CLIENTE, MODULO, "optimizations")
+    assert isinstance(df, pd.DataFrame) and df.empty
+
+
+def test_supabase_delete_cliente_tambien_borra_logs(backend):
+    """delete_cliente ahora encadena el borrado de ah_logs (acotado al módulo):
+    el log del módulo target queda vacío, pero el log de OTRO módulo del mismo
+    cliente SOBREVIVE."""
+    # snapshot + log del módulo target
+    backend.save_snapshot(_mini("a"), AREA, CLIENTE, MODULO, "2026-W14")
+    backend.append_log({"sku": "A", "label": "img"}, AREA, CLIENTE, MODULO, "optimizations")
+    # log de OTRO módulo del mismo cliente
+    backend.append_log({"sku": "Z"}, AREA, CLIENTE, "pricing-dashboard", "decisions-log")
+
+    assert backend.delete_cliente(AREA, CLIENTE, MODULO) is True
+    # target: snapshots y logs vacíos
+    assert backend.list_periods(AREA, CLIENTE, MODULO) == []
+    assert backend.load_log(AREA, CLIENTE, MODULO, "optimizations").empty
+    # hermano: su log SOBREVIVE
+    sib = backend.load_log(AREA, CLIENTE, "pricing-dashboard", "decisions-log")
+    assert sib["sku"].tolist() == ["Z"]
+
+
+def test_supabase_delete_cliente_solo_logs_devuelve_true(backend):
+    """Si no hay snapshots pero sí logs, delete_cliente devuelve True (borró algo)."""
+    backend.append_log({"sku": "A"}, AREA, CLIENTE, MODULO, "optimizations")
+    assert backend.delete_cliente(AREA, CLIENTE, MODULO) is True
+    assert backend.load_log(AREA, CLIENTE, MODULO, "optimizations").empty
+
+
+def test_fake_transport_post_logs_apenda_no_mergea():
+    """Lockea la semántica del fake para ah_logs: post sin upsert APENDA + asigna id."""
+    t = _FakeTransport()
+    t.post(P._LOGS_TABLE, [{"area": "a", "cliente": "c", "modulo": "m",
+                            "log_name": "l", "data": {"sku": "A"}}], upsert=False)
+    t.post(P._LOGS_TABLE, [{"area": "a", "cliente": "c", "modulo": "m",
+                            "log_name": "l", "data": {"sku": "A"}}], upsert=False)
+    rows = t.get(P._LOGS_TABLE, {"area": "eq.a", "cliente": "eq.c",
+                                 "modulo": "eq.m", "log_name": "eq.l"})
+    assert len(rows) == 2  # apendó, no mergeó
+    assert {r["id"] for r in rows} == {1, 2}  # surrogate id incremental

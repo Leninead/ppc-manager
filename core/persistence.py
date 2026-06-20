@@ -116,11 +116,12 @@ def _cache_data(func):
 # Backend de almacenamiento — capa swappeable (local / Supabase)
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Los 7 helpers públicos de snapshot/history/config delegan en el backend activo.
-# Fase 1 = `_LocalBackend` (Parquet/JSON en disco). El swap a Supabase (Bloque 2)
-# solo cambia qué backend devuelve `_get_backend()`; los wrappers públicos, sus
-# firmas y el manejo de cache NO cambian. `_append_log`/`_load_log` quedan fuera
-# de esta abstracción por ahora (siguen siendo I/O local directa).
+# Todos los helpers públicos (snapshot/history/config/logs/borrado) delegan en el
+# backend activo. Fase 1 = `_LocalBackend` (Parquet/JSON en disco). El swap a
+# Supabase solo cambia qué backend devuelve `_get_backend()`; los wrappers
+# públicos, sus firmas y el manejo de cache NO cambian. Los logs append-only
+# (`_append_log`/`_load_log`) YA están dentro de la abstracción (Bloque 2):
+# local → <log_name>.parquet, Supabase → tabla ah_logs (INSERT, sin upsert).
 
 
 class _LocalBackend:
@@ -259,6 +260,55 @@ class _LocalBackend:
         shutil.rmtree(base)
         return True
 
+    # — Logs append-only —
+
+    def append_log(
+        self,
+        row: dict,
+        area: str,
+        cliente: str,
+        modulo: str,
+        log_name: str,
+    ) -> Path:
+        base = _module_dir(area, cliente, modulo)
+        log_path = base / f"{log_name}.parquet"
+
+        if "timestamp" not in row:
+            row = {**row, "timestamp": pd.Timestamp.now().isoformat()}
+
+        new_row_df = pd.DataFrame([row])
+
+        if log_path.exists():
+            existing = pd.read_parquet(log_path)
+            combined = pd.concat([existing, new_row_df], ignore_index=True)
+        else:
+            combined = new_row_df
+
+        combined.to_parquet(log_path, compression="snappy", index=False)
+        return log_path
+
+    def load_log(
+        self,
+        area: str,
+        cliente: str,
+        modulo: str,
+        log_name: str,
+        filters: dict | None = None,
+    ) -> pd.DataFrame:
+        p = DATA_ROOT / area / cliente / modulo / f"{log_name}.parquet"
+        if not p.exists():
+            return pd.DataFrame()
+        df = pd.read_parquet(p)
+        if filters:
+            for col, val in filters.items():
+                if col not in df.columns:
+                    continue
+                if isinstance(val, (list, tuple, set)):
+                    df = df[df[col].isin(val)]
+                else:
+                    df = df[df[col] == val]
+        return df
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Backend Supabase (Fase 2) — PostgREST vía requests (sin SDK)
@@ -270,6 +320,7 @@ class _LocalBackend:
 
 _SNAPSHOTS_TABLE = "ah_snapshots"
 _CONFIGS_TABLE = "ah_configs"
+_LOGS_TABLE = "ah_logs"
 
 
 class _PersistenceTransport:
@@ -542,13 +593,18 @@ class _SupabaseBackend:
         return True
 
     def delete_cliente(self, area: str, cliente: str, modulo: str) -> bool:
-        """ACOTADO al módulo: borra solo los snapshots de (area, cliente, modulo).
+        """ACOTADO al módulo: borra snapshots + logs de (area, cliente, modulo).
 
-        TODO(bloque 2/3): encadenar el borrado de logs append-only y de
-        client-configs cuando `_SupabaseBackend` tenga esos métodos (hoy
-        `_append_log`/`_load_log` y los configs per-cliente viven solo en local).
+        El local cubre los logs implícitamente (rmtree del dir del módulo arrastra
+        `optimizations.parquet`); acá hay que encadenar el DELETE de `ah_logs`.
+
+        TODO(bloque 3): encadenar el borrado de client-configs cuando
+        `_SupabaseBackend` tenga ese método (hoy los configs per-cliente de M28
+        —tracked-skus.json— viven solo en local).
+
+        Devuelve True si se borró algo (snapshots o logs).
         """
-        deleted = self._t.delete(
+        snap_deleted = self._t.delete(
             _SNAPSHOTS_TABLE,
             {
                 "area": f"eq.{area}",
@@ -556,7 +612,87 @@ class _SupabaseBackend:
                 "modulo": f"eq.{modulo}",
             },
         )
-        return len(deleted) > 0
+        log_deleted = self._t.delete(
+            _LOGS_TABLE,
+            {
+                "area": f"eq.{area}",
+                "cliente": f"eq.{cliente}",
+                "modulo": f"eq.{modulo}",
+            },
+        )
+        return bool(snap_deleted) or bool(log_deleted)
+
+    # — Logs append-only —
+
+    def append_log(
+        self,
+        row: dict,
+        area: str,
+        cliente: str,
+        modulo: str,
+        log_name: str,
+    ) -> Path:
+        """INSERT (NO upsert) de 1 evento en `ah_logs`. Cada append es inmutable.
+
+        Inyecta `timestamp` ISO si falta (paridad con el backend local). El surrogate
+        `id` y `created_at` los pone la tabla (default en el server); acá solo se
+        envían las columnas de negocio + el `data` jsonb con la fila completa.
+        """
+        data = dict(row)
+        if "timestamp" not in data:
+            data = {**data, "timestamp": pd.Timestamp.now().isoformat()}
+        self._t.post(
+            _LOGS_TABLE,
+            [
+                {
+                    "area": area,
+                    "cliente": cliente,
+                    "modulo": modulo,
+                    "log_name": log_name,
+                    "data": data,
+                }
+            ],
+            upsert=False,  # append-only: NUNCA mergear por PK
+        )
+        return Path(f"supabase://{_LOGS_TABLE}/{area}/{cliente}/{modulo}/{log_name}")
+
+    def load_log(
+        self,
+        area: str,
+        cliente: str,
+        modulo: str,
+        log_name: str,
+        filters: dict | None = None,
+    ) -> pd.DataFrame:
+        """Lee el log desde `ah_logs` y reconstruye el DataFrame desde `data` jsonb.
+
+        Ordena por `id` ascendente para preservar el orden de inserción (paridad
+        con el append-order del Parquet local). Aplica `filters` (igualdad/isin) en
+        pandas post-carga, mismo contrato que `_LocalBackend.load_log`.
+        """
+        rows = self._t.get(
+            _LOGS_TABLE,
+            {
+                "area": f"eq.{area}",
+                "cliente": f"eq.{cliente}",
+                "modulo": f"eq.{modulo}",
+                "log_name": f"eq.{log_name}",
+                "select": "data",
+                "order": "id.asc",
+            },
+        )
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame([r["data"] for r in rows])
+        if filters:
+            for col, val in filters.items():
+                if col not in df.columns:
+                    continue
+                if isinstance(val, (list, tuple, set)):
+                    df = df[df[col].isin(val)]
+                else:
+                    df = df[df[col] == val]
+        return df
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -770,36 +906,20 @@ def _append_log(
                   'decisions-log').
 
     Returns:
-        Path al archivo del log.
+        Path al archivo/registro del log.
 
     Notes:
-        - Crea el archivo si no existe.
-        - Cada llamada hace lectura+concat+escritura. Si necesitás appendear miles
-          de rows en loop, hacé un batch write con _save_snapshot en lugar de N
-          appends.
+        - Delega en el backend activo (local: <log_name>.parquet; Supabase:
+          INSERT en ah_logs). Crea el archivo/fila si no existe.
         - Invalida el cache de _load_log automáticamente.
     """
-    base = _module_dir(area, cliente, modulo)
-    log_path = base / f"{log_name}.parquet"
-
-    if "timestamp" not in row:
-        row = {**row, "timestamp": pd.Timestamp.now().isoformat()}
-
-    new_row_df = pd.DataFrame([row])
-
-    if log_path.exists():
-        existing = pd.read_parquet(log_path)
-        combined = pd.concat([existing, new_row_df], ignore_index=True)
-    else:
-        combined = new_row_df
-
-    combined.to_parquet(log_path, compression="snappy", index=False)
+    out = _get_backend().append_log(row, area, cliente, modulo, log_name)
 
     # Invalidar cache
     if _HAS_STREAMLIT and hasattr(_load_log, "clear"):
         _load_log.clear()
 
-    return log_path
+    return out
 
 
 @_cache_data
@@ -820,19 +940,7 @@ def _load_log(
         _load_log('account-health', 'gamboa', 'sku-progress', 'optimizations',
                   filters={'sku': 'demarpa0001s56'})
     """
-    p = DATA_ROOT / area / cliente / modulo / f"{log_name}.parquet"
-    if not p.exists():
-        return pd.DataFrame()
-    df = pd.read_parquet(p)
-    if filters:
-        for col, val in filters.items():
-            if col not in df.columns:
-                continue
-            if isinstance(val, (list, tuple, set)):
-                df = df[df[col].isin(val)]
-            else:
-                df = df[df[col] == val]
-    return df
+    return _get_backend().load_log(area, cliente, modulo, log_name, filters)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
