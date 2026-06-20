@@ -4,7 +4,7 @@ Toda I/O de módulos pasa por estos helpers. Implementa el contrato definido en
 `.claude/skills/data-persistence-standard.md`. Los módulos NO leen ni escriben
 Parquet/JSON/CSV directamente — siempre pasan por aquí.
 
-API pública (10 helpers):
+API pública (13 helpers):
     _save_snapshot(df, area, cliente, modulo, period) -> Path
     _load_snapshot(area, cliente, modulo, period) -> pd.DataFrame | None
     _load_history(area, cliente, modulo) -> pd.DataFrame
@@ -15,6 +15,9 @@ API pública (10 helpers):
     _load_config(area, modulo, name, version) -> dict
     _list_periods(area, cliente, modulo) -> list[str]
     _validate_against_schema(df, modulo, version) -> list[str]
+    _delete_snapshot(area, cliente, modulo, period) -> bool
+    _delete_history(area, cliente, modulo) -> bool
+    _delete_cliente(area, cliente, modulo) -> bool
 
 Reglas duras:
 - Cero lógica de negocio acá. Solo I/O.
@@ -33,6 +36,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from io import StringIO
 from pathlib import Path
 
@@ -222,6 +226,39 @@ class _LocalBackend:
             return {}
         return json.loads(p.read_text(encoding="utf-8"))
 
+    # — Deletes —
+
+    def delete_snapshot(
+        self,
+        area: str,
+        cliente: str,
+        modulo: str,
+        period: str,
+    ) -> bool:
+        p = DATA_ROOT / area / cliente / modulo / f"{period}.parquet"
+        existed = p.exists()
+        p.unlink(missing_ok=True)
+        return existed
+
+    def delete_history(self, area: str, cliente: str, modulo: str) -> bool:
+        p = DATA_ROOT / area / cliente / modulo / "_history.parquet"
+        existed = p.exists()
+        p.unlink(missing_ok=True)
+        return existed
+
+    def delete_cliente(self, area: str, cliente: str, modulo: str) -> bool:
+        """Borra la carpeta del MÓDULO entera: `data/<area>/<cliente>/<modulo>/`.
+
+        ACOTADO al módulo (NO cross-módulo): un dir hermano de otro módulo del
+        mismo cliente (ej. pricing-dashboard) NO se toca. Usa DATA_ROOT (no
+        Path("data") literal) para respetar el monkeypatch de los tests.
+        """
+        base = DATA_ROOT / area / cliente / modulo
+        if not base.exists():
+            return False
+        shutil.rmtree(base)
+        return True
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Backend Supabase (Fase 2) — PostgREST vía requests (sin SDK)
@@ -271,6 +308,23 @@ class _PersistenceTransport:
         headers["Prefer"] = prefer
         r = self._requests.post(
             f"{self._base}/{table}", json=rows, headers=headers, timeout=30
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def delete(self, table: str, params: dict) -> list[dict]:
+        """DELETE filtrado por `params` (mismo formato `eq.<valor>` que `get`).
+
+        Usa `Prefer: return=representation` para devolver las filas borradas, así
+        el backend puede informar si el borrado afectó algo (paridad con el bool
+        "existía" del backend local). PostgREST exige al menos un filtro en el
+        query string para no borrar la tabla entera; los callers siempre pasan la
+        PK o el prefijo (area,cliente,modulo).
+        """
+        headers = dict(self._headers)
+        headers["Prefer"] = "return=representation"
+        r = self._requests.delete(
+            f"{self._base}/{table}", params=params, headers=headers, timeout=30
         )
         r.raise_for_status()
         return r.json()
@@ -458,6 +512,51 @@ class _SupabaseBackend:
         if not rows:
             return {}
         return rows[0]["data"]
+
+    # — Deletes —
+
+    def delete_snapshot(
+        self,
+        area: str,
+        cliente: str,
+        modulo: str,
+        period: str,
+    ) -> bool:
+        deleted = self._t.delete(
+            _SNAPSHOTS_TABLE,
+            {
+                "area": f"eq.{area}",
+                "cliente": f"eq.{cliente}",
+                "modulo": f"eq.{modulo}",
+                "period": f"eq.{period}",
+            },
+        )
+        return len(deleted) > 0
+
+    def delete_history(self, area: str, cliente: str, modulo: str) -> bool:
+        """NO-OP: el history es derivado (load_history concatena los snapshots en
+        query-time), no existe como fila en ah_snapshots. No hay nada que borrar;
+        devolvemos True para paridad de contrato con `_LocalBackend` (la operación
+        "tuvo éxito" — el history quedó efectivamente ausente). No toca el transport.
+        """
+        return True
+
+    def delete_cliente(self, area: str, cliente: str, modulo: str) -> bool:
+        """ACOTADO al módulo: borra solo los snapshots de (area, cliente, modulo).
+
+        TODO(bloque 2/3): encadenar el borrado de logs append-only y de
+        client-configs cuando `_SupabaseBackend` tenga esos métodos (hoy
+        `_append_log`/`_load_log` y los configs per-cliente viven solo en local).
+        """
+        deleted = self._t.delete(
+            _SNAPSHOTS_TABLE,
+            {
+                "area": f"eq.{area}",
+                "cliente": f"eq.{cliente}",
+                "modulo": f"eq.{modulo}",
+            },
+        )
+        return len(deleted) > 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -775,6 +874,53 @@ def _save_config(
 def _load_config(area: str, modulo: str, name: str, version: int) -> dict:
     """Lee un config JSON. Devuelve {} si no existe."""
     return _get_backend().load_config(area, modulo, name, version)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Borrados — disparados explícitamente por el usuario (NUNCA automáticos)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# La regla "cero borrados automáticos" apunta al código corriendo solo. Estos
+# helpers existen para que la UI (con confirmación explícita del usuario) borre
+# vía la capa en lugar de tocar el filesystem directo — así el swap a Supabase
+# borra en la tabla, no en disco. Mismas firmas en ambos backends.
+
+
+def _delete_snapshot(area: str, cliente: str, modulo: str, period: str) -> bool:
+    """Borra el snapshot de un period. Devuelve True si existía.
+
+    Invalida el cache de _load_snapshot y _list_periods.
+    """
+    out = _get_backend().delete_snapshot(area, cliente, modulo, period)
+    if _HAS_STREAMLIT and hasattr(_load_snapshot, "clear"):
+        _load_snapshot.clear()
+        _list_periods.clear()
+    return out
+
+
+def _delete_history(area: str, cliente: str, modulo: str) -> bool:
+    """Borra el agregador `_history`. Devuelve True si existía (local) o True
+    siempre (Supabase: history derivado, no-op). Invalida el cache de _load_history.
+    """
+    out = _get_backend().delete_history(area, cliente, modulo)
+    if _HAS_STREAMLIT and hasattr(_load_history, "clear"):
+        _load_history.clear()
+    return out
+
+
+def _delete_cliente(area: str, cliente: str, modulo: str) -> bool:
+    """Borra todo el módulo de un cliente (ACOTADO a `<area>/<cliente>/<modulo>/`).
+
+    Devuelve True si había algo que borrar. Invalida todos los caches de lectura
+    relevantes (snapshots, periods, history, logs — el borrado local del dir del
+    módulo arrastra también el `optimizations.parquet`).
+    """
+    out = _get_backend().delete_cliente(area, cliente, modulo)
+    if _HAS_STREAMLIT:
+        for _fn in (_load_snapshot, _list_periods, _load_history, _load_log):
+            if hasattr(_fn, "clear"):
+                _fn.clear()
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

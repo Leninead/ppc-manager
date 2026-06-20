@@ -79,6 +79,29 @@ class _FakeTransport:
             rows = rows[:limit]
         return [dict(r) for r in rows]
 
+    def delete(self, table: str, params: dict) -> list[dict]:
+        """Borra las filas que matchean TODOS los filtros `eq` (igualdad exacta).
+
+        Devuelve la lista de filas borradas (replica `Prefer: return=representation`
+        del transport real). Ignora `select`/`limit`/`order`/`offset`.
+        """
+        store = self.tables[table]
+        deleted = []
+        for pk in list(store.keys()):
+            row = store[pk]
+            match = True
+            for key, raw in params.items():
+                if key in self._NON_FILTER:
+                    continue
+                op, _, target = str(raw).partition(".")
+                assert op == "eq", f"_FakeTransport solo soporta eq, recibido {raw!r}"
+                if str(row.get(key)) != target:
+                    match = False
+                    break
+            if match:
+                deleted.append(dict(store.pop(pk)))
+        return deleted
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures
@@ -439,3 +462,118 @@ def test_storage_config_env_primero(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
     monkeypatch.setenv("SUPABASE_KEY", "k")
     assert P._storage_config() == ("https://x.supabase.co", "k")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Borrados — _LocalBackend (tmp_path + monkeypatch DATA_ROOT, cero disco real)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def local_backend(tmp_path, monkeypatch):
+    """`_LocalBackend` apuntando a un DATA_ROOT temporal (no toca el repo)."""
+    monkeypatch.setattr(P, "DATA_ROOT", tmp_path)
+    return P._LocalBackend()
+
+
+def test_local_delete_snapshot(local_backend):
+    lb = local_backend
+    lb.save_snapshot(_make_m28_snapshot(), AREA, CLIENTE, "sku-progress", "2026-W14")
+    assert lb.load_snapshot(AREA, CLIENTE, "sku-progress", "2026-W14") is not None
+    # existía → True, y ya no está
+    assert lb.delete_snapshot(AREA, CLIENTE, "sku-progress", "2026-W14") is True
+    assert lb.load_snapshot(AREA, CLIENTE, "sku-progress", "2026-W14") is None
+    # borrar inexistente → False
+    assert lb.delete_snapshot(AREA, CLIENTE, "sku-progress", "2026-W14") is False
+
+
+def test_local_delete_history(local_backend):
+    lb = local_backend
+    lb.save_snapshot(_make_m28_snapshot(), AREA, CLIENTE, "sku-progress", "2026-W14")
+    lb.rebuild_history(AREA, CLIENTE, "sku-progress")
+    assert not lb.load_history(AREA, CLIENTE, "sku-progress").empty
+    assert lb.delete_history(AREA, CLIENTE, "sku-progress") is True
+    assert lb.load_history(AREA, CLIENTE, "sku-progress").empty
+    # borrar inexistente → False
+    assert lb.delete_history(AREA, CLIENTE, "sku-progress") is False
+
+
+def test_local_delete_cliente_acotado_al_modulo(local_backend):
+    """delete_cliente borra SOLO el dir del módulo; un módulo hermano del mismo
+    cliente SOBREVIVE (no es cross-módulo)."""
+    lb = local_backend
+    lb.save_snapshot(_make_m28_snapshot(), AREA, CLIENTE, "sku-progress", "2026-W14")
+    # dir hermano de OTRO módulo del mismo cliente
+    sibling = P.DATA_ROOT / AREA / CLIENTE / "pricing-dashboard"
+    sibling.mkdir(parents=True, exist_ok=True)
+    (sibling / "dummy.parquet").write_bytes(b"x")
+
+    assert lb.delete_cliente(AREA, CLIENTE, "sku-progress") is True
+    # el dir del módulo target desapareció
+    assert not (P.DATA_ROOT / AREA / CLIENTE / "sku-progress").exists()
+    # el hermano de otro módulo SOBREVIVE
+    assert (sibling / "dummy.parquet").exists()
+    # borrar de nuevo → False (ya no existe)
+    assert lb.delete_cliente(AREA, CLIENTE, "sku-progress") is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Borrados — _SupabaseBackend (fake transport, cero red)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_supabase_delete_snapshot_filtra_pk_exacta(backend):
+    backend.save_snapshot(_mini("W14"), AREA, CLIENTE, "sku-progress", "2026-W14")
+    backend.save_snapshot(_mini("W15"), AREA, CLIENTE, "sku-progress", "2026-W15")
+    assert backend.delete_snapshot(AREA, CLIENTE, "sku-progress", "2026-W14") is True
+    # solo W14 se fue; W15 sigue
+    assert backend.load_snapshot(AREA, CLIENTE, "sku-progress", "2026-W14") is None
+    assert backend.load_snapshot(AREA, CLIENTE, "sku-progress", "2026-W15") is not None
+    # borrar inexistente → False (nada matcheó)
+    assert backend.delete_snapshot(AREA, CLIENTE, "sku-progress", "2026-W14") is False
+
+
+def test_supabase_delete_cliente_filtra_por_modulo(backend):
+    backend.save_snapshot(_mini("a"), AREA, CLIENTE, "sku-progress", "2026-W14")
+    backend.save_snapshot(_mini("b"), AREA, CLIENTE, "sku-progress", "2026-W15")
+    # otro módulo del mismo cliente NO debe borrarse
+    backend.save_snapshot(_mini("c"), AREA, CLIENTE, "pricing-dashboard", "2026-04-17")
+
+    assert backend.delete_cliente(AREA, CLIENTE, "sku-progress") is True
+    assert backend.list_periods(AREA, CLIENTE, "sku-progress") == []
+    assert backend.list_periods(AREA, CLIENTE, "pricing-dashboard") == ["2026-04-17"]
+    # borrar de nuevo → False (ya no quedan filas del módulo)
+    assert backend.delete_cliente(AREA, CLIENTE, "sku-progress") is False
+
+
+def test_supabase_delete_history_es_noop_no_toca_transport():
+    """delete_history NO debe llamar al transport y devuelve True (history derivado)."""
+
+    class _ExplodingTransport:
+        def get(self, *a, **k):
+            raise AssertionError("delete_history no debe tocar el transport")
+
+        def post(self, *a, **k):
+            raise AssertionError("delete_history no debe tocar el transport")
+
+        def delete(self, *a, **k):
+            raise AssertionError("delete_history no debe tocar el transport")
+
+    b = P._SupabaseBackend(transport=_ExplodingTransport())
+    assert b.delete_history(AREA, CLIENTE, "sku-progress") is True
+
+
+def test_fake_transport_delete_eq_es_exacto():
+    """Lockea la semántica del fake: delete por eq exacto (no prefijo)."""
+    t = _FakeTransport()
+    t.post(P._SNAPSHOTS_TABLE, [{"area": "a", "cliente": "c", "modulo": "m",
+                                 "period": "2026-W1", "data": "x"}], upsert=True)
+    t.post(P._SNAPSHOTS_TABLE, [{"area": "a", "cliente": "c", "modulo": "m",
+                                 "period": "2026-W18", "data": "y"}], upsert=True)
+    deleted = t.delete(P._SNAPSHOTS_TABLE, {"area": "eq.a", "cliente": "eq.c",
+                                            "modulo": "eq.m", "period": "eq.2026-W18"})
+    assert len(deleted) == 1 and deleted[0]["period"] == "2026-W18"
+    # W1 sobrevive (no match por prefijo)
+    remaining = t.get(P._SNAPSHOTS_TABLE, {"area": "eq.a", "cliente": "eq.c",
+                                           "modulo": "eq.m", "period": "eq.2026-W1"})
+    assert len(remaining) == 1 and remaining[0]["period"] == "2026-W1"
