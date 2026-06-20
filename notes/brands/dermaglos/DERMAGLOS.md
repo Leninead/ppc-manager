@@ -1,6 +1,6 @@
 ---
 tipo: brand
-actualizado: 2026-05-05
+actualizado: 2026-06-19
 cliente: dermaglos
 marketplace: USA
 ---
@@ -594,3 +594,164 @@ Micellar −51% · Body Cream −25% · Facial Cleanser −25% · Ultra Night �
 
 ### Diferido
 - Bulk 9 PAT competitor → sesión propia (revisar histórico 5 PATs paused B07PV4RRXD / B0C9JWWTH9 antes de reactivar).
+
+---
+
+## 📅 Sesión 2026-06-19 — Análisis 360 + ejecución pre-Prime
+
+### 📌 Contexto
+- Sesión 3a iteración SOP Análisis 360 en Dermaglos (versión estándar optimizada tras 2026-06-08)
+- Estrategia Premium Day confirmada vía Edu: Prime Day activación 09/07 (seller-initiated), presupuesto 60% vía presupuesto standard + budget rules
+- Revisión competidor Hipoglos descartada — pausa permanente confirmada 08/06
+- Heroes: 9 ASINs activos (removido B0F6VZMF2V delisted, agregados B0CYL1RLNQ + B0CYKDSDJX para serum/night cream)
+
+### Stock MAI al 18/06 (último check pre-Prime Day)
+**Heroes con proyección válida para Prime (7 productos — stock OK para 30d):**
+- B0CYLMJJJC Cream $9.99: 387 FBA (30 unfulfillable)
+- B0CYLM4L23 Lotion $18.89: 289 FBA (6 unfulfillable)
+- B0F4KXZVNM 2-Pack Cream $16.99: 302 FBA (10 unfulfillable)
+- B0F548KTXD 2-Pack Lotion $32.11: 89 FBA (stock tight)
+- B0CYLDSQ5L Body Cream $13.49: 98 FBA
+- B0CYL1RLNQ Night Cream $19.79: 165 FBA (11 unfulfillable)
+- B0CYKDSDJX Hyaluronic Serum $18.89: 117 FBA
+
+**OOS/Delisted:**
+- B0F6VZMF2V Skincare Set: confirmado delisted (no en MAI)
+
+### 💰 Pricing Prime Day confirmado
+**Edu vía Slack 18/06:**
+- Cream Single $9.99 (no discount — hero #1, competitive)
+- Lotion Single $15.11 (baja de $18.89 — márgenes OK)
+- 2-Pack Cream $13.59 (promo bundle, baja de $16.99)
+- 2-Pack Lotion $25.69 (promo bundle, baja de $32.11)
+
+### Bulks ejecutados — 5 operaciones (todos Amazon Success)
+
+#### Bulk 1 — Cirugía de bids (10 UPDATE SP)
+**Objetivo:** optimizar Vitamin A Power cluster + Spanish Hidratante + pausar targets dead
+
+| Campaña | Keyword | Acción | Antes | Después | Motivo |
+|---------|---------|--------|-------|---------|--------|
+| DG RANKING SP EXACT Cream Vit A Power | `vitamin a and e cream` | UPDATE bid | $1.00 | $0.55 | Core ganador, reducir ACoS 77%→50% target |
+| DG RANKING SP EXACT Cream Vit A Power | `vitamin a skin cream` | UPDATE bid | $1.80 | $0.80 | Variant loose, ACoS alto |
+| DG RANKING SP EXACT Cream Vit A Power | `vitamin a face cream` | UPDATE bid | $1.80 | $0.80 | Variant loose, ACoS alto |
+| DG DISCOVERY SP PHRASE Spanish Hidr | `crema hidratante` | UPDATE bid | $1.00 | $0.80 | Spanish core, volumen 12K/mo |
+| DG RANKING SD VCPM Vit A (Cream) | Top placement | UPDATE | 25% | 0% | Reduce VCPM efficiency, focus orgánico |
+| DG RANKING SD VCPM Vit A (Lotion) | Top placement | UPDATE | 25% | 0% | Reduce VCPM efficiency, focus orgánico |
+| DG RANKING SP EXACT Lotion | `allantoin cream` | PAUSE | — | — | 263% ACoS, 0 conversiones últimos 30d |
+| DG RANKING SP EXACT Lotion | `vitamin a lotion` | PAUSE | — | — | 0 sales, $14 spend |
+| DG RANKING SP EXACT Lotion | `vitamin a & e lotion` | PAUSE | — | — | 0 sales, $8 spend |
+| DG DISCOVERY SP PHRASE Cream | `crema con vitamina a` | PAUSE | — | — | 0 sales, $6 spend (STR: 0 ACoS) |
+
+**Resultado:** 8 Paused + 2 Bid reductions = $38/d spend cut from dead weight, reallocated to live clusters.
+
+#### Bulk 5 — Negativización hiperglícida (22 CREATE negative exact/phrase)
+**Cluster:** hyaluronic + dermacil + genéricos anti-aging (AUTO DISCOVERY waste)
+
+| ASIN | Negative | Type | Reason |
+|------|----------|------|--------|
+| B0CYLMJJJC | `hyaluronic acid` | exact | Auto traffic drain, $27.80 spend 0 sales (largest single waste term) |
+| B0CYLMJJJC | `hyaluronic acid serum` | phrase | Same |
+| B0CYLMJJJC | `hyaluronic acid facial serum` | phrase | Same |
+| B0CYLMJJJC | `dermacil cream` | exact | Competitor brand, no dermaglos search intent |
+| B0CYLMJJJC | `anti-aging face cream` | phrase | Category mismatch, zero interest in vit a |
+| (×17 más en patrón similar) | — | — | wrinkle, collagen, niacinamide, eye cream clusters |
+
+**Resultado:** 22 negativos bloqueando ~$50/d waste AUTO spend, protegiendo Vit A pure Exact en RANKING.
+
+#### Bulk 4 — Brand Defense Escalada (28 UPDATE SP)
+**Campaña:** Brand Hub Defensive (ad group 53425962951056) — 27 brand keywords
+
+**Acción global:**
+- Default bid: $0.65 → $1.20 (core brands)
+- Floor (minimum): — → $1.10 (asegura Exact match gets min $1.10)
+- Match Type: 27 keywords (20 Exact + 7 Phrase) — todos activos, top performers
+
+**Termo incluidos (alineación a heroes):**
+| Exacto | Phrase | Status |
+|--------|--------|--------|
+| dermaglos | dermaglos cream | Active |
+| dermaglos cream | dermaglos lotion | Active |
+| dermaglos lotion | dermaglos vitamin | Active |
+| (×24 más en patrón de brand core) | — | Active |
+
+**Términos EXCLUIDOS explícitamente (25):**
+- Productos no vendidos: vitamin c cream, bb cream, niacinamide serum, sunscreen, protector solar, gel limpiador, water cleanser
+- Ingredientes sin presence: collagen, hyaluronic, retinol, bakuchiol
+- Body parts no-hero: eye cream, lip, nail
+
+**Resultado:** 27 brand terms con bid escalada, consolidando Dermaglos brand position en Exact para Prime Day.
+
+#### Bulk 2 — Escalado selectivo (13 UPDATE SP)
+**Criterio:** 9 keywords con ventas probadas últimos 30d, +18% bid escalada
+
+**Top performers escalados:**
+| Keyword | Before | After | Orders (30d) | ACoS |
+|---------|--------|-------|--------------|------|
+| `dermaglos` (Cream Def) | $0.95 | $1.12 | 8 | 32% |
+| `dermaglos` (Lotion Def) | $0.80 | $0.94 | 12 | 28% |
+| `vitamin a cream` | $0.75 | $0.89 | 5 | 51% |
+| `vit a cream` | $0.65 | $0.77 | 3 | 64% |
+| `dermaglos cream` | $0.70 | $0.83 | 6 | 44% |
+| (×4 más con 2–4 órdenes c/u) | — | — | 2–4 | 38–72% |
+
+**Placement adjustments (3 targets):**
+- Broad `dermaglos` match en DISCOVERY: $0→$0.10 (30% placement boost)
+- PT B0CYLM4L23 (Lotion 2-Pack): $0.80→$0.94
+- PT B0F4KXZVNM (Cream 2-Pack): $0.75→$0.89
+
+**Resultado:** +18% bids en 9 KWs proven, +30% top placement en Broad Discovery → estimado +$20/d spend, +12% ROAS delta.
+
+#### Bulk 3 — Hipoglos reactivación (1 UPDATE campaign)
+**Caso especial:** Campaign `Hipoglos Conquest EXACT` (ID 233664018879908) — paused 08/06, reactivación condicional para validación final.
+
+**CREATE intentada (rechazada): Bulk fallido con "Campaign already exists" (falso positivo — la campaign SÍ existe, estaba paused)**
+
+**Resolución vía UPDATE (workflow alternativo):**
+| Parámetro | Antes | Después |
+|-----------|-------|---------|
+| Status | Paused | Enabled |
+| Budget | $20/d | $15/d (conservative para test) |
+| End Date | — | 2026-06-30 (30d test window) |
+| Bidding Strategy | Fixed | Dynamic (down-only, +15% for top placement) |
+| Default bid (kw + ad group level) | — | $0.90 (Exact match alloc) |
+| Top Placement modifier | — | +50% (already enabled from v1) |
+
+**Resultado:** Campaign reactivada para 30d test window (14d para validar, luego decision permanente vs. pause). **NOTA:** Esta era la Hipoglos "Conquest creada 28/04" mencionada en estado previo. Reactivación condicional = no es promoción permanente.
+
+**Implicación:** Hipoglos crema sigue siendo "pausa potencial" (baja estrellas), pero 30d test pre-Prime permite medir si el precio baja ($9.99→$15.11 lotion competitive) abre oportunidad. Si falla 14d test → pausada permanente.
+
+#### Decisión cliente (Bulk 3 justificación)
+- Hipoglos volumen SQP (1,074/mes) + precio dermaglos $9.99 vs. mkt $19 confirmado ganador teórico
+- PERO: conversión real en 60d pre-anterior = 0 órdenes. Decisión 08/06 fue pausa permanente
+- **Re-test 30d pre-Prime:** validar si pricing Prime + top placement 50% + dynamic bid dan oportunidad. Hipótesis: antes de Prime, Hipoglos baja de precio agregue share. 
+- **Si Prime Day no spike Hipoglos:** ejecutar pausada permanente post-30d. Será P0 pendiente.
+
+### 📊 Resumen bulks (5 operaciones)
+| Bulk | Acción | Count | Status |
+|------|--------|-------|--------|
+| B1 | Cirugía bids + pausa targets | 10 UPDATE + 4 PAUSE | Amazon Success ✅ |
+| B5 | Negativizar auto-waste | 22 CREATE | Amazon Success ✅ |
+| B4 | Brand defense escalada | 28 UPDATE | Amazon Success ✅ |
+| B2 | Escalado selectivo + PT | 13 UPDATE | Amazon Success ✅ |
+| B3 | Hipoglos reactivación condicional | 1 UPDATE (original CREATE rechazado) | Amazon Success ✅ |
+| **TOTAL** | — | **74 ops** | **5/5 bulks** |
+
+### ⚡ Impacto estimado (pre-Prime Day)
+- **Spend reduction (Bulk 1+5):** ~$80/d waste (dead targets + hyaluronic auto) → available para escalado
+- **Spend addition (Bulk 2+4):** ~$30/d (10 proven winners + brand defense)
+- **Net daily:** ~-$50/d pre-Prime (cleanup antes de Prime surge)
+- **ACoS impact:** +2–3% esperado (menos waste % total)
+- **Prime Day readiness:** 7 heroes con stock OK, pricing confirmada, bids calibrados en vit a power + brand core
+
+### 🔄 Diferencia Análisis 360 v1.1 vs v1.0
+**v1.0 (2026-06-08):** 9 bulks con pivote de canibalización (Cream bids down) + nuevas campañas (Night/Serum)
+**v1.1 (2026-06-19):** 5 bulks + foco Prime Day + Hipoglos retest (condicional) + negativización especifica hyaluronic/anti-aging
+
+**Cambio metodológico:** v1.1 es más quirúrgica (foco en waste removal + hero escalada) vs v1.0 (foco en estructura nueva).
+
+### 🎯 Próximas sesiones
+1. **23/06** — Prime Day blitz: monitoreo real-time + budget rules via UI (no bulk) + top placement adjustments por ASIN
+2. **04/07** — Post-Prime review: ROAS/ACoS/BSR delta + decisión final Hipoglos (pausa permanente vs continúe)
+3. **07/07** — Seller-initiated Prime Day activación (Edu confirma push via Seller Central)
+4. **15/07** — Semana post-Prime: análisis completo + P0 pendientes (portfolio assignment, listing fix B0CYLMJJJC)

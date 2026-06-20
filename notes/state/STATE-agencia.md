@@ -148,23 +148,20 @@ gray market 7 ASINs con Adam/Edu.
 
 ---
 
-### Última sesión — 2026-06-08 (Dermaglos PPC — 360° + 9 bulks F8)
+### Última sesión — 2026-06-19 (Dermaglos US — 360° + ejecución pre-Prime)
 
-Análisis 360° manual (2da ejecución del SOP-360, [[sop-analisis-360]] v1.1). 5 inputs (STR 415 rows · SQP mensual 804q + W23 237q · BR 10 ASINs · MAI · BSE 5,670 filas). Cruce 3-vías STR×SQP×BSE = 1,211 queries / 9 buckets.
+- **Estado**: 5 bulks ejecutados (Success). Cuenta lista para Prime 23–30/06 (20% off). ACoS baseline 58.9%, objetivo 45%.
+- Cuenta limitada por BID no budget (uso 5% del techo $803/d). Cirugía a nivel target/placement aplicada sobre bleeders del build 28/04.
+- Conquest Hipoglós reactivada (233664018879908, $15/d, dynamic down-only, end 20260630).
+- **BLOQUEOS/PENDIENTES**:
+  - B0F6VZMF2V (Facial Set) OOS → push diferido hasta restock.
+  - Unfulfillable a recuperar: 30u hero Cream B0CYLMJJJC + 11 Night + 10 2pk Cream.
+  - Gate de listing micellar/cleanser (B0CYK4G2Y8, CVR 5.8%) → fix de listing, no PPC. Para cliente.
+  - Demanda de marca no listada: protector solar, niacinamida serum → conversación revenue con Agustín/cliente.
+- **PRÓXIMA EVAL**: STR fresco post-30/06 → medir delta ACoS y performance Hipoglós/escalado en Prime.
+- **LEARNING**: cruzar BSE en todos los estados (no solo enabled) antes de dar una campaña por inexistente — el grep enabled-only generó un CREATE duplicado que rebotó.
 
-**KPIs**: ACoS **64.3%** (↑ vs 58% 08/05, 56.3% 28/04 — subiendo) · TACoS 17.2% · paid share 27% · Brand IS 0.10% (cayendo).
-
-**Hallazgo principal**: listing roto REAL es **B0CYK4G2Y8** (Facial Cleanser, CVR 6.94%), NO B0CYLMJJJC. B0CYLM4L23 Body Lotion = ganador ROAS 10× (budget subido). Canibalización brand resuelta (Cream Defensive $5.25→$1.50).
-
-**9 bulks F8 ejecutados** (B1–B9, todos Amazon Success 17:25–17:28 ART): bid downs · 14 negatives · 16 zombies pausadas · budget up B0CYLDSQ5L + B0CYLM4L23 · pausa AUTO canónica B0CYLMJJJC (ACoS 171%) · grad Exact `vitamin e lotion for scars` · 2 camps nuevas (Night Cluster B0CYL1RLNQ $15/d + Serum Cluster B0CYKDSDJX $5/d) + 3 Exacts spanish/moisturizing.
-
-**5 P0 a Edu**: B0CYK4G2Y8 listing roto · B0F6VZMF2V delisting (confirmar) · pricing Hyaluronic $18.89→$14.99 · calendario sales cliente (5 ASINs) · B0F4KXZVNM 38u unfulfillable.
-
-**Decisiones senior**: Hipoglos → pausa permanente, relanzar 60–90d post-listing fix + bullet "Hipoglos alternative". Cleansing Gel Brand → paused a pedido del cliente, no tocar.
-
-**Diferido**: Bulk 9 PAT competitor → sesión propia post-revisión histórico 5 PATs paused (B07PV4RRXD / B0C9JWWTH9).
-
-**Próxima evaluación Dermaglos**: 2026-06-15 (D+7). Detalle en [[daily/2026-06-08]] + [[DERMAGLOS]] sección 2026-06-08.
+Detalle en [[daily/2026-06-19]] + [[DERMAGLOS]] sección 2026-06-19. Previa: 2026-06-08 análisis 360° + 9 bulks F8 ([[daily/2026-06-08]]).
 
 ---
 
