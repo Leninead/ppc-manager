@@ -2,7 +2,7 @@
 tipo: prompt-arranque-cliente
 cliente: dermaglos
 nivel: cargado
-actualizado: 2026-04-28
+actualizado: 2026-06-19
 proxima_actualizacion: cierre próxima sesión Dermaglos
 heroes_oficiales:
   - B0CYLMJJJC
@@ -191,67 +191,35 @@ Si saltás cualquier paso de los 4 primeros, el próximo chat lee data stale y t
 
 ---
 
-## 📊 Estado actual del cliente (snapshot 2026-04-28)
+## 📊 Estado actual del cliente (snapshot 2026-06-19)
 
 > Esta sección se actualiza al cierre de cada sesión.
 
-### Plan ejecutado (28/04/2026)
-- **Análisis cruzado completo**: STR + SQP + Campaign Wise + Top 100 Opportunities + ASIN Performance + Campaign Analyzer + BulkSheetExport
-- **3 bulks aplicados** a la cuenta:
-  - Bulk 06 (campañas nuevas): 93/94 records ✅ — 7 campañas live
-  - Bulk 05 (negativos): 46/46 ✅
-  - Bulk 07 (harvest): 7/10 ✅ (3 ya existían como duplicados)
-- **10 campañas P0 pausadas** manualmente — $932 net waste detenido / $132/d budget liberado / $3,960/mes
-- **Net delta budget**: solo +$68/d en cuenta (compensado por las pausas)
+### Sesión 2026-06-19 — 360 pre-Prime + ejecución
+- **360 completo** sobre 5 fuentes (STR 19/05–17/06 · SQP May+W23+W24 · Campaign report 18/06 · MAI live · BSE all-states).
+- **5 bulks ejecutados (todos Success)**: cirugía target/placement + 22 negativos + brand floor + escalado selectivo + Hipoglós reactivada.
+- **Cuenta lista para Prime Day 23–30/06** (20% off sobre list, reemplaza sales previos).
+- **ACoS baseline 58.9%** (STR) / 56.2% (Campaign report) → **objetivo 45%**.
+- **Limitación = BID, no budget**: gasto efectivo $42/d = 5% del techo aprobado $803/d. Gasto efectivo objetivo Prime **~$110/d**.
 
-### Campañas nuevas live ($200/d budget total)
-| Campaña | Budget | ASIN destino | Bid strategy |
-|---|---|---|---|
-| `DG \| CONQUEST \| SP \| EXACT - Cream - B0CYLMJJJC - Hipoglos` | $20/d | B0CYLMJJJC | Fixed bid +50% |
-| `DG \| RANKING \| SP \| EXACT - Cream - B0CYLMJJJC - Vitamin A Power` | $40/d | B0CYLMJJJC | Dynamic down +25% |
-| `DG \| RANKING \| SP \| EXACT - Lotion - B0CYLM4L23 - Vitamin A Lotion` | $25/d | B0CYLM4L23 | Dynamic down +25% |
-| `DG \| RANKING \| SP \| EXACT - Cream - B0CYLMJJJC - Allantoin Hub` | $30/d | B0CYLMJJJC | Dynamic down +25% |
-| `DG \| DEFENSIVE \| SP \| EXACT - Cleanser - B0CYK4G2Y8 - Cleansing Gel Brand` | $25/d | B0CYK4G2Y8 | Fixed bid +50% |
-| `DG \| DEFENSIVE \| SP \| EXACT - All Heroes - Brand Hub Defensive` | $30/d | 3 SKUs heroes | Fixed bid +50% |
-| `DG \| DISCOVERY \| SP \| PHRASE - Cream+Lotion - Spanish Hidratante` | $30/d | 2 SKUs | Dynamic down +10% |
-
-### KPIs actuales vs target 30 días
-| Métrica | Hoy | Target 30d |
+### KPIs actuales vs target
+| Métrica | Hoy (19/06) | Target Prime |
 |---|---|---|
-| ACoS cuenta | 56.3% | 42-45% |
-| Sales/día | $76 | $110-130 |
-| CVR cuenta | 13.5% | 15-17% |
-| Brand IS sin paid | 0% en 35 KWs | 60-80% |
-| Campañas activas | 84 (post cleanup) | <80 (objetivo) |
+| ACoS cuenta | 58.9% | 45% |
+| Gasto efectivo/día | $42 | ~$110 |
+| Techo budget aprobado | $803/d | — |
 
 ---
 
-## ⏰ Pendientes activos (al 2026-04-28)
+## ⏰ Pendientes activos (al 2026-06-19)
 
 > Esta sección se actualiza al cierre de cada sesión.
 
-### URGENTE — para el arranque
-1. **Asignar Portfolio ID a las 7 campañas nuevas** — sin esto Atom11 no las clasifica. Manual en Campaign Manager → multi-select → Move to Portfolio.
-
-### Manual en Campaign Manager
-2. Resolver `allantoin 0.5% cream` (carácter `%` rechazado por bulk) — probar manual UI o saltearla (SQV solo 79/mes, low priority)
-3. Bid adjust: `Dermatological Cream - B0CYLMJJJC - SD - VCPM - Views Retargeting 30D` (ID `169476572963877`) → bajar default bid de $1.00 a $0.50
-4. Subir budget: `B0CYLDSQ5L - Body Cream - SP ASIN - Exact - Related Dermaglos Products` (ID `340653992125674`) → de $5/d a $15/d (ROAS 3.13× subexplotada)
-
-### Comunicación
-5. **Enviar mensaje corregido a Neha** sobre el bug del comma — texto en `[[DERMAGLOS]]`. El nombre real NO tiene coma; bug real es que la rule HARD-STOP no dispara por otra razón (tier / double-optimize / asignación múltiple).
-
-### Listing optimization (gates para escalar)
-6. Tattoo copy en bullets/A+ de B0CYLMJJJC + B0CYLM4L23 (activar 500K imp/mes mkt)
-7. B0CYK4G2Y8 (Facial Cleanser) — Rufus analysis (CVR 5.8% es problema de listing)
-8. B0CYLDSQ5L (Body Cream) — Rufus pre-reactivación
-
-### Diferidos (esperan trigger externo)
-9. Cuando reabastezcan B0F6VZMF2V (Facial Set OOS desde 09/04): crear 2 campañas Push EXACT + PAT
-10. Cuando Neha cierre v2026.3: validar fixes + green light continuar Bloque B+C del plan maestro
-
-### Conversación con cliente (futuro revenue)
-11. Vit C, Niacinamida, BB Cream, Protector Solar — hay demanda brand en SQP, no listados en Amazon USA. Definir si lanzar.
+- **B0F6VZMF2V (Facial Set) OOS** → push diferido hasta restock (estrella oculta ROAS 6.20×).
+- **Unfulfillable recovery**: 30u hero Cream B0CYLMJJJC (+ 11 Night + 10 2pk Cream) — recuperar inventario.
+- **Listing fix micellar/cleanser** (B0CYK4G2Y8, CVR 5.8%) — fix de listing, no PPC. Para cliente.
+- **Demanda de marca no listada**: protector solar, niacinamida serum (sumado a Vit C, BB Cream ya conocidos) — conversación revenue con Agustín/cliente.
+- **Monitoreo Prime** (23–30/06): seguimiento diario de Hipoglós reactivada + escalado durante el evento.
 
 ---
 
@@ -259,9 +227,9 @@ Si saltás cualquier paso de los 4 primeros, el próximo chat lee data stale y t
 
 > Esta sección lista los milestones esperados con fechas concretas.
 
-- **2026-05-15**: re-correr STR para medir delta ACoS post-ejecución 28/04. Target: 56.3% → 42-45%.
+- **2026-07-01**: STR fresco post-Prime → medir delta ACoS, performance Hipoglós + escalado durante el evento.
 - **TBD (cuando llegue restock)**: B0F6VZMF2V Facial Set push activado. ROAS esperado >5×.
-- **TBD (cuando Neha cierre v2026.3)**: validar 4 fixes + bloque B+C del plan.
+- **TBD (cuando Neha cierre v2026.3)**: validar fixes + bloque B+C del plan.
 - **TBD (cuando llegue creative cliente)**: 8 SB zombies activadas con SBV.
 
 ---
@@ -316,6 +284,7 @@ Si saltás cualquier paso de los 4 primeros, el próximo chat lee data stale y t
 
 > Una línea por sesión. Más reciente arriba.
 
+- **2026-06-19**: 360 completo + 5 bulks ejecutados (cirugía target/placement + negativos + brand floor + escalado + Hipoglós reactivada). Limitación por bid no budget. Hipoglós era zombie pausada.
 - **2026-04-28** (creación inicial): post sesión análisis cruzado completo Dermaglos. Plan maestro 5 archivos + 3 bulks ejecutados (93/94 + 46/46 + 7/10) + 10 P0 pausadas + 4 findings Atom11 reportados a Neha. 7 campañas live. Status B0F548KTXD: hero → monitor. Estrella oculta: B0F6VZMF2V (OOS).
 
 ---
