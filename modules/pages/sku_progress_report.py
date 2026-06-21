@@ -21,18 +21,17 @@ from __future__ import annotations
 import io
 import re
 from datetime import date, timedelta
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from core.helpers import kpi_card
 from core.persistence import (
-    DATA_ROOT,
     _append_log,
     _delete_cliente as _persist_delete_cliente,
     _delete_history,
     _delete_snapshot,
+    _list_clientes as _persist_list_clientes,
     _list_periods,
     _load_client_config,
     _load_history,
@@ -131,23 +130,14 @@ _MONTH_NAMES_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
 # ── Helpers cliente / config ────────────────────────────────────────────
 
 def _list_clientes() -> list[str]:
-    """Escanea data/account-health/*/sku-progress/ y devuelve slugs de clientes
-    que ya tienen carpeta del modulo creada."""
-    base = DATA_ROOT / AREA
-    if not base.exists():
-        return []
-    out = []
-    for p in sorted(base.iterdir()):
-        if not p.is_dir():
-            continue
-        if (p / MODULE_SLUG).is_dir():
-            out.append(p.name)
-    return out
+    """Lista los clientes con datos en este módulo vía la capa (backend-agnostic).
 
-
-def _tracked_skus_path(cliente: str) -> Path:
-    """Path canonico al config JSON del cliente."""
-    return DATA_ROOT / AREA / cliente / MODULE_SLUG / "tracked-skus.json"
+    Con el flag Supabase activo lista desde ah_snapshots ∪ ah_client_configs; sin
+    flag, escanea el disco (mismo criterio que antes: cliente con carpeta del
+    módulo). Cierra la última atadura a disco de M28 — clave en Cloud (FS efímero),
+    donde antes el cliente "desaparecía" del selector tras un reboot.
+    """
+    return _persist_list_clientes(AREA, MODULE_SLUG)
 
 
 def _load_tracked_skus(cliente: str) -> dict:

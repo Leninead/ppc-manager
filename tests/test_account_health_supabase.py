@@ -821,7 +821,7 @@ def _clear_all_caches():
     """Limpia los caches st.cache_data module-level (la cache key NO incluye
     DATA_ROOT/backend, así que hay que limpiar entre tests para no arrastrar)."""
     for fn in (P._load_snapshot, P._load_history, P._list_periods,
-               P._load_config, P._load_client_config):
+               P._load_config, P._load_client_config, P._list_clientes):
         if hasattr(fn, "clear"):
             fn.clear()
     # P._load_log NO está cacheado (FIX M1) — no tiene .clear().
@@ -911,3 +911,79 @@ def test_wrapper_delete_cliente_invalida_caches(wrapper_local_env):
     assert P._load_snapshot(AREA, CLIENTE, MODULO, "2026-W14") is None
     assert P._load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == {}
     assert P._list_periods(AREA, CLIENTE, MODULO) == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# list_clientes (Bloque 4b) — Local (tmp_path), Supabase (fake), wrappers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_local_list_clientes_snapshot_y_solo_config(local_backend):
+    """Lista el cliente con snapshot Y el cliente con SOLO tracked-skus (sin
+    snapshot todavia). Cliente sin nada → no aparece. Ordenado."""
+    lb = local_backend
+    lb.save_snapshot(_mini("a"), AREA, "cli-a", MODULO, "2026-W14")          # con snapshot
+    lb.save_client_config({"skus": []}, AREA, "cli-b", MODULO, "tracked-skus")  # solo config
+    # cli-z no se crea → no debe aparecer
+    assert lb.list_clientes(AREA, MODULO) == ["cli-a", "cli-b"]
+
+
+def test_local_list_clientes_vacio(local_backend):
+    assert local_backend.list_clientes(AREA, MODULO) == []
+
+
+def test_local_list_clientes_ignora_otro_modulo(local_backend):
+    """Un cliente con datos solo en OTRO módulo no aparece para este."""
+    lb = local_backend
+    lb.save_snapshot(_mini("a"), AREA, "cli-a", "pricing-dashboard", "2026-04-17")
+    assert lb.list_clientes(AREA, MODULO) == []
+    assert lb.list_clientes(AREA, "pricing-dashboard") == ["cli-a"]
+
+
+def test_supabase_list_clientes_union_dedup(backend):
+    """Union snapshots ∪ client_configs, dedup (cliente con AMBOS aparece 1 vez),
+    ordenado."""
+    backend.save_snapshot(_mini("a"), AREA, "cli-a", MODULO, "2026-W14")        # solo snapshot
+    backend.save_client_config({"skus": []}, AREA, "cli-b", MODULO, "tracked-skus")  # solo config
+    backend.save_snapshot(_mini("c"), AREA, "cli-c", MODULO, "2026-W14")        # ambos
+    backend.save_client_config({"skus": []}, AREA, "cli-c", MODULO, "tracked-skus")
+    assert backend.list_clientes(AREA, MODULO) == ["cli-a", "cli-b", "cli-c"]
+
+
+def test_supabase_list_clientes_filtra_por_modulo(backend):
+    backend.save_snapshot(_mini("a"), AREA, "cli-a", MODULO, "2026-W14")
+    backend.save_client_config({"skus": []}, AREA, "cli-x", "pricing-dashboard", "prefs")
+    assert backend.list_clientes(AREA, MODULO) == ["cli-a"]
+    assert backend.list_clientes(AREA, "pricing-dashboard") == ["cli-x"]
+
+
+def test_supabase_list_clientes_vacio(backend):
+    assert backend.list_clientes(AREA, MODULO) == []
+
+
+def test_wrapper_save_snapshot_invalida_list_clientes(wrapper_local_env):
+    assert P._list_clientes(AREA, MODULO) == []  # cachea vacío
+    P._save_snapshot(_make_m28_snapshot(), AREA, "cli-nuevo", MODULO, "2026-W14")
+    assert P._list_clientes(AREA, MODULO) == ["cli-nuevo"]  # refleja el cliente nuevo
+
+
+def test_wrapper_save_client_config_invalida_list_clientes(wrapper_local_env):
+    assert P._list_clientes(AREA, MODULO) == []
+    P._save_client_config({"version": 1, "skus": []}, AREA, "cli-cfg", MODULO, "tracked-skus")
+    assert P._list_clientes(AREA, MODULO) == ["cli-cfg"]
+
+
+def test_wrapper_delete_cliente_invalida_list_clientes(wrapper_local_env):
+    P._save_client_config({"version": 1, "skus": []}, AREA, "cli-x", MODULO, "tracked-skus")
+    assert P._list_clientes(AREA, MODULO) == ["cli-x"]  # cachea con cli-x
+    assert P._delete_cliente(AREA, "cli-x", MODULO) is True
+    assert P._list_clientes(AREA, MODULO) == []  # desaparece, no stale
+
+
+def test_wrapper_list_clientes_invalidacion_supabase(wrapper_supa_env):
+    """Mismo ciclo sobre Supabase(fake): crear via wrapper → aparece; borrar → no."""
+    assert P._list_clientes(AREA, MODULO) == []
+    P._save_client_config({"skus": []}, AREA, "cli-s", MODULO, "tracked-skus")
+    assert P._list_clientes(AREA, MODULO) == ["cli-s"]
+    assert P._delete_cliente(AREA, "cli-s", MODULO) is True
+    assert P._list_clientes(AREA, MODULO) == []

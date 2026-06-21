@@ -4,7 +4,7 @@ Toda I/O de módulos pasa por estos helpers. Implementa el contrato definido en
 `.claude/skills/data-persistence-standard.md`. Los módulos NO leen ni escriben
 Parquet/JSON/CSV directamente — siempre pasan por aquí.
 
-API pública (15 helpers):
+API pública (16 helpers):
     _save_snapshot(df, area, cliente, modulo, period) -> Path
     _load_snapshot(area, cliente, modulo, period) -> pd.DataFrame | None
     _load_history(area, cliente, modulo) -> pd.DataFrame
@@ -16,6 +16,7 @@ API pública (15 helpers):
     _save_client_config(config, area, cliente, modulo, name) -> Path
     _load_client_config(area, cliente, modulo, name) -> dict
     _list_periods(area, cliente, modulo) -> list[str]
+    _list_clientes(area, modulo) -> list[str]
     _validate_against_schema(df, modulo, version) -> list[str]
     _delete_snapshot(area, cliente, modulo, period) -> bool
     _delete_history(area, cliente, modulo) -> bool
@@ -348,6 +349,26 @@ class _LocalBackend:
         if not p.exists():
             return {}
         return json.loads(p.read_text(encoding="utf-8"))
+
+    # — Clientes —
+
+    def list_clientes(self, area: str, modulo: str) -> list[str]:
+        """Lista los clientes con datos en este módulo, ordenados alfabéticamente.
+
+        Criterio (idéntico al histórico de M28): escanea `DATA_ROOT/<area>/` y
+        devuelve cada `<cliente>` que tenga una subcarpeta `<modulo>/` — basta
+        cualquier archivo bajo ella (snapshot, log o config), no requiere snapshot.
+        """
+        base = DATA_ROOT / area
+        if not base.exists():
+            return []
+        out = []
+        for p in sorted(base.iterdir()):
+            if not p.is_dir():
+                continue
+            if (p / modulo).is_dir():
+                out.append(p.name)
+        return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -774,6 +795,29 @@ class _SupabaseBackend:
             return {}
         return rows[0]["data"]
 
+    # — Clientes —
+
+    def list_clientes(self, area: str, modulo: str) -> list[str]:
+        """Lista los clientes con datos en este módulo, ordenados alfabéticamente.
+
+        Union de `ah_snapshots` ∪ `ah_client_configs` (ambos filtrados por
+        area+modulo), dedup. Incluye a clientes recién creados que aún no tienen
+        snapshots pero sí tracked-skus (client-config) — paridad con el criterio
+        local (que lista por existencia de carpeta del módulo, no por snapshot).
+        """
+        clientes: set[str] = set()
+        for table in (_SNAPSHOTS_TABLE, _CLIENT_CONFIGS_TABLE):
+            rows = self._t.get(
+                table,
+                {
+                    "area": f"eq.{area}",
+                    "modulo": f"eq.{modulo}",
+                    "select": "cliente",
+                },
+            )
+            clientes.update(r["cliente"] for r in rows if r.get("cliente"))
+        return sorted(clientes)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Selector de backend — opt-in explícito (creds + flag), default local
@@ -905,6 +949,8 @@ def _save_snapshot(
     if _HAS_STREAMLIT and hasattr(_load_snapshot, "clear"):
         _load_snapshot.clear()
         _list_periods.clear()
+        # primer snapshot de un cliente nuevo lo "materializa" en el listado
+        _list_clientes.clear()
     return out
 
 
@@ -1090,6 +1136,8 @@ def _save_client_config(
     out = _get_backend().save_client_config(config, area, cliente, modulo, name)
     if _HAS_STREAMLIT and hasattr(_load_client_config, "clear"):
         _load_client_config.clear()
+        # un cliente nuevo se "materializa" al guardar su client-config
+        _list_clientes.clear()
     return out
 
 
@@ -1097,6 +1145,22 @@ def _save_client_config(
 def _load_client_config(area: str, cliente: str, modulo: str, name: str) -> dict:
     """Lee un config JSON per-cliente. Devuelve {} si no existe."""
     return _get_backend().load_client_config(area, cliente, modulo, name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Clientes — listado de clientes con datos en un módulo (cross-cliente)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@_cache_data
+def _list_clientes(area: str, modulo: str) -> list[str]:
+    """Lista los clientes con datos en (area, modulo), ordenados alfabéticamente.
+
+    Local: clientes con carpeta del módulo en disco. Supabase: union de
+    ah_snapshots ∪ ah_client_configs. Se invalida en _save_snapshot,
+    _save_client_config (crean clientes nuevos) y _delete_cliente.
+    """
+    return _get_backend().list_clientes(area, modulo)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1145,7 +1209,7 @@ def _delete_cliente(area: str, cliente: str, modulo: str) -> bool:
     out = _get_backend().delete_cliente(area, cliente, modulo)
     if _HAS_STREAMLIT:
         for _fn in (_load_snapshot, _list_periods, _load_history,
-                    _load_client_config):
+                    _load_client_config, _list_clientes):
             if hasattr(_fn, "clear"):
                 _fn.clear()
     return out
