@@ -802,3 +802,112 @@ def test_supabase_delete_cliente_solo_client_config_devuelve_true(backend):
     backend.save_client_config({"k": "v"}, AREA, CLIENTE, MODULO, "tracked-skus")
     assert backend.delete_cliente(AREA, CLIENTE, MODULO) is True
     assert backend.load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Invalidación de cache de los WRAPPERS PÚBLICOS (FIX 3 / n5)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Los tests de arriba llaman a los backends directo (sin pasar por los wrappers
+# cacheados). Acá ejercitamos los wrappers `_save_*`/`_load_*`/`_delete_*` para
+# verificar que tras una escritura/borrado la SIGUIENTE lectura por el wrapper
+# refleja el cambio (no devuelve el valor cacheado viejo). En el entorno de tests
+# Streamlit está instalado → `_HAS_STREAMLIT` True → los `@_cache_data` son cache
+# REAL, así que estos tests ejercitan el path de invalidación de verdad (si se
+# quita el `.clear()` correspondiente, el test falla con el valor stale).
+
+
+def _clear_all_caches():
+    """Limpia los caches st.cache_data module-level (la cache key NO incluye
+    DATA_ROOT/backend, así que hay que limpiar entre tests para no arrastrar)."""
+    for fn in (P._load_snapshot, P._load_history, P._list_periods,
+               P._load_config, P._load_client_config):
+        if hasattr(fn, "clear"):
+            fn.clear()
+    # P._load_log NO está cacheado (FIX M1) — no tiene .clear().
+
+
+@pytest.fixture
+def wrapper_local_env(tmp_path, monkeypatch):
+    """Wrappers públicos sobre _LocalBackend con DATA_ROOT temporal."""
+    monkeypatch.setattr(P, "DATA_ROOT", tmp_path)
+    P._set_backend_for_testing(P._LocalBackend())
+    _clear_all_caches()
+    yield
+    _clear_all_caches()
+    P._set_backend_for_testing(None)
+
+
+@pytest.fixture
+def wrapper_supa_env():
+    """Wrappers públicos sobre _SupabaseBackend(fake) — para invalidación donde el
+    history se RECOMPUTA desde snapshots (no se lee de disco)."""
+    P._set_backend_for_testing(P._SupabaseBackend(transport=_FakeTransport()))
+    _clear_all_caches()
+    yield
+    _clear_all_caches()
+    P._set_backend_for_testing(None)
+
+
+def test_wrapper_save_snapshot_invalida_load_snapshot(wrapper_local_env):
+    # primer load cachea None
+    assert P._load_snapshot(AREA, CLIENTE, MODULO, "2026-W14") is None
+    P._save_snapshot(_make_m28_snapshot(), AREA, CLIENTE, MODULO, "2026-W14")
+    # tras el save, el wrapper NO debe devolver el None cacheado
+    out = P._load_snapshot(AREA, CLIENTE, MODULO, "2026-W14")
+    assert out is not None and len(out) == 2
+
+
+def test_wrapper_save_snapshot_invalida_list_periods(wrapper_local_env):
+    assert P._list_periods(AREA, CLIENTE, MODULO) == []  # cachea vacío
+    P._save_snapshot(_make_m28_snapshot(), AREA, CLIENTE, MODULO, "2026-W14")
+    assert P._list_periods(AREA, CLIENTE, MODULO) == ["2026-W14"]
+
+
+def test_wrapper_delete_snapshot_invalida_history_supabase(wrapper_supa_env):
+    """FIX m2: _delete_snapshot debe invalidar _load_history (Supabase recomputa)."""
+    P._save_snapshot(_mini("a"), AREA, CLIENTE, MODULO, "2026-W14")
+    P._save_snapshot(_mini("b"), AREA, CLIENTE, MODULO, "2026-W15")
+    hist = P._load_history(AREA, CLIENTE, MODULO)  # cachea 2 filas
+    assert len(hist) == 2
+    assert P._delete_snapshot(AREA, CLIENTE, MODULO, "2026-W14") is True
+    # sin el _load_history.clear() del fix, esto devolvería las 2 filas cacheadas
+    hist2 = P._load_history(AREA, CLIENTE, MODULO)
+    assert hist2["sku"].tolist() == ["b"]
+
+
+def test_wrapper_append_log_load_log_roundtrip(wrapper_local_env):
+    """_load_log no está cacheado: la lectura por wrapper refleja el append sin
+    necesidad de invalidación (round-trip end-to-end por la API pública)."""
+    assert P._load_log(AREA, CLIENTE, MODULO, "optimizations").empty
+    P._append_log({"sku": "A", "label": "img"}, AREA, CLIENTE, MODULO, "optimizations")
+    P._append_log({"sku": "B", "label": "bullets"}, AREA, CLIENTE, MODULO, "optimizations")
+    df = P._load_log(AREA, CLIENTE, MODULO, "optimizations")
+    assert df["sku"].tolist() == ["A", "B"]
+    assert df["timestamp"].notna().all()
+
+
+def test_wrapper_save_client_config_invalida_load(wrapper_local_env):
+    assert P._load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == {}  # cachea {}
+    cfg = {"version": 1, "cliente": CLIENTE, "skus": [{"sku": "X"}]}
+    P._save_client_config(cfg, AREA, CLIENTE, MODULO, "tracked-skus")
+    # tras el save, el wrapper NO debe devolver el {} cacheado
+    assert P._load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == cfg
+
+
+def test_wrapper_delete_cliente_invalida_caches(wrapper_local_env):
+    """Tras _delete_cliente, las lecturas por wrapper reflejan el borrado (no cache stale)."""
+    P._save_snapshot(_make_m28_snapshot(), AREA, CLIENTE, MODULO, "2026-W14")
+    P._save_client_config({"version": 1, "skus": [{"sku": "X"}]},
+                          AREA, CLIENTE, MODULO, "tracked-skus")
+    # primar caches
+    assert P._load_snapshot(AREA, CLIENTE, MODULO, "2026-W14") is not None
+    assert P._load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") != {}
+    assert P._list_periods(AREA, CLIENTE, MODULO) == ["2026-W14"]
+
+    assert P._delete_cliente(AREA, CLIENTE, MODULO) is True
+
+    # todas las lecturas por wrapper reflejan el borrado
+    assert P._load_snapshot(AREA, CLIENTE, MODULO, "2026-W14") is None
+    assert P._load_client_config(AREA, CLIENTE, MODULO, "tracked-skus") == {}
+    assert P._list_periods(AREA, CLIENTE, MODULO) == []

@@ -991,18 +991,12 @@ def _append_log(
     Notes:
         - Delega en el backend activo (local: <log_name>.parquet; Supabase:
           INSERT en ah_logs). Crea el archivo/fila si no existe.
-        - Invalida el cache de _load_log automáticamente.
+        - `_load_log` NO está cacheado (filters: dict es incompatible con
+          st.cache_data), así que acá no hay cache que invalidar.
     """
-    out = _get_backend().append_log(row, area, cliente, modulo, log_name)
-
-    # Invalidar cache
-    if _HAS_STREAMLIT and hasattr(_load_log, "clear"):
-        _load_log.clear()
-
-    return out
+    return _get_backend().append_log(row, area, cliente, modulo, log_name)
 
 
-@_cache_data
 def _load_log(
     area: str,
     cliente: str,
@@ -1011,6 +1005,12 @@ def _load_log(
     filters: dict | None = None,
 ) -> pd.DataFrame:
     """Lee un log append-only y opcionalmente filtra por columnas.
+
+    NO está cacheado con @_cache_data (a diferencia del resto de los `_load_*`):
+    el param `filters: dict` es mutable/no-hasheable y `st.cache_data` levantaría
+    `UnhashableParamError` al pasarle un dict. Los logs son append-only y chicos,
+    así que el cache aporta poco; el filtrado vive en los backends. Es una
+    excepción deliberada y documentada, no un olvido.
 
     Args:
         filters: dict {col: valor} para filtrar por igualdad. Si valor es lista,
@@ -1112,12 +1112,15 @@ def _load_client_config(area: str, cliente: str, modulo: str, name: str) -> dict
 def _delete_snapshot(area: str, cliente: str, modulo: str, period: str) -> bool:
     """Borra el snapshot de un period. Devuelve True si existía.
 
-    Invalida el cache de _load_snapshot y _list_periods.
+    Invalida el cache de _load_snapshot, _list_periods y _load_history. El history
+    se recomputa desde los snapshots (Supabase) o se relee de disco (local), así
+    que su cache debe limpiarse para no devolver el period borrado.
     """
     out = _get_backend().delete_snapshot(area, cliente, modulo, period)
     if _HAS_STREAMLIT and hasattr(_load_snapshot, "clear"):
         _load_snapshot.clear()
         _list_periods.clear()
+        _load_history.clear()
     return out
 
 
@@ -1134,13 +1137,14 @@ def _delete_history(area: str, cliente: str, modulo: str) -> bool:
 def _delete_cliente(area: str, cliente: str, modulo: str) -> bool:
     """Borra todo el módulo de un cliente (ACOTADO a `<area>/<cliente>/<modulo>/`).
 
-    Devuelve True si había algo que borrar. Invalida todos los caches de lectura
-    relevantes (snapshots, periods, history, logs, client-configs — el borrado
-    local del dir del módulo arrastra también `optimizations.parquet` y los .json).
+    Devuelve True si había algo que borrar. Invalida los caches de lectura
+    relevantes (snapshots, periods, history, client-configs — el borrado local
+    del dir del módulo arrastra también `optimizations.parquet` y los .json).
+    `_load_log` NO está cacheado, así que no figura acá.
     """
     out = _get_backend().delete_cliente(area, cliente, modulo)
     if _HAS_STREAMLIT:
-        for _fn in (_load_snapshot, _list_periods, _load_history, _load_log,
+        for _fn in (_load_snapshot, _list_periods, _load_history,
                     _load_client_config):
             if hasattr(_fn, "clear"):
                 _fn.clear()
