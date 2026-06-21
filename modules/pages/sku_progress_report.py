@@ -19,9 +19,7 @@ Schema validado: data/_schemas/sku-progress-v1.json.
 from __future__ import annotations
 
 import io
-import json
 import re
-import shutil
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -32,10 +30,15 @@ from core.helpers import kpi_card
 from core.persistence import (
     DATA_ROOT,
     _append_log,
+    _delete_cliente as _persist_delete_cliente,
+    _delete_history,
+    _delete_snapshot,
     _list_periods,
+    _load_client_config,
     _load_history,
     _load_log,
     _rebuild_history,
+    _save_client_config,
     _save_snapshot,
     _validate_against_schema,
 )
@@ -148,38 +151,36 @@ def _tracked_skus_path(cliente: str) -> Path:
 
 
 def _load_tracked_skus(cliente: str) -> dict:
-    """Lee el JSON de SKUs trackeados. Devuelve estructura vacia si no existe.
+    """Lee el config de SKUs trackeados vía la capa. Devuelve la estructura vacia
+    `{"version":1,"cliente":cliente,"skus":[]}` si no existe (paridad con el
+    comportamiento previo de archivo ausente — varios callers hacen `config["skus"]`).
 
-    Excepcion documentada: NO usa _load_config porque _save_config/_load_config son
-    client-agnostic. tracked-skus.json es per-cliente, vive bajo el mismo arbol que
-    los snapshots para que un borrado total del cliente sea atomico.
+    Config PER-CLIENTE: usa `_load_client_config` (NO `_load_config`, que es
+    client-agnostic). Con el flag Supabase activo lee de ah_client_configs; sin
+    flag, del JSON en disco (mismo path que antes).
     """
-    p = _tracked_skus_path(cliente)
-    if not p.exists():
+    config = _load_client_config(AREA, cliente, MODULE_SLUG, "tracked-skus")
+    if not config:
         return {"version": 1, "cliente": cliente, "skus": []}
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {"version": 1, "cliente": cliente, "skus": []}
+    return config
 
 
 def _save_tracked_skus(cliente: str, config: dict) -> None:
-    """Escribe el JSON de SKUs trackeados. Crea el directorio si no existe."""
-    p = _tracked_skus_path(cliente)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(
-        json.dumps(config, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    """Escribe el config de SKUs trackeados vía la capa de persistencia.
+
+    Config PER-CLIENTE: `_save_client_config` con name="tracked-skus" escribe
+    (local) el mismo path histórico, o (Supabase) la tabla ah_client_configs.
+    """
+    _save_client_config(config, AREA, cliente, MODULE_SLUG, "tracked-skus")
 
 
 def _delete_cliente(cliente: str) -> dict:
-    """Borra recursivamente data/account-health/<cliente>/ entero.
+    """Borra todo el módulo del cliente (ACOTADO a sku-progress) vía la capa.
 
-    Operacion DESTRUCTIVA e IRREVERSIBLE. Borra:
-    - Todos los snapshots Parquet semanales
-    - optimizations.parquet (log append-only)
-    - tracked-skus.json (config)
+    Operacion DESTRUCTIVA e IRREVERSIBLE. Delega en `_persist_delete_cliente`
+    (core.persistence), que borra snapshots + log de optimizaciones +
+    tracked-skus.json (local: rmtree del dir; Supabase: DELETE en las 3 tablas).
+    La capa invalida los caches de lectura.
 
     Devuelve dict con counts pre-delete para confirmacion UI:
     {
@@ -190,42 +191,20 @@ def _delete_cliente(cliente: str) -> dict:
         'deleted': bool
     }
 
-    NO va en core/persistence.py por contrato del skill data-persistence-standard
-    (regla 'cero borrados automaticos'). Excepcion documentada en CLAUDE.md M28
-    porque la accion es disparada explicitamente por el usuario en UI con
-    type-to-confirm, no automatica.
+    Disparada explicitamente por el usuario en UI con type-to-confirm, no automatica.
     """
-    base = Path("data") / "account-health" / cliente
-    if not base.exists():
-        return {'cliente': cliente, 'deleted': False, 'error': 'cliente no existe en disco'}
-
-    # Conteos pre-delete para feedback UI
-    # Los archivos del modulo viven en sub-carpeta sku-progress/
-    module_dir = base / MODULE_SLUG
-    snapshots_count = len(list(module_dir.glob('20*-W*.parquet'))) if module_dir.exists() else 0
-
-    # Optimizations via core.persistence (cero I/O directa al Parquet)
+    # Conteos pre-delete vía la capa (cero I/O directa) — para feedback UI
+    snapshots_count = len(_list_periods(AREA, cliente, MODULE_SLUG))
     try:
         optimizations_count = len(_load_log(AREA, cliente, MODULE_SLUG, "optimizations"))
     except Exception:
         optimizations_count = 0
+    config = _load_client_config(AREA, cliente, MODULE_SLUG, "tracked-skus")
+    tracked_skus_count = len(config.get('skus', []))
 
-    tracked_skus_count = 0
-    tracked_path = module_dir / 'tracked-skus.json'
-    if tracked_path.exists():
-        try:
-            config = json.loads(tracked_path.read_text(encoding='utf-8'))
-            tracked_skus_count = len(config.get('skus', []))
-        except Exception:
-            pass
-
-    # Borrado recursivo del cliente entero (todo Account Health del cliente)
-    shutil.rmtree(base)
-
-    # Invalidar caches relevantes
-    _list_periods.clear()
-    _load_history.clear()
-    _load_log.clear()
+    deleted = _persist_delete_cliente(AREA, cliente, MODULE_SLUG)
+    if not deleted:
+        return {'cliente': cliente, 'deleted': False, 'error': 'cliente sin datos para borrar'}
 
     return {
         'cliente': cliente,
@@ -952,31 +931,21 @@ def _dialog_add_cliente():
 @st.dialog("⚠️ Borrar cliente entero")
 def _dialog_borrar_cliente(cliente: str):
     """Modal de confirmacion type-to-confirm para borrar todo el tracking
-    del cliente. Operacion irreversible: borra snapshots Parquet,
-    optimizations.parquet, tracked-skus.json y la carpeta del cliente."""
-    base = Path("data") / "account-health" / cliente
-    if not base.exists():
-        st.warning(f"El cliente '{cliente}' no existe en disco.")
-        return
-
-    # Preview de lo que se va a borrar (paths dentro de sub-carpeta sku-progress/)
-    module_dir = base / MODULE_SLUG
-    snapshots_count = len(list(module_dir.glob('20*-W*.parquet'))) if module_dir.exists() else 0
-
-    tracked_path = module_dir / 'tracked-skus.json'
-    tracked_skus_count = 0
-    if tracked_path.exists():
-        try:
-            config = json.loads(tracked_path.read_text(encoding='utf-8'))
-            tracked_skus_count = len(config.get('skus', []))
-        except Exception:
-            pass
-
-    # Optimizations via core.persistence (cero I/O directa al Parquet)
+    del cliente. Operacion irreversible: borra snapshots, log de optimizaciones
+    y tracked-skus (config) del cliente."""
+    # Preview de lo que se va a borrar — conteos vía la capa (cero I/O directa)
+    config = _load_client_config(AREA, cliente, MODULE_SLUG, "tracked-skus")
+    snapshots_count = len(_list_periods(AREA, cliente, MODULE_SLUG))
     try:
         optimizations_count = len(_load_log(AREA, cliente, MODULE_SLUG, "optimizations"))
     except Exception:
         optimizations_count = 0
+
+    if not config and snapshots_count == 0 and optimizations_count == 0:
+        st.warning(f"El cliente '{cliente}' no tiene datos para borrar.")
+        return
+
+    tracked_skus_count = len(config.get('skus', []))
 
     st.error(
         f"**Accion destructiva e irreversible.** Vas a borrar:\n\n"
@@ -1425,21 +1394,14 @@ def _render_admin_tab(cliente: str, tracked_skus: list[dict]):
                 )
                 if col_del.button("🗑️", key=f"sku_progress_del_period_{p}",
                                   help="Borrar este snapshot"):
-                    target = (DATA_ROOT / AREA / cliente / MODULE_SLUG /
-                              f"{p}.parquet")
-                    if target.exists():
-                        target.unlink()
+                    # Borrado vía la capa (acotado al period). _delete_snapshot
+                    # invalida los caches de lectura.
+                    if _delete_snapshot(AREA, cliente, MODULE_SLUG, p):
                         try:
                             _rebuild_history(AREA, cliente, MODULE_SLUG)
                         except FileNotFoundError:
-                            # Si era el unico, borrar history tambien
-                            hist = (DATA_ROOT / AREA / cliente / MODULE_SLUG /
-                                    "_history.parquet")
-                            if hist.exists():
-                                hist.unlink()
-                        # Invalidar caches que apuntaban al snapshot borrado
-                        _list_periods.clear()
-                        _load_history.clear()
+                            # Si era el unico snapshot, borrar el history tambien
+                            _delete_history(AREA, cliente, MODULE_SLUG)
                         st.success(f"Snapshot {p} eliminado.")
                         st.rerun()
 
