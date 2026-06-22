@@ -15,7 +15,7 @@ M28 SKU Progress vinculado a Supabase end-to-end y productivo. Se extendió la c
 
 Mergeado a main por ff (6 commits, HEAD 28d2905). Como el flag global ya estaba activo en Cloud (de M30), el merge fue la activación productiva — sin swap-day separado. Las 4 tablas Account Health (ah_snapshots/configs/logs/client_configs) viven en capybaras-os-prod, RLS off.
 
-Pendiente opcional: verificación visual en Cloud (crear cliente + reboot + confirmar persistencia). Deuda nueva P2: el disable RLS vía DDL no toma confiable (pasó 2 veces hoy) → confirmar relrowsecurity=false post-create. Deudas viejas: test-isolation M29, .gitignore secrets.toml*.
+Verificación visual en Cloud HECHA: cliente + SKU persiste post-reboot (fila en `ah_client_configs`); RLS disabled confirmado en las 4 tablas AH. **M28 cerrado al 100%.** Deuda nueva P2: el disable RLS vía DDL no toma confiable (pasó 2 veces hoy) → confirmar relrowsecurity=false post-create. Deudas viejas: test-isolation M29, .gitignore secrets.toml*.
 
 Detalle: [[2026-06-21]] · [[m28-sku-progress-report]]
 

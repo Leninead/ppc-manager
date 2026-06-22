@@ -16,4 +16,5 @@ M28 quedó wired a Supabase a través del swap de core/persistence.py (mismo mec
 - delete_cliente ACOTADO al módulo (borra snapshot+log+config del módulo, NO cross-módulo). Era bug latente el rmtree de carpeta entera.
 - Smoke E2E verde contra Supabase real. 2 code-reviews MERGE. Suite 367.
 - EN PRODUCCIÓN (flag global ya en Cloud, el merge a main 28d2905 fue la activación).
+- Verificación visual Cloud OK (2026-06-21): cliente + SKU persiste post-reboot, fila confirmada en `ah_client_configs`. **Cierre 100%.**
 - Deudas viejas saldadas de paso: R1 (Path("data") relativo → DATA_ROOT vía la capa), R3 (unlink directo → _delete_snapshot/_delete_history).
