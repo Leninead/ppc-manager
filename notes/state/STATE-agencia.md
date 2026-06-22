@@ -1,11 +1,23 @@
 ---
 tipo: state
-actualizado: 2026-06-17
+actualizado: 2026-06-21
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-06-21 (M28 wired a Supabase — EN PRODUCCIÓN)
+
+M28 SKU Progress vinculado a Supabase end-to-end y productivo. Se extendió la capa compartida core/persistence.py (borrado + logs ah_logs + client-configs ah_client_configs + list_clientes, en ambos backends, delete_cliente encadenado y acotado al módulo) y el módulo sku_progress_report.py quedó 100% backend-agnostic (cero I/O de disco). Smoke E2E verde contra Supabase real. 2 code-reviews MERGE. Suite 367 / mismos 3 known-env M29.
+
+Mergeado a main por ff (6 commits, HEAD 28d2905). Como el flag global ya estaba activo en Cloud (de M30), el merge fue la activación productiva — sin swap-day separado. Las 4 tablas Account Health (ah_snapshots/configs/logs/client_configs) viven en capybaras-os-prod, RLS off.
+
+Pendiente opcional: verificación visual en Cloud (crear cliente + reboot + confirmar persistencia). Deuda nueva P2: el disable RLS vía DDL no toma confiable (pasó 2 veces hoy) → confirmar relrowsecurity=false post-create. Deudas viejas: test-isolation M29, .gitignore secrets.toml*.
+
+Detalle: [[2026-06-21]] · [[m28-sku-progress-report]]
 
 ---
 
