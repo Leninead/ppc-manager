@@ -124,7 +124,14 @@ Dos pestañas: *Mis propuestas* (listado) y *Nueva propuesta* (asistente).
 4. **Paso 3 — Revisión:** revisás el resumen y tocás *Crear propuesta*. Se genera con sus bloques y queda guardada (versión 1).
 
 **PARTE B — Completar los bloques (vista detalle):**
-Abrí la propuesta desde *Mis propuestas* → *Abrir*. Algunos bloques se editan a mano, otros se llenan importando.
+Abrí la propuesta desde *Mis propuestas* → *Abrir*.
+
+**Manual vs importar — cómo se reparten los bloques (leé esto):**
+No es 'todo a mano' ni 'todo por archivo': **cada bloque se llena por una sola vía** y se complementan. Son independientes — no hay orden obligatorio ni uno depende del otro; llenás cada bloque cuando tengas su data.
+- **A mano** (los escribís vos, NO se importan): *Brand Overview* y *Category Overview*.
+- **Solo por importación** (NO se pueden escribir a mano, son de solo lectura): *SEO Opportunity*, *Listing — estado actual*, *Listing — comparativa vs competidor* y *Plan de crecimiento*. Vienen del HTML de Ramiro; *SEO Opportunity* además puede venir de DataDive.
+
+Una propuesta completa normalmente lleva **las dos cosas**: lo manual (Brand/Category) + lo importado (el resto).
 
 *B.1 — Bloques manuales (los cargás vos):*
 - **Brand Overview** y **Category Overview**: abrí el bloque, completá los campos, *Guardar* (*Descartar* deshace sin guardar). Cada guardado crea una versión nueva.
@@ -138,7 +145,7 @@ Abrí la propuesta desde *Mis propuestas* → *Abrir*. Algunos bloques se editan
 
 *B.3 — Importar SEO desde DataDive (Missing Keywords):*
 1. Abrí el importador de DataDive.
-2. Poné el **ASIN** del cliente (formato B0XXXXXXXX). Hasta que no haya un ASIN válido, el uploader no aparece.
+2. Poné el **ASIN** del cliente (formato B0XXXXXXXX) — si ya importaste el HTML de Listing puede venir precargado, igual lo podés escribir. Hasta que no haya un ASIN válido, el uploader no aparece.
 3. Subí el **MKL** (Master Keyword List) exportado de DataDive (.xlsx).
 4. Vista previa → *Aplicar* → *Confirmar* (2 clics, igual que arriba).
 5. Llena el bloque de SEO Opportunity con las keywords donde el cliente está flojo o no aparece.
