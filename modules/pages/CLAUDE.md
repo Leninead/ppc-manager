@@ -973,3 +973,13 @@ Scoring de pricing semanal por SKU: clasifica cada SKU en bajar / subir / liquid
 - ❌ NO normalizar strings de Amazon ('Excess','Invierno'...) — verbatim.
 - ❌ NO usar `round()` nativo donde el HTML usa `Math.round` — usar `_round_half_up`.
 - ❌ NO persistir current_month en el config.
+
+
+---
+
+## SOP in-app por módulo (convención, 2026-06-21)
+Cada módulo de cara al usuario embebe su guía de uso como:
+- Constante módulo-level `_SOP_MD` = string markdown triple-quoted, ubicada junto a las otras constantes del tope del archivo.
+- En `render()`, apenas debajo del header del módulo: un `st.expander("📘 Cómo usar este módulo", expanded=False)` con `st.markdown(_SOP_MD)` adentro. TOP-LEVEL, nunca anidado dentro de otro expander/popover.
+Aplicado en: sku_progress_report.py, pricing_dashboard.py, proposal_studio.py (commits 2607b4e + 797f7eb).
+La copia de equipo (fuera de la app) vive en notes/sops/SOP_USER_*.md. El `_SOP_MD` del módulo es la fuente de verdad; los .md se mantienen en sync con él.

@@ -17,6 +17,8 @@ Mergeado a main por ff (6 commits, HEAD 28d2905). Como el flag global ya estaba 
 
 Verificación visual en Cloud HECHA: cliente + SKU persiste post-reboot (fila en `ah_client_configs`); RLS disabled confirmado en las 4 tablas AH. **M28 cerrado al 100%.** Deuda nueva P2: el disable RLS vía DDL no toma confiable (pasó 2 veces hoy) → confirmar relrowsecurity=false post-create. Deudas viejas: test-isolation M29, .gitignore secrets.toml*.
 
+**SOPs de uso in-app** embebidos en los 3 módulos productivos (SKU Progress Report, Pricing Dashboard, Proposal Studio): constante `_SOP_MD` + expander top-level `📘 Cómo usar este módulo` en `render()` (commits `2607b4e` + `797f7eb`), verificados en Cloud post-reboot. En Proposal Studio se dejó explícito que los bloques manuales (Brand/Category) y los de importación (SEO/Listing/comparativa/plan) son vías independientes por bloque, no todo-o-nada. Convención en `modules/pages/CLAUDE.md`; copias de equipo en `notes/sops/SOP_USER_*.md`.
+
 Detalle: [[2026-06-21]] · [[m28-sku-progress-report]]
 
 ---
