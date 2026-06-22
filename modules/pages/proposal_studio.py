@@ -109,6 +109,50 @@ _TIER_META = {
     },
 }
 
+# SOP in-app: guía de uso embebida (expander al tope de render()).
+_SOP_MD = """
+### Proposal Studio — cómo usarlo
+
+Arma propuestas comerciales estructuradas para prospectos, combinando bloques que cargás a mano con bloques que se llenan importando archivos. Cada propuesta se guarda y versiona sola en la nube.
+
+Dos pestañas: *Mis propuestas* (listado) y *Nueva propuesta* (asistente).
+
+**PARTE A — Crear la propuesta (asistente, 3 pasos):**
+1. Andá a *Nueva propuesta*.
+2. **Paso 1 — Cliente:** nombre del cliente, industria (opcional), idioma (Español / Inglés). Siguiente.
+3. **Paso 2 — Arquetipo:** elegí el tipo → *Launch* (marca nueva) · *Scale + SEO* (crecer / gap SEO) · *Defense* (defensa de marca) · *CVR* (mejorar conversión) · *Custom* (a medida).
+4. **Paso 3 — Revisión:** revisás el resumen y tocás *Crear propuesta*. Se genera con sus bloques y queda guardada (versión 1).
+
+**PARTE B — Completar los bloques (vista detalle):**
+Abrí la propuesta desde *Mis propuestas* → *Abrir*. Algunos bloques se editan a mano, otros se llenan importando.
+
+*B.1 — Bloques manuales (los cargás vos):*
+- **Brand Overview** y **Category Overview**: abrí el bloque, completá los campos, *Guardar* (*Descartar* deshace sin guardar). Cada guardado crea una versión nueva.
+
+*B.2 — Importar HTML (auditorías de Ramiro):*
+1. Arriba del detalle, abrí el importador de HTML.
+2. Subí el HTML de las auditorías (amazon-brand-audit / digital-presence-audit).
+3. Mirá la **vista previa**: bloques detectados, warnings y errores. Si hay errores bloqueantes, no aplica → corregí el HTML.
+4. Si está OK: *Aplicar merge* → *Confirmar* (2 clics a propósito, para no aplicar sin querer).
+5. Llena los bloques de Listing (estado actual / comparativa vs competidor) y el plan de crecimiento, según lo que traiga el HTML.
+
+*B.3 — Importar SEO desde DataDive (Missing Keywords):*
+1. Abrí el importador de DataDive.
+2. Poné el **ASIN** del cliente (formato B0XXXXXXXX). Hasta que no haya un ASIN válido, el uploader no aparece.
+3. Subí el **MKL** (Master Keyword List) exportado de DataDive (.xlsx).
+4. Vista previa → *Aplicar* → *Confirmar* (2 clics, igual que arriba).
+5. Llena el bloque de SEO Opportunity con las keywords donde el cliente está flojo o no aparece.
+
+**PARTE C — Estado y cierre:**
+- Avanzá el estado a medida que progresa: Borrador → Lista para revisión → Enviada → (Ganada / Perdida / Archivada).
+- Cada cambio guarda una versión nueva → tenés el historial completo.
+- Para ver la propuesta entera, usá *Ver propuesta cruda*.
+
+**Importante:**
+- No edites a mano los bloques que se llenan por importación (SEO, Listing, comparativa): su contenido viene de los archivos.
+- Si dejás los dos importadores abiertos a la vez y aplicás uno, el otro puede pedirte *Confirmar* — cancelalo, no pasa nada.
+"""
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers UI
@@ -3097,6 +3141,9 @@ def _render_datadive_importer_section(proposal: dict) -> None:
 def render() -> None:
     """Entry point del módulo Proposal Studio (M29)."""
     _render_header()
+
+    with st.expander("📘 Cómo usar este módulo", expanded=False):
+        st.markdown(_SOP_MD)
 
     # Inicializar state machines (idempotente).
     _init_wizard_state()
