@@ -120,6 +120,23 @@ _KPI_LABELS = {
 # Paleta para anotaciones de eventos en charts (espejo EVENT_COLORS HTML L2429)
 _EVENT_COLORS = ["#FF3300", "#4F8CFF", "#34d399", "#f59e0b", "#a78bfa", "#f472b6"]
 
+# Categorías de optimización (campo opcional en eventos). Default SIN_CATEGORIA.
+SIN_CATEGORIA = "Sin categoría"
+EVENT_CATEGORIES = [
+    "Main Image", "Imágenes secundarias", "Título", "Bullets",
+    "A+ Content", "Precio", "Otro",
+]
+CATEGORY_COLORS = {
+    "Main Image":            "#FF3300",
+    "Imágenes secundarias":  "#E85B03",
+    "Título":                "#4F8CFF",
+    "Bullets":               "#34d399",
+    "A+ Content":            "#a78bfa",
+    "Precio":                "#f59e0b",
+    "Otro":                  "#999999",
+    SIN_CATEGORIA:           "#666666",
+}
+
 # Meses en español para week_label (espejo monthNames HTML L3389)
 _MONTH_NAMES_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                    "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
@@ -883,6 +900,7 @@ def _dialog_add_event(cliente: str, sku: str):
                 "week_iso": int(week_iso),
                 "year":     int(year),
                 "label":    label.strip(),
+                "category": SIN_CATEGORIA,  # UI lo manda en Bloque 2
             },
             area=AREA,
             cliente=cliente,
@@ -1506,6 +1524,14 @@ def render() -> None:
 
     history = _load_history(AREA, cliente, MODULE_SLUG)
     optimizations = _load_log(AREA, cliente, MODULE_SLUG, "optimizations")
+    # Coalesce de category en lectura (filas viejas sin la columna). NO reescribe parquet.
+    if not optimizations.empty:
+        if "category" not in optimizations.columns:
+            optimizations["category"] = SIN_CATEGORIA
+        else:
+            optimizations["category"] = (
+                optimizations["category"].fillna(SIN_CATEGORIA).replace("", SIN_CATEGORIA)
+            )
 
     # Botones top-bar (Agregar SKU + Export)
     col_a, col_b, col_c = st.columns([1.5, 1.5, 4])
