@@ -101,6 +101,9 @@ outputs/
 # Whitelist notes/modules/ (carpeta de planes de implementación por módulo)
 !notes/modules/
 !notes/modules/**
+# Whitelist notes/decisiones/ (carpeta de documentos de decisión arquitectónica)
+!notes/decisiones/
+!notes/decisiones/**
 # ── Entorno local Python 3.12 (setup 2026-05-26) ──
 # venv local — nunca se versiona. Recrear con py -3.12 -m venv .venv
 .venv/
