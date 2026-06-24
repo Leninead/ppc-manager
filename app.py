@@ -47,6 +47,7 @@ from modules.pages.sku_progress_report import render as render_sku_progress
 from modules.pages.pricing_dashboard import render as render_pricing_dashboard
 from modules.pages.proposal_studio import render as render_proposal_studio
 from modules.pages.case_study_studio import render as render_case_study_studio
+from modules.pages.revenue_forecast import render as render_revenue_forecast
 import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="Agency OS", layout="wide")
@@ -266,6 +267,7 @@ with st.sidebar:
             "🛡️ Listing Compliance",
             "📊 Gamboa Generator",
             "🧬 Variation Builder",
+            "📈 Revenue Forecast",
         ]:
             st.button(_pg, use_container_width=True, on_click=_nav,
                       args=(_pg,), key=f"nav_{_pg}")
@@ -405,3 +407,6 @@ if selected == "📋 Proposal Studio":
 
 if selected == "🏆 Case Study Studio":
     render_case_study_studio()
+
+if selected == "📈 Revenue Forecast":
+    render_revenue_forecast()
