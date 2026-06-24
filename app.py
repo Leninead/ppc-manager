@@ -46,6 +46,7 @@ from modules.pages.flat_file_migrator import render as render_flat_file_migrator
 from modules.pages.sku_progress_report import render as render_sku_progress
 from modules.pages.pricing_dashboard import render as render_pricing_dashboard
 from modules.pages.proposal_studio import render as render_proposal_studio
+from modules.pages.case_study_studio import render as render_case_study_studio
 import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="Agency OS", layout="wide")
@@ -272,6 +273,8 @@ with st.sidebar:
     with st.expander("📋 SALES DIRECTOR", expanded=False):
         st.button("📋 Proposal Studio", use_container_width=True, on_click=_nav,
                   args=("📋 Proposal Studio",), key="nav_📋 Proposal Studio")
+        st.button("🏆 Case Study Studio", use_container_width=True, on_click=_nav,
+                  args=("🏆 Case Study Studio",), key="nav_🏆 Case Study Studio")
 
     with st.expander("📚 KNOWLEDGE", expanded=False):
         st.button("📚 Knowledge Base", use_container_width=True, on_click=_nav,
@@ -399,3 +402,6 @@ if selected == "💲 Pricing Dashboard":
 
 if selected == "📋 Proposal Studio":
     render_proposal_studio()
+
+if selected == "🏆 Case Study Studio":
+    render_case_study_studio()
