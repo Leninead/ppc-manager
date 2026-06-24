@@ -62,9 +62,12 @@ Decisiones de diseño F1 (documentadas in-line)
 
 from __future__ import annotations
 
+import calendar
 import json
+import math
 import re
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
 from typing import Any, Optional
 
@@ -1050,6 +1053,573 @@ def _apply_history_edits(
         _update_historical_row(idx, "ventasPPC", row.get("Ventas PPC", ""), state=state)
         written += 1
     return written
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FORECAST ENGINE (F3) — lógica pura, sin runtime Streamlit
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Port verbatim de las funciones JS del HTML (L1295-L1914, L2266-L2283). Diseño:
+#
+#   • Las funciones del motor NO leen `st.*` ni `_cur_client()` por dentro.
+#     Reciben los datos como parámetros explícitos: `rows` (historical),
+#     `seasonality` (dict), `yoy_mode` (str), `opts` (dict horizon/momWindow/
+#     blend/useSeasonality). Esto las hace 100% testeables sin runtime.
+#
+#   • Un wrapper fino `_run_forecast_for_active_client(state=None)` lee del
+#     accessor (`cur = _cur_client(state)`), extrae rows/seasonality/yoy_mode,
+#     llama al motor puro, y MUTA `cur["forecast"]` in-place (es la ref viva).
+#
+#   • El parámetro `ctx` del HTML (ctx.rows / ctx.seasonality / ctx.marginPct)
+#     se usa en el HTML para forecasts por-ASIN. NO se portea acá: en su lugar
+#     las funciones reciben los datos como parámetros directos.
+#
+# Fidelidad numérica — replicado EXACTO:
+#   1. mes 0-11 vía `date.fromisoformat(iso[:10]).month - 1` (JS getUTCMonth()).
+#   2. `Math.round` (half-away-from-zero) ≠ `round()` Python (banker's). Donde
+#      el HTML usa Math.round, acá `_round_half_up_int` / `_round_half_up_dec`.
+#   3. Guards de división: `units || 1`, `sessions > 0`, `aov > 0`,
+#      `Math.max(1, revenue)`, `prev > 0`, `count ? sum/count : 0`.
+#   4. Truthy/falsy de JS para `value != null && value !== ''` → helper
+#      `_js_truthy_present` (None y '' → False, 0 → True).
+
+
+def _round_half_up_int(x: float) -> int:
+    """Equivalente a `Math.round(x)` de JS (half-away-from-zero para >= 0).
+
+    Python `round()` usa banker's rounding (half-even). Usamos `floor(x + 0.5)`
+    que matchea JS para valores no-negativos (revenue/spend siempre lo son en
+    este contexto). NaN se propaga como 0 fail-soft.
+    """
+    if x is None:
+        return 0
+    if isinstance(x, float) and math.isnan(x):
+        return 0
+    return math.floor(float(x) + 0.5)
+
+
+def _round_half_up_dec(x: float, dec: int = 2) -> float:
+    """Equivalente a `Math.round(x * 10**dec) / 10**dec` de JS.
+
+    Replica el redondeo half-up del HTML L1903 (`Math.round(spend*100)/100`) y
+    L1835 (`+x.toFixed(1)`). Usa `Decimal.quantize(ROUND_HALF_UP)` para evitar
+    binary float drift.
+    """
+    if x is None:
+        return 0.0
+    if isinstance(x, float) and math.isnan(x):
+        return 0.0
+    q = Decimal("1").scaleb(-dec)  # 10^-dec
+    return float(Decimal(str(float(x))).quantize(q, rounding=ROUND_HALF_UP))
+
+
+def _js_truthy_present(v: Any) -> bool:
+    """`v != null && v !== ''` de JS. None y '' → False; 0 → True; NaN → False.
+
+    El HTML usa este pattern para distinguir "el AM cargó 0 explícitamente" de
+    "el AM no cargó nada". Crítico en spend/ventasPPC/tacosTarget/manual*.
+    """
+    if v is None:
+        return False
+    if isinstance(v, float) and math.isnan(v):
+        return False
+    if v == "":
+        return False
+    return True
+
+
+def _js_number(v: Any) -> float:
+    """Equivalente a `+v || 0` de JS: convierte a número; '', None, NaN, falla
+    de parseo → 0. 0 numérico se preserva como 0 (no falsy en este wrapper —
+    el `|| 0` solo entra cuando `+v` es NaN, lo cual NO incluye al 0 puro).
+
+    Pero ojo: el HTML usa `+f.spend || 0` (L1905); ahí 0 y None y '' colapsan a
+    0. Esa colisión es intencional del autor original — la replicamos.
+    """
+    if v is None:
+        return 0.0
+    if isinstance(v, bool):  # bool es subclass de int; protegerlo
+        return float(int(v))
+    if isinstance(v, (int, float)):
+        if isinstance(v, float) and math.isnan(v):
+            return 0.0
+        return float(v)
+    if v == "":
+        return 0.0
+    try:
+        f = float(v)
+        if math.isnan(f):
+            return 0.0
+        return f
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _get_next_month_iso(iso: str) -> str:
+    """Port de getNextMonthISO L1295. Avanza al primer día del mes siguiente.
+
+    'YYYY-MM-DD' → 'YYYY-MM-01' del mes siguiente (maneja dic→ene del año
+    siguiente).
+    """
+    y, m, _ = iso[:10].split("-")
+    yi, mi = int(y), int(m)
+    if mi == 12:
+        return f"{yi + 1:04d}-01-01"
+    return f"{yi:04d}-{mi + 1:02d}-01"
+
+
+def _find_historical(iso: str, rows: list[dict]) -> Optional[dict]:
+    """Port de findHistorical L1746."""
+    for r in rows:
+        if r.get("date") == iso:
+            return r
+    return None
+
+
+def _same_month_last_year_engine(iso: str, rows: list[dict]) -> Optional[dict]:
+    """Port de sameMonthLastYear L1749. Mismo mes-día, año - 1.
+
+    Nota: el módulo ya tiene `_same_month_last_year` arriba (helper de quick
+    stats, F2). Mantenemos copia interna del motor con la semántica exacta
+    `setUTCFullYear(year-1)` + `findHistorical` — son funcionalmente
+    equivalentes pero esta versión no toca el módulo F2 y deja el motor
+    aislado.
+    """
+    try:
+        y, m, d = iso[:10].split("-")
+        target = f"{int(y) - 1:04d}-{m}-{d}"
+    except (ValueError, AttributeError):
+        return None
+    return _find_historical(target, rows)
+
+
+def _avg_mom_growth(field: str, window: int, rows: list[dict]) -> float:
+    """Port de avgMoMGrowth L1722.
+
+    n = min(window, len-1). Itera i de len-n a len-1. Suma (curr-prev)/prev
+    SOLO si prev > 0. Promedia sobre `count` (no sobre n). len<2 → 0.
+    """
+    h = rows
+    if len(h) < 2:
+        return 0.0
+    n = min(window, len(h) - 1)
+    total = 0.0
+    count = 0
+    for i in range(len(h) - n, len(h)):
+        prev = _js_number(h[i - 1].get(field))
+        curr = _js_number(h[i].get(field))
+        if prev > 0:
+            total += (curr - prev) / prev
+            count += 1
+    return (total / count) if count else 0.0
+
+
+def _yoy_growth(field: str, rows: list[dict]) -> float:
+    """Port de yoyGrowth L1733.
+
+    len < 13 → 0. Busca la fila con date EXACTAMENTE un año antes (mismo
+    mes-día). Si no existe o yearAgo[field] es falsy (0/None) → 0.
+    """
+    h = rows
+    if len(h) < 13:
+        return 0.0
+    last = h[-1]
+    last_iso = last.get("date")
+    if not last_iso:
+        return 0.0
+    try:
+        y, m, d = last_iso[:10].split("-")
+        ya_iso = f"{int(y) - 1:04d}-{m}-{d}"
+    except (ValueError, AttributeError):
+        return 0.0
+    year_ago = _find_historical(ya_iso, h)
+    if year_ago is None:
+        return 0.0
+    ya_val = year_ago.get(field)
+    # `!yearAgo[field]` de JS: 0/null/undefined/'' → True (falsy). Replicamos.
+    if not ya_val:
+        return 0.0
+    last_val = _js_number(last.get(field))
+    return (last_val - float(ya_val)) / float(ya_val)
+
+
+def _has_yoy_data(rows: list[dict]) -> bool:
+    """Port de hasYoYData L1743."""
+    return len(rows) >= 13
+
+
+def _yoy_enabled(yoy_mode: str, rows: list[dict]) -> bool:
+    """Port de la línea L1768:
+       `(state.account.yoyMode === 'on') || (mode === 'auto' && hasYoYData(rows))`
+    """
+    if yoy_mode == "on":
+        return True
+    if yoy_mode == "auto" and _has_yoy_data(rows):
+        return True
+    return False
+
+
+def _days_in_month(iso: str) -> int:
+    """Port de `new Date(Date.UTC(y, m+1, 0)).getUTCDate()` (L1875).
+
+    Devuelve los días del mes de la fecha. iso = 'YYYY-MM-DD'.
+    """
+    y, m, _ = iso[:10].split("-")
+    return calendar.monthrange(int(y), int(m))[1]
+
+
+def recompute_forecast_row(f: dict) -> dict:
+    """Port verbatim de recomputeForecastRow L1873.
+
+    Muta `f` in-place y lo devuelve (chainable). Asigna las mismas keys que el
+    HTML L1913: revenue, aov, units, sessions, cvr, ventasPPC, tacos,
+    pctVtasPPC, salesVelocity, acos, availability.
+
+    Reglas:
+      - manualRevenue / manualAOV / manualSessions overriden a Auto cuando set.
+      - availability clamp 0-100; revenue *= avail/100 (sessions NO escala).
+      - units = revenue / aov si aov > 0, else 0.
+      - cvr = units / sessions * 100 si sessions > 0, else 0.
+      - Si tacosTarget set y revenue > 0 → spend = revenue * tacosTarget/100
+        (y `f.spend` se redondea a 2 decimales half-up).
+        Si no → spend = `+f.spend || 0`.
+      - ventasPPC = spend / (acos / 100) si acos > 0, else 0.
+      - tacos = spend / revenue * 100 si revenue > 0.
+      - salesVelocity = units / dim si dim > 0.
+    """
+    dim = _days_in_month(f["date"])
+
+    revenue = (
+        float(f["manualRevenue"]) if _js_truthy_present(f.get("manualRevenue"))
+        else _js_number(f.get("revenueAuto"))
+    )
+    aov = (
+        float(f["manualAOV"]) if _js_truthy_present(f.get("manualAOV"))
+        else _js_number(f.get("aovAuto"))
+    )
+    sessions = (
+        float(f["manualSessions"]) if _js_truthy_present(f.get("manualSessions"))
+        else _js_number(f.get("sessionsAuto"))
+    )
+
+    # availability: HTML L1888 `(f.stockAvailability != null && !== '') ? +x : 100`.
+    if _js_truthy_present(f.get("stockAvailability")):
+        availability = _js_number(f["stockAvailability"])
+    else:
+        availability = 100.0
+    if availability < 0:
+        availability = 0.0
+    if availability > 100:
+        availability = 100.0
+    avail_factor = availability / 100.0
+    revenue = revenue * avail_factor
+
+    units = (revenue / aov) if aov > 0 else 0.0
+    cvr = ((units / sessions) * 100.0) if sessions > 0 else 0.0
+
+    if _js_truthy_present(f.get("tacosTarget")) and revenue > 0:
+        spend = revenue * (_js_number(f["tacosTarget"]) / 100.0)
+        # HTML L1903: `f.spend = Math.round(spend * 100) / 100` (half-up 2 dec).
+        f["spend"] = _round_half_up_dec(spend, 2)
+    else:
+        spend = _js_number(f.get("spend"))  # `+f.spend || 0`
+
+    acos = _js_number(f.get("acosTarget"))
+    ventas_ppc = (spend / (acos / 100.0)) if acos > 0 else 0.0
+    tacos = ((spend / revenue) * 100.0) if revenue > 0 else 0.0
+    pct_vtas_ppc = ((ventas_ppc / revenue) * 100.0) if revenue > 0 else 0.0
+    sales_velocity = (units / dim) if dim > 0 else 0.0
+
+    f.update({
+        "revenue": revenue,
+        "aov": aov,
+        "units": units,
+        "sessions": sessions,
+        "cvr": cvr,
+        "ventasPPC": ventas_ppc,
+        "tacos": tacos,
+        "pctVtasPPC": pct_vtas_ppc,
+        "salesVelocity": sales_velocity,
+        "acos": acos,
+        "availability": availability,
+    })
+    return f
+
+
+def generate_forecast(
+    opts: dict,
+    rows: list[dict],
+    seasonality: dict,
+    yoy_mode: str,
+) -> list[dict]:
+    """Port verbatim de generateForecast L1761.
+
+    Args:
+        opts: dict con keys `horizon` (int meses), `momWindow` (int),
+            `blend` (int 0-100, porcentaje MoM), `useSeasonality` (bool).
+        rows: histórico (ya ordenado asc por date). Equivalente a
+            `state.historical` del HTML.
+        seasonality: dict {enabled: bool, indices: [12 floats]}.
+        yoy_mode: 'auto' | 'on' | 'off'. Equivalente a `state.account.yoyMode`.
+
+    Returns:
+        Lista de forecast rows con shape del HTML L1837-1858, ya pasados por
+        `recompute_forecast_row`. Vacía si rows está vacío.
+
+    NOTA: el `ctx` param del HTML (rows/seasonality/marginPct override) se
+    expresa acá como parámetros directos `rows` y `seasonality`. El motor no
+    distingue entre "global" y "por-ASIN" — el caller arma el ctx que quiera.
+    """
+    if not rows:
+        return []
+
+    horizon = int(opts["horizon"])
+    mom_window = int(opts["momWindow"])
+    blend = float(opts["blend"]) / 100.0  # % MoM
+    use_season = bool(opts.get("useSeasonality", False))
+
+    yoy_enabled = _yoy_enabled(yoy_mode, rows)
+
+    g_rev = _avg_mom_growth("revenue", mom_window, rows)
+    g_units = _avg_mom_growth("units", mom_window, rows)
+    g_sess = _avg_mom_growth("sessions", mom_window, rows)
+    y_rev = _yoy_growth("revenue", rows) if yoy_enabled else 0.0
+    y_sess = _yoy_growth("sessions", rows) if yoy_enabled else 0.0
+    # y_units no se usa en el HTML (línea 1776 lo calcula pero no lo aplica
+    # en el loop — units se deriva de revenue/aov). Lo mantenemos para
+    # fidelidad documental, pero NO entra en el cálculo. Comentado a propósito:
+    # y_units = _yoy_growth("units", rows) if yoy_enabled else 0.0
+
+    # Trailing avgs sobre los últimos 3 meses (L1779-1781).
+    last3 = rows[-3:]
+    if last3:
+        avg_aov = sum(
+            _js_number(r.get("revenue")) / (_js_number(r.get("units")) or 1)
+            for r in last3
+        ) / len(last3)
+        avg_cvr = sum(_js_number(r.get("cvr")) for r in last3) / len(last3)
+    else:
+        avg_aov = 0.0
+        avg_cvr = 0.0
+
+    # avgTACOS sobre filas con spend cargado (L1784-1787). spend en USD;
+    # divisor: max(1, revenue) para evitar div/0.
+    ads_last3 = [r for r in last3 if _js_truthy_present(r.get("spend"))]
+    if ads_last3:
+        avg_tacos: Optional[float] = sum(
+            _js_number(r["spend"]) / max(1.0, _js_number(r.get("revenue")))
+            for r in ads_last3
+        ) / len(ads_last3) * 100.0
+    else:
+        avg_tacos = None
+
+    # avgACOSReal sobre filas con spend Y ventasPPC > 0 (L1788-1791).
+    ads_acos_last3 = [
+        r for r in last3
+        if r.get("spend") is not None and _js_truthy_present(r.get("ventasPPC"))
+        and _js_number(r.get("ventasPPC")) > 0
+    ]
+    # Nota: el HTML usa `r.spend != null` (sin chequear ''); preservamos su
+    # filtro exacto: spend not None pero permite spend='' (que entra como 0).
+    # Para alinear con el comportamiento defensivo del módulo, validamos
+    # también que spend no sea '' usando _js_truthy_present arriba en TACOS;
+    # para ACOS la condición original era más laxa.
+    if ads_acos_last3:
+        avg_acos_real: Optional[float] = sum(
+            _js_number(r.get("spend")) / _js_number(r.get("ventasPPC"))
+            for r in ads_acos_last3
+        ) / len(ads_acos_last3) * 100.0
+    else:
+        avg_acos_real = None
+
+    forecasts: list[dict] = []
+    last_hist = rows[-1]
+    prev: dict = dict(last_hist)  # copia defensiva
+    curr_iso = _get_next_month_iso(last_hist["date"])
+
+    for _ in range(horizon):
+        m_idx = date.fromisoformat(curr_iso[:10]).month - 1  # 0-11
+        year = date.fromisoformat(curr_iso[:10]).year
+
+        # Revenue: blend MoM + YoY.
+        mom_proj = _js_number(prev.get("revenue")) * (1.0 + g_rev)
+        yoy_month = _same_month_last_year_engine(curr_iso, rows)
+        yoy_proj = (
+            _js_number(yoy_month.get("revenue")) * (1.0 + y_rev)
+            if yoy_month is not None else mom_proj
+        )
+        if yoy_enabled and yoy_month is not None:
+            rev_base = blend * mom_proj + (1.0 - blend) * yoy_proj
+        else:
+            rev_base = mom_proj
+
+        # Seasonality. HTML L1811-1813: `indices[mIdx] || 1`.
+        if use_season and seasonality.get("enabled"):
+            sf_raw = seasonality.get("indices", [1.0] * 12)[m_idx]
+            s_factor = float(sf_raw) if sf_raw else 1.0
+        else:
+            s_factor = 1.0
+        revenue = rev_base * s_factor
+
+        # Sessions: misma lógica.
+        mom_sess = _js_number(prev.get("sessions")) * (1.0 + g_sess)
+        yoy_sess = (
+            _js_number(yoy_month.get("sessions")) * (1.0 + y_sess)
+            if yoy_month is not None else mom_sess
+        )
+        if yoy_enabled and yoy_month is not None:
+            sessions = blend * mom_sess + (1.0 - blend) * yoy_sess
+        else:
+            sessions = mom_sess
+        # Sessions escala con seasonality cuando aplica (mismo factor que rev).
+        sessions = sessions * (s_factor if (use_season and seasonality.get("enabled")) else 1.0)
+
+        # AOV: estable alrededor del trailing avg (L1822-1824).
+        aov = avg_aov
+        if aov == 0:
+            aov = revenue / max(1.0, _js_number(prev.get("units")))
+
+        # Units: derivado de revenue/aov (L1827).
+        if aov > 0:
+            units = revenue / aov
+        else:
+            units = _js_number(prev.get("units")) * (1.0 + g_units)
+
+        # CVR: derivado de units/sessions (L1829).
+        cvr = ((units / sessions) * 100.0) if sessions > 0 else avg_cvr
+
+        # Ads defaults (L1831-1835). tacosUse: avgTACOS/100 si hay; sino 0.10.
+        tacos_use = (avg_tacos / 100.0) if (avg_tacos is not None) else 0.10
+        spend_default = revenue * tacos_use
+        # acosDefault: `avgACOSReal != null ? +avgACOSReal.toFixed(1) : 30`.
+        acos_default = (
+            _round_half_up_dec(avg_acos_real, 1)
+            if avg_acos_real is not None else 30.0
+        )
+
+        f: dict = {
+            "date": curr_iso,
+            "year": year,
+            "month": m_idx,
+            # Editable inputs.
+            "seasonality": s_factor,
+            "blend": opts["blend"],
+            "manualRevenue": None,
+            "manualAOV": None,
+            "manualSessions": None,
+            # HTML L1847: `Math.round(spendDefault)` (half-up entero).
+            "spend": _round_half_up_int(spend_default),
+            "acosTarget": acos_default,
+            "tacosTarget": None,
+            # Base auto values.
+            "revenueAuto": revenue,
+            "sessionsAuto": sessions,
+            "aovAuto": aov,
+            # Computed (refreshed by recompute).
+            "revenue": revenue,
+            "units": units,
+            "aov": aov,
+            "sessions": sessions,
+            "cvr": cvr,
+            "salesVelocity": 0.0,
+            "pctVtasPPC": 0.0,
+            "ventasPPC": 0.0,
+            "acos": acos_default,
+            "tacos": 0.0,
+        }
+        recompute_forecast_row(f)
+        forecasts.append(f)
+
+        prev = {
+            "revenue": f["revenue"],
+            "units": f["units"],
+            "sessions": f["sessions"],
+            "cvr": f["cvr"],
+        }
+        curr_iso = _get_next_month_iso(curr_iso)
+
+    return forecasts
+
+
+def auto_detect_seasonality(rows: list[dict]) -> Optional[dict]:
+    """Port de autoDetectSeasonality L2266 — versión PURA.
+
+    El HTML llama `alert()` y `renderSeasonality()` + `saveState()`. Acá NO
+    tocamos UI ni state global: si len < 12 devolvemos None (el caller en UI
+    muestra el mensaje). Si len >= 12, devuelve un dict NUEVO
+    `{enabled: True, indices: [12 floats]}` listo para asignar al cliente.
+
+    Cálculo:
+      - sums/counts por month-of-year sobre `revenue`.
+      - avgPerMonth[m] = sums[m]/counts[m] si counts[m]>0 else 0.
+      - overall = sum(avgPerMonth) / count(meses con avgPerMonth > 0).
+      - indices[m] = round_half_up(avgPerMonth[m] / overall, 3) si > 0 else 1.
+
+    Returns:
+        dict {enabled, indices[12]} o None si len(rows) < 12.
+    """
+    if len(rows) < 12:
+        return None
+
+    sums = [0.0] * 12
+    counts = [0] * 12
+    for r in rows:
+        try:
+            m = date.fromisoformat(r["date"][:10]).month - 1
+        except (ValueError, KeyError, TypeError):
+            continue
+        sums[m] += _js_number(r.get("revenue"))
+        counts[m] += 1
+
+    avg_per_month = [
+        (sums[i] / counts[i]) if counts[i] > 0 else 0.0
+        for i in range(12)
+    ]
+    months_with_data = [a for a in avg_per_month if a > 0]
+    if not months_with_data:
+        # Sin revenue positivo en ningún mes — overall sería 0/0. Defensivo:
+        # devolvemos índices neutros sin marcar enabled (el HTML no contempla
+        # este caso porque el botón solo se habilita con 12+ meses no nulos).
+        return {"enabled": True, "indices": [1.0] * 12}
+    overall = sum(avg_per_month) / len(months_with_data)
+
+    indices = [
+        _round_half_up_dec(a / overall, 3) if a > 0 else 1.0
+        for a in avg_per_month
+    ]
+    return {"enabled": True, "indices": indices}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wrapper Streamlit → motor puro (F3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _run_forecast_for_active_client(
+    opts: dict, state: Optional[Any] = None,
+) -> list[dict]:
+    """Lee el estado del cliente activo, llama al motor puro, MUTA forecast.
+
+    Wrapper fino: lee rows/seasonality/yoy_mode del accessor `_cur_client`,
+    invoca `generate_forecast`, y escribe el resultado en `cur["forecast"]`
+    (mutación in-place de la ref viva en session_state). Devuelve la lista
+    para que el caller pueda renderearla sin re-leer del state.
+
+    Args:
+        opts: dict {horizon, momWindow, blend, useSeasonality}.
+        state: dict-like; default `st.session_state`.
+
+    Returns:
+        Lista de forecast rows (vacía si no hay cliente activo o histórico).
+    """
+    cur = _cur_client(state)
+    if cur is None:
+        return []
+    rows = cur.get("historical", [])
+    seasonality = cur.get("seasonality", {"enabled": False, "indices": [1.0] * 12})
+    yoy_mode = cur.get("yoy_mode", "auto")
+    forecasts = generate_forecast(opts, rows, seasonality, yoy_mode)
+    cur["forecast"] = forecasts
+    return forecasts
 
 
 # ─────────────────────────────────────────────────────────────────────────────
