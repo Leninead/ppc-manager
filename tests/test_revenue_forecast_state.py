@@ -275,17 +275,17 @@ def test_persistence_enabled_is_false_in_phase_1():
 
 
 def test_persist_clients_is_noop_when_disabled(monkeypatch):
-    """_persist_clients no debe llamar a core.persistence cuando el flag está False.
+    """_persist_clients no debe llamar a core.forecast_persistence cuando el flag está False.
 
-    Lo verificamos pinchando `_save_client_config` para que crashee si se
+    Lo verificamos pinchando `_save_forecast_client` para que crashee si se
     llama. Si la función intenta persistir, el test rompe.
     """
     def boom(*args, **kwargs):
         raise AssertionError(
-            "_save_client_config fue invocado pero _PERSISTENCE_ENABLED es False"
+            "_save_forecast_client fue invocado pero _PERSISTENCE_ENABLED es False"
         )
 
-    monkeypatch.setattr(rf, "_save_client_config", boom)
+    monkeypatch.setattr(rf, "_save_forecast_client", boom)
 
     c = rf._new_client(name="A", client_id="a")
     state = {
@@ -298,13 +298,13 @@ def test_persist_clients_is_noop_when_disabled(monkeypatch):
 
 
 def test_hydrate_clients_is_noop_when_disabled(monkeypatch):
-    """_hydrate_clients no debe llamar a core.persistence cuando el flag está False."""
+    """_hydrate_clients no debe llamar a core.forecast_persistence cuando el flag está False."""
     def boom(*args, **kwargs):
         raise AssertionError(
-            "_list_clientes fue invocado pero _PERSISTENCE_ENABLED es False"
+            "_list_forecast_clients fue invocado pero _PERSISTENCE_ENABLED es False"
         )
 
-    monkeypatch.setattr(rf, "_list_clientes", boom)
+    monkeypatch.setattr(rf, "_list_forecast_clients", boom)
 
     state: dict = {}
     rf._ensure_state(state=state)

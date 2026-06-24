@@ -33,9 +33,9 @@ Decisiones de diseño F1 (documentadas in-line)
 
 3. PERSISTENCIA DORMIDA (Patrón M30/Caso 2)
    Los helpers `_persist_clients()` / `_hydrate_clients()` están definidos y
-   cablean a la API genérica de `core.persistence`. Pero en Fase 1 están
-   GUARDIADOS por el flag `_PERSISTENCE_ENABLED = False` y NUNCA se invocan
-   desde el flujo de inicialización. El state vive 100% en session_state.
+   cablean a la API dedicada de `core.forecast_persistence`. Pero en Fase 1
+   están GUARDIADOS por el flag `_PERSISTENCE_ENABLED = False` y NUNCA se
+   invocan desde el flujo de inicialización. El state vive 100% en session_state.
 
    Para encender la persistencia en Fase 2:
        1) Setear `_PERSISTENCE_ENABLED = True`.
@@ -43,17 +43,20 @@ Decisiones de diseño F1 (documentadas in-line)
           session_state esté vacío.
        3) Llamar `_persist_clients()` después de cualquier mutación
           (crear / borrar / actualizar campos persistibles).
-       4) Definir el schema `data/_schemas/revenue-forecast-v1.json` y
-          validar con `_validate_against_schema` si se persisten DataFrames.
+       4) Si se persisten DataFrames (snapshots de forecast), agregar el
+          schema `data/_schemas/revenue-forecast-v1.json` y validarlo.
 
-   La persistencia respeta `_get_backend()` de core.persistence: local por
-   default, Supabase sólo con flag `AGENCY_OS_AH_BACKEND="supabase"` + creds.
+   La persistencia respeta `_get_backend()` de core.forecast_persistence:
+   local por default, Supabase sólo con flag `AGENCY_OS_FORECAST_BACKEND=
+   "supabase"` + creds. Independiente del flag de Account Health.
 
-4. CLIENTES M31 ≠ CLIENTES DE ACCOUNT HEALTH (v1)
-   M31 mantiene su PROPIO catálogo de clientes en session_state. NO se
-   unifica con `ah_*_configs` ni con `_list_clientes("account-health", ...)`.
-   Si más adelante se decide unificar, el accessor `_cur_client` queda como
-   única superficie de cambio.
+4. CLIENTES M31 ≠ CLIENTES DE ACCOUNT HEALTH (D3 — convivencia, no unión)
+   M31 mantiene su PROPIO catálogo de clientes y su PROPIA capa de
+   persistencia (`core.forecast_persistence`). NO se unifica con `ah_*_configs`
+   ni con `_list_clientes("account-health", ...)`. M31 vive en
+   area="account-manager"; AH vive en area="account-health". Paths y tablas
+   disjuntos. Si más adelante se decide unificar, el accessor `_cur_client`
+   queda como única superficie de cambio.
 """
 
 from __future__ import annotations
@@ -63,13 +66,14 @@ from typing import Any, Optional
 
 import streamlit as st
 
-# Imports de la capa de persistencia (cableados pero DORMIDOS en F1).
-# Se importan acá para que Fase 2 sólo tenga que voltear el flag y llamar a
-# los helpers — no hay imports diferidos ni acoplamiento sorpresa.
-from core.persistence import (
-    _save_client_config,
-    _load_client_config,
-    _list_clientes,
+# Imports de la capa de persistencia DEDICADA a M31 (cableados pero DORMIDOS
+# en F1). Capa separada de Account Health por decisión D3: los clientes M31
+# conviven con AH pero NO comparten storage. Ver `core/forecast_persistence.py`
+# para el contrato y la motivación.
+from core.forecast_persistence import (
+    _save_forecast_client,
+    _load_forecast_client,
+    _list_forecast_clients,
 )
 
 
@@ -336,9 +340,11 @@ def _get_selected_asin(state: Optional[Any] = None) -> Optional[str]:
 #   - _hydrate_clients() devuelve [] (no toca disco).
 #   - _persist_clients() es no-op (no toca disco).
 #
-# Cuando se enciendan, usan `_save_client_config` / `_load_client_config` /
-# `_list_clientes` de core.persistence, que respetan `_get_backend()` (local
-# por default, Supabase con flag opt-in).
+# Cuando se enciendan, usan `_save_forecast_client` / `_load_forecast_client` /
+# `_list_forecast_clients` de core.forecast_persistence (capa dedicada M31),
+# que respetan su propio `_get_backend()` — local por default, Supabase con
+# flag `AGENCY_OS_FORECAST_BACKEND="supabase"` + creds. NO comparte tablas con
+# Account Health.
 
 def _persist_clients(state: Optional[Any] = None) -> None:
     """Persiste el catálogo de clientes y el id activo. NO-OP en Fase 1.
@@ -358,14 +364,14 @@ def _persist_clients(state: Optional[Any] = None) -> None:
         state = st.session_state
 
     for c in state.get(_K_CLIENTS, []):
-        _save_client_config(
+        _save_forecast_client(
             config=c,
             area=AREA,
             cliente=c["id"],
             modulo=MODULE_SLUG,
             name="client",
         )
-    _save_client_config(
+    _save_forecast_client(
         config={"active_client_id": state.get(_K_ACTIVE_CLIENT_ID)},
         area=AREA,
         cliente="_meta",
@@ -378,8 +384,8 @@ def _hydrate_clients(state: Optional[Any] = None) -> None:
     """Hidrata el catálogo desde disco. NO-OP en Fase 1.
 
     Cuando se encienda (F2+):
-        - Lista clientes con `_list_clientes(AREA, MODULE_SLUG)`.
-        - Carga cada uno con `_load_client_config(AREA, cliente_slug,
+        - Lista clientes con `_list_forecast_clients(AREA, MODULE_SLUG)`.
+        - Carga cada uno con `_load_forecast_client(AREA, cliente_slug,
           MODULE_SLUG, "client")`.
         - Carga el id activo desde `(_meta, MODULE_SLUG, "active")`.
 
@@ -392,17 +398,17 @@ def _hydrate_clients(state: Optional[Any] = None) -> None:
     if state is None:
         state = st.session_state
 
-    cliente_slugs = _list_clientes(AREA, MODULE_SLUG)
+    cliente_slugs = _list_forecast_clients(AREA, MODULE_SLUG)
     loaded = []
     for slug in cliente_slugs:
         if slug == "_meta":
             continue
-        c = _load_client_config(AREA, slug, MODULE_SLUG, "client")
+        c = _load_forecast_client(AREA, slug, MODULE_SLUG, "client")
         if c:
             loaded.append(c)
     state[_K_CLIENTS] = loaded
 
-    meta = _load_client_config(AREA, "_meta", MODULE_SLUG, "active")
+    meta = _load_forecast_client(AREA, "_meta", MODULE_SLUG, "active")
     state[_K_ACTIVE_CLIENT_ID] = meta.get("active_client_id") if meta else None
 
 
