@@ -1,19 +1,18 @@
-# M31 · Case Study Studio — Decisión arquitectónica + Plan de build
+# M32 · Case Study Studio — Decisión arquitectónica + Plan de build
 
 **Frente:** ANÁLISIS (discovery + decisión, SIN worktree)
 **Fecha:** discovery cerrado
-**Estado:** decisión tomada · build **GATED** por confirmación de Ramiro
+**Estado:** decisión tomada · gate Ramiro **CERRADO** 25/06 · Fase 0 (andamiaje) commiteada (f097aaf, worktree `feat/m32-case-study`) · Fase 1+ pendiente
 **Autor:** Lenin Acosta — Capybaras Agency
 
 ---
 
 ## 0. Gate previo (BLOQUEANTE — leer primero)
 
-> **[PENDIENTE RAMIRO]** La frase "integrar lo de case studies" es ambigua. Este documento
-> asume la interpretación **híbrido (módulo propio + importer a propuesta)**. Antes de abrir
-> el chat de porting con worktree, confirmar con Ramiro que esto es lo que pidió y NO
-> "solo un bloque dentro de Proposal Studio". Si Ramiro quería solo-bloque, el plan cambia
-> (se elimina M31 como módulo y queda solo el bloque V7 + su editor manual).
+> **CONFIRMADO 25/06:** Ramiro pidió la herramienta generadora (no solo el bloque de
+> inserción en propuestas). Cita textual: "que puedan generar casos sin redactarlo, responden
+> preguntas y se genera". El gate de Ramiro queda **CERRADO** — se construye la herramienta
+> generadora completa.
 
 Este `.md` es además el **artefacto para presentarle a Ramiro** y cerrar la ambigüedad.
 
@@ -22,7 +21,7 @@ Este `.md` es además el **artefacto para presentarle a Ramiro** y cerrar la amb
 ## 1. Decisión
 
 **Opción elegida: 3 — Híbrido.**
-Módulo propio **M31 Case Study Studio** (Sales Director, hermano de M29) **+ importer**
+Módulo propio **M32 Case Study Studio** (Sales Director, hermano de M29) **+ importer**
 que inyecta el caso como bloque **V7_case_study** dentro de una propuesta de M29.
 
 ### Por qué (no las otras dos)
@@ -40,11 +39,11 @@ que inyecta el caso como bloque **V7_case_study** dentro de una propuesta de M29
 
 | Punto | Decisión | Justificación |
 |---|---|---|
-| Numeración | **M31**, módulo propio | Vida propia + export WP lo separan de M29 |
+| Numeración | **M32**, módulo propio | Vida propia + export WP lo separan de M29 |
 | Sección | **Sales Director** (no Account Health) | M29 es Sales Director; AH es solo M27/M28/M30 |
 | Persistencia | **SÍ** — biblioteca de casos reutilizables | El importer a M29 exige que el caso persista y se referencie |
 | Backend persistencia | **Reusa `core/persistence.py`** (capa client-config) | `save/load/list_client_config` ya cubren el caso de uso; cero backend nuevo |
-| Export WordPress | **SÍ en v1**, dentro de M31 | Es el feature que justificó el módulo separado |
+| Export WordPress | **SÍ en v1**, dentro de M32 | Es el feature que justificó el módulo separado |
 | Bloque en M29 | **V7_case_study, readonly import-only** | Consistencia con V3-V6 + preserva la regla dura de métricas |
 
 ### 2.1 Por qué el bloque V7 es readonly import-only (no editable)
@@ -52,7 +51,7 @@ El valor central del Case Study Studio es que **Claude no inventa números** (re
 `metrics` vacío si las notas no traen cifras). Si el bloque fuera editable dentro de la
 propuesta, esa garantía se rompe en el punto exacto donde más importa — frente al cliente.
 Un caso es un artefacto con integridad propia, como una auditoría B7: se importa, no se edita.
-Retoques cosméticos → se hacen en M31 y se reimporta (una sola verdad). Ajustes de "no entra
+Retoques cosméticos → se hacen en M32 y se reimporta (una sola verdad). Ajustes de "no entra
 en la página" → se resuelven en render/CSS del bloque, no editando contenido (mismo criterio
 que V3-V6).
 
@@ -81,12 +80,12 @@ Reglas duras heredadas del HTML (preservar tal cual):
 
 ---
 
-## 4. Mapeo shape M31 → bloque V7_case_study (M29)
+## 4. Mapeo shape M32 → bloque V7_case_study (M29)
 
 Patrón de referencia: V3-V6 son readonly, alimentados por mapper desde fuente externa
 (`modules/sales/mappers/datadive_to_v3.py`, `modules/sales/b7_importer.py`).
 
-| Campo M31 (shape HTML) | V7 block.data | Notas |
+| Campo M32 (shape HTML) | V7 block.data | Notas |
 |---|---|---|
 | `headline` | `headline` | — |
 | `subhead` | `subhead` | — |
@@ -105,7 +104,7 @@ Patrón de referencia: V3-V6 son readonly, alimentados por mapper desde fuente e
 ## 5. Persistencia — tabla `cs_case_studies`
 
 Reusa el patrón `ah_client_configs` (PK compuesta + `data` jsonb, sin versión, sin serie temporal).
-**No requiere backend nuevo:** M31 llama `_save_client_config` / `_load_client_config` /
+**No requiere backend nuevo:** M32 llama `_save_client_config` / `_load_client_config` /
 `_list_clientes` con `area="sales-director"`, `modulo="case-study"`.
 
 > **[VERIFICAR EN PORTING]** Confirmar que la capa client-config de `core/persistence.py`
@@ -148,7 +147,7 @@ Estructura del `data` jsonb:
 
 ---
 
-## 6. Navegación — dónde entra M31
+## 6. Navegación — dónde entra M32
 
 Bajo el expander existente `📋 SALES DIRECTOR` (app.py L272), hermano de Proposal Studio:
 
@@ -172,7 +171,7 @@ if selected == "📊 Case Study Studio":
 > Cada fase = un commit local en el worktree. Push solo desde el consolidador.
 > Pre-flight guard antes de cada prompt a CC. Nunca `git add .` — paths explícitos.
 
-**Worktree:** `C:\proyectos\ppc-manager-case-study` · branch `feat/m31-case-study`
+**Worktree:** `C:\proyectos\ppc-manager-case-study` · branch `feat/m32-case-study`
 
 ### Fase 0 — Andamiaje del módulo
 - `modules/pages/case_study_studio.py` con `render()` mínimo (título + SOP expander).
@@ -201,16 +200,29 @@ if selected == "📊 Case Study Studio":
 - Bloque HTML self-contained WordPress (`.capybaras-cs` + WP_CSS inline, L620+).
 
 ### Fase 4 — Importer a M29 (el puente híbrido)
-- `modules/sales/mappers/case_study_to_v7.py` — mapea shape M31 → V7 block.data (sección 4).
+- `modules/sales/mappers/case_study_to_v7.py` — mapea shape M32 → V7 block.data (sección 4).
 - Render `_render_v7_case_study_readonly(block, proposal, lang)` en proposal_studio.py.
 - Sumar `module_id == "V7_case_study"` al dispatch de `_render_block_editor` (L1152).
-- UI en M29: importar caso desde la biblioteca M31 (selector por cliente/nombre).
+- UI en M29: importar caso desde la biblioteca M32 (selector por cliente/nombre).
 
 ### Fase 5 — SOP + cierre
-- `_SOP_MD` en M31 (constante + `st.expander("📘 Cómo usar este módulo")`).
+- `_SOP_MD` en M32 (constante + `st.expander("📘 Cómo usar este módulo")`).
 - Actualizar SOP de M29: V7 es import-only (consistente con V3-V6).
 - Actualizar `CLAUDE.md` (arquitectura + roadmap).
 - Tests: persistencia (con transport fake en memoria, sin red), mapper, parse JSON.
+
+### Flujo del video (referencia de implementación para Fase 1+)
+- **Toggle "ask the director":** permite activar/desactivar una etapa donde el generador hace
+  preguntas al usuario antes de redactar el caso.
+- **Initial scenario:** el usuario describe el escenario inicial del caso (cliente, problema,
+  contexto) como punto de partida del generador.
+- **Few-shot de casos de otras agencias como referencia:** DECISIÓN DE DISEÑO 25/06 → modelo
+  **HÍBRIDO**. Los ejemplos few-shot son **CARGABLES** (archivos que sube Lenin, leídos desde
+  un directorio dedicado), con un **FALLBACK** de 1-2 ejemplos hardcodeados mínimos para que el
+  módulo funcione desde el primer commit aunque no haya archivos cargados. El directorio de
+  ejemplos cargables va **GITIGNOREADO** (mismo patrón que los CSV de clientes reales: material
+  sensible de otras agencias, no versionar). Pendiente de implementación en Fase 1+, NO se
+  construye hoy (M32 sigue en Fase 0).
 
 ---
 
@@ -231,5 +243,5 @@ if selected == "📊 Case Study Studio":
 ## 9. Próximo paso
 
 1. Presentar este `.md` a Ramiro → cerrar el gate de la sección 0.
-2. Con gate cerrado: abrir chat de porting con worktree `feat/m31-case-study`.
+2. Con gate cerrado: abrir chat de porting con worktree `feat/m32-case-study`.
 3. Ejecutar fases 0-5 en orden, commit local por fase, push desde consolidador.

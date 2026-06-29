@@ -1,11 +1,26 @@
 ---
 tipo: state
-actualizado: 2026-06-21
+actualizado: 2026-06-24
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## Última sesión — 2026-06-24 (consolidación multi-frente: merge M31 + M32 a main)
+
+Cierre de día desde el chat consolidador. Tres frentes activos; mergeados dos, uno queda local por falta de tests.
+
+**Mergeado a main (push único del día):**
+- **M32 Case Study Studio** — Fase 0 (andamiaje navegable) cerrada y commiteada (f097aaf), mergeada con --no-ff (b5123e0). Módulo `modules/pages/case_study_studio.py` + 3 hooks en app.py. Discovery cerrado, decisión Opción 3 Híbrido (módulo propio Sales Director + importer V7_case_study a M29). **Gate Ramiro CERRADO 25/06:** pidió la herramienta generadora completa, no solo el bloque ("que puedan generar casos sin redactarlo, responden preguntas y se genera"). Doc maestro: notes/decisiones/M32-case-study-studio-decision.md (renombrado de M31→M32). Worktree feat/m32-case-study. Pendiente: Fase 1 (form + doble llamada Claude).
+- **M31 Revenue Forecast** — Fases 1-3 commiteadas (7079823), mergeadas con --no-ff (a70daa4). Esqueleto + capa de persistencia PROPIA (core/forecast_persistence.py, flag AGENCY_OS_FORECAST_BACKEND, tabla forecast_clients) + ingesta CSV/Excel + motor de forecast con estacionalidad. Verificación D3 PASÓ: separación de Account Health intacta (cero core.persistence, cero ah_*). 478 tests M31 verdes. Conflicto en app.py resuelto a mano (ambos hooks de navegación conviven). Worktree feature/m31-forecast-port. Pendiente: F4 (UI editable) + F5 (estacionalidad UI + export CSV → cierre MVP).
+
+**NO mergeado (queda local):**
+- **M28 SKU Progress** — Bloque 1 de 4 codeado y commiteado local (c98bc83) pero pytest NO corrió (bloqueado por watcher de Streamlit sobre .venv compartido). El propio handoff pide NO mergear sin tests verdes. Queda en worktree feature/m28-sku-detail-view. Próxima sesión: cortar watcher → pytest -k "sku_progress or optimization or m28" → si verde, mergear. Diseño cerrado: campo category opcional (default "Sin categoría", sin migración parquet), set cerrado de 7 categorías. CTR descartado (BR orgánico sin impresiones); CVR viable.
+
+**Numeración (confirmada):** M31 = Revenue Forecast · M32 = Case Study Studio.
 
 ---
 
@@ -1526,6 +1541,21 @@ Detalle: [[2026-05-15-m29-bug-save-buttons]]
 **No se debe atacar preventivamente**: cubrir los ~250 productTypes de Amazon sería 1-2 semanas de trabajo sin ROI confirmado. El módulo cumple su función con Apparel hoy.
 
 Detalle: [[2026-05-15-m27-strategy-3-5-structured]]
+
+### 16. M31 Forecast — parser F2 no maneja Business Report real (🔴 BLOQUEANTE pre-MVP)
+El motor de forecast (F3) está verificado SOLO contra el demo Dermaglos (ISO, números limpios, mensual). NUNCA se probó contra datos reales de Amazon. Validado en sesión 24/06 con CSV real de Setex MX que el parser de F2 rompe:
+- Moneda como "MX$5,121.00" (prefijo MX$ + separador de miles con coma + entrecomillado) → el parser da cero / rompe.
+- Nombres de columna reales difieren del demo: "Ordered Product Sales" (no revenue), "Units Ordered" (no units), "Sessions - Total" (no sessions), "Order Item Session Percentage" (no cvr). El mapeo fuzzy no los cubre.
+- Export real es DIARIO (By Day); la herramienta trabaja MENSUAL → falta agregación día→mes, o exportar "By Month" desde Seller Central.
+- Faltan columnas pageViews y buyBox en el reporte real (Sales and Traffic by Date) — el shape las espera.
+CONSECUENCIA: antes del MVP usable hay que cerrar un fix del parser F2 contra BR real. CSV de prueba: BusinessReport-6-24-26 (Setex MX) — uso interno, datos de cliente real, NO versionar.
+Nota descartada: fechas MX NO son riesgo — Seller Central MX exporta en M/D/Y (formato US), el parser las lee bien.
+
+### 17. Watcher de Streamlit bloquea pytest en sesiones multi-frente (🟠 INFRA)
+El watcher de Streamlit respawnea sobre el .venv compartido (C:\proyectos\ppc-manager\.venv) y bloquea correr pytest en cualquier worktree. Impacto concreto en sesión 24/06: M28 no pudo verificar Bloque 1 (c98bc83 commiteado sin tests). Workaround: cortar el watcher con Ctrl+C en la terminal fuente (NO Stop-Process) antes de correr pytest una sola pasada. Resolver la raíz antes de la próxima corrida multi-frente.
+
+### 18. _PAGES en core/constants.py stale — emojis desincronizados del router real (🟢 MENOR)
+_PAGES en core/constants.py tiene emojis desincronizados del router real en 4 módulos (PPC Insights, Forecast, Audit, DataDive). NO load-bearing: la navegación real son los hooks hardcodeados en app.py, no _PAGES. Decidir si se elimina _PAGES o se re-sincroniza. No urgente. (Relacionado con deuda residual #7 _PAGES/inicio.py.)
 
 ---
 
