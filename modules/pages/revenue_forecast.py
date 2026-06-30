@@ -2,14 +2,22 @@
 
 Sección: Account Manager
 Página: 📈 Revenue Forecast
-Fase: 2 (INGESTA + VISUALIZACIÓN — parser by-date de Business Report +
-config de cuenta editable + history table editable + quick stats con deltas
-MoM/YoY + demo Dermaglos cargable). SIN motor de forecast (F3) ni persistencia
-activa (F4).
+Fase: 4 (UI EDITABLE DEL FORECAST por-cuenta — controles de generación
+(horizon/momWindow/blend/useSeasonality) + tabla editable con overrides
+manuales + recompute reactivo + summary cards de totales). El motor F3 puro
+ya está implementado y se CONSUME desde acá; F4 NO lo modifica.
 
-Las Fases 3+ portearán generateForecast / recomputeForecastRow / seasonality /
-ASIN drill-down. Este archivo deja todo el cableado listo para que esos pasos
-sean aditivos (no hay refactor pendiente del state ni de la persistencia).
+Fases previas (acumuladas):
+    F1: esqueleto + state + accessor de cliente activo + persistencia DORMIDA.
+    F2: parser by-date BR + merge histórico + quick stats + history table.
+    F3: motor de forecast puro (generate_forecast / recompute_forecast_row /
+        auto_detect_seasonality) — testeado, sin runtime Streamlit.
+    F4: UI editable del forecast por-cuenta (este archivo, sección "FASE 4").
+
+Pendiente (fases posteriores):
+    F5: exports (CSV/XLSX) + snapshots versionados + persistencia activa.
+    F6: forecast por-ASIN (drill-down + bulk generation + parent rollup).
+    Post-MVP: comparación vs Real (cuando termina el mes).
 
 ──────────────────────────────────────────────────────────────────────────────
 Decisiones de diseño F1 (documentadas in-line)
@@ -105,12 +113,12 @@ _K_ACTIVE_CLIENT_ID = f"{_STATE_PREFIX}active_client_id"
 # los 4 pasos documentados en el docstring del módulo.
 _PERSISTENCE_ENABLED = False
 
-# SOP in-app — Fase 2.
+# SOP in-app — Fase 4.
 _SOP_MD = """
-### Revenue Forecast — cómo usarlo (Fase 2)
+### Revenue Forecast — cómo usarlo (Fase 4)
 
-Módulo de **ingesta y visualización** del histórico de revenue. El motor de
-forecast llega en F3, la persistencia entre sesiones en F4.
+Módulo de **forecast editable por-cuenta**. El AM carga histórico, lo
+visualiza, y proyecta N meses al futuro ajustando overrides manualmente.
 
 **Flujo del AM:**
 1. **Cliente activo:** elegí (o creá vía demo) el cliente con el selector.
@@ -124,13 +132,23 @@ forecast llega en F3, la persistencia entre sesiones en F4.
    se calculan al instante.
 5. **Quick stats:** deltas MoM/YoY del último mes vs anterior y vs el mismo mes
    del año pasado.
+6. **Forecast (F4):**
+   - Configurá horizon (meses a proyectar), ventana MoM, mezcla MoM↔YoY, y
+     toggle estacionalidad. Hacé clic en **"Generar forecast"**.
+   - Editá overrides en la tabla: Revenue / AOV / Sessions / Spend / ACOS / TACOS
+     / Stock Availability. Los outputs (revenue, units, AOV, ventas PPC, ACOS,
+     TACOS) se recalculan al instante.
+   - Si seteás **TACOS target**, el Spend lo maneja el motor (TACOS×Revenue).
+   - **↺ Resetear overrides:** limpia manualRevenue/AOV/Sessions/tacosTarget
+     de todas las filas.
+   - El summary muestra totales y promedios del periodo proyectado.
 
 **Demo Dermaglos:** 23 meses (jun-2024 a abr-2026) cargables con un click para
 probar el flujo sin Business Report real.
 
 **Próximas fases:**
-- F3: motor `generateForecast` + estacionalidad + drill-down por ASIN.
-- F4: persistencia activa + snapshots versionados.
+- F5: exports (CSV/XLSX) + snapshots versionados + persistencia activa.
+- F6: forecast por-ASIN (drill-down + bulk).
 """
 
 
@@ -2035,6 +2053,518 @@ def _render_history_table(cur: dict) -> None:
         st.rerun()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# FASE 4 — UI editable del forecast (por-cuenta)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Port de renderForecast (HTML L2064) + renderForecastSummary (L2193) + los
+# controles de generación (HTML L794-817, handler en L5914-5927).
+#
+# Diseño F4:
+#   - Helper PURO `_apply_forecast_edits(forecast_rows, edited_df)`: testeable
+#     sin runtime Streamlit, aplica overrides y llama `recompute_forecast_row`
+#     fila por fila.
+#   - Helper PURO `_build_forecast_summary_cards(forecast, currency)`: port
+#     de renderForecastSummary L2193, devuelve lista de 8 cards.
+#   - Controles de generación: patrón F1 (sin `key=` + `value=`/`index=` juntos
+#     — anti-patrón Streamlit 1.43). Usamos buffer mutable en session_state
+#     `_K_FC_BUF` para persistir entre reruns SIN `key=` en widget.
+#   - Forecast table: `st.data_editor` con `key=`, SIN `value=` (data_editor no
+#     tiene value=). column_config marca read-only los campos computados.
+#   - Recompute reactivo: mismo patrón que `_apply_history_edits` (F2): leemos
+#     el df editado, mutamos in-place `cur["forecast"]`, `st.rerun()`.
+#   - None handling: el data_editor con NumberColumn tolera None nativamente,
+#     pero al LEER ediciones pandas devuelve NaN — normalizamos a None vía
+#     `_value_or_none()`.
+#
+# NO se activa persistencia: el forecast vive en session_state (`cur["forecast"]`)
+# durante F4. La persistencia llega en F5+ (junto con snapshots).
+
+_K_FC_BUF = f"{_STATE_PREFIX}fc_buf"
+
+# Defaults de los controles (fiel al HTML L796/799/803/808).
+_FC_DEFAULTS = {
+    "horizon": 3,       # 1..12
+    "momWindow": 3,     # 1..12
+    "blend": 50,        # 0..100 (% MoM, resto YoY)
+    "useSeasonality": False,
+}
+
+
+def _value_or_none(v: Any) -> Optional[float]:
+    """Normaliza valor del data_editor a None o float.
+
+    pandas devuelve NaN cuando el AM deja una NumberColumn vacía. '' y None
+    también pueden aparecer en runtime. Cualquiera de los tres → None.
+    Numérico válido → float.
+    """
+    if v is None:
+        return None
+    if isinstance(v, str) and v.strip() == "":
+        return None
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def _apply_forecast_edits(
+    forecast_rows: list[dict],
+    edited_df: pd.DataFrame,
+) -> int:
+    """Helper PURO: aplica ediciones del data_editor al forecast y recomputa.
+
+    Para cada fila editada:
+        1. Lee los 7 overrides editables (manualRevenue, manualAOV,
+           manualSessions, spend, acosTarget, tacosTarget, stockAvailability).
+        2. Los normaliza con `_value_or_none` (NaN/''/None → None).
+        3. Asigna al dict `forecast_rows[idx]`.
+        4. Llama `recompute_forecast_row(f)` que muta in-place los campos
+           computados (revenue, units, aov, sessions, cvr, ventasPPC, acos,
+           tacos, pctVtasPPC, salesVelocity, availability) según las reglas
+           del HTML (overrides Auto, availability clamp, tacosTarget driving
+           spend, etc.).
+
+    NO toca Streamlit. Recibe forecast_rows como lista mutable (la ref viva
+    de `cur["forecast"]`) y el df editado. Devuelve la cantidad de filas
+    procesadas.
+
+    Args:
+        forecast_rows: lista mutable de dicts forecast (será modificada).
+        edited_df: DataFrame devuelto por st.data_editor con columna oculta
+            `_idx` que mapea de vuelta al índice de forecast_rows.
+
+    Returns:
+        Cantidad de filas escritas.
+    """
+    if edited_df is None or edited_df.empty:
+        return 0
+    written = 0
+    for _, row in edited_df.iterrows():
+        try:
+            idx = int(row["_idx"])
+        except (ValueError, KeyError, TypeError):
+            continue
+        if not (0 <= idx < len(forecast_rows)):
+            continue
+        f = forecast_rows[idx]
+        # Overrides editables — todos pasan por _value_or_none para normalizar.
+        f["manualRevenue"] = _value_or_none(row.get("manualRevenue"))
+        f["manualAOV"] = _value_or_none(row.get("manualAOV"))
+        f["manualSessions"] = _value_or_none(row.get("manualSessions"))
+        # acosTarget: si el AM lo borra, default 30 (consistencia con HTML L1669).
+        acos_val = _value_or_none(row.get("acosTarget"))
+        f["acosTarget"] = acos_val if acos_val is not None else 30.0
+        # tacosTarget: None es válido y semántico ("no usar TACOS driving spend").
+        f["tacosTarget"] = _value_or_none(row.get("tacosTarget"))
+        # spend: si tacosTarget set, recompute lo SOBREESCRIBIRÁ (HTML L1903);
+        # si no, este es el valor manual del AM. None → 0 vía _js_number.
+        spend_val = _value_or_none(row.get("spend"))
+        f["spend"] = spend_val if spend_val is not None else 0
+        # stockAvailability: None → recompute usa default 100 (HTML L1888).
+        f["stockAvailability"] = _value_or_none(row.get("stockAvailability"))
+        recompute_forecast_row(f)
+        written += 1
+    return written
+
+
+def _build_forecast_summary_cards(
+    forecast: list[dict], currency: str = "USD",
+) -> list[dict]:
+    """Helper PURO: port de renderForecastSummary L2193.
+
+    Calcula 8 totales/promedios del forecast y devuelve cards en el formato
+    que consume `kpi_card`: {label, value}.
+
+    Fórmulas (fieles al HTML L2193-2210):
+        - Revenue total = sum(f.revenue)
+        - Units totales = sum(f.units)
+        - Sessions totales = sum(f.sessions)
+        - Spend total = sum(f.spend)
+        - Ventas PPC totales = sum(f.ventasPPC)
+        - ACOS prom = spend / max(1, ventasPPC) * 100
+        - TACOS prom = spend / max(1, revenue) * 100
+        - AOV prom = revenue / max(1, units)
+
+    `max(1, x)` evita div/0 cuando los totales son 0 (mismo guard del HTML).
+
+    Args:
+        forecast: lista de forecast rows (post-recompute).
+        currency: símbolo de moneda para el format.
+
+    Returns:
+        Lista de 8 dicts {label, value}; cada `value` ya viene formateado
+        como string listo para mostrar.
+    """
+    if not forecast:
+        return []
+    totals = {"revenue": 0.0, "units": 0.0, "sessions": 0.0,
+              "spend": 0.0, "ventasPPC": 0.0}
+    for f in forecast:
+        totals["revenue"] += _js_number(f.get("revenue"))
+        totals["units"] += _js_number(f.get("units"))
+        totals["sessions"] += _js_number(f.get("sessions"))
+        totals["spend"] += _js_number(f.get("spend"))
+        totals["ventasPPC"] += _js_number(f.get("ventasPPC"))
+
+    acos_prom = totals["spend"] / max(1.0, totals["ventasPPC"]) * 100.0
+    tacos_prom = totals["spend"] / max(1.0, totals["revenue"]) * 100.0
+    aov_prom = totals["revenue"] / max(1.0, totals["units"])
+
+    return [
+        {"label": "Revenue total", "value": _fmt_currency(totals["revenue"], currency)},
+        {"label": "Units totales", "value": _fmt_num(totals["units"])},
+        {"label": "Sessions totales", "value": _fmt_num(totals["sessions"])},
+        {"label": "Spend total", "value": _fmt_currency(totals["spend"], currency)},
+        {"label": "Ventas PPC totales", "value": _fmt_currency(totals["ventasPPC"], currency)},
+        {"label": "ACOS prom.", "value": _fmt_pct(acos_prom, 1)},
+        {"label": "TACOS prom.", "value": _fmt_pct(tacos_prom, 1)},
+        {"label": "AOV prom.", "value": _fmt_currency(aov_prom, currency, dec=2)},
+    ]
+
+
+def _build_forecast_df(forecast: list[dict]) -> pd.DataFrame:
+    """Construye el DataFrame para `st.data_editor` del forecast.
+
+    Columnas (en orden):
+        _idx (oculta) | Mes | manualRevenue | manualAOV | manualSessions |
+        spend | acosTarget | tacosTarget | stockAvailability |
+        revenue | aov | units | sessions | cvr | salesVelocity |
+        ventasPPC | acos | tacos | pctVtasPPC
+
+    Editables (sin disabled en column_config): los 7 overrides.
+    Read-only: las 10 computadas.
+
+    Notas Arrow-safe:
+        - manual* y tacosTarget y stockAvailability: pueden ser None — se dejan
+          como None puro (NumberColumn lo tolera y muestra celda vacía).
+          NO usar '' (mezclar None y float rompe Arrow en NumberColumn).
+        - spend, acosTarget: SIEMPRE numéricos (la generación los inicializa
+          con int/float; recompute los mantiene numéricos).
+    """
+    if not forecast:
+        return pd.DataFrame(columns=[
+            "_idx", "Mes",
+            "manualRevenue", "manualAOV", "manualSessions",
+            "spend", "acosTarget", "tacosTarget", "stockAvailability",
+            "revenue", "aov", "units", "sessions", "cvr", "salesVelocity",
+            "ventasPPC", "acos", "tacos", "pctVtasPPC",
+        ])
+
+    rows = []
+    for i, f in enumerate(forecast):
+        try:
+            year, month, _ = f["date"].split("-")
+            mes_label = f"{_MONTHS_FULL[int(month) - 1]} {year}"
+        except (ValueError, KeyError, IndexError):
+            mes_label = f.get("date", "")
+
+        rows.append({
+            "_idx": i,
+            "Mes": mes_label,
+            # Editables (overrides — None puro, NumberColumn maneja).
+            "manualRevenue": f.get("manualRevenue"),
+            "manualAOV": f.get("manualAOV"),
+            "manualSessions": f.get("manualSessions"),
+            "spend": _js_number(f.get("spend")),
+            "acosTarget": _js_number(f.get("acosTarget")),
+            "tacosTarget": f.get("tacosTarget"),
+            "stockAvailability": f.get("stockAvailability"),
+            # Read-only (computadas por recompute).
+            "revenue": _js_number(f.get("revenue")),
+            "aov": _js_number(f.get("aov")),
+            "units": _js_number(f.get("units")),
+            "sessions": _js_number(f.get("sessions")),
+            "cvr": _js_number(f.get("cvr")),
+            "salesVelocity": _js_number(f.get("salesVelocity")),
+            "ventasPPC": _js_number(f.get("ventasPPC")),
+            "acos": _js_number(f.get("acos")),
+            "tacos": _js_number(f.get("tacos")),
+            "pctVtasPPC": _js_number(f.get("pctVtasPPC")),
+        })
+    return pd.DataFrame(rows)
+
+
+def _reset_forecast_overrides(cur: dict) -> int:
+    """Resetea los overrides manuales de TODAS las filas del forecast del cliente.
+
+    Fiel al botón ↺ del HTML L2179-2189 pero aplicado global (HTML lo hace
+    por-fila — global es el patrón razonable para Streamlit donde el rerun
+    completo no permite triggers per-cell limpios).
+
+    Para cada fila: manualRevenue / manualAOV / manualSessions / tacosTarget
+    a None, luego `recompute_forecast_row` que refleja el reset en las
+    computadas (revenue cae a revenueAuto, etc.).
+
+    NO toca spend ni acosTarget (esos son inputs PROPIOS del AM, no overrides
+    sobre el cálculo automático — fiel al HTML que solo limpia los 4 manuales).
+
+    Args:
+        cur: dict del cliente activo (será mutado).
+
+    Returns:
+        Cantidad de filas reseteadas (= len(forecast)).
+    """
+    forecast = cur.get("forecast", [])
+    for f in forecast:
+        f["manualRevenue"] = None
+        f["manualAOV"] = None
+        f["manualSessions"] = None
+        f["tacosTarget"] = None
+        recompute_forecast_row(f)
+    return len(forecast)
+
+
+def _ensure_fc_buf(state: Optional[Any] = None) -> dict:
+    """Devuelve el buffer de los controles de generación, inicializándolo si no existe.
+
+    Patrón "Plan D" (buffer mutable) — permite que widgets sin `key=` persistan
+    sus valores entre reruns leyendo `value=buf[field]`. Evita el anti-patrón
+    `key=` + `value=` juntos (que Streamlit 1.43 rechaza).
+    """
+    if state is None:
+        state = st.session_state
+    if _K_FC_BUF not in state:
+        state[_K_FC_BUF] = dict(_FC_DEFAULTS)
+    return state[_K_FC_BUF]
+
+
+def _render_forecast_controls(cur: dict) -> Optional[dict]:
+    """Render de los 4 controles + botón "Generar forecast" (port HTML L794-817).
+
+    Args:
+        cur: dict del cliente activo.
+
+    Returns:
+        opts dict si el AM hizo click en "Generar forecast", sino None.
+        El caller decide si invocar `_run_forecast_for_active_client(opts)`.
+    """
+    st.markdown("##### Generar proyección")
+    st.caption(
+        "El motor combina crecimiento MoM y YoY (cuando aplica), aplica "
+        "estacionalidad si está activa, y deja los campos clave editables abajo."
+    )
+    buf = _ensure_fc_buf()
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        # NO `key=` + `value=` juntos (anti-patrón). Leemos del buffer.
+        new_horizon = st.number_input(
+            "Meses a proyectar",
+            min_value=1, max_value=12, step=1,
+            value=int(buf.get("horizon", 3)),
+        )
+        buf["horizon"] = int(new_horizon)
+    with col2:
+        new_mom = st.number_input(
+            "Ventana MoM (meses)",
+            min_value=1, max_value=12, step=1,
+            value=int(buf.get("momWindow", 3)),
+        )
+        buf["momWindow"] = int(new_mom)
+    with col3:
+        new_blend = st.slider(
+            "Mezcla MoM ↔ YoY (%MoM)",
+            min_value=0, max_value=100, step=1,
+            value=int(buf.get("blend", 50)),
+            help=f"{int(buf.get('blend', 50))}% MoM · "
+                 f"{100 - int(buf.get('blend', 50))}% YoY",
+        )
+        buf["blend"] = int(new_blend)
+    with col4:
+        new_season = st.checkbox(
+            "Aplicar estacionalidad",
+            value=bool(buf.get("useSeasonality", False)),
+            help="Usa los índices del cliente (Sí, usar índices).",
+        )
+        buf["useSeasonality"] = bool(new_season)
+
+    historical = cur.get("historical", [])
+    insufficient = len(historical) < 2
+
+    btn_col, info_col = st.columns([1, 3])
+    with btn_col:
+        clicked = st.button(
+            "Generar forecast",
+            key=f"rf_fc_gen_btn_{cur['id']}",
+            type="primary",
+            disabled=insufficient,
+            help="Calcula el forecast usando los parámetros de arriba.",
+        )
+    with info_col:
+        forecast = cur.get("forecast", [])
+        if forecast:
+            last_hist = historical[-1] if historical else None
+            base_iso = last_hist["date"] if last_hist else "—"
+            st.caption(
+                f"{len(forecast)} meses generados a partir de {base_iso}."
+            )
+        elif insufficient:
+            st.caption(
+                "⚠️ Cargá al menos 2 meses de historial para generar el forecast."
+            )
+
+    if clicked and not insufficient:
+        return dict(buf)
+    return None
+
+
+def _render_forecast_table(cur: dict) -> None:
+    """Render del data_editor del forecast (port HTML L2064 — cards → tabla).
+
+    Diferencia con el HTML: el HTML usa cards por mes (con inputs sueltos +
+    output grid). Streamlit no tiene un widget equivalente de "card editable",
+    así que portamos a un data_editor: las filas son los meses, las columnas
+    son inputs (editables) + outputs (read-only). Funcionalmente equivalente.
+    """
+    forecast = cur.get("forecast", [])
+    if not forecast:
+        st.markdown(
+            "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:1.5rem;"
+            "text-align:center;background:#FFF3E0;'>"
+            "<div style='font-size:1.2rem;'>≋</div>"
+            "<div style='font-weight:600;margin-top:0.4rem;'>Aún no hay proyección</div>"
+            "<div style='font-size:0.82rem;color:#888;margin-top:0.2rem;'>"
+            "Configurá los parámetros de arriba y hacé clic en \"Generar forecast\".</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.markdown("##### Forecast editable")
+    st.caption(
+        "Editá overrides (manualRevenue / manualAOV / manualSessions / Spend / "
+        "ACOS target / TACOS target / Stock Availability) — los outputs "
+        "(revenue, units, AOV, sessions, CVR, ventas PPC, ACOS, TACOS) se "
+        "recalculan al instante. "
+        "**Tip:** si seteás TACOS target, el Spend lo maneja el cálculo "
+        "(TACOS × Revenue) y tu input manual de Spend se sobreescribe."
+    )
+
+    df = _build_forecast_df(forecast)
+
+    # data_editor con column_config: editables sin disabled; computadas disabled.
+    edited = st.data_editor(
+        df,
+        key=f"rf_fc_editor_{cur['id']}",
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "_idx": None,
+            "Mes": st.column_config.TextColumn("Mes", disabled=True),
+            # Editables.
+            "manualRevenue": st.column_config.NumberColumn(
+                "Revenue (override)", format="%.2f",
+                help="Vacío = usa Auto del motor.",
+            ),
+            "manualAOV": st.column_config.NumberColumn(
+                "AOV (override)", format="%.2f",
+                help="Vacío = usa Auto del motor.",
+            ),
+            "manualSessions": st.column_config.NumberColumn(
+                "Sessions (override)", format="%d",
+                help="Vacío = usa Auto del motor.",
+            ),
+            "spend": st.column_config.NumberColumn(
+                "Spend", format="%.2f",
+                help="Inversión Ads (USD). Si TACOS target está set, se "
+                     "sobreescribe con TACOS×Revenue al recomputar.",
+            ),
+            "acosTarget": st.column_config.NumberColumn(
+                "ACOS target %", format="%.1f",
+                help="ACOS objetivo del forecast.",
+            ),
+            "tacosTarget": st.column_config.NumberColumn(
+                "TACOS target %", format="%.1f",
+                help="Si está set, el spend se calcula como TACOS×Revenue.",
+            ),
+            "stockAvailability": st.column_config.NumberColumn(
+                "Stock Avail. %", format="%.1f", min_value=0.0, max_value=100.0,
+                help="Disponibilidad de stock (0-100). Escala el revenue del mes.",
+            ),
+            # Read-only.
+            "revenue": st.column_config.NumberColumn("Revenue", format="%.2f", disabled=True),
+            "aov": st.column_config.NumberColumn("AOV", format="%.2f", disabled=True),
+            "units": st.column_config.NumberColumn("Units", format="%d", disabled=True),
+            "sessions": st.column_config.NumberColumn("Sessions", format="%d", disabled=True),
+            "cvr": st.column_config.NumberColumn("CVR%", format="%.2f", disabled=True),
+            "salesVelocity": st.column_config.NumberColumn(
+                "Sales Velocity", format="%.1f", disabled=True,
+                help="Units / días del mes.",
+            ),
+            "ventasPPC": st.column_config.NumberColumn("Ventas PPC", format="%.2f", disabled=True),
+            "acos": st.column_config.NumberColumn("ACOS%", format="%.1f", disabled=True),
+            "tacos": st.column_config.NumberColumn("TACOS%", format="%.1f", disabled=True),
+            "pctVtasPPC": st.column_config.NumberColumn("% Vtas PPC", format="%.1f", disabled=True),
+        },
+    )
+
+    # Reactividad: mismo patrón que F2 (_apply_history_edits + rerun).
+    if edited is not None and not edited.equals(df):
+        _apply_forecast_edits(cur["forecast"], edited)
+        st.rerun()
+
+
+def _render_forecast_summary(cur: dict) -> None:
+    """Render de los kpi_cards del summary (port HTML L2193 totals)."""
+    forecast = cur.get("forecast", [])
+    if not forecast:
+        return
+    st.markdown("##### Resumen de la proyección")
+    st.caption("Totales y promedios para el periodo proyectado.")
+    cards = _build_forecast_summary_cards(forecast, cur.get("currency", "USD"))
+    for i in range(0, len(cards), 4):
+        row = cards[i:i + 4]
+        cols = st.columns(4)
+        for col, card in zip(cols, row):
+            with col:
+                st.markdown(
+                    kpi_card(card["label"], card["value"], delta=None, delta_good=True),
+                    unsafe_allow_html=True,
+                )
+
+
+def _render_forecast_section(cur: dict) -> None:
+    """Orquestador del bloque "Forecast" (F4): controles + tabla + summary + reset.
+
+    Llamado desde `render()` DESPUÉS de `_render_history_table`. Si el AM no
+    tiene historial, el botón se deshabilita y la tabla muestra empty state.
+    """
+    st.divider()
+    st.markdown("### 📈 Forecast")
+
+    opts = _render_forecast_controls(cur)
+    if opts is not None:
+        n = len(_run_forecast_for_active_client(opts))
+        if n > 0:
+            st.success(f"✓ {n} meses de forecast generados.")
+            st.rerun()
+        else:
+            st.warning("No se generó el forecast (sin historial o sin cliente activo).")
+
+    st.markdown("")
+    _render_forecast_table(cur)
+
+    if cur.get("forecast"):
+        st.markdown("")
+        col_reset, _ = st.columns([1, 3])
+        with col_reset:
+            if st.button(
+                "↺ Resetear overrides",
+                key=f"rf_fc_reset_btn_{cur['id']}",
+                help="Limpia manualRevenue/AOV/Sessions y tacosTarget de TODAS "
+                     "las filas, y recalcula el forecast desde el motor.",
+            ):
+                n = _reset_forecast_overrides(cur)
+                if n > 0:
+                    st.success(f"✓ {n} filas reseteadas.")
+                    st.rerun()
+        st.markdown("")
+        _render_forecast_summary(cur)
+
+
 def render() -> None:
     """Entry point del Revenue Forecast (M31) — sección Account Manager.
 
@@ -2096,8 +2626,9 @@ def render() -> None:
 
     # 4) Aviso de fase.
     st.info(
-        "🚧 **Fase 2 — ingesta + visualización.** El motor de forecast llega en F3 "
-        "y la persistencia entre sesiones en F4."
+        "🚧 **Fase 4 — UI editable del forecast por-cuenta.** Faltan: forecast "
+        "por-ASIN (F6), exports (F5) y snapshots/vs-Real (post-MVP). "
+        "El forecast vive en session_state hasta F5+."
     )
 
     # 5) Sección DATOS — port del HTML L721-785.
@@ -2109,3 +2640,7 @@ def render() -> None:
     _render_quick_stats(cur)
     st.markdown("")
     _render_history_table(cur)
+
+    # 6) Sección FORECAST (F4) — port del HTML L788-820 (controles) +
+    # L2064 (cards/tabla) + L2193 (summary).
+    _render_forecast_section(cur)
