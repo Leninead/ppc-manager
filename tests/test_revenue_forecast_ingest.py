@@ -308,11 +308,16 @@ def test_parse_business_report_xlsx():
     assert out[0]["revenue"] == 100
 
 
-def test_parse_business_report_unrecognized_returns_empty():
-    """CSV sin Date → 0 filas mapeadas (no excepción)."""
+def test_parse_business_report_unrecognized_raises_sessionless():
+    """CSV sin Date NI Sessions → ReportLacksSessionsError.
+
+    Cambio semántico vs versión pre-fix: antes devolvía `[]` silenciosamente,
+    ahora prioriza el check de schema (Sessions ausente = reporte equivocado)
+    y lanza error claro. Más útil para el AM que un upload sin feedback.
+    """
     csv = b"foo,bar\n1,2\n"
-    out = rf._parse_business_report.__wrapped__(csv, "junk.csv")
-    assert out == []
+    with pytest.raises(rf.ReportLacksSessionsError):
+        rf._parse_business_report.__wrapped__(csv, "junk.csv")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -78,6 +78,11 @@ notes/sales/*
 # El _README.md SÍ se versiona como inventario de qué se porteó cuándo.
 .claude/porting-sources/*.html
 !.claude/porting-sources/_README.md
+# ── Fixtures reales de tests (datos de clientes) ──
+# CSV de Business Reports reales (Setex MX, Dermaglos US) para validar el parser
+# de ingesta M31 contra datos crudos de Amazon. Son datos de clientes — NO
+# versionar. Los tests que dependen de ellos usan skipif cuando faltan.
+tests/fixtures/real/
 # ── Cierre 2026-05-22 — deliverables operativos ───
 # Estos artefactos viajan por Slack/Drive con el cliente; no son código.
 # M27 smoke outputs

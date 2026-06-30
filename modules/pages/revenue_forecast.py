@@ -527,12 +527,44 @@ def _fmt_pct(n: Optional[float], dec: int = 1) -> str:
 
 
 def _parse_num(v: Any) -> float:
-    """Port de parseNum L1271: limpia $,% y , y devuelve 0 si no parsea."""
+    """Limpia tokens numéricos de Amazon BR y devuelve 0 si no parsea.
+
+    HARDENING vs HTML original (parseNum L1271): el HTML solo quitaba `$,%`,
+    lo que rompe con monedas reales de Amazon que usan prefijos de letras
+    (ej. MX$, R$). Patrón canónico fallaba con "MX$5,121.00" → "MX5121.00" →
+    ValueError → 0.0.
+
+    Reglas (en orden):
+        1. None / NaN / "" → 0.0.
+        2. Numérico nativo → float directo.
+        3. String: quitar comillas `"`, quitar prefijo letras+`$` (MX$, R$, US$),
+           quitar `$`, `%`, comas (miles) y espacios. Mantener `.` y `-`.
+
+    Casos cubiertos:
+        "$210.76" → 210.76
+        "MX$5,121.00" → 5121.0
+        "$6,513.61" → 6513.61
+        "$0.00" → 0.0
+        "" → 0.0
+        "7.07%" → 7.07
+        '"$3,672.17"' → 3672.17 (CSV con quoting=ALL)
+    """
     if v is None:
         return 0.0
     if isinstance(v, (int, float)) and not pd.isna(v):
         return float(v)
-    s = re.sub(r"[$,%]", "", str(v)).replace(",", "").strip()
+    s = str(v).strip()
+    if not s:
+        return 0.0
+    # 1. Quitar comillas que sobran (algunos CSV de Amazon citan valores con coma).
+    s = s.replace('"', "").replace("'", "").strip()
+    # 2. Quitar prefijo de letras opcional + signo de moneda (MX$, R$, US$, $, €, etc.).
+    s = re.sub(r"^[A-Za-z]+\$", "", s)
+    s = re.sub(r"^[A-Za-z]+", "", s)  # por si hay "USD 100" sin $.
+    # 3. Limpieza final: $, %, comas (miles), espacios. Preserva . y -.
+    s = re.sub(r"[\$%,\s]", "", s)
+    if not s or s in ("-", "."):
+        return 0.0
     try:
         return float(s)
     except ValueError:
@@ -687,7 +719,13 @@ def _map_row_by_date(row: dict) -> Optional[dict]:
         _find_by_keywords(norm_map, ["buy", "box"], ["b2b"])
         or _find_by_keywords(norm_map, ["featured", "offer"], ["b2b"])
     )
-    cvr = _parse_num(_find_by_keywords(norm_map, ["unit", "session"], ["b2b"]))
+    # CVR: el HTML buscaba 'unit session %' (legacy). Amazon BR by-date REAL
+    # usa 'Order Item Session Percentage' (sin 'unit'). Probamos ambos.
+    cvr_raw = (
+        _find_by_keywords(norm_map, ["unit", "session"], ["b2b"])
+        or _find_by_keywords(norm_map, ["order", "item", "session"], ["b2b"])
+    )
+    cvr = _parse_num(cvr_raw)
 
     return {
         "date": iso,
@@ -701,26 +739,141 @@ def _map_row_by_date(row: dict) -> Optional[dict]:
     }
 
 
+class ReportLacksSessionsError(ValueError):
+    """Excepción dedicada: el BR cargado no incluye columna de Sessions/Tráfico.
+
+    Se lanza cuando el CSV/XLSX viene del reporte "Sales and Orders by Month"
+    (que solo trae revenue + units, sin tráfico) en lugar de "Sales and Traffic
+    by Date". El forecast NECESITA sessions para la velocity, AOV, CVR y la
+    proyección a futuro — ingerir sin sessions sería romper el motor F3
+    silenciosamente.
+
+    El caller (UI) debe atrapar esto y mostrar mensaje al AM: cargar el
+    reporte correcto.
+    """
+
+
+_SESSIONLESS_HINT = (
+    "Este reporte no incluye Sessions/CVR. "
+    "Cargá el reporte 'Sales and Traffic' (By Date), "
+    "que sí trae datos de tráfico."
+)
+
+
+def _detect_granularity(rows: list[dict]) -> str:
+    """Detecta si las filas vienen diarias o mensuales.
+
+    Heurística: si hay >1 fila por (año, mes), es DIARIO. Si cada (año, mes)
+    tiene exactamente 1 fila, es MENSUAL. Casos borde:
+        - 0 filas → "monthly" (no hay nada que agregar).
+        - 1 fila → "monthly" (sin info, asumir mensual y no agregar).
+    """
+    if len(rows) <= 1:
+        return "monthly"
+    months_seen: dict[tuple[int, int], int] = {}
+    for r in rows:
+        try:
+            y, m, _d = r["date"].split("-")
+            key = (int(y), int(m))
+        except (ValueError, AttributeError, KeyError):
+            continue
+        months_seen[key] = months_seen.get(key, 0) + 1
+    if any(v > 1 for v in months_seen.values()):
+        return "daily"
+    return "monthly"
+
+
+def _aggregate_daily_to_monthly(rows: list[dict]) -> list[dict]:
+    """Agrega filas diarias a mensuales agrupando por (año, mes).
+
+    Reglas:
+        - revenue, revenueB2B, units, sessions, pageViews → SUMA.
+        - buyBox → promedio simple (% es ratio, suma no tiene sentido).
+        - cvr → RECALCULADO como units / sessions * 100 (NO promedio simple
+          de los % diarios, que sesga). units es proxy de order items: el
+          HTML mismo equipara cvr al "Order Item Session Percentage" pero el
+          BR de Amazon by-date no expone order items por separado del total
+          de units en este export, así que usamos units. Si sessions del mes
+          es 0 → cvr = 0.
+        - date → primer día del mes ISO (YYYY-MM-01).
+
+    Si el grupo del mes no tiene filas con sessions, cvr cae a 0.
+    """
+    buckets: dict[tuple[int, int], list[dict]] = {}
+    for r in rows:
+        try:
+            y, m, _d = r["date"].split("-")
+            key = (int(y), int(m))
+        except (ValueError, AttributeError, KeyError):
+            continue
+        buckets.setdefault(key, []).append(r)
+
+    monthly: list[dict] = []
+    for (y, m), group in sorted(buckets.items()):
+        total_revenue = sum(g.get("revenue") or 0 for g in group)
+        total_revenue_b2b = sum(g.get("revenueB2B") or 0 for g in group)
+        total_units = sum(g.get("units") or 0 for g in group)
+        total_sessions = sum(g.get("sessions") or 0 for g in group)
+        total_page_views = sum(g.get("pageViews") or 0 for g in group)
+        # buyBox: promedio simple (es %, no suma).
+        buybox_vals = [g.get("buyBox") for g in group if g.get("buyBox") is not None]
+        avg_buybox = (sum(buybox_vals) / len(buybox_vals)) if buybox_vals else 0
+        # CVR recalculado desde totales (más fiel que avg de % diarios).
+        recalc_cvr = (total_units / total_sessions * 100.0) if total_sessions > 0 else 0.0
+        monthly.append({
+            "date": f"{y:04d}-{m:02d}-01",
+            "revenue": total_revenue,
+            "revenueB2B": total_revenue_b2b,
+            "units": total_units,
+            "sessions": total_sessions,
+            "pageViews": total_page_views,
+            "buyBox": avg_buybox,
+            "cvr": recalc_cvr,
+        })
+    return monthly
+
+
+def _has_sessions_column(df: pd.DataFrame) -> bool:
+    """True si el DataFrame tiene alguna columna de Sessions (excluyendo B2B y %).
+
+    Se usa para rechazar el reporte "Sales and Orders by Month" (sin tráfico)
+    antes de procesar filas. Match por header normalizado (sin BOM, sin
+    separadores, lowercase).
+    """
+    for col in df.columns:
+        nk = _norm_hdr(col)
+        # Sessions Total (excluyendo Sessions - Total - B2B y Order Item Session Percentage).
+        if "sessions" in nk and "b2b" not in nk and "percentage" not in nk:
+            return True
+    return False
+
+
 @st.cache_data(show_spinner=False)
 def _parse_business_report(data: bytes, filename: str) -> list[dict]:
     """Parsea CSV o XLSX del BR by-date. Recibe bytes (no UploadedFile) para
     que el cache de Streamlit funcione (patrón M30).
 
-    El HTML solo soporta CSV vía PapaParse (L1334). Acá agregamos XLSX porque
-    Amazon también permite ese export y es trivial con pandas. Si el archivo
-    es XLSX, leemos la primera hoja; si es CSV, autodetectamos separador (el
-    HTML usa PapaParse que ya lo hace).
+    HARDENING vs HTML original: maneja BRs reales de Amazon (no solo el demo
+    limpio). Cambios:
+        1. Limpieza de moneda robusta (MX$, R$, $, etc.) — vía _parse_num.
+        2. Rechazo explícito si falta columna Sessions → `ReportLacksSessionsError`.
+        3. Detección de granularidad y agregación día→mes automática (Amazon
+           by-date exporta diario; el forecast trabaja mensual).
 
-    Devuelve la lista de rows mapeadas y ordenadas por date asc (fiel a
-    `rows.sort((a,b) => a.date.localeCompare(b.date))`, L1344).
+    Devuelve la lista de rows mapeadas, ordenadas por date asc, y AGREGADAS
+    a mensual si vienen diarias.
 
     Args:
         data: bytes crudos del archivo.
         filename: nombre del archivo (para decidir CSV vs XLSX por extensión).
 
     Returns:
-        Lista de dicts con shape by-date (8 keys). Lista vacía si no se pudo
-        parsear ninguna fila.
+        Lista de dicts con shape by-date (8 keys), siempre mensual.
+
+    Raises:
+        ReportLacksSessionsError: si el archivo no incluye Sessions (es el
+            reporte equivocado — Sales and Orders by Month en vez de Sales
+            and Traffic by Date).
     """
     lower = filename.lower()
     if lower.endswith((".xlsx", ".xls")):
@@ -732,6 +885,12 @@ def _parse_business_report(data: bytes, filename: str) -> list[dict]:
         sep = ";" if first_line.count(";") > first_line.count(",") else ","
         df = pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=sep)
 
+    # Rechazo temprano si NO hay sessions (reporte equivocado).
+    # Hacemos esto ANTES del mapeo fila por fila porque queremos un error claro
+    # al AM, no ingerir "a medias" con sessions=0 que rompe el motor F3.
+    if not _has_sessions_column(df):
+        raise ReportLacksSessionsError(_SESSIONLESS_HINT)
+
     # Iteramos dict por fila para reusar el mapeo verbatim.
     rows: list[dict] = []
     for raw in df.to_dict("records"):
@@ -739,6 +898,21 @@ def _parse_business_report(data: bytes, filename: str) -> list[dict]:
         if mapped is not None:
             rows.append(mapped)
     rows.sort(key=lambda r: r["date"])
+
+    # Detección de granularidad + agregación día→mes.
+    # El HTML original asume mensual (su demo es mensual ISO); BRs reales by-date
+    # de Amazon vienen diarios. Agregamos acá para mantener el contrato del
+    # historical: 1 fila por mes, fecha YYYY-MM-01.
+    if _detect_granularity(rows) == "daily":
+        rows = _aggregate_daily_to_monthly(rows)
+    else:
+        # Mensual: normalizar fechas a YYYY-MM-01 por consistencia.
+        for r in rows:
+            try:
+                y, m, _d = r["date"].split("-")
+                r["date"] = f"{int(y):04d}-{int(m):02d}-01"
+            except (ValueError, AttributeError):
+                pass
     return rows
 
 
@@ -1744,6 +1918,12 @@ def _render_upload_and_demo(cur: dict) -> None:
         data = uploaded.getvalue()
         try:
             rows = _parse_business_report(data, uploaded.name)
+        except ReportLacksSessionsError as e:
+            # Reporte sin tráfico (típico: Sales and Orders by Month en lugar
+            # de Sales and Traffic by Date). NO ingerir a medias — el motor
+            # F3 necesita sessions. Mostrar mensaje claro al AM.
+            st.error(str(e))
+            return
         except Exception as e:  # noqa: BLE001 — fail-soft al AM
             st.error(f"No se pudo parsear el archivo: {e}")
             return
