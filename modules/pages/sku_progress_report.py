@@ -578,6 +578,20 @@ def _build_snapshot_df(
     return df
 
 
+def _coalesce_category(optimizations: pd.DataFrame) -> pd.DataFrame:
+    """Rellena category ausente/nula/vacía con SIN_CATEGORIA. NO reescribe parquet.
+    Filas viejas sin la columna se completan en lectura."""
+    if optimizations.empty:
+        return optimizations
+    if "category" not in optimizations.columns:
+        optimizations["category"] = SIN_CATEGORIA
+    else:
+        optimizations["category"] = (
+            optimizations["category"].fillna(SIN_CATEGORIA).replace("", SIN_CATEGORIA)
+        )
+    return optimizations
+
+
 # ── Helpers de UI / formato ─────────────────────────────────────────────
 
 def _fmt_value(val, key: str) -> str:
@@ -1524,14 +1538,7 @@ def render() -> None:
 
     history = _load_history(AREA, cliente, MODULE_SLUG)
     optimizations = _load_log(AREA, cliente, MODULE_SLUG, "optimizations")
-    # Coalesce de category en lectura (filas viejas sin la columna). NO reescribe parquet.
-    if not optimizations.empty:
-        if "category" not in optimizations.columns:
-            optimizations["category"] = SIN_CATEGORIA
-        else:
-            optimizations["category"] = (
-                optimizations["category"].fillna(SIN_CATEGORIA).replace("", SIN_CATEGORIA)
-            )
+    optimizations = _coalesce_category(optimizations)  # coalesce category en lectura
 
     # Botones top-bar (Agregar SKU + Export)
     col_a, col_b, col_c = st.columns([1.5, 1.5, 4])
