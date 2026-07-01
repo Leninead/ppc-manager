@@ -2,22 +2,24 @@
 
 Sección: Account Manager
 Página: 📈 Revenue Forecast
-Fase: 4 (UI EDITABLE DEL FORECAST por-cuenta — controles de generación
-(horizon/momWindow/blend/useSeasonality) + tabla editable con overrides
-manuales + recompute reactivo + summary cards de totales). El motor F3 puro
-ya está implementado y se CONSUME desde acá; F4 NO lo modifica.
+Fase: 5 (MVP CERRADO — Estacionalidad UI + Export CSV). Consume el motor
+puro F3 (`auto_detect_seasonality`, `generate_forecast`) sin modificarlo.
+Cambiar la seasonality NO regenera el forecast automático (pisaría los
+overrides F4). El aviso "regenerá arriba" invita al AM a re-aplicar
+conscientemente cuando esté listo.
 
 Fases previas (acumuladas):
     F1: esqueleto + state + accessor de cliente activo + persistencia DORMIDA.
     F2: parser by-date BR + merge histórico + quick stats + history table.
     F3: motor de forecast puro (generate_forecast / recompute_forecast_row /
         auto_detect_seasonality) — testeado, sin runtime Streamlit.
-    F4: UI editable del forecast por-cuenta (este archivo, sección "FASE 4").
+    F4: UI editable del forecast por-cuenta (controles + tabla + summary).
+    F5: estacionalidad UI (toggle + 12 índices editables + auto-detect) +
+        export CSV con 12 cols HTML + 6 cols de overrides manuales del AM.
 
-Pendiente (fases posteriores):
-    F5: exports (CSV/XLSX) + snapshots versionados + persistencia activa.
+Pendiente (post-MVP):
     F6: forecast por-ASIN (drill-down + bulk generation + parent rollup).
-    Post-MVP: comparación vs Real (cuando termina el mes).
+    Snapshots + persistencia activa + comparación vs Real (fin de mes).
 
 ──────────────────────────────────────────────────────────────────────────────
 Decisiones de diseño F1 (documentadas in-line)
@@ -2526,6 +2528,316 @@ def _render_forecast_summary(cur: dict) -> None:
                 )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# FASE 5 — Estacionalidad UI + Export CSV
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# F5 = MVP close: (1) UI de estacionalidad (toggle + 12 índices editables +
+# auto-detect) y (2) export CSV del forecast a disco.
+#
+# NO regenera el forecast automático al cambiar seasonality — hacerlo pisaría
+# los overrides manuales del AM en F4 sin aviso. En cambio, F5 muta
+# cur["seasonality"] y muestra un aviso ("regenera desde arriba para aplicar").
+# El botón "Generar forecast" de F4 (con su checkbox useSeasonality) es el
+# punto de aplicación autorizado — el AM acepta ahí el trade-off.
+#
+# Fuente HTML: renderSeasonality (L2243), autoDetectSeasonality (L2266 —
+# ya portado en F3 como `auto_detect_seasonality`), exportForecastCSV (L2858).
+# Extensión pedida vs HTML: agregar 6 columnas de overrides manuales del AM
+# (Manual Revenue, Manual AOV, Manual Sessions, ACOS Target%, TACOS Target%,
+# Stock Availability%) al final del CSV. El HTML no las exporta; usuario
+# las quiere para auditoría.
+
+_SEASONALITY_HELP = (
+    "Los índices multiplican el revenue base del mes correspondiente. "
+    "1.00 = neutro. >1.05 (verde) = mes fuerte; <0.95 (rojo) = mes flojo. "
+    "El botón 'Auto-detectar' requiere al menos 12 meses de historial."
+)
+
+
+def _build_forecast_csv(forecast: list[dict], cliente_name: str) -> str:
+    """Port de exportForecastCSV L2858, con extensión de overrides manuales.
+
+    Formato:
+        - Header 12 cols HTML + 6 cols overrides.
+        - Formatos numéricos fielmente portados del HTML:
+            revenue/aov/salesVelocity/spend/ventasPPC/acos/tacos/pctVtasPPC → 2 dec.
+            cvr → 2 dec (HTML L2870 `f.cvr.toFixed(2)`).
+            units/sessions → 0 dec (redondeo half-up implícito por int()).
+        - Overrides (manualRevenue/AOV/Sessions/acosTarget/tacosTarget/
+          stockAvailability): vacío si None/absent, `.2f` si set.
+        - Line endings LF (fiel al HTML `\\n`).
+
+    NOTA (fidelidad JS): `toFixed(0)` en JS redondea half-away-from-zero, pero
+    la diferencia con `int(round(x))` es negligible acá porque `units` y
+    `sessions` vienen ya como floats grandes bien definidos. Preservamos
+    `_round_half_up_int` para consistencia con el motor.
+
+    Args:
+        forecast: lista de forecast rows (mismo shape que cur["forecast"]).
+                  Puede ser [] — devuelve solo el header.
+        cliente_name: nombre del cliente (para header comment o metadatos
+                      futuros; hoy no se inyecta en el body).
+
+    Returns:
+        CSV como string, encoding UTF-8. Sin BOM (Excel lo lee OK).
+    """
+    header = [
+        # 12 columnas HTML (orden verbatim).
+        "Date", "Revenue", "AOV", "Units", "Sales Velocity",
+        "Sessions", "CVR%", "Spend", "Ventas PPC",
+        "ACOS%", "TACOS%", "% Vtas PPC",
+        # 6 columnas extendidas (overrides manuales del AM en F4).
+        "Manual Revenue", "Manual AOV", "Manual Sessions",
+        "ACOS Target%", "TACOS Target%", "Stock Availability%",
+    ]
+    lines = [",".join(header)]
+
+    for f in forecast:
+        def _fmt_opt(v: Any) -> str:
+            """Override → '.2f' si set (truthy-present), '' si None/absent."""
+            if not _js_truthy_present(v):
+                return ""
+            return f"{_js_number(v):.2f}"
+
+        row = [
+            f.get("date", ""),
+            f"{_js_number(f.get('revenue')):.2f}",
+            f"{_js_number(f.get('aov')):.2f}",
+            f"{_round_half_up_int(_js_number(f.get('units')))}",
+            f"{_js_number(f.get('salesVelocity')):.2f}",
+            f"{_round_half_up_int(_js_number(f.get('sessions')))}",
+            f"{_js_number(f.get('cvr')):.2f}",
+            f"{_js_number(f.get('spend')):.2f}",
+            f"{_js_number(f.get('ventasPPC')):.2f}",
+            f"{_js_number(f.get('acos')):.2f}",
+            f"{_js_number(f.get('tacos')):.2f}",
+            f"{_js_number(f.get('pctVtasPPC')):.2f}",
+            # Overrides — vacío o formateado.
+            _fmt_opt(f.get("manualRevenue")),
+            _fmt_opt(f.get("manualAOV")),
+            _fmt_opt(f.get("manualSessions")),
+            _fmt_opt(f.get("acosTarget")),
+            _fmt_opt(f.get("tacosTarget")),
+            _fmt_opt(f.get("stockAvailability")),
+        ]
+        lines.append(",".join(row))
+
+    return "\n".join(lines)
+
+
+def _cliente_slug(name: str) -> str:
+    """Normaliza el nombre para filename: lower + espacios→'_' + strip especial.
+
+    Fiel al espíritu del HTML L2882 `state.account.name || 'cuenta'` pero
+    filesystem-safe. Ejemplos:
+        'Dermaglos'         → 'dermaglos'
+        'Love To Dream MX'  → 'love_to_dream_mx'
+        ''                  → 'cuenta'
+    """
+    if not name:
+        return "cuenta"
+    slug = re.sub(r"[^\w\s-]", "", name, flags=re.UNICODE).strip().lower()
+    slug = re.sub(r"[\s-]+", "_", slug)
+    return slug or "cuenta"
+
+
+def _apply_seasonality_edits(
+    seasonality: dict,
+    edited_df: pd.DataFrame,
+) -> int:
+    """Aplica ediciones del data_editor de estacionalidad al dict del cliente.
+
+    Para cada fila (12 meses): lee "Índice" del df editado, normaliza NaN/None
+    con `_js_number` (que ya trata None/NaN/'' como 0) y REEMPLAZA por 1.0
+    cuando el resultado es 0 (fiel al `|| 1` del HTML L2259).
+
+    NO clampea a [min, max] — el column_config del data_editor ya limita al
+    editar en UI; los tests operan sobre dfs libres y esperan clamp del widget
+    (no de la lógica pura).
+
+    Args:
+        seasonality: dict {enabled, indices[12]} — será mutado in-place.
+        edited_df: DataFrame con columnas ["Mes", "Índice"] (12 filas).
+
+    Returns:
+        Cantidad de índices actualizados (esperado: 12).
+    """
+    if edited_df is None or edited_df.empty:
+        return 0
+    indices = seasonality.get("indices", [1.0] * 12)
+    if len(indices) != 12:
+        indices = [1.0] * 12
+    # Iteración por índice de fila (0-11 = meses Ene-Dic).
+    written = 0
+    for i, (_, row) in enumerate(edited_df.iterrows()):
+        if i >= 12:
+            break
+        raw = row.get("Índice")
+        v = _js_number(raw)
+        # Fiel al HTML L2259 `|| 1`: vacío/0 → 1.
+        indices[i] = float(v) if v else 1.0
+        written += 1
+    seasonality["indices"] = indices
+    return written
+
+
+def _render_seasonality_section(cur: dict) -> None:
+    """Render de la sección "Estacionalidad" (port HTML L2243).
+
+    Layout:
+        1. Toggle "Aplicar estacionalidad" (mutación directa a
+           cur["seasonality"]["enabled"]).
+        2. Botón "Auto-detectar" (llama `auto_detect_seasonality`, warning si
+           <12 meses).
+        3. `st.data_editor` con 12 filas: columna "Mes" read-only, "Índice"
+           editable (min 0.1, max 3.0, step 0.01).
+        4. Info: "para aplicar, regenerá el forecast arriba".
+
+    NO llama `_run_forecast_for_active_client` — cambiar seasonality no
+    regenera automático (pisaría overrides F4). El AM regenera desde el
+    botón F4 cuando quiere aplicar.
+    """
+    st.divider()
+    st.markdown("### 📅 Estacionalidad")
+    st.caption(_SEASONALITY_HELP)
+
+    seas = cur.get("seasonality") or {"enabled": False, "indices": [1.0] * 12}
+    # Guard: si algún flujo antiguo dejó indices con longitud distinta.
+    if len(seas.get("indices") or []) != 12:
+        seas["indices"] = [1.0] * 12
+    cur["seasonality"] = seas
+
+    # (1) Toggle enabled. NO `key=`+`value=` juntos: leemos return.
+    new_enabled = st.checkbox(
+        "Aplicar estacionalidad",
+        value=bool(seas.get("enabled", False)),
+        help="Cuando está activo, el motor multiplica el revenue base por el "
+             "índice del mes al generar el forecast. Requiere marcar también "
+             "'Aplicar estacionalidad' en los controles de arriba y regenerar.",
+    )
+    if bool(new_enabled) != bool(seas.get("enabled", False)):
+        seas["enabled"] = bool(new_enabled)
+        # Sin regenerado automático — solo mutación.
+        st.rerun()
+
+    # (2) Botón auto-detectar.
+    col_btn, col_msg = st.columns([1, 3])
+    with col_btn:
+        auto_clicked = st.button(
+            "🔍 Auto-detectar",
+            key=f"rf_seas_auto_btn_{cur['id']}",
+            help="Calcula los 12 índices a partir del promedio de revenue "
+                 "por mes-de-año en el histórico. Requiere >=12 meses.",
+        )
+    with col_msg:
+        historical = cur.get("historical", [])
+        if len(historical) < 12:
+            st.caption(
+                f"⚠️ {len(historical)} meses cargados. Auto-detectar requiere "
+                "12+ meses. Podés editar los índices manualmente abajo."
+            )
+    if auto_clicked:
+        result = auto_detect_seasonality(historical)
+        if result is None:
+            st.warning(
+                "Se necesitan al menos 12 meses de historial para auto-detectar."
+            )
+        else:
+            cur["seasonality"] = result
+            st.success(
+                "✓ Índices calculados desde el histórico. Regenerá el forecast "
+                "arriba para aplicarlos."
+            )
+            st.rerun()
+
+    # (3) Editor de los 12 índices. Consistente con F4 (data_editor).
+    df_seas = pd.DataFrame({
+        "Mes": _MONTHS_FULL[:12],
+        "Índice": [float(v) if v else 1.0 for v in seas["indices"]],
+    })
+    edited = st.data_editor(
+        df_seas,
+        key=f"rf_seas_editor_{cur['id']}",
+        hide_index=True,
+        num_rows="fixed",
+        column_config={
+            "Mes": st.column_config.TextColumn("Mes", disabled=True),
+            "Índice": st.column_config.NumberColumn(
+                "Índice",
+                min_value=0.1,
+                max_value=3.0,
+                step=0.01,
+                format="%.2f",
+                help="1.00 = neutro. >1.05 mes fuerte, <0.95 mes flojo.",
+            ),
+        },
+        use_container_width=True,
+    )
+    if edited is not None and not edited.equals(df_seas):
+        _apply_seasonality_edits(seas, edited)
+        st.info(
+            "Índices actualizados en el estado del cliente. Regenerá el "
+            "forecast arriba (con el checkbox 'Aplicar estacionalidad') "
+            "para verlos aplicados."
+        )
+        st.rerun()
+
+    # (4) Aviso persistente cuando la estacionalidad está activa pero el
+    # forecast se generó sin ella (o viceversa). El "seasonality" por fila
+    # del forecast refleja el sFactor aplicado en la última generación.
+    forecast = cur.get("forecast", [])
+    if forecast and seas.get("enabled"):
+        # Sample: si TODAS las filas tienen seasonality == 1.0 pero el AM
+        # activó la estacionalidad, es señal de que hay que regenerar.
+        all_neutral = all(
+            abs(_js_number(f.get("seasonality")) - 1.0) < 1e-9 for f in forecast
+        )
+        if all_neutral:
+            st.caption(
+                "ℹ️ La estacionalidad está activa pero el forecast actual se "
+                "generó sin ella. Regenerá arriba para aplicarla."
+            )
+
+
+def _render_export_section(cur: dict) -> None:
+    """Sección "Exportar" — download button del CSV del forecast (F5).
+
+    Fiel al patrón M30: builder puro FUERA de render (`_build_forecast_csv`),
+    render solo cablea el download button. Skipeado si no hay forecast.
+
+    Filename: `forecast_{slug}_{YYYY-MM-DD}.csv` — fecha generada en RUNTIME
+    (no import-time) para que rerun tras rerun refleje el día actual.
+    """
+    forecast = cur.get("forecast", [])
+    if not forecast:
+        return  # Sin forecast, no hay export.
+    st.divider()
+    st.markdown("### 📤 Exportar")
+    st.caption(
+        f"Descarga el forecast en CSV: {len(forecast)} meses proyectados "
+        "con las 12 columnas del HTML original + 6 columnas de overrides "
+        "manuales del AM (Manual Revenue/AOV/Sessions, ACOS/TACOS Target, "
+        "Stock Availability)."
+    )
+    csv_str = _build_forecast_csv(forecast, cur.get("name", ""))
+    fname = (
+        f"forecast_{_cliente_slug(cur.get('name', ''))}_"
+        f"{date.today().isoformat()}.csv"
+    )
+    st.download_button(
+        label="⬇️ Descargar forecast CSV",
+        data=csv_str.encode("utf-8"),
+        file_name=fname,
+        mime="text/csv",
+        key=f"rf_export_csv_{cur['id']}",
+        help=(
+            "CSV UTF-8 sin BOM. Incluye todas las columnas del HTML original "
+            "y las 6 columnas de overrides manuales al final."
+        ),
+    )
+
+
 def _render_forecast_section(cur: dict) -> None:
     """Orquestador del bloque "Forecast" (F4): controles + tabla + summary + reset.
 
@@ -2626,9 +2938,9 @@ def render() -> None:
 
     # 4) Aviso de fase.
     st.info(
-        "🚧 **Fase 4 — UI editable del forecast por-cuenta.** Faltan: forecast "
-        "por-ASIN (F6), exports (F5) y snapshots/vs-Real (post-MVP). "
-        "El forecast vive en session_state hasta F5+."
+        "🚧 **Fase 5 — MVP cerrado.** Estacionalidad UI + Export CSV activos. "
+        "Falta forecast por-ASIN (F6) y snapshots/vs-Real (post-MVP). "
+        "El forecast vive en session_state (persistencia dormida)."
     )
 
     # 5) Sección DATOS — port del HTML L721-785.
@@ -2644,3 +2956,9 @@ def render() -> None:
     # 6) Sección FORECAST (F4) — port del HTML L788-820 (controles) +
     # L2064 (cards/tabla) + L2193 (summary).
     _render_forecast_section(cur)
+
+    # 7) Sección ESTACIONALIDAD (F5) — port del HTML L2243.
+    _render_seasonality_section(cur)
+
+    # 8) Sección EXPORT (F5) — port del HTML L2858 con extensión de overrides.
+    _render_export_section(cur)
