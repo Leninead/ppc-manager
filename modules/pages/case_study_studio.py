@@ -300,6 +300,56 @@ def _render_form() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Modo A — Pegar caso (sin costo): recibe el JSON del botón "Copiar JSON"
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _render_paste_mode() -> None:
+    """Modo principal: pega el JSON exportado y lo renderiza sin tocar la API."""
+    st.info(
+        "Pegá el JSON que copiaste del Case Study Studio (botón 'Copiar JSON'). "
+        "Se renderiza acá sin usar la API."
+    )
+    raw = st.text_area("JSON del caso", height=250, key="cs_paste_json")
+
+    if st.button("📥 Cargar caso", type="primary", use_container_width=True):
+        if not raw.strip():
+            st.error("Pegá primero el JSON del caso.")
+            return
+
+        result = _parse_json(raw)
+        if not result:
+            return  # _parse_json ya mostró el error crudo
+
+        # Validación de shape mínimo: en.headline es obligatorio.
+        en = result.get("en") if isinstance(result, dict) else None
+        if not isinstance(en, dict) or not en.get("headline"):
+            st.error(
+                "El JSON no tiene la estructura esperada — "
+                "¿copiaste con el botón 'Copiar JSON'?"
+            )
+            return
+
+        # Normalización de meta: el JSON trae "canMention"/"marketplace" (camelCase),
+        # el resto del módulo usa "can_mention"/"market".
+        raw_meta = result.get("meta") or {}
+        meta = {
+            "brand": raw_meta.get("brand", ""),
+            "can_mention": raw_meta.get(
+                "canMention", raw_meta.get("can_mention", True)
+            ),
+            "market": raw_meta.get("marketplace", raw_meta.get("market", "")),
+        }
+
+        st.session_state["cs_result"] = {
+            "en": en,
+            "es": result.get("es") or {},
+            "meta": meta,
+        }
+        st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Render del resultado
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -388,7 +438,7 @@ def _render_result(result: dict) -> None:
     )
 
     st.divider()
-    if st.button("↻ Generar otro", use_container_width=True):
+    if st.button("↻ Cargar/generar otro", use_container_width=True):
         st.session_state.pop("cs_result", None)
         st.rerun()
 
@@ -407,7 +457,23 @@ def render() -> None:
 
     _init_buf()
 
+    # Si ya hay un caso cargado, mostramos el render (con botón para volver).
     if st.session_state.get("cs_result"):
         _render_result(st.session_state["cs_result"])
+        return
+
+    # Selector de modo: pegar (sin costo, principal) vs generar en el OS (API).
+    modo = st.radio(
+        "Modo",
+        ["📋 Pegar caso (sin costo)", "✨ Generar en el OS"],
+        horizontal=True,
+    )
+
+    if modo == "📋 Pegar caso (sin costo)":
+        _render_paste_mode()
     else:
+        st.warning(
+            "Este modo genera con la API de Claude y consume crédito "
+            "(~centavos por caso). Para costo cero, usá 'Pegar caso'."
+        )
         _render_form()
