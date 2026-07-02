@@ -11,11 +11,24 @@ Sin persistencia (Fase 2), sin exports (Fase 3), sin imágenes (diferido),
 sin importer a M29 (v2).
 """
 
+import datetime
 import json
+import re
 
 import streamlit as st
 
 from core.ai_analyze import _claude_analyze
+from core.persistence import (
+    _list_client_configs,
+    _list_clientes as _persist_list_clientes,
+    _load_client_config,
+    _save_client_config,
+)
+
+# Persistencia — biblioteca de casos (Bloque 2). Reusa la capa client-config
+# de core/persistence: data/<AREA>/<cliente>/<MODULE_SLUG>/<name>.json (local).
+AREA = "sales-director"
+MODULE_SLUG = "case-study"
 
 # Paleta Capybaras (unificada con M29 Proposal Studio).
 _NARANJA = "#E84000"
@@ -51,6 +64,14 @@ en tres actos, primero en inglés y después localizado a español. Regla dura:
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers UI
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def _slug(s: str) -> str:
+    """Slug kebab-case para paths de persistencia (cliente / nombre de caso)."""
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"[\s_-]+", "-", s).strip("-")
+    return s or "sin-nombre"
 
 
 def _render_header() -> None:
@@ -437,9 +458,62 @@ def _render_result(result: dict) -> None:
         data.get("results", ""),
     )
 
+    # Guardar en biblioteca (persistencia local vía core/persistence).
+    st.divider()
+    with st.container():
+        st.markdown("**Guardar en biblioteca**")
+        brand = (result.get("meta") or {}).get("brand", "")
+        today = datetime.date.today().isoformat()
+        default_name = f"{_slug(brand)}-{today}" if brand else today
+        nombre = st.text_input(
+            "Nombre del caso", value=default_name, key="cs_save_name"
+        )
+        if st.button("💾 Guardar en biblioteca", use_container_width=True):
+            cliente = _slug(brand) or "sin-marca"
+            name = _slug(nombre)
+            try:
+                _save_client_config(result, AREA, cliente, MODULE_SLUG, name)
+                st.success(f"Caso guardado: {cliente} / {name}")
+            except Exception as e:
+                st.error(f"No se pudo guardar: {e}")
+
     st.divider()
     if st.button("↻ Cargar/generar otro", use_container_width=True):
         st.session_state.pop("cs_result", None)
+        st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Biblioteca — explorar y cargar casos guardados
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _render_library() -> None:
+    """Explorar y cargar casos guardados."""
+    clientes = _persist_list_clientes(AREA, MODULE_SLUG)
+    if not clientes:
+        st.info(
+            "Todavía no hay casos guardados. Cargá o generá un caso y "
+            "guardalo en la biblioteca."
+        )
+        return
+
+    cliente = st.selectbox("Cliente", clientes, key="cs_lib_cliente")
+    if not cliente:
+        return
+
+    casos = _list_client_configs(AREA, cliente, MODULE_SLUG)
+    if not casos:
+        st.info("Este cliente no tiene casos guardados.")
+        return
+
+    caso = st.selectbox("Caso", casos, key="cs_lib_caso")
+    if st.button("📂 Abrir caso", type="primary", use_container_width=True):
+        data = _load_client_config(AREA, cliente, MODULE_SLUG, caso)
+        if not data or not (data.get("en") or {}).get("headline"):
+            st.error("El caso guardado está vacío o corrupto.")
+            return
+        st.session_state["cs_result"] = data
         st.rerun()
 
 
@@ -462,15 +536,18 @@ def render() -> None:
         _render_result(st.session_state["cs_result"])
         return
 
-    # Selector de modo: pegar (sin costo, principal) vs generar en el OS (API).
+    # Selector de modo: pegar (sin costo, principal) / generar en el OS (API) /
+    # biblioteca (casos guardados).
     modo = st.radio(
         "Modo",
-        ["📋 Pegar caso (sin costo)", "✨ Generar en el OS"],
+        ["📋 Pegar caso (sin costo)", "✨ Generar en el OS", "📚 Biblioteca"],
         horizontal=True,
     )
 
     if modo == "📋 Pegar caso (sin costo)":
         _render_paste_mode()
+    elif modo == "📚 Biblioteca":
+        _render_library()
     else:
         st.warning(
             "Este modo genera con la API de Claude y consume crédito "

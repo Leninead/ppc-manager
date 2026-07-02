@@ -350,6 +350,18 @@ class _LocalBackend:
             return {}
         return json.loads(p.read_text(encoding="utf-8"))
 
+    def list_client_configs(self, area: str, cliente: str, modulo: str) -> list[str]:
+        """Lista los names de client-configs de (area,cliente,modulo), ordenados.
+
+        Escanea DATA_ROOT/<area>/<cliente>/<modulo>/*.json, devuelve el stem de cada
+        archivo (sin .json), excluyendo los que empiezan con '_'.
+        """
+        base = DATA_ROOT / area / cliente / modulo
+        if not base.exists():
+            return []
+        out = [p.stem for p in sorted(base.glob("*.json")) if not p.stem.startswith("_")]
+        return out
+
     # — Clientes —
 
     def list_clientes(self, area: str, modulo: str) -> list[str]:
@@ -795,6 +807,14 @@ class _SupabaseBackend:
             return {}
         return rows[0]["data"]
 
+    def list_client_configs(self, area: str, cliente: str, modulo: str) -> list[str]:
+        rows = self._t.get(
+            _CLIENT_CONFIGS_TABLE,
+            {"area": f"eq.{area}", "cliente": f"eq.{cliente}",
+             "modulo": f"eq.{modulo}", "select": "name"},
+        )
+        return sorted(r["name"] for r in rows if r.get("name"))
+
     # — Clientes —
 
     def list_clientes(self, area: str, modulo: str) -> list[str]:
@@ -1136,6 +1156,8 @@ def _save_client_config(
     out = _get_backend().save_client_config(config, area, cliente, modulo, name)
     if _HAS_STREAMLIT and hasattr(_load_client_config, "clear"):
         _load_client_config.clear()
+        # el nuevo config aparece en el listado de casos guardados
+        _list_client_configs.clear()
         # un cliente nuevo se "materializa" al guardar su client-config
         _list_clientes.clear()
     return out
@@ -1161,6 +1183,12 @@ def _list_clientes(area: str, modulo: str) -> list[str]:
     _save_client_config (crean clientes nuevos) y _delete_cliente.
     """
     return _get_backend().list_clientes(area, modulo)
+
+
+@_cache_data
+def _list_client_configs(area: str, cliente: str, modulo: str) -> list[str]:
+    """Lista los names de client-configs guardados de (area,cliente,modulo)."""
+    return _get_backend().list_client_configs(area, cliente, modulo)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1209,7 +1237,7 @@ def _delete_cliente(area: str, cliente: str, modulo: str) -> bool:
     out = _get_backend().delete_cliente(area, cliente, modulo)
     if _HAS_STREAMLIT:
         for _fn in (_load_snapshot, _list_periods, _load_history,
-                    _load_client_config, _list_clientes):
+                    _load_client_config, _list_client_configs, _list_clientes):
             if hasattr(_fn, "clear"):
                 _fn.clear()
     return out
