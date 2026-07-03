@@ -9,6 +9,21 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
+## 2026-07-02 — M31 Revenue Forecast integrado en main
+
+**Estado:** MVP completo (F1→F5) en `main`, pusheado (commit `88b1abe`).
+
+- **F1→F5 completo:** ingesta CSV/Excel, motor blend MoM/YoY + seasonality + OOS + derivación AOV/CVR, UI de forecast editable, export CSV.
+- **Tests:** 187 verde.
+- **Integración:** por rebase — `main` había divergido por M32 Fase 0; se rebaseó `feature/m31-forecast-port` sobre main antes del merge.
+
+**Deuda post-MVP:**
+- Persistencia dormida (`_PERSISTENCE_ENABLED = False`) — el backend Supabase existe pero está apagado tras flag.
+- Fixtures reales gitignored — los tests corren contra data sintética; los fixtures de cuentas reales no entran al repo.
+- Pendiente: F6, integración Keepa, persistencia Supabase (activar flag).
+
+---
+
 ## Última sesión — 2026-06-24 (consolidación multi-frente: merge M31 + M32 a main)
 
 Cierre de día desde el chat consolidador. Tres frentes activos; mergeados dos, uno queda local por falta de tests.
