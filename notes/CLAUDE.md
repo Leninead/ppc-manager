@@ -93,7 +93,23 @@ Crear en notes/sops/slug.md. Estructura mínima: propósito, cuándo aplica, pas
 - Nunca pisar un archivo sin leerlo primero. Especialmente STATE y brand notes.
 - Nunca crear duplicados. Antes de crear una nota, buscar si ya existe usando Grep/Glob sobre notes/. Si existe, actualizar la existente.
 - Validar con git diff --stat antes de anunciar cambios. Regla que aplicamos en código, aplica igual acá.
-- Nunca hacer push automático. Los commits se hacen durante la sesión, el push lo hace Lenin al final.
+- Nunca hacer push automático ni `git add .`. Los commits se hacen durante la sesión con rutas explícitas (ver **Flujo git — política de rutas explícitas** abajo); el push sale exclusivamente del chat consolidador.
+
+## Flujo git — política de rutas explícitas
+
+- `git add .` está PROHIBIDO. También `git add modules/`. En sesiones multi-frente arrastran worktrees, vault y archivos de otros frentes.
+- `git add` va SIEMPRE con rutas explícitas de los archivos tocados. Ejemplo:
+  ```bash
+  git add app.py notes/daily/2026-07-02.md
+  ```
+- Commit local en chats de frente; el push sale EXCLUSIVAMENTE del chat consolidador.
+- Pre-flight guard obligatorio al inicio de cada sesión de CC:
+  ```bash
+  pwd / git remote -v / git branch --show-current / git status / git log -1
+  ```
+- Cada worktree de feature vive en su propia carpeta (C:\proyectos\ppc-manager-{slug}); todos comparten el .venv de C:\proyectos\ppc-manager\.venv.
+- Después de `git push`: ir al proyecto de Claude → "Add content from GitHub" → refrescar los archivos modificados (si no, el próximo chat arranca ciego).
+- Si algo se rompe: `git diff <archivo>` antes de deshacer; `git checkout <archivo>` para descartar ese archivo puntual (no `git checkout .`).
 
 ## Excepciones y casos especiales
 

@@ -705,11 +705,11 @@ Siempre genera prompts para Claude Code en VS Code que ejecute los cambios.
 - Verificar que los filtros/inputs cambian el output correctamente
 - Verificar que los botones de descarga funcionan
 
-**Git al terminar siempre:**
+**Git al terminar siempre** (ver 🔚 FLUJO GIT — POLÍTICA DE RUTAS EXPLÍCITAS):
 ```bash
-git add .
+git add <rutas explícitas de los archivos tocados>   # NUNCA git add .
 git commit -m "feat/fix/improve: [descripción]"
-git push
+# push solo desde el chat consolidador
 ```
 
 No confirmar como terminado hasta que py_compile pase Y el test manual sea exitoso.
@@ -720,11 +720,11 @@ No confirmar como terminado hasta que py_compile pase Y el test manual sea exito
 
 **Al FINAL de cada sesión de trabajo, en este orden:**
 
-**1. Git commit:**
+**1. Git commit** (rutas explícitas — ver 🔚 FLUJO GIT):
 ```bash
-git add .
+git add <rutas explícitas de los archivos tocados>   # NUNCA git add .
 git commit -m "feat/fix/improve: [descripción de lo que hicimos]"
-git push
+# push solo desde el chat consolidador
 ```
 
 **2. Actualizar .md de clientes** con pendientes y acciones ejecutadas
@@ -748,7 +748,7 @@ Sin este paso, la próxima sesión arranca con contexto desactualizado.
 2. Claude (chat) redacta UN prompt para Claude Code con el contenido completo
 3. Lenin pega el prompt en Claude Code (10 segundos)
 4. Claude Code escribe el archivo directamente en C:\proyectos\ppc-manager\notes\
-5. Lenin hace git add + commit + push
+5. Lenin hace git add <ruta explícita> + commit (push desde el chat consolidador)
 
 NUNCA mas usar scripts update_X.py ni copiar manualmente archivos.
 NUNCA descargar archivos intermedios para actualizar .md de clientes.
@@ -776,26 +776,21 @@ y decir cuantas lineas tiene.
 
 ---
 
-## 🔚 Git — Recordatorio de flujo
+## 🔚 FLUJO GIT — POLÍTICA DE RUTAS EXPLÍCITAS
 
-**Al INICIO de cada sesión:**
-```bash
-git add .
-git commit -m "checkpoint: antes de [tarea de hoy]"
-```
-
-**Al FINAL de cada sesión:**
-```bash
-git add .
-git commit -m "feat/fix/improve: [descripción de lo que hicimos]"
-git push
-```
-
-**Si algo se rompe:**
-```bash
-git checkout .   # descarta cambios, vuelve al último commit
-git diff app.py  # ver qué cambió antes de deshacer
-```
+- `git add .` está PROHIBIDO. También `git add modules/`. En sesiones multi-frente arrastran worktrees, vault y archivos de otros frentes.
+- `git add` va SIEMPRE con rutas explícitas de los archivos tocados. Ejemplo:
+  ```bash
+  git add app.py notes/daily/2026-07-02.md
+  ```
+- Commit local en chats de frente; el push sale EXCLUSIVAMENTE del chat consolidador.
+- Pre-flight guard obligatorio al inicio de cada sesión de CC:
+  ```bash
+  pwd / git remote -v / git branch --show-current / git status / git log -1
+  ```
+- Cada worktree de feature vive en su propia carpeta (C:\proyectos\ppc-manager-{slug}); todos comparten el .venv de C:\proyectos\ppc-manager\.venv.
+- Después de `git push`: ir al proyecto de Claude → "Add content from GitHub" → refrescar los archivos modificados (si no, el próximo chat arranca ciego).
+- Si algo se rompe: `git diff <archivo>` antes de deshacer; `git checkout <archivo>` para descartar ese archivo puntual (no `git checkout .`).
 
 ---
 
