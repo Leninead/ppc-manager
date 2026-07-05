@@ -897,6 +897,12 @@ def _dialog_add_event(cliente: str, sku: str):
         placeholder="Cambio de imagenes / Update bullets / A+ Content nuevo",
         key="sku_progress_event_label",
     )
+    category_sel = st.selectbox(
+        "Categoría de la optimización",
+        options=EVENT_CATEGORIES,
+        index=EVENT_CATEGORIES.index("Otro"),
+        key="sku_progress_event_category",
+    )
 
     col_c, col_ok = st.columns([1, 1])
     if col_c.button("Cancelar", key="sku_progress_event_cancel",
@@ -914,7 +920,7 @@ def _dialog_add_event(cliente: str, sku: str):
                 "week_iso": int(week_iso),
                 "year":     int(year),
                 "label":    label.strip(),
-                "category": SIN_CATEGORIA,  # UI lo manda en Bloque 2
+                "category": category_sel,
             },
             area=AREA,
             cliente=cliente,
@@ -1122,7 +1128,7 @@ def _render_sku_tab(cliente: str, sku_meta: dict, history: pd.DataFrame,
         st.markdown("**Optimizaciones registradas:**")
         badges_html = "<div style='display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 16px 0;'>"
         for i, ev in enumerate(sku_events.itertuples(index=False)):
-            col = _event_color(i)
+            col = CATEGORY_COLORS.get(getattr(ev, "category", None) or SIN_CATEGORIA, _event_color(i))
             wk_label = _week_label_es(int(ev.year), int(ev.week_iso))
             badges_html += (
                 f"<div style='padding:4px 10px;border-radius:100px;"
