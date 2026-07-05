@@ -22,6 +22,14 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 - Fixtures reales gitignored — los tests corren contra data sintética; los fixtures de cuentas reales no entran al repo.
 - Pendiente: F6, integración Keepa, persistencia Supabase (activar flag).
 
+**M31 Persistencia (tarde):** encendida e integrada (merge `ca9737d` / `601fa6a`). `_PERSISTENCE_ENABLED = True`, hidratar + autosave + UI guardado. Probado end-to-end contra Supabase real.
+
+**DEUDA CRÍTICA — leer antes de tocar M31:**
+- ⚠ PROD NO PERSISTE TODAVÍA: falta `AGENCY_OS_FORECAST_BACKEND="supabase"` en Secrets de Streamlit Cloud. En local anda; en capybaras-os.streamlit.app NO hasta setear ese flag.
+- ⚠ RLS se reactiva sola (gotcha conocido). Al guardar puede saltar 401. Hardening pendiente: investigar reactivación vs. RLS on + política service_role.
+- Falta UI de creación de cliente no-demo.
+- M29: 2 tests de apply v12→v13 rotos, preexistentes, deuda aparte.
+
 ---
 
 ## Última sesión — 2026-06-24 (consolidación multi-frente: merge M31 + M32 a main)
