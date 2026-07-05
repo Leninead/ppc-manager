@@ -44,22 +44,33 @@ _MARKETS = [
 ]
 
 # SOP in-app: guía de uso embebida (expander al tope de render()).
-# Stub Fase 1 — se completa en Fase 5.
 _SOP_MD = """
-### Case Study Studio — cómo usarlo
+### Case Study Studio
+Genera y guardá casos de éxito de clientes, listos para presentar (inglés + español).
 
-Genera casos de éxito a partir de tus notas: respondés tres preguntas
-(situación inicial → qué hicimos → resultado) y el módulo redacta el caso
-en tres actos, primero en inglés y después localizado a español. Regla dura:
-**nunca inventa métricas** — si tus notas no traen números, el caso queda cualitativo.
+#### Modos
+**📋 Pegar caso (sin costo)** — el modo principal. Generá el caso en el Case Study
+Studio de Claude.ai, apretá "Copiar JSON", y pegá el JSON acá. Se renderiza sin usar
+la API (costo cero).
 
-**Pasos:**
-1. *¿Sobre quién es esto?* — elegí si se puede mencionar la marca. Si no, el caso
-   queda anónimo y se refiere al cliente por su categoría.
-2. Completá los tres recuadros (escenario · proceso · resultados). Incluí los
-   números reales en el de resultados.
-3. *Generar case study* → el módulo escribe el caso en inglés y lo traduce a español.
-4. Revisá el resultado con el toggle EN / ES.
+**✨ Generar en el OS** — genera el caso acá mismo desde tres notas (problema /
+proceso / resultado). Usa la API de Claude y consume crédito (~centavos por caso).
+Útil si no querés salir del OS.
+
+**📚 Biblioteca** — explorá y reabrí los casos guardados, por cliente.
+
+#### Exportar
+Cada caso se puede: copiar como texto, descargar como HTML (para pegar en WordPress)
+o descargar como PDF (para mandar al cliente). Los exports respetan el idioma
+activo (EN/ES).
+
+#### Regla de métricas
+El generador NUNCA inventa números. Solo usa las cifras que están en las notas. Si no
+hay números, el caso queda cualitativo (sin banda de métricas).
+
+#### Guardar
+Después de cargar o generar un caso, ponele un nombre y guardalo en la biblioteca.
+Queda asociado a la marca del caso.
 """
 
 
@@ -88,7 +99,7 @@ def _render_header() -> None:
         f"</div>"
         f"<div style='margin-left:auto;background:#1A1A1A;color:{_NARANJA};"
         f"padding:0.4rem 0.8rem;border-radius:8px;font-weight:700;font-size:0.85rem;'>"
-        f"M32 · Fase 1</div>"
+        f"M32 · v1</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
