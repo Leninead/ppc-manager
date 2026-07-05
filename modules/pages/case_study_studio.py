@@ -18,6 +18,8 @@ import re
 import streamlit as st
 
 from core.ai_analyze import _claude_analyze
+from core.case_study_html import render_case_study_html
+from core.case_study_pdf import render_case_study_pdf
 from core.persistence import (
     _list_client_configs,
     _list_clientes as _persist_list_clientes,
@@ -404,6 +406,51 @@ def _render_section(title: str, body: str) -> None:
     )
 
 
+def _build_plain_text(d: dict, lang: str) -> str:
+    """Texto plano del caso para copiar. `d` = dict del idioma activo, `lang` = 'en'|'es'.
+
+    Orden: headline · subhead · métricas · CHALLENGE · APPROACH (+ steps) · RESULTS.
+    """
+    is_es = str(lang).lower() == "es"
+    lbl_ch = "El Desafío" if is_es else "The Challenge"
+    lbl_ap = "El Enfoque" if is_es else "The Approach"
+    lbl_re = "Los Resultados" if is_es else "The Results"
+
+    parts: list[str] = []
+    if d.get("headline"):
+        parts.append(d["headline"].strip())
+    if d.get("subhead"):
+        parts.append(d["subhead"].strip())
+
+    metrics = d.get("metrics") or []
+    if metrics:
+        parts.append(
+            "\n".join(
+                f"- {m.get('value', '')} {m.get('label', '')}".strip()
+                for m in metrics
+            )
+        )
+
+    if d.get("challenge"):
+        parts.append(f"{lbl_ch.upper()}\n{d['challenge'].strip()}")
+
+    ap = f"{lbl_ap.upper()}\n{d['approach'].strip()}" if d.get("approach") else ""
+    steps = d.get("approach_steps") or []
+    if steps:
+        steps_txt = "\n".join(
+            f"{i}. {s.get('title', '')} — {s.get('text', '')}".strip()
+            for i, s in enumerate(steps, start=1)
+        )
+        ap = f"{ap}\n{steps_txt}" if ap else steps_txt
+    if ap:
+        parts.append(ap)
+
+    if d.get("results"):
+        parts.append(f"{lbl_re.upper()}\n{d['results'].strip()}")
+
+    return "\n\n".join(parts)
+
+
 def _render_result(result: dict) -> None:
     """Render del case study generado, con toggle EN / ES."""
     # Idiomas disponibles: EN siempre; ES solo si la traducción funcionó.
@@ -457,6 +504,45 @@ def _render_result(result: dict) -> None:
         "The Results" if lang == "EN" else "Los resultados",
         data.get("results", ""),
     )
+
+    # Exportar — opera sobre el idioma activo del toggle (`lang`).
+    lang_code = lang.lower()
+    brand = (result.get("meta") or {}).get("brand", "")
+    brand_slug = _slug(brand) if brand.strip() else "caso"
+
+    st.divider()
+    st.markdown("**Exportar**")
+
+    # 1) Copiar texto — Streamlit no tiene clipboard nativo; text_area + Ctrl+C.
+    st.text_area(
+        "Copiar texto (Ctrl+C)",
+        value=_build_plain_text(data, lang_code),
+        height=200,
+        key="cs_export_txt",
+    )
+
+    # 2) HTML para WordPress (bloque .capybaras-cs self-contained).
+    st.download_button(
+        "⬇️ Descargar HTML (WordPress)",
+        data=render_case_study_html(result, lang_code),
+        file_name=f"case-study-{brand_slug}-{lang_code}.html",
+        mime="text/html",
+        key="cs_dl_html",
+    )
+
+    # 3) PDF (patrón M29: try/except con fallback si el motor falla).
+    try:
+        pdf_bytes = render_case_study_pdf(result, lang_code)
+    except Exception as e:
+        st.warning(f"PDF no disponible: {type(e).__name__}: {e}")
+    else:
+        st.download_button(
+            "⬇️ Descargar PDF",
+            data=pdf_bytes,
+            file_name=f"case-study-{brand_slug}-{lang_code}.pdf",
+            mime="application/pdf",
+            key="cs_dl_pdf",
+        )
 
     # Guardar en biblioteca (persistencia local vía core/persistence).
     st.divider()
