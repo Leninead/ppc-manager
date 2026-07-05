@@ -111,9 +111,12 @@ _K_CLIENTS = f"{_STATE_PREFIX}clients"
 _K_ACCOUNT_MANAGERS = f"{_STATE_PREFIX}account_managers"
 _K_ACTIVE_CLIENT_ID = f"{_STATE_PREFIX}active_client_id"
 
-# ⚠ FLAG MAESTRO: persistencia DORMIDA en Fase 1. NO encender sin completar
-# los 4 pasos documentados en el docstring del módulo.
-_PERSISTENCE_ENABLED = False
+# ⚠ FLAG MAESTRO: persistencia ENCENDIDA en Fase 2. Cableada en `_ensure_state`
+# (hidrata si el catálogo está vacío) + botón "💾 Guardar cliente" en `render()`
+# + autosave post-demo-load y post-forecast-gen. Backend por default local; para
+# Supabase, seteá `AGENCY_OS_FORECAST_BACKEND="supabase"` + creds (ver
+# `core/forecast_persistence.py`).
+_PERSISTENCE_ENABLED = True
 
 # SOP in-app — Fase 4.
 _SOP_MD = """
@@ -245,6 +248,11 @@ def _ensure_state(state: Optional[Any] = None) -> None:
         state[_K_ACCOUNT_MANAGERS] = []
     if _K_ACTIVE_CLIENT_ID not in state:
         state[_K_ACTIVE_CLIENT_ID] = None
+
+    # F2: hidratación desde persistencia. Solo si el catálogo está vacío
+    # (idempotente: en reruns con clientes vivos en sesión NO pisa el trabajo del AM).
+    if not state[_K_CLIENTS]:
+        _try_hydrate(state)
 
 
 def _seed_demo_client_if_empty(state: Optional[Any] = None) -> None:
@@ -449,6 +457,42 @@ def _hydrate_clients(state: Optional[Any] = None) -> None:
 
     meta = _load_forecast_client(AREA, "_meta", MODULE_SLUG, "active")
     state[_K_ACTIVE_CLIENT_ID] = meta.get("active_client_id") if meta else None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wrappers de resiliencia — Fase 2
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# La persistencia es un EXTRA sobre memoria: si el backend (Supabase o local)
+# falla por red / permisos / creds inválidas, el AM debe poder seguir trabajando
+# con su session_state intacto. Estos wrappers envuelven las llamadas y avisan
+# con `st.error(...)` sin propagar la excepción. Devuelven `bool` (True=ok).
+#
+# Van ACÁ (no dentro de los helpers) porque los helpers son puros y no deberían
+# conocer a `st.error`. La responsabilidad de "avisar al usuario" es de UI.
+
+def _try_hydrate(state: Optional[Any] = None) -> bool:
+    """Hidrata con resiliencia. Si el backend falla, avisa y NO rompe: session_state intacto."""
+    try:
+        _hydrate_clients(state)
+        return True
+    except Exception as exc:  # noqa: BLE001 — la persistencia es un extra; nunca rompe el flujo del AM
+        st.error(
+            f"No se pudo cargar el catálogo desde la nube — seguís con tu estado local. ({exc})"
+        )
+        return False
+
+
+def _try_persist(state: Optional[Any] = None) -> bool:
+    """Persiste con resiliencia. Si el backend falla, avisa y NO rompe: session_state intacto."""
+    try:
+        _persist_clients(state)
+        return True
+    except Exception as exc:  # noqa: BLE001 — la persistencia es un extra; nunca rompe el trabajo en memoria
+        st.error(
+            f"No se pudo guardar en la nube — tu trabajo sigue a salvo en memoria. ({exc})"
+        )
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1928,6 +1972,7 @@ def _render_upload_and_demo(cur: dict) -> None:
         ):
             n = _load_demo_into_active()
             if n > 0:
+                _try_persist()  # autosave: histórico del cliente recién poblado
                 st.success(f"Demo cargado: {n} meses.")
                 st.rerun()
             else:
@@ -2851,6 +2896,7 @@ def _render_forecast_section(cur: dict) -> None:
     if opts is not None:
         n = len(_run_forecast_for_active_client(opts))
         if n > 0:
+            _try_persist()  # autosave: forecast recién generado
             st.success(f"✓ {n} meses de forecast generados.")
             st.rerun()
         else:
@@ -2935,6 +2981,14 @@ def render() -> None:
         f"Cliente activo: **{cur['name']}** (`{cur['id']}`) · "
         f"marketplace {cur['marketplace']} · margin {int(cur['margin'] * 100)}%"
     )
+
+    if st.button(
+        "💾 Guardar cliente",
+        key="rf_save_client_btn",
+        help="Persiste el catálogo de clientes (nube o disco local según config).",
+    ):
+        if _try_persist():
+            st.success("Guardado ✓")
 
     # 4) Aviso de fase.
     st.info(

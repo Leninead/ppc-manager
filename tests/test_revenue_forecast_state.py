@@ -264,28 +264,36 @@ def test_getters_with_active_return_client_fields():
 # Persistencia dormida — sanity Fase 1
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_persistence_enabled_is_false_in_phase_1():
-    """SANITY: la persistencia debe estar dormida en F1.
+def test_persistence_enabled_is_true_in_phase_2():
+    """SANITY: la persistencia está ENCENDIDA en F2.
 
-    Si Fase 2+ enciende esto, este test ROMPE adrede — obliga a revisar
-    que el wiring de hidratación / persistencia esté completo antes de
-    cambiar el flag.
+    Este test blindea el wiring: si alguien apaga el flag de vuelta sin
+    quitar los call-sites (`_try_hydrate` en `_ensure_state`, botón
+    "💾 Guardar cliente", autosave en demo-load y forecast-gen), el
+    módulo pierde la persistencia silenciosamente.
     """
-    assert rf._PERSISTENCE_ENABLED is False
+    assert rf._PERSISTENCE_ENABLED is True
 
 
-def test_persist_clients_is_noop_when_disabled(monkeypatch):
-    """_persist_clients no debe llamar a core.forecast_persistence cuando el flag está False.
+def test_persist_clients_saves_when_enabled(monkeypatch):
+    """Con el flag True, `_persist_clients` invoca `_save_forecast_client`.
 
-    Lo verificamos pinchando `_save_forecast_client` para que crashee si se
-    llama. Si la función intenta persistir, el test rompe.
+    Estrategia: monkeypatchear el nombre importado en `rf` a un RECORDER,
+    ejercitar el helper con un state controlado, y asertar las N+1 llamadas
+    esperadas (N clientes + 1 meta con `active_client_id`).
     """
-    def boom(*args, **kwargs):
-        raise AssertionError(
-            "_save_forecast_client fue invocado pero _PERSISTENCE_ENABLED es False"
-        )
+    calls: list[dict] = []
 
-    monkeypatch.setattr(rf, "_save_forecast_client", boom)
+    def recorder(config, area, cliente, modulo, name):
+        calls.append({
+            "config": config,
+            "area": area,
+            "cliente": cliente,
+            "modulo": modulo,
+            "name": name,
+        })
+
+    monkeypatch.setattr(rf, "_save_forecast_client", recorder)
 
     c = rf._new_client(name="A", client_id="a")
     state = {
@@ -293,25 +301,57 @@ def test_persist_clients_is_noop_when_disabled(monkeypatch):
         rf._K_ACTIVE_CLIENT_ID: "a",
         rf._K_ACCOUNT_MANAGERS: [],
     }
-    # NO debe explotar.
     rf._persist_clients(state=state)
 
+    # 1 save del cliente + 1 save del meta.
+    assert len(calls) == 2
 
-def test_hydrate_clients_is_noop_when_disabled(monkeypatch):
-    """_hydrate_clients no debe llamar a core.forecast_persistence cuando el flag está False."""
-    def boom(*args, **kwargs):
-        raise AssertionError(
-            "_list_forecast_clients fue invocado pero _PERSISTENCE_ENABLED es False"
-        )
+    cliente_save = calls[0]
+    assert cliente_save["area"] == rf.AREA
+    assert cliente_save["cliente"] == "a"
+    assert cliente_save["modulo"] == rf.MODULE_SLUG
+    assert cliente_save["name"] == "client"
+    assert cliente_save["config"]["id"] == "a"
 
-    monkeypatch.setattr(rf, "_list_forecast_clients", boom)
+    meta_save = calls[1]
+    assert meta_save["area"] == rf.AREA
+    assert meta_save["cliente"] == "_meta"
+    assert meta_save["modulo"] == rf.MODULE_SLUG
+    assert meta_save["name"] == "active"
+    assert meta_save["config"] == {"active_client_id": "a"}
 
-    state: dict = {}
-    rf._ensure_state(state=state)
-    # NO debe explotar ni mutar el state.
+
+def test_hydrate_clients_loads_when_enabled(monkeypatch):
+    """Con el flag True, `_hydrate_clients` puebla state desde el backend fake."""
+    fake_client_acme = rf._new_client(name="Acme", client_id="acme")
+
+    def fake_list(area, modulo):
+        assert area == rf.AREA
+        assert modulo == rf.MODULE_SLUG
+        return ["acme", "_meta"]
+
+    def fake_load(area, cliente, modulo, name):
+        assert area == rf.AREA
+        assert modulo == rf.MODULE_SLUG
+        if cliente == "acme" and name == "client":
+            return fake_client_acme
+        if cliente == "_meta" and name == "active":
+            return {"active_client_id": "acme"}
+        return None
+
+    monkeypatch.setattr(rf, "_list_forecast_clients", fake_list)
+    monkeypatch.setattr(rf, "_load_forecast_client", fake_load)
+
+    state: dict = {
+        rf._K_CLIENTS: [],
+        rf._K_ACTIVE_CLIENT_ID: None,
+        rf._K_ACCOUNT_MANAGERS: [],
+    }
     rf._hydrate_clients(state=state)
-    assert state[rf._K_CLIENTS] == []
-    assert state[rf._K_ACTIVE_CLIENT_ID] is None
+
+    assert len(state[rf._K_CLIENTS]) == 1
+    assert state[rf._K_CLIENTS][0]["id"] == "acme"
+    assert state[rf._K_ACTIVE_CLIENT_ID] == "acme"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
