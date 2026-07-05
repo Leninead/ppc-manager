@@ -30,6 +30,12 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 - Falta UI de creación de cliente no-demo.
 - M29: 2 tests de apply v12→v13 rotos, preexistentes, deuda aparte.
 
+**M32 Case Study Studio v1 (tarde):** integrado a main (merge `49bb0c1` / 5 commits). 3 modos (Pegar JSON principal / Generar en OS / Biblioteca). Exports texto/HTML WordPress/PDF. 17 tests verde. Persistencia aditiva a core/persistence.py (M28/M30 intactos).
+
+**DEUDA CRÍTICA M32 — leer antes de tocar:**
+- 🔴 PROD NO PERSISTE: backend LOCAL → disco efímero en Streamlit Cloud, biblioteca se vacía en cada redeploy. Falta `AGENCY_OS_AH_BACKEND=supabase` + tabla `ah_client_configs`.
+- 🟠 Modo "Generar en OS" falla en prod hasta confirmar ANTHROPIC_API_KEY nueva (sufijo gmcQAA) en Cloud Secrets.
+
 ---
 
 ## Última sesión — 2026-06-24 (consolidación multi-frente: merge M31 + M32 a main)
