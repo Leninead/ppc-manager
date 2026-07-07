@@ -122,6 +122,23 @@ _KPI_LABELS = {
 # Paleta para anotaciones de eventos en charts (espejo EVENT_COLORS HTML L2429)
 _EVENT_COLORS = ["#FF3300", "#4F8CFF", "#34d399", "#f59e0b", "#a78bfa", "#f472b6"]
 
+# Categorías de optimización (campo opcional en eventos). Default SIN_CATEGORIA.
+SIN_CATEGORIA = "Sin categoría"
+EVENT_CATEGORIES = [
+    "Main Image", "Imágenes secundarias", "Título", "Bullets",
+    "A+ Content", "Precio", "Otro",
+]
+CATEGORY_COLORS = {
+    "Main Image":            "#FF3300",
+    "Imágenes secundarias":  "#E85B03",
+    "Título":                "#4F8CFF",
+    "Bullets":               "#34d399",
+    "A+ Content":            "#a78bfa",
+    "Precio":                "#f59e0b",
+    "Otro":                  "#999999",
+    SIN_CATEGORIA:           "#666666",
+}
+
 # Meses en español para week_label (espejo monthNames HTML L3389)
 _MONTH_NAMES_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                    "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
@@ -553,6 +570,20 @@ def _build_snapshot_df(
     return df
 
 
+def _coalesce_category(optimizations: pd.DataFrame) -> pd.DataFrame:
+    """Rellena category ausente/nula/vacía con SIN_CATEGORIA. NO reescribe parquet.
+    Filas viejas sin la columna se completan en lectura."""
+    if optimizations.empty:
+        return optimizations
+    if "category" not in optimizations.columns:
+        optimizations["category"] = SIN_CATEGORIA
+    else:
+        optimizations["category"] = (
+            optimizations["category"].fillna(SIN_CATEGORIA).replace("", SIN_CATEGORIA)
+        )
+    return optimizations
+
+
 # ── Helpers de UI / formato ─────────────────────────────────────────────
 
 def _fmt_value(val, key: str) -> str:
@@ -858,6 +889,12 @@ def _dialog_add_event(cliente: str, sku: str):
         placeholder="Cambio de imagenes / Update bullets / A+ Content nuevo",
         key="sku_progress_event_label",
     )
+    category_sel = st.selectbox(
+        "Categoría de la optimización",
+        options=EVENT_CATEGORIES,
+        index=EVENT_CATEGORIES.index("Otro"),
+        key="sku_progress_event_category",
+    )
 
     col_c, col_ok = st.columns([1, 1])
     if col_c.button("Cancelar", key="sku_progress_event_cancel",
@@ -875,6 +912,7 @@ def _dialog_add_event(cliente: str, sku: str):
                 "week_iso": int(week_iso),
                 "year":     int(year),
                 "label":    label.strip(),
+                "category": category_sel,
             },
             area=AREA,
             cliente=cliente,
@@ -1072,7 +1110,7 @@ def _render_sku_tab(cliente: str, sku_meta: dict, history: pd.DataFrame,
         st.markdown("**Optimizaciones registradas:**")
         badges_html = "<div style='display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 16px 0;'>"
         for i, ev in enumerate(sku_events.itertuples(index=False)):
-            col = _event_color(i)
+            col = CATEGORY_COLORS.get(getattr(ev, "category", None) or SIN_CATEGORIA, _event_color(i))
             wk_label = _week_label_es(int(ev.year), int(ev.week_iso))
             badges_html += (
                 f"<div style='padding:4px 10px;border-radius:100px;"
@@ -1159,9 +1197,10 @@ def _render_sku_tab(cliente: str, sku_meta: dict, history: pd.DataFrame,
         for i, ev in enumerate(sku_events.itertuples(index=False)):
             wk_label = f"W{int(ev.week_iso)}"
             if wk_label in labels:
+                col = CATEGORY_COLORS.get(getattr(ev, "category", None) or SIN_CATEGORIA, _event_color(i))
                 fig_feat.add_vline(
                     x=labels.index(wk_label),
-                    line=dict(color=_event_color(i), width=1.5, dash="dash"),
+                    line=dict(color=col, width=1.5, dash="dash"),
                     annotation_text=ev.label[:20],
                     annotation_position="top",
                 )
@@ -1223,10 +1262,10 @@ def _render_sku_tab(cliente: str, sku_meta: dict, history: pd.DataFrame,
                 for i, ev in enumerate(sku_events.itertuples(index=False)):
                     wk_label_ev = f"W{int(ev.week_iso)}"
                     if wk_label_ev in labels:
+                        col = CATEGORY_COLORS.get(getattr(ev, "category", None) or SIN_CATEGORIA, _event_color(i))
                         fig.add_vline(
                             x=labels.index(wk_label_ev),
-                            line=dict(color=_event_color(i),
-                                      width=1.2, dash="dash"),
+                            line=dict(color=col, width=1.2, dash="dash"),
                         )
                 st.plotly_chart(fig, use_container_width=True)
     else:
@@ -1484,6 +1523,7 @@ def render() -> None:
 
     history = _load_history(AREA, cliente, MODULE_SLUG)
     optimizations = _load_log(AREA, cliente, MODULE_SLUG, "optimizations")
+    optimizations = _coalesce_category(optimizations)  # coalesce category en lectura
 
     # Botones top-bar (Agregar SKU + Export)
     col_a, col_b, col_c = st.columns([1.5, 1.5, 4])
