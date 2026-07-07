@@ -69,7 +69,7 @@ python scripts\smoke_b6a_e2e_pipeline.py
 | 27 | 🗂️ Flat File Migrator | Account Health | ✅ M27 — port HTML de Marcos (`flat_file_migrator.py`) |
 | 28 | 🏥 SKU Progress Report | Account Health | ✅ M28 — port HTML de Marcos (`sku_progress_report.py`) |
 | 30 | 💲 Pricing Dashboard | Account Health | ✅ M30 — port HTML de Marcos (`pricing_dashboard.py`) |
-| 31 | 📈 Revenue Forecast | Account Manager | ✅ M31 Revenue Forecast — MVP F1→F5 + persistencia Supabase encendida (local). PROD pendiente de flag `AGENCY_OS_FORECAST_BACKEND` en Secrets. Deuda: RLS se reactiva sola, falta UI cliente no-demo. |
+| 31 | 📈 Revenue Forecast | Account Manager | ✅ M31 Revenue Forecast — MVP F1→F5 + persistencia Supabase encendida (local). PROD pendiente de flag `AGENCY_OS_FORECAST_BACKEND` en Secrets. UI crear cliente ✅. Deuda: RLS se reactiva sola. |
 | 32 | 📋 Case Study Studio | Sales Director | ✅ M32 v1 — 3 modos (Pegar JSON/Generar/Biblioteca) + exports. Deuda: Supabase para persistir biblioteca en prod. |
 
 **Account Health — 3 herramientas, todas ports de HTML de Marcos vía `html-to-streamlit-porter`:**

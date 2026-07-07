@@ -1,11 +1,23 @@
 ---
 tipo: state
-actualizado: 2026-06-24
+actualizado: 2026-07-07
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-07 — M31 UI crear cliente + M32 PDF fix
+
+**M31 UI crear cliente:** integrado a main (merge `a110edc` / `f004189`). Popover "➕ Nuevo cliente" (columns, no expander). Helper `_create_client_flow` testeable. Fix: `_persist_clients` saltea demo-client. Cierra la deuda de UI cliente no-demo. 6 tests verde.
+
+**M32 PDF step-fix:** pusheado a prod (`7d1ef7e`). Steps del PDF ahora número naranja plano (arreglado círculo roto en xhtml2pdf).
+
+**Pendiente M31:**
+- Verificar que `forecast_backend = "supabase"` quedó guardado en Secrets de Streamlit Cloud. Sin el flag, persiste en local pero NO en prod.
+- RLS se reactiva sola (deuda de hardening).
 
 ---
 
