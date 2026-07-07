@@ -1215,9 +1215,10 @@ def _render_sku_tab(cliente: str, sku_meta: dict, history: pd.DataFrame,
         for i, ev in enumerate(sku_events.itertuples(index=False)):
             wk_label = f"W{int(ev.week_iso)}"
             if wk_label in labels:
+                col = CATEGORY_COLORS.get(getattr(ev, "category", None) or SIN_CATEGORIA, _event_color(i))
                 fig_feat.add_vline(
                     x=labels.index(wk_label),
-                    line=dict(color=_event_color(i), width=1.5, dash="dash"),
+                    line=dict(color=col, width=1.5, dash="dash"),
                     annotation_text=ev.label[:20],
                     annotation_position="top",
                 )
@@ -1279,10 +1280,10 @@ def _render_sku_tab(cliente: str, sku_meta: dict, history: pd.DataFrame,
                 for i, ev in enumerate(sku_events.itertuples(index=False)):
                     wk_label_ev = f"W{int(ev.week_iso)}"
                     if wk_label_ev in labels:
+                        col = CATEGORY_COLORS.get(getattr(ev, "category", None) or SIN_CATEGORIA, _event_color(i))
                         fig.add_vline(
                             x=labels.index(wk_label_ev),
-                            line=dict(color=_event_color(i),
-                                      width=1.2, dash="dash"),
+                            line=dict(color=col, width=1.2, dash="dash"),
                         )
                 st.plotly_chart(fig, use_container_width=True)
     else:
