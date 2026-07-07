@@ -22,6 +22,25 @@ from core.proposal_pdf import _sanitize_html_for_pdf  # REUSO del sanitizer de M
 # Se remueve SOLO en el camino PDF — el HTML de WordPress conserva su @import.
 _FONT_IMPORT_RE = re.compile(r"@import\s+url\([^)]*\)\s*;", re.IGNORECASE)
 
+# xhtml2pdf no renderiza el círculo .steps .n (border-radius + inline-block fijo): sale un
+# cuadrado roto con el número pegado al título. En el camino PDF reemplazamos el <span class="n">
+# por el número en negrita naranja + punto, y forzamos que el <li> no muestre bullet.
+_STEP_N_RE = re.compile(r'<span class="n">(\d+)</span>')
+
+
+def _simplify_steps_for_pdf(html: str) -> str:
+    """Reemplaza el círculo numerado (roto en xhtml2pdf) por '<b>N.</b>' naranja.
+
+    También fuerza list-style:none inline en los <li> de .steps para matar el bullet
+    que reportlab a veces mete igual. Seguro globalmente: en el HTML del case study
+    los únicos <li>/<ul> son los de .steps (ver core/case_study_html._steps_html).
+    """
+    html = _STEP_N_RE.sub(r'<b><font color="#FF3300">\1.</font></b> ', html)
+    # el <li> del step: forzar sin bullet (reportlab ignora el list-style del CSS a veces)
+    html = html.replace('<ul class="steps">', '<ul class="steps" style="list-style-type:none;">')
+    html = html.replace("<li>", '<li style="list-style-type:none;">')
+    return html
+
 
 def render_case_study_pdf(data: dict, lang: str) -> bytes:
     """Renderiza el case study a PDF (bytes). Función pura.
@@ -39,6 +58,7 @@ def render_case_study_pdf(data: dict, lang: str) -> bytes:
     html = render_case_study_html(data, lang)
     html = _sanitize_html_for_pdf(html)
     html = _FONT_IMPORT_RE.sub("", html)  # evita el fetch de fuente por red en PDF
+    html = _simplify_steps_for_pdf(html)  # arregla el círculo numerado roto en xhtml2pdf
     buf = io.BytesIO()
     result = pisa.CreatePDF(html, dest=buf, encoding="utf-8")
     if result.err:

@@ -67,3 +67,14 @@ def test_no_font_import_in_pdf_path():
     html = _sanitize_html_for_pdf(render_case_study_html(CS_SAMPLE, "en"))
     html = _FONT_IMPORT_RE.sub("", html)
     assert "@import" not in html
+
+
+def test_steps_simplified_for_pdf():
+    """El círculo .steps .n se transforma a número plano naranja sin bullet."""
+    from core.case_study_pdf import _simplify_steps_for_pdf
+
+    raw = '<ul class="steps"><li><span class="n">1</span><span class="stxt">x</span></li></ul>'
+    out = _simplify_steps_for_pdf(raw)
+    assert 'class="n"' not in out          # el span círculo se fue
+    assert '1.' in out                      # quedó el número plano
+    assert 'list-style-type:none' in out    # bullet neutralizado
