@@ -411,6 +411,10 @@ def _persist_clients(state: Optional[Any] = None) -> None:
         state = st.session_state
 
     for c in state.get(_K_CLIENTS, []):
+        # El cliente demo (seedeado local para que el selector nunca esté vacío)
+        # NO se persiste — no debe ensuciar el backend / Supabase.
+        if c.get("id") == "demo-client":
+            continue
         _save_forecast_client(
             config=c,
             area=AREA,
@@ -493,6 +497,57 @@ def _try_persist(state: Optional[Any] = None) -> bool:
             f"No se pudo guardar en la nube — tu trabajo sigue a salvo en memoria. ({exc})"
         )
         return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Frente M31-crear-cliente — flujo de creación de cliente (núcleo testeable)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Separa la LÓGICA de crear+activar+persistir de la UI del popover. Testeable
+# sin runtime Streamlit: acepta `state` (dict simulado) y devuelve un status
+# (ok, kind, msg) que la UI traduce a st.warning / st.success. La persistencia
+# usa `_try_persist` (resiliente): si el backend falla, el cliente igual queda
+# en session_state y el AM no pierde su trabajo.
+
+def _create_client_flow(
+    name: str,
+    marketplace: str = "US",
+    state: Optional[Any] = None,
+) -> tuple[bool, str, str]:
+    """Crea un cliente nuevo, lo deja activo y lo persiste.
+
+    Secuencia crítica: validar → _new_client → append al catálogo →
+    _set_active_client → _try_persist. El paso de persistencia es lo que hace
+    que el cliente sobreviva a la recarga; sin él, muere al recargar.
+
+    Args:
+        name: nombre display del cliente (se trimea).
+        marketplace: código de marketplace.
+        state: dict-like; default `st.session_state`.
+
+    Returns:
+        (ok, kind, msg):
+            (False, "warning", <msg>)  — no se creó (nombre vacío o duplicado).
+            (True,  "success", <msg>)  — creado, activo y persistido (o al menos
+                                          en sesión si el backend de persistencia
+                                          falló — resiliencia).
+    """
+    if state is None:
+        state = st.session_state
+
+    clean = (name or "").strip()
+    if not clean:
+        return (False, "warning", "El nombre del cliente no puede estar vacío.")
+
+    existing = state.get(_K_CLIENTS, [])
+    if any((c.get("name") or "").strip().lower() == clean.lower() for c in existing):
+        return (False, "warning", "Ya existe un cliente con ese nombre.")
+
+    nuevo = _new_client(name=clean, marketplace=marketplace)
+    state.setdefault(_K_CLIENTS, []).append(nuevo)
+    _set_active_client(nuevo["id"], state=state)
+    _try_persist(state=state)  # persiste; si falla, avisa por st.error pero el cliente queda en sesión
+    return (True, "success", f"Cliente creado: {clean}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2967,7 +3022,28 @@ def render() -> None:
     except StopIteration:
         default_idx = 0
 
-    selected_label = st.selectbox("Cliente", labels, index=default_idx)
+    # Selector + popover "➕ Nuevo cliente" pegado (columns, NO expander — gotcha 1.43.2).
+    col_sel, col_new = st.columns([4, 1])
+    with col_sel:
+        selected_label = st.selectbox("Cliente", labels, index=default_idx)
+    with col_new:
+        # Spacer para alinear el botón con el input (el selectbox tiene label arriba).
+        st.markdown("<div style='height:1.7rem'></div>", unsafe_allow_html=True)
+        with st.popover("➕ Nuevo cliente", use_container_width=True):
+            st.markdown("**Crear cliente nuevo**")
+            new_name = st.text_input("Nombre del cliente", key="rf_new_client_name")
+            new_mkt = st.selectbox("Marketplace", _MARKETPLACES, key="rf_new_client_mkt")
+            if st.button("Crear", key="rf_new_client_create_btn", type="primary"):
+                _ok, _kind, _msg = _create_client_flow(new_name, new_mkt)
+                if _kind == "warning":
+                    st.warning(_msg)
+                else:
+                    st.success(_msg)
+                    # NO hacer .pop() de los keys de los widgets: modificar un key
+                    # ya instanciado tira StreamlitAPIException. El st.rerun cierra
+                    # el popover al quedar el cliente nuevo activo.
+                    st.rerun()
+
     selected_id = label_to_id[selected_label]
     if selected_id != active_id:
         _set_active_client(selected_id)
