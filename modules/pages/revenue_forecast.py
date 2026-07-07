@@ -3070,7 +3070,7 @@ def render() -> None:
     st.info(
         "🚧 **Fase 5 — MVP cerrado.** Estacionalidad UI + Export CSV activos. "
         "Falta forecast por-ASIN (F6) y snapshots/vs-Real (post-MVP). "
-        "El forecast vive en session_state (persistencia dormida)."
+        "Los clientes y su forecast se guardan en Supabase."
     )
 
     # 5) Sección DATOS — port del HTML L721-785.
