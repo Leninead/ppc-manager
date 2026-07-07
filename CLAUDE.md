@@ -67,10 +67,10 @@ python scripts\smoke_b6a_e2e_pipeline.py
 | 25 | 📊 Gamboa Generator | Account | ✅ nuevo 2026-04-22 (SQP mensual + BR semanal → HTML integral) |
 | 26 | 🧬 Variation Builder | Account Manager | ✅ nuevo 2026-04-26 — flat file parent+N children Pet Food, parser dinámico 220 cols, themes, preserva macros |
 | 27 | 🗂️ Flat File Migrator | Account Health | ✅ M27 — port HTML de Marcos (`flat_file_migrator.py`) |
-| 28 | 🏥 SKU Progress Report | Account Health | ✅ M28 — port HTML de Marcos (`sku_progress_report.py`) |
+| 28 | 🏥 SKU Progress Report | Account Health | ✅ M28 — port HTML de Marcos (`sku_progress_report.py`) + categorización de eventos (campo category, selector en modal, color por categoría en chips + vlines de los 5 charts, 7 categorías cerradas) |
 | 30 | 💲 Pricing Dashboard | Account Health | ✅ M30 — port HTML de Marcos (`pricing_dashboard.py`) |
 | 31 | 📈 Revenue Forecast | Account Manager | ✅ M31 Revenue Forecast — MVP F1→F5 + persistencia Supabase encendida (local). PROD pendiente de flag `AGENCY_OS_FORECAST_BACKEND` en Secrets. UI crear cliente ✅. Deuda: RLS se reactiva sola. |
-| 32 | 📋 Case Study Studio | Sales Director | ✅ M32 v1 — 3 modos (Pegar JSON/Generar/Biblioteca) + exports. Deuda: Supabase para persistir biblioteca en prod. |
+| 32 | 📋 Case Study Studio | Sales Director | ✅ M32 v1 — 3 modos (Pegar JSON/Generar/Biblioteca) + exports. Persistencia Supabase verificada en prod ✅ |
 
 **Account Health — 3 herramientas, todas ports de HTML de Marcos vía `html-to-streamlit-porter`:**
 - M27 Flat File Migrator (`flat_file_migrator.py`)

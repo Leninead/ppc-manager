@@ -19,6 +19,10 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 - Verificar que `forecast_backend = "supabase"` quedó guardado en Secrets de Streamlit Cloud. Sin el flag, persiste en local pero NO en prod.
 - RLS se reactiva sola (deuda de hardening).
 
+**M28 SKU Progress — categorización:** integrado a main (merge `b01df9d` / 4 commits). Campo category en eventos, selector en modal, color por categoría en chips + vlines de los 5 charts. Helper `_coalesce_category` (filas viejas → "Sin categoría"). 7 categorías cerradas. 3 tests verde, smoke visual OK. category en ah_logs.data jsonb sin migración.
+
+**M32 — corrección de deuda:** la deuda "biblioteca no persiste en prod" está SALDADA. Persistencia Supabase verificada en prod tras reboot completo (sobrevive el borrado del disco efímero). Flag backend="supabase" confirmado en Cloud Secrets. M32 100% funcional en prod.
+
 ---
 
 ## 2026-07-02 — M31 Revenue Forecast integrado en main
@@ -45,7 +49,7 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 **M32 Case Study Studio v1 (tarde):** integrado a main (merge `49bb0c1` / 5 commits). 3 modos (Pegar JSON principal / Generar en OS / Biblioteca). Exports texto/HTML WordPress/PDF. 17 tests verde. Persistencia aditiva a core/persistence.py (M28/M30 intactos).
 
 **DEUDA CRÍTICA M32 — leer antes de tocar:**
-- 🔴 PROD NO PERSISTE: backend LOCAL → disco efímero en Streamlit Cloud, biblioteca se vacía en cada redeploy. Falta `AGENCY_OS_AH_BACKEND=supabase` + tabla `ah_client_configs`.
+- 🔴 PROD NO PERSISTE: backend LOCAL → disco efímero en Streamlit Cloud, biblioteca se vacía en cada redeploy. Falta `AGENCY_OS_AH_BACKEND=supabase` + tabla `ah_client_configs`. → ✅ SALDADO 2026-07-07: verificado en prod tras reboot (backend Supabase activo, biblioteca sobrevive el redeploy).
 - 🟠 Modo "Generar en OS" falla en prod hasta confirmar ANTHROPIC_API_KEY nueva (sufijo gmcQAA) en Cloud Secrets.
 
 ---
