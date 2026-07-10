@@ -1,11 +1,33 @@
 ---
 tipo: state
-actualizado: 2026-07-09
+actualizado: 2026-07-10
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-10 — M31 F6: acumulación + UI + forecast por-ASIN (F6.1b→F6.3b DONE)
+
+**M31 F6 avanzado fuerte.** 5 commits del frente `feature/m31-forecast-asin` integrados a main (FF `e9f158c..1d165d7`, push OK). 38/38 tests verde, 0 skip.
+
+- **F6.1a fixture corregido** (`3c975e6`): el fixture julio estaba mal etiquetado (era JUNIO, pull 9-jul, hero 1128; fuente `BusinessReport-7-09-26 (5).csv` confirmada por hash + comparación de sets/totales). Reemplazado por el julio real del batch 10-jul (hero 243, parcial 10d) + 6 asserts actualizados.
+- **F6.1b DONE** (`214537c`): acumulación multi-mes por-ASIN. `_drop_parent_rollup` (filtra fila parent==child cuando el parent tiene otros children; conserva standalone) + `_accumulate_asin_snapshots` (outer-join por child_asin, historial mensual asc, parent/title del más reciente, flag `partial`). Validado con 3 meses Dermaglos: 9 ASINs vendibles estables.
+- **F6.2 + F6.3 DONE** (`5328fcf`): sección UI secuencial `_render_asin_section` (NO st.tabs). Multi-upload N CSVs (regex period + fallback), días parciales, acumulación al vuelo (sin persistencia), KPI cards, niveles Child/Parent/Cuenta con `st.data_editor` read-only (sin charts). Motor por-ASIN reusa `generate_forecast` del MVP vía adaptador `_asin_history_to_engine_rows` (`period`→`date`, `unit_session_pct`→`cvr`).
+- **F6.3b DONE** (`1d165d7`): excluir meses parciales del motor (el parcial distorsionaba el MoM → desplome falso). El parcial sigue visible en tablas; solo el forecast lo ignora. Hero: 2026-07 de ~$287 (desplome) a $1980 (tendencia real).
+- Validado en runtime (streamlit 🧩 Por ASIN). Fixtures `tests/fixtures/real/dermaglos_asin_bychild_{05,06,07}.csv` GITIGNORED, no versionados.
+
+**⚠️ DEUDA NUEVA — pedido de Edu (AM Dermaglos): 1 de 3 cubierto. NO decirle "listo".**
+- ✅ (1) Forecast por-ASIN desde "By Child Item" — HECHO.
+- 🔴 (2) **F6.3c** — forecast arranca en el mes siguiente al último COMPLETO (junio → re-proyecta julio full-month ~$1980) mientras las tablas muestran julio real parcial ($243): "julio real" vs "julio proyectado" conviven en la UI = se ve como error cliente-facing. Fix: arrancar en el mes siguiente al último CARGADO (jul→ago). Chico pero NECESARIO antes de presentar a cliente.
+- 🔴 (3) **Gráficas de tendencia** — lo que Edu MÁS pidió. HTML original tiene 6 charts Chart.js (revenue hist+forecast, sessions, CVR, units/velocity, inversión ads, + custom con chips + toggle YoY). F6.2 NO tiene ningún chart (el módulo no grafica en ningún lado). Frente propio, charts transversales (forecast global).
+- 🔴 (4) **Export HTML a cliente** — segunda cosa que pidió Edu. Frente separado, no empezado.
+
+**Deuda menor:** `_SOP_MD` (banda azul UI) dice "Falta forecast por-ASIN (F6)" — texto viejo. · Dedup: 2 archivos al mismo period → `_accumulate` los agrega como 2 entries (no dedup). Endurecimiento futuro.
+
+Detalle: [[2026-07-10]]
 
 ---
 
