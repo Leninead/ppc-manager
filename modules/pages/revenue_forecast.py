@@ -1226,6 +1226,100 @@ def _accumulate_asin_snapshots(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# F6.3 — Adaptador history→motor + forecast por-ASIN (funciones puras)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _period_to_date(period: str) -> str:
+    """'2026-05' → '2026-05-01' (el motor espera date ISO completa)."""
+    return f"{period}-01"
+
+
+def _asin_history_to_engine_rows(history: list[dict]) -> list[dict]:
+    """Mapea el history de un ASIN (de _accumulate_asin_snapshots) al shape que
+    consume generate_forecast: cada row necesita 'date' (ISO), 'revenue', 'units',
+    'sessions', y 'cvr' (= unit_session_pct, el CVR por-sesión del reporte BR).
+    spend/ventasPPC no vienen del reporte por-ASIN → se omiten (el motor los trata
+    como 0 vía _js_number). Ordena asc por date.
+    """
+    rows = []
+    for h in history:
+        rows.append({
+            "date": _period_to_date(h["period"]),
+            "revenue": h.get("revenue", 0.0),
+            "units": h.get("units", 0.0),
+            "sessions": h.get("sessions", 0.0),
+            "cvr": h.get("unit_session_pct", 0.0),
+        })
+    rows.sort(key=lambda r: r["date"])
+    return rows
+
+
+def _forecast_single_asin(history: list[dict], opts: dict,
+                          yoy_mode: str = "auto") -> list[dict]:
+    """Aplica el motor MoM/YoY existente a UN ASIN individual.
+    history: el de _accumulate_asin_snapshots para ese child_asin.
+    opts: mismo dict que generate_forecast (horizon, momWindow, blend, useSeasonality).
+    Devuelve la lista de forecast rows del motor. Si <2 meses de history, devuelve []
+    (sin datos suficientes para MoM). Autodetecta seasonality solo si >=12 meses.
+    """
+    engine_rows = _asin_history_to_engine_rows(history)
+    if len(engine_rows) < 2:
+        return []
+    seasonality = auto_detect_seasonality(engine_rows) or {"enabled": False,
+                                                            "indices": [1.0] * 12}
+    return generate_forecast(opts, engine_rows, seasonality, yoy_mode)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F6.2 — Helpers de tabla/totales por-ASIN (funciones puras, None/NaN→'' pre-Arrow)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_asin_child_df(model: dict) -> pd.DataFrame:
+    """Una fila por child_asin: columnas child_asin, title, parent_asin, y una
+    columna revenue por period (pivote). Celdas de meses sin dato del ASIN quedan
+    como '' (no NaN, no 0.0) pre-Arrow. Ordenado por revenue del período más
+    reciente desc.
+    """
+    periods = sorted({h["period"] for node in model.values()
+                      for h in node["history"]})
+    latest = periods[-1] if periods else None
+    rows = []
+    for ca, node in model.items():
+        rev_by_p = {h["period"]: h.get("revenue", 0.0) for h in node["history"]}
+        row = {
+            "child_asin": ca,
+            "title": node.get("title", ""),
+            "parent_asin": node.get("parent_asin", ""),
+        }
+        for p in periods:
+            row[p] = rev_by_p.get(p, "")  # '' para meses sin dato (no NaN/0.0)
+        row["_sort"] = rev_by_p.get(latest, 0.0) if latest else 0.0
+        rows.append(row)
+    rows.sort(key=lambda r: r["_sort"], reverse=True)
+    for r in rows:
+        del r["_sort"]
+    df = pd.DataFrame(rows)
+    # Belt-and-suspenders: cualquier NaN residual → '' antes de Arrow.
+    df = df.where(pd.notna(df), "")
+    return df
+
+
+def _asin_account_totals(model: dict) -> list[dict]:
+    """Totales por period sumando todos los ASINs: [{period, revenue, units,
+    sessions}, ...] ordenado asc. Para nivel Cuenta y KPI cards.
+    """
+    from collections import defaultdict
+    agg: dict = defaultdict(lambda: {"revenue": 0.0, "units": 0.0, "sessions": 0.0})
+    for node in model.values():
+        for h in node["history"]:
+            a = agg[h["period"]]
+            a["revenue"] += _js_number(h.get("revenue"))
+            a["units"] += _js_number(h.get("units"))
+            a["sessions"] += _js_number(h.get("sessions"))
+    return [{"period": p, **agg[p]} for p in sorted(agg)]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Fase 2 — Merge histórico (port de mergeHistorical L1694)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -3168,6 +3262,201 @@ def _render_forecast_section(cur: dict) -> None:
         _render_forecast_summary(cur)
 
 
+def _render_asin_section(cur: dict) -> None:
+    """Sección F6.2 — Por ASIN: multi-upload de reportes By Child Item, acumulación
+    al vuelo (sin persistencia), niveles child/parent/cuenta y forecast por-ASIN
+    (F6.3). Respeta gotchas 1.43.2: sin st.form, sin key=+value= juntos (se
+    pre-siembra session_state para inputs con default computado), keys namespaced
+    por cur['id'], data_editor read-only, None/NaN→'' pre-Arrow.
+    """
+    st.divider()
+    st.markdown("### 🧩 Por ASIN")
+    st.caption(
+        "Subí los reportes mensuales \"Detail Page Sales and Traffic By Child "
+        "Item\" (Seller Central → Business Reports → By ASIN). Se acumulan al vuelo "
+        "para ver historial y forecast por ASIN (no se guardan todavía)."
+    )
+
+    files = st.file_uploader(
+        "Detail Page Sales and Traffic By Child Item — un CSV por mes",
+        type=["csv"],
+        accept_multiple_files=True,
+        key=f"rf_asin_uploader_{cur['id']}",
+    )
+    if not files:
+        st.info(
+            "Subí 2+ meses del reporte By Child Item para ver historial y "
+            "forecast por ASIN."
+        )
+        return
+
+    currency = cur.get("currency", "USD")
+    _period_re = re.compile(r"(20\d{2})[-_]?(0[1-9]|1[0-2])")
+    _period_valid = re.compile(r"^20\d{2}-(0[1-9]|1[0-2])$")
+
+    # 1) Derivar period por archivo (regex del nombre; fallback text_input).
+    periods: list[str] = []
+    for f in files:
+        m = _period_re.search(f.name)
+        if m:
+            periods.append(f"{m.group(1)}-{m.group(2)}")
+        else:
+            pin = st.text_input(
+                f"Período de {f.name} (formato YYYY-MM)",
+                key=f"rf_asin_period_{cur['id']}_{f.name}",
+            )
+            periods.append((pin or "").strip())
+
+    if not all(_period_valid.match(p) for p in periods):
+        st.warning(
+            "Falta el período de algún archivo (o formato inválido). Completá "
+            "cada período como YYYY-MM (ej. 2026-07) para continuar."
+        )
+        return
+
+    # 2) Parsear cada archivo + validar formato By Child Item.
+    snapshots: list[list[dict]] = []
+    for f, period in zip(files, periods):
+        raw = f.getvalue()
+        header = raw.split(b"\n", 1)[0].decode("utf-8-sig", errors="replace")
+        if not _is_asin_report(header):
+            st.error(f"{f.name} no parece un reporte By Child Item.")
+            return
+        try:
+            snapshots.append(_parse_asin_report(raw, period))
+        except Exception as e:  # noqa: BLE001 — fail-soft al AM
+            st.error(f"No se pudo parsear {f.name}: {e}")
+            return
+
+    # 3) Días cubiertos por período (partial). Pre-sembramos session_state para
+    # tener default computado SIN pasar value=+key= juntos (gotcha 1.43.2).
+    partial_periods: dict = {}
+    uniq_periods = sorted(set(periods))
+    st.markdown("##### Días cubiertos por mes")
+    st.caption("Bajá el número si el mes está incompleto (ej. corte parcial).")
+    day_cols = st.columns(min(4, len(uniq_periods)))
+    for i, period in enumerate(uniq_periods):
+        dim = _days_in_month(_period_to_date(period))
+        k = f"rf_asin_days_{cur['id']}_{period}"
+        if k not in st.session_state:
+            st.session_state[k] = dim
+        with day_cols[i % len(day_cols)]:
+            d = st.number_input(
+                f"Días — {period}",
+                min_value=1, max_value=dim, step=1, key=k,
+            )
+        if int(d) < dim:
+            partial_periods[period] = {"days_covered": int(d)}
+
+    # 4) Acumular.
+    model = _accumulate_asin_snapshots(snapshots, partial_periods=partial_periods)
+    if not model:
+        st.warning("No se acumuló ningún ASIN (revisá los archivos).")
+        return
+
+    # 5) KPI cards de cuenta (nivel agregado, último período).
+    totals = _asin_account_totals(model)
+    latest = totals[-1] if totals else {"period": "—", "revenue": 0.0,
+                                        "units": 0.0, "sessions": 0.0}
+    cards = [
+        {"label": "ASINs", "value": _fmt_num(len(model))},
+        {"label": f"Revenue {latest['period']}",
+         "value": _fmt_currency(latest["revenue"], currency)},
+        {"label": f"Units {latest['period']}",
+         "value": _fmt_num(latest["units"])},
+        {"label": f"Sessions {latest['period']}",
+         "value": _fmt_num(latest["sessions"])},
+    ]
+    kpi_cols = st.columns(4)
+    for col, card in zip(kpi_cols, cards):
+        with col:
+            st.markdown(
+                kpi_card(card["label"], card["value"], delta=None, delta_good=True),
+                unsafe_allow_html=True,
+            )
+
+    # 6) Selector de nivel + tabla read-only.
+    st.markdown("")
+    level = st.radio(
+        "Nivel", ["Child ASIN", "Parent", "Cuenta"],
+        horizontal=True, key=f"rf_asin_level_{cur['id']}",
+    )
+    all_periods = sorted({h["period"] for node in model.values()
+                          for h in node["history"]})
+
+    if level == "Child ASIN":
+        df = _build_asin_child_df(model)
+        st.data_editor(
+            df, key=f"rf_asin_child_editor_{cur['id']}", disabled=True,
+            hide_index=True, use_container_width=True,
+        )
+    elif level == "Parent":
+        pagg: dict = {}
+        for node in model.values():
+            par = node.get("parent_asin", "")
+            byp = pagg.setdefault(par, {})
+            for h in node["history"]:
+                byp[h["period"]] = byp.get(h["period"], 0.0) + _js_number(
+                    h.get("revenue"))
+        prows = []
+        for par, byp in pagg.items():
+            row = {"parent_asin": par}
+            for p in all_periods:
+                row[p] = byp.get(p, "")
+            prows.append(row)
+        pdf = pd.DataFrame(prows)
+        pdf = pdf.where(pd.notna(pdf), "")
+        st.data_editor(
+            pdf, key=f"rf_asin_parent_editor_{cur['id']}", disabled=True,
+            hide_index=True, use_container_width=True,
+        )
+    else:  # Cuenta
+        cdf = pd.DataFrame(totals)
+        cdf = cdf.where(pd.notna(cdf), "")
+        st.data_editor(
+            cdf, key=f"rf_asin_account_editor_{cur['id']}", disabled=True,
+            hide_index=True, use_container_width=True,
+        )
+
+    # 7) Forecast por ASIN (F6.3).
+    st.markdown("")
+    st.markdown("##### Forecast por ASIN")
+    asin_keys = list(model.keys())
+    sel = st.selectbox(
+        "ASIN a proyectar",
+        asin_keys,
+        format_func=lambda a: f"{a} — {(model[a].get('title') or '')[:40]}",
+        key=f"rf_asin_fc_sel_{cur['id']}",
+    )
+    buf = _ensure_fc_buf()
+    opts = {
+        "horizon": int(buf.get("horizon", 3)),
+        "momWindow": int(buf.get("momWindow", 3)),
+        "blend": int(buf.get("blend", 50)),
+        "useSeasonality": bool(buf.get("useSeasonality", False)),
+    }
+    fc = _forecast_single_asin(model[sel]["history"], opts)
+    if not fc:
+        st.info("Se necesitan 2+ meses para proyectar este ASIN.")
+    else:
+        fdf = pd.DataFrame([{
+            "Período": r["date"][:7],
+            "Revenue": r.get("revenue", 0.0),
+            "Units": r.get("units", 0.0),
+            "Sessions": r.get("sessions", 0.0),
+        } for r in fc])
+        fdf = fdf.where(pd.notna(fdf), "")
+        st.data_editor(
+            fdf, key=f"rf_asin_fc_editor_{cur['id']}", disabled=True,
+            hide_index=True, use_container_width=True,
+            column_config={
+                "Revenue": st.column_config.NumberColumn("Revenue", format="%.2f"),
+                "Units": st.column_config.NumberColumn("Units", format="%.0f"),
+                "Sessions": st.column_config.NumberColumn("Sessions", format="%.0f"),
+            },
+        )
+
+
 def render() -> None:
     """Entry point del Revenue Forecast (M31) — sección Account Manager.
 
@@ -3276,6 +3565,9 @@ def render() -> None:
     # 6) Sección FORECAST (F4) — port del HTML L788-820 (controles) +
     # L2064 (cards/tabla) + L2193 (summary).
     _render_forecast_section(cur)
+
+    # 6b) Sección POR ASIN (F6.2 + F6.3) — multi-upload By Child Item + niveles + forecast.
+    _render_asin_section(cur)
 
     # 7) Sección ESTACIONALIDAD (F5) — port del HTML L2243.
     _render_seasonality_section(cur)
