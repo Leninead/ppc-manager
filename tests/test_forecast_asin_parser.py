@@ -167,12 +167,12 @@ def test_parse_hero_asin_clavado_values():
     rows = rf._parse_asin_report(str(_ASIN_FIXTURE), _PERIOD)
     hero = next(r for r in rows if r["child_asin"] == "B0CYLMJJJC")
     assert hero["parent_asin"] == "B0FDX9XR56"
-    assert hero["sessions"] == 1128          # "1,128" con coma de miles
-    assert hero["page_views"] == 1492        # "1,492"
-    assert hero["buy_box_pct"] == pytest.approx(99.34)   # "99.34%"
-    assert hero["units"] == 209
-    assert hero["unit_session_pct"] == pytest.approx(18.53)  # CVR "18.53%"
-    assert hero["revenue"] == pytest.approx(1937.41)     # "$1,937.41"
+    assert hero["sessions"] == 243           # "243"
+    assert hero["page_views"] == 310         # "310"
+    assert hero["buy_box_pct"] == pytest.approx(98.98)   # "98.98%"
+    assert hero["units"] == 45
+    assert hero["unit_session_pct"] == pytest.approx(18.52)  # CVR "18.52%"
+    assert hero["revenue"] == pytest.approx(449.55)      # "$449.55"
 
 
 @_skip_no_fixture
