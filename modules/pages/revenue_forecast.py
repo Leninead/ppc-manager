@@ -1157,6 +1157,75 @@ def _parse_asin_report(file_or_bytes: Any, period: str) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# F6.1b — Acumulación multi-mes por-ASIN (funciones puras, sin Streamlit)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _drop_parent_rollup(rows: list[dict]) -> list[dict]:
+    """Descarta filas de rollup padre (parent==child) que Amazon emite de forma
+    inconsistente entre meses.
+
+    Regla (validada con Dermaglos may/jun/jul 2026): parent==child es ROLLUP a
+    descartar si ese parent_asin tiene >=1 fila con child_asin distinto en el MISMO
+    snapshot; es STANDALONE a conservar si es la única fila de ese parent.
+    Sin esto la acumulación inventa entradas/salidas falsas de ASINs.
+    """
+    from collections import defaultdict
+    childs_by_parent: dict[str, set] = defaultdict(set)
+    for r in rows:
+        childs_by_parent[r["parent_asin"]].add(r["child_asin"])
+    out: list[dict] = []
+    for r in rows:
+        p, c = r["parent_asin"], r["child_asin"]
+        if p == c and len(childs_by_parent[p] - {p}) >= 1:
+            continue
+        out.append(r)
+    return out
+
+
+def _accumulate_asin_snapshots(
+    snapshots: list[list[dict]],
+    partial_periods: dict | None = None,
+) -> dict:
+    """Fusiona N snapshots por-ASIN en modelo acumulado con historial mensual.
+    Cada snapshot se limpia con _drop_parent_rollup antes de fusionar. Outer join
+    por child_asin (ASIN ausente en un mes = hueco, no error). parent_asin/title del
+    snapshot más reciente. partial_periods opcional estampa partial/days_covered.
+
+    Returns:
+      {child_asin: {"parent_asin", "title", "history": [{period, sessions, page_views,
+       buy_box_pct, units, unit_session_pct, revenue, [partial, days_covered]},
+       ...ordenado por period asc]}}
+    """
+    partial_periods = partial_periods or {}
+    model: dict = {}
+    METRIC_KEYS = ("sessions", "page_views", "buy_box_pct", "units",
+                   "unit_session_pct", "revenue")
+    for snap in snapshots:
+        clean = _drop_parent_rollup(snap)
+        for r in clean:
+            ca = r["child_asin"]
+            entry = {"period": r["period"]}
+            for k in METRIC_KEYS:
+                entry[k] = r.get(k, 0.0)
+            pp = partial_periods.get(r["period"])
+            if pp is not None:
+                entry["partial"] = True
+                entry["days_covered"] = pp.get("days_covered")
+            node = model.get(ca)
+            if node is None:
+                model[ca] = {"parent_asin": r["parent_asin"],
+                             "title": r["title"], "history": [entry]}
+            else:
+                node["history"].append(entry)
+                if r["period"] >= max(h["period"] for h in node["history"]):
+                    node["parent_asin"] = r["parent_asin"]
+                    node["title"] = r["title"]
+    for node in model.values():
+        node["history"].sort(key=lambda h: h["period"])
+    return model
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Fase 2 — Merge histórico (port de mergeHistorical L1694)
 # ─────────────────────────────────────────────────────────────────────────────
 
