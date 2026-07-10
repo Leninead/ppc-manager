@@ -1257,12 +1257,13 @@ def _asin_history_to_engine_rows(history: list[dict]) -> list[dict]:
 def _forecast_single_asin(history: list[dict], opts: dict,
                           yoy_mode: str = "auto") -> list[dict]:
     """Aplica el motor MoM/YoY existente a UN ASIN individual.
-    history: el de _accumulate_asin_snapshots para ese child_asin.
-    opts: mismo dict que generate_forecast (horizon, momWindow, blend, useSeasonality).
-    Devuelve la lista de forecast rows del motor. Si <2 meses de history, devuelve []
-    (sin datos suficientes para MoM). Autodetecta seasonality solo si >=12 meses.
+    Los meses marcados partial=True se EXCLUYEN del cálculo (un mes incompleto
+    distorsiona el MoM: el motor lo leería como caída/suba real). El parcial sigue
+    visible en las tablas; solo el forecast lo ignora. Requiere >=2 meses COMPLETOS.
+    Devuelve [] si <2 meses completos.
     """
-    engine_rows = _asin_history_to_engine_rows(history)
+    complete = [h for h in history if not h.get("partial")]
+    engine_rows = _asin_history_to_engine_rows(complete)
     if len(engine_rows) < 2:
         return []
     seasonality = auto_detect_seasonality(engine_rows) or {"enabled": False,
@@ -3437,7 +3438,7 @@ def _render_asin_section(cur: dict) -> None:
     }
     fc = _forecast_single_asin(model[sel]["history"], opts)
     if not fc:
-        st.info("Se necesitan 2+ meses para proyectar este ASIN.")
+        st.info("Se necesitan 2+ meses COMPLETOS para proyectar este ASIN (los meses parciales se excluyen del cálculo).")
     else:
         fdf = pd.DataFrame([{
             "Período": r["date"][:7],

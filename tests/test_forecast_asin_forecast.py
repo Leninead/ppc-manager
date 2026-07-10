@@ -118,3 +118,52 @@ def test_forecast_single_asin_partial_july():
     # (el motor sólo usa date/revenue/units/sessions/cvr).
     fc = rf._forecast_single_asin(model[_HERO]["history"], opts)
     assert len(fc) == opts["horizon"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F6.3b — exclusión de meses parciales del motor
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_forecast_excludes_partial_month():
+    """Un mes partial=True NO debe influir en el forecast: [A,B] y [A,B,C-partial]
+    con A,B idénticos deben producir forecasts IDÉNTICOS."""
+    A = {"period": "2026-05", "revenue": 1000.0, "units": 100.0,
+         "sessions": 500.0, "unit_session_pct": 20.0}
+    B = {"period": "2026-06", "revenue": 1100.0, "units": 110.0,
+         "sessions": 550.0, "unit_session_pct": 20.0}
+    C_partial = {"period": "2026-07", "revenue": 300.0, "units": 30.0,
+                 "sessions": 150.0, "unit_session_pct": 20.0, "partial": True}
+    opts = {"horizon": 3, "momWindow": 2, "blend": 50, "useSeasonality": False}
+    fc_ab = rf._forecast_single_asin([A, B], opts)
+    fc_abc = rf._forecast_single_asin([A, B, C_partial], opts)
+    assert fc_ab, "control [A,B] no debería estar vacío"
+    assert [r["revenue"] for r in fc_abc] == [r["revenue"] for r in fc_ab]
+    assert [r["date"] for r in fc_abc] == [r["date"] for r in fc_ab]
+
+
+def test_forecast_partial_leaves_under_two_complete():
+    """[B completo, C partial=True] → solo 1 completo → devuelve []."""
+    B = {"period": "2026-06", "revenue": 1100.0, "units": 110.0,
+         "sessions": 550.0, "unit_session_pct": 20.0}
+    C_partial = {"period": "2026-07", "revenue": 300.0, "units": 30.0,
+                 "sessions": 150.0, "unit_session_pct": 20.0, "partial": True}
+    opts = {"horizon": 3, "momWindow": 2, "blend": 50, "useSeasonality": False}
+    assert rf._forecast_single_asin([B, C_partial], opts) == []
+
+
+@_skip_no_fixtures
+def test_forecast_hero_real_stable_not_crashing():
+    """Con julio marcado partial, el forecast del hero se basa solo en may+jun
+    (1818→1897, +~4%). Como julio (el parcial) se excluye del motor, el último mes
+    COMPLETO es junio → el forecast arranca en 2026-07 re-proyectado full-month
+    (~1980), NO en el ~287 desplomado que producía el parcial. >1500."""
+    snaps = [rf._parse_asin_report(str(_CSVS[p]), p)
+             for p in ("2026-05", "2026-06", "2026-07")]
+    model = rf._accumulate_asin_snapshots(
+        snaps, partial_periods={"2026-07": {"days_covered": 10}})
+    fc = rf._forecast_single_asin(
+        model[_HERO]["history"],
+        {"horizon": 3, "momWindow": 2, "blend": 50})
+    assert fc, "el hero debería proyectar con may+jun completos"
+    assert fc[0]["date"] == "2026-07-01"   # último completo = junio → arranca julio
+    assert fc[0]["revenue"] > 1500         # ~1980, NO el ~287 desplomado
