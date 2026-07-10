@@ -1,11 +1,25 @@
 ---
 tipo: state
-actualizado: 2026-07-07
+actualizado: 2026-07-09
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-09 — M31 F6.1a: parser snapshot por-ASIN (F6 iniciado)
+
+**M31 F6 arrancado** (Forecast por-ASIN). F6.1a integrado a main (FF, commit `21a713c`, push `6df80ce..21a713c`).
+
+**Qué hace F6.1a:** parser PURO de UN snapshot por-ASIN del reporte "Detail Page Sales and Traffic By Child Item" — `_parse_asin_report(file_or_bytes, period)` + `_is_asin_report(header)` en `revenue_forecast.py`. Mapea 21 cols → shape interno de 10 keys por child ASIN (parent/child asin, title, sessions, page_views, buy_box_pct, units, unit_session_pct, revenue, period). Reutiliza `_parse_num` (moneda MX$/$, comas de miles, %). `period` es PARÁMETRO (el reporte no tiene columna Date). Snapshot puro: NO filtra (la fila del ASIN padre como su propio child se devuelve tal cual). B2B cols ignoradas en v1 (match exacto evita confundir Total con Total-B2B).
+
+**Fuera de scope F6.1a (es F6.1b+):** acumulación multi-mes, modelo de ASINs con historial, UI/tab por-ASIN, 3 niveles child/parent/cuenta, forecast por-ASIN, Keepa.
+
+**Verificación:** 17/17 tests nuevos verde (`test_forecast_asin_parser.py`). Suite M31 completa **180 passed, 5 skipped** (skips = fixtures by-date gitignored). D3: cero AH, `core.forecast_persistence` intacto. by-date parser INTACTO (0 deletions, solo additions). Fixture `dermaglos_asin_bychild_2026-07.csv` GITIGNORED (dato cliente), NO commiteado.
+
+**Deuda MENOR anotada:** BOM literal (U+FEFF invisible) en L736 del parser by-date de `revenue_forecast.py` — misma fragilidad que arreglamos en `_norm_header`. Micro-frente aparte, no urgente. (memoria: `bom-literal-tech-debt-revenue-forecast`)
 
 ---
 

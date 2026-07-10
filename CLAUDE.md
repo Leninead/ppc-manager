@@ -69,7 +69,7 @@ python scripts\smoke_b6a_e2e_pipeline.py
 | 27 | 🗂️ Flat File Migrator | Account Health | ✅ M27 — port HTML de Marcos (`flat_file_migrator.py`) |
 | 28 | 🏥 SKU Progress Report | Account Health | ✅ M28 — port HTML de Marcos (`sku_progress_report.py`) + categorización de eventos (campo category, selector en modal, color por categoría en chips + vlines de los 5 charts, 7 categorías cerradas) |
 | 30 | 💲 Pricing Dashboard | Account Health | ✅ M30 — port HTML de Marcos (`pricing_dashboard.py`) |
-| 31 | 📈 Revenue Forecast | Account Manager | ✅ M31 Revenue Forecast — MVP F1→F5 + persistencia Supabase encendida (local). PROD pendiente de flag `AGENCY_OS_FORECAST_BACKEND` en Secrets. UI crear cliente ✅. Deuda: RLS se reactiva sola. |
+| 31 | 📈 Revenue Forecast | Account Manager | ✅ M31 Revenue Forecast — MVP F1→F5 + persistencia Supabase encendida (local). PROD pendiente de flag `AGENCY_OS_FORECAST_BACKEND` en Secrets. UI crear cliente ✅. **F6 iniciado (2026-07-09): F6.1a parser snapshot por-ASIN** (`_parse_asin_report` + `_is_asin_report`, Detail Page by Child). Deuda: RLS se reactiva sola. |
 | 32 | 📋 Case Study Studio | Sales Director | ✅ M32 v1 — 3 modos (Pegar JSON/Generar/Biblioteca) + exports. Persistencia Supabase verificada en prod ✅ |
 
 **Account Health — 3 herramientas, todas ports de HTML de Marcos vía `html-to-streamlit-porter`:**
@@ -2271,3 +2271,32 @@ Ver `notes/arranque-m29.md` sección "Inventario xhtml2pdf 0.2.17". 8 del 11/06 
 2. Régimen de commits mixto en una iteración (CC vs terminal). Sin pérdida funcional.
 
 Detalle completo en `notes/daily/2026-06-12.md`.
+
+---
+
+## 📅 Sesión 2026-07-09 — M31 F6.1a: parser snapshot por-ASIN (F6 iniciado)
+
+**M31 F6 arrancado** (Forecast por-ASIN). F6.1a integrado a main vía FF-merge (`6df80ce..21a713c`) + push. Frente `feature/m31-forecast-asin`.
+
+### Qué se hizo (TDD estricto RED→GREEN)
+- **`_parse_asin_report(file_or_bytes, period)`** — parser PURO de UN snapshot del reporte "Detail Page Sales and Traffic By Child Item" → lista de dicts, 1 por child ASIN. Acepta bytes / ruta / file-like. pandas + `encoding="utf-8-sig"` (mata BOM), respeta comillas (títulos con comas internas intactos). Reutiliza `_parse_num` del MVP para moneda/comas/%. Vive en `revenue_forecast.py` junto al parser by-date.
+- **`_is_asin_report(header)`** — detección de formato por presencia de `(Child) ASIN`. Solo detección, sin routing.
+- Shape interno (10 keys): `parent_asin, child_asin, title, sessions, page_views, buy_box_pct, units, unit_session_pct` (CVR), `revenue, period`.
+
+### Decisiones
+- **`period` es PARÁMETRO, no inferido** — el reporte NO tiene columna Date (es snapshot del rango). El mes lo aporta el usuario (F6.1b).
+- **Snapshot puro, sin filtrado** — el export trae la fila del ASIN padre como su propio child (sessions=1/units=0/rev=0); se devuelve tal cual. Rollup padre/hijo = F6.1b+.
+- **B2B cols ignoradas en v1** — match exacto de header evita confundir `Total` con `Total - B2B` (test dedicado).
+- **BOM literal → `﻿`** en `_norm_header` (auto-documentado, robusto ante re-encode).
+
+### Fuera de scope (F6.1b+)
+Acumulación multi-mes · modelo de ASINs con historial · 3 niveles child/parent/cuenta · UI/tab por-ASIN · forecast por-ASIN · Keepa.
+
+### Verificación
+- 17/17 tests nuevos verde (`tests/test_forecast_asin_parser.py`). Suite M31 completa: **180 passed, 5 skipped** (skips = fixtures by-date gitignored). D3: cero AH, `core.forecast_persistence` intacto. by-date parser INTACTO (solo additions, 0 deletions).
+- Fixture `tests/fixtures/real/dermaglos_asin_bychild_2026-07.csv` (Dermaglos jul-2026, 10 ASINs) — GITIGNORED, NO commiteado.
+
+### Deuda MENOR anotada
+BOM literal (U+FEFF invisible) en L736 del parser by-date de `revenue_forecast.py` — misma fragilidad ya arreglada en `_norm_header`. Micro-frente aparte, no urgente.
+
+Detalle completo en `notes/daily/2026-07-09.md` + `notes/state/STATE-agencia.md`.
