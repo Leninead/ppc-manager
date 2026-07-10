@@ -75,6 +75,7 @@ from __future__ import annotations
 import calendar
 import json
 import math
+import os
 import re
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -1032,6 +1033,126 @@ def _parse_business_report(data: bytes, filename: str) -> list[dict]:
                 r["date"] = f"{int(y):04d}-{int(m):02d}-01"
             except (ValueError, AttributeError):
                 pass
+    return rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fase 6.1a — Parser de UN snapshot por-ASIN (Detail Page Sales and Traffic
+# By Child Item). Función pura, sin Streamlit. NO acumula multi-mes, NO hace
+# rollup padre/hijo, NO infiere el mes (se pasa como parámetro `period`).
+# Vive junto al parser by-date por cohesión ("consistente con el resto del
+# módulo") y reutiliza `_parse_num` para la limpieza de moneda/comas/%.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Mapa header-normalizado (lower + strip + sin BOM) → clave interna snake_case.
+# El match es EXACTO, así las columnas B2B ("... - Total - B2B",
+# "... - B2B") NO se confunden con las Total. Las columnas B2B y de
+# porcentajes de sesión/pageview se ignoran en v1 (decisión documentada:
+# el forecast por-ASIN de F6.1b+ no las necesita todavía).
+_ASIN_COL_MAP = {
+    "(parent) asin": "parent_asin",
+    "(child) asin": "child_asin",
+    "title": "title",
+    "sessions - total": "sessions",
+    "page views - total": "page_views",
+    "featured offer (buy box) percentage": "buy_box_pct",
+    "units ordered": "units",
+    "unit session percentage": "unit_session_pct",
+    "ordered product sales": "revenue",
+}
+
+# Columnas numéricas (se limpian con _parse_num); el resto son strings.
+_ASIN_NUM_FIELDS = {
+    "sessions",
+    "page_views",
+    "buy_box_pct",
+    "units",
+    "unit_session_pct",
+    "revenue",
+}
+
+
+def _norm_header(name: Any) -> str:
+    """Normaliza un nombre de columna: quita BOM, colapsa espacios, lower."""
+    s = str(name).replace("\ufeff", "").strip().lower()
+    return re.sub(r"\s+", " ", s)
+
+
+def _is_asin_report(header: Any) -> bool:
+    """Detecta el BR por-ASIN (Detail Page Sales and Traffic By Child Item)
+    por la presencia de la columna "(Child) ASIN" en el header.
+
+    Solo DETECCIÓN — no hace routing (eso es F6.1b). Distingue este reporte
+    del by-date del MVP (que tiene columna Date y NO tiene "(Child) ASIN").
+
+    Args:
+        header: una lista/iterable de nombres de columna, o el string crudo
+            de la primera línea del CSV. Tolera BOM y espacios.
+
+    Returns:
+        True si aparece "(child) asin" entre las columnas normalizadas.
+    """
+    if header is None:
+        return False
+    if isinstance(header, str):
+        cols = header.split(",")
+    else:
+        cols = list(header)
+    return any(_norm_header(c) == "(child) asin" for c in cols)
+
+
+def _parse_asin_report(file_or_bytes: Any, period: str) -> list[dict]:
+    """Parsea UN snapshot por-ASIN a lista de dicts (1 por child ASIN).
+
+    Snapshot puro: NO filtra filas (si el export incluye la fila del ASIN
+    padre como su propio child, se devuelve tal cual — el rollup es F6.1b+).
+    El reporte NO tiene columna Date; el mes se pasa como `period` y se
+    estampa en cada fila.
+
+    Args:
+        file_or_bytes: bytes crudos, ruta (str/Path), o file-like abierto.
+        period: etiqueta del mes al que corresponde el snapshot (ej. "2026-07").
+
+    Returns:
+        Lista de dicts con shape por-ASIN (10 keys):
+            parent_asin, child_asin, title (strings),
+            sessions, page_views, buy_box_pct, units, unit_session_pct,
+            revenue (floats vía _parse_num), period (el parámetro).
+    """
+    # Normalizar la entrada a bytes para que pandas lea consistente (respeta
+    # comillas → títulos con comas internas no rompen el parseo).
+    if isinstance(file_or_bytes, bytes):
+        data = file_or_bytes
+    elif isinstance(file_or_bytes, (str, os.PathLike)):
+        with open(file_or_bytes, "rb") as fh:
+            data = fh.read()
+    else:  # file-like
+        data = file_or_bytes.read()
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+
+    df = pd.read_csv(
+        BytesIO(data), dtype=str, encoding="utf-8-sig", keep_default_na=False
+    )
+    # Renombrar columnas a las claves internas (match exacto sobre normalizado).
+    rename = {}
+    for col in df.columns:
+        key = _ASIN_COL_MAP.get(_norm_header(col))
+        if key is not None:
+            rename[col] = key
+    df = df.rename(columns=rename)
+
+    rows: list[dict] = []
+    for _, r in df.iterrows():
+        row = {
+            "parent_asin": str(r.get("parent_asin", "")).strip(),
+            "child_asin": str(r.get("child_asin", "")).strip(),
+            "title": str(r.get("title", "")).strip(),
+            "period": period,
+        }
+        for field in _ASIN_NUM_FIELDS:
+            row[field] = _parse_num(r.get(field))
+        rows.append(row)
     return rows
 
 
