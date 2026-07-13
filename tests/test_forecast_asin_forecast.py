@@ -125,8 +125,10 @@ def test_forecast_single_asin_partial_july():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_forecast_excludes_partial_month():
-    """Un mes partial=True NO debe influir en el forecast: [A,B] y [A,B,C-partial]
-    con A,B idénticos deben producir forecasts IDÉNTICOS."""
+    """Un mes partial=True NO debe influir en los VALORES del forecast: [A,B] y
+    [A,B,C-partial] con A,B idénticos producen la MISMA secuencia de revenue (el
+    crecimiento se ancla a los completos). Post-F6.3c las FECHAS sí difieren: el
+    parcial corre el cursor un mes (fc_abc arranca un mes después que fc_ab)."""
     A = {"period": "2026-05", "revenue": 1000.0, "units": 100.0,
          "sessions": 500.0, "unit_session_pct": 20.0}
     B = {"period": "2026-06", "revenue": 1100.0, "units": 110.0,
@@ -137,8 +139,11 @@ def test_forecast_excludes_partial_month():
     fc_ab = rf._forecast_single_asin([A, B], opts)
     fc_abc = rf._forecast_single_asin([A, B, C_partial], opts)
     assert fc_ab, "control [A,B] no debería estar vacío"
+    # Valores idénticos: el parcial no altera el crecimiento MoM.
     assert [r["revenue"] for r in fc_abc] == [r["revenue"] for r in fc_ab]
-    assert [r["date"] for r in fc_abc] == [r["date"] for r in fc_ab]
+    # F6.3c: el parcial corre el cursor → fc_ab arranca jul, fc_abc arranca ago.
+    assert [r["date"] for r in fc_ab] == ["2026-07-01", "2026-08-01", "2026-09-01"]
+    assert [r["date"] for r in fc_abc] == ["2026-08-01", "2026-09-01", "2026-10-01"]
 
 
 def test_forecast_partial_leaves_under_two_complete():
@@ -151,12 +156,62 @@ def test_forecast_partial_leaves_under_two_complete():
     assert rf._forecast_single_asin([B, C_partial], opts) == []
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# F6.3c — arranque en el mes siguiente al último CARGADO (incluye parcial)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_forecast_starts_after_last_loaded_including_partial():
+    """F6.3c: con un mes parcial al final, el forecast arranca en el mes SIGUIENTE
+    al parcial (no re-proyecta el parcial ni el último completo)."""
+    A = {"period": "2026-05", "revenue": 1000.0, "units": 100.0,
+         "sessions": 500.0, "unit_session_pct": 20.0}
+    B = {"period": "2026-06", "revenue": 1100.0, "units": 110.0,
+         "sessions": 550.0, "unit_session_pct": 20.0}
+    C_partial = {"period": "2026-07", "revenue": 300.0, "units": 30.0,
+                 "sessions": 150.0, "unit_session_pct": 20.0, "partial": True}
+    opts = {"horizon": 3, "momWindow": 2, "blend": 50, "useSeasonality": False}
+    fc = rf._forecast_single_asin([A, B, C_partial], opts)
+    assert fc, "debería proyectar con may+jun completos"
+    assert fc[0]["date"] == "2026-08-01"   # mes sig al último cargado (jul parcial)
+    assert [f["date"] for f in fc] == ["2026-08-01", "2026-09-01", "2026-10-01"]
+
+
+def test_forecast_no_partial_starts_after_last_complete():
+    """F6.3c no-op: sin meses parciales, el forecast arranca en el mes siguiente
+    al último completo (idéntico al comportamiento pre-F6.3c)."""
+    A = {"period": "2026-05", "revenue": 1000.0, "units": 100.0,
+         "sessions": 500.0, "unit_session_pct": 20.0}
+    B = {"period": "2026-06", "revenue": 1100.0, "units": 110.0,
+         "sessions": 550.0, "unit_session_pct": 20.0}
+    opts = {"horizon": 2, "momWindow": 2, "blend": 50, "useSeasonality": False}
+    fc = rf._forecast_single_asin([A, B], opts)
+    assert fc[0]["date"] == "2026-07-01"   # sin parcial → mes sig a junio
+    assert [f["date"] for f in fc] == ["2026-07-01", "2026-08-01"]
+
+
+def test_generate_forecast_start_from_none_is_noop():
+    """El MVP global NO pasa start_from → el motor arranca en el mes siguiente a
+    rows[-1] como siempre. Blindaje anti-regresión del path MVP."""
+    rows = [
+        {"date": "2026-05-01", "revenue": 1000.0, "units": 100.0, "sessions": 500.0, "cvr": 20.0},
+        {"date": "2026-06-01", "revenue": 1100.0, "units": 110.0, "sessions": 550.0, "cvr": 20.0},
+    ]
+    seas = {"enabled": False, "indices": [1.0] * 12}
+    opts = {"horizon": 2, "momWindow": 2, "blend": 50, "useSeasonality": False}
+    fc_default = rf.generate_forecast(opts, rows, seas, "auto")
+    fc_explicit_none = rf.generate_forecast(opts, rows, seas, "auto", start_from=None)
+    assert fc_default[0]["date"] == "2026-07-01"
+    assert [f["date"] for f in fc_default] == [f["date"] for f in fc_explicit_none]
+    assert [f["revenue"] for f in fc_default] == [f["revenue"] for f in fc_explicit_none]
+
+
 @_skip_no_fixtures
 def test_forecast_hero_real_stable_not_crashing():
-    """Con julio marcado partial, el forecast del hero se basa solo en may+jun
-    (1818→1897, +~4%). Como julio (el parcial) se excluye del motor, el último mes
-    COMPLETO es junio → el forecast arranca en 2026-07 re-proyectado full-month
-    (~1980), NO en el ~287 desplomado que producía el parcial. >1500."""
+    """F6.3c: con julio marcado partial, el crecimiento MoM se ancla a may+jun
+    completos (1818→1897, +~4%), pero el forecast ARRANCA en el mes siguiente al
+    último CARGADO (julio parcial) → 2026-08, NO en julio (que las tablas ya
+    muestran como real parcial). Revenue del primer mes sigue >1500 (~2066), no el
+    ~287 desplomado que producía el parcial pre-F6.3b."""
     snaps = [rf._parse_asin_report(str(_CSVS[p]), p)
              for p in ("2026-05", "2026-06", "2026-07")]
     model = rf._accumulate_asin_snapshots(
@@ -165,5 +220,5 @@ def test_forecast_hero_real_stable_not_crashing():
         model[_HERO]["history"],
         {"horizon": 3, "momWindow": 2, "blend": 50})
     assert fc, "el hero debería proyectar con may+jun completos"
-    assert fc[0]["date"] == "2026-07-01"   # último completo = junio → arranca julio
-    assert fc[0]["revenue"] > 1500         # ~1980, NO el ~287 desplomado
+    assert fc[0]["date"] == "2026-08-01"   # F6.3c: mes sig al último CARGADO (jul parcial) → agosto
+    assert fc[0]["revenue"] > 1500         # crecimiento sigue anclado a may+jun; solo se corre el cursor

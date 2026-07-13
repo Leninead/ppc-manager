@@ -1261,14 +1261,25 @@ def _forecast_single_asin(history: list[dict], opts: dict,
     distorsiona el MoM: el motor lo leería como caída/suba real). El parcial sigue
     visible en las tablas; solo el forecast lo ignora. Requiere >=2 meses COMPLETOS.
     Devuelve [] si <2 meses completos.
+    F6.3c: el forecast arranca en el mes siguiente al último mes CARGADO (incluye
+    el parcial), no al último completo — así no re-proyecta un mes que las tablas
+    ya muestran como real parcial (contradicción cliente-facing).
     """
     complete = [h for h in history if not h.get("partial")]
     engine_rows = _asin_history_to_engine_rows(complete)
     if len(engine_rows) < 2:
         return []
+    # F6.3c: el forecast arranca en el mes siguiente al último mes CARGADO
+    # (incluye el parcial), NO al último completo. Evita que el forecast
+    # re-proyecte un mes que las tablas ya muestran como real parcial
+    # (contradicción cliente-facing). El crecimiento MoM sigue anclado al
+    # último mes COMPLETO dentro del motor (prev = engine_rows[-1]).
+    last_loaded = max(h["period"] for h in history)
+    start_from = _get_next_month_iso(_period_to_date(last_loaded))
     seasonality = auto_detect_seasonality(engine_rows) or {"enabled": False,
                                                             "indices": [1.0] * 12}
-    return generate_forecast(opts, engine_rows, seasonality, yoy_mode)
+    return generate_forecast(opts, engine_rows, seasonality, yoy_mode,
+                             start_from=start_from)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1929,6 +1940,7 @@ def generate_forecast(
     rows: list[dict],
     seasonality: dict,
     yoy_mode: str,
+    start_from: Optional[str] = None,
 ) -> list[dict]:
     """Port verbatim de generateForecast L1761.
 
@@ -1939,6 +1951,10 @@ def generate_forecast(
             `state.historical` del HTML.
         seasonality: dict {enabled: bool, indices: [12 floats]}.
         yoy_mode: 'auto' | 'on' | 'off'. Equivalente a `state.account.yoyMode`.
+        start_from: ISO 'YYYY-MM-DD' opcional. Si viene, el forecast estampa su
+            PRIMERA fila en ese mes (override del cursor). Si es None, arranca en
+            el mes siguiente al último `rows` (comportamiento MVP original). El
+            crecimiento MoM sigue anclado a `rows[-1]` en ambos casos.
 
     Returns:
         Lista de forecast rows con shape del HTML L1837-1858, ya pasados por
@@ -2013,7 +2029,7 @@ def generate_forecast(
     forecasts: list[dict] = []
     last_hist = rows[-1]
     prev: dict = dict(last_hist)  # copia defensiva
-    curr_iso = _get_next_month_iso(last_hist["date"])
+    curr_iso = start_from or _get_next_month_iso(last_hist["date"])
 
     for _ in range(horizon):
         m_idx = date.fromisoformat(curr_iso[:10]).month - 1  # 0-11
