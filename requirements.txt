@@ -1,5 +1,9 @@
 streamlit==1.43.2
 pandas==2.2.3
+numpy>=1.26,<2.2
+pyarrow>=14,<19
+# numpy/pyarrow pineados: streamlit 1.43.2 segfaultea en serialización
+# Arrow con numpy>=2.2 / pyarrow>=19 (Streamlit Cloud, 12/07/2026)
 openpyxl==3.1.5
 pdfplumber==0.11.4
 streamlit-authenticator==0.3.3
