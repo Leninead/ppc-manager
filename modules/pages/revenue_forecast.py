@@ -83,6 +83,7 @@ from io import BytesIO
 from typing import Any, Optional
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from core.helpers import kpi_card
@@ -2379,6 +2380,116 @@ def _yoy_series(hist_rows: list, fc_rows: list, from_hist) -> dict:
         prev = by_date.get(_shift_period(d, -12))
         y.append(from_hist(prev) if prev is not None else None)
     return {"x": axis, "y": y}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F6-G2 — Charts del patrón común (Plotly go.Figure, sin Streamlit)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# _metric_chart es LA función genérica: los 4 charts del patrón (revenue,
+# sessions, cvr, units) salen de acá parametrizados por metric_id. Hasta 3 traces
+# (hist / forecast dashed / YoY dotted washed-out), reusando _bridge y _yoy_series
+# de G1. NO recalcula nada, NO llama a Streamlit (el st.plotly_chart es de G5).
+
+_CHART_GRID = "#1d1d1d"       # --line-2 (tema oscuro, default del OS)
+_CHART_TICK = "#a8a8a8"       # --text-mute
+_CHART_FONT = "JetBrains Mono, monospace"
+
+# Layout base VERIFICADO contra el HTML de Edu. Fondo transparente → hereda el
+# tema de Streamlit; valores del tema OSCURO fijos (Streamlit no expone
+# getComputedStyle). Los 10 colores de métrica son fijos en ambos temas.
+_PLOTLY_LAYOUT: dict = {
+    "paper_bgcolor": "rgba(0,0,0,0)",
+    "plot_bgcolor": "rgba(0,0,0,0)",
+    "font": {"family": _CHART_FONT, "color": _CHART_TICK, "size": 10},
+    "hovermode": "x unified",
+    "margin": {"l": 50, "r": 50, "t": 30, "b": 40},
+    "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.02,
+               "xanchor": "left", "x": 0},
+    "xaxis": {"gridcolor": _CHART_GRID, "zeroline": False,
+              "tickfont": {"color": _CHART_TICK, "size": 10, "family": _CHART_FONT}},
+    "yaxis": {"gridcolor": _CHART_GRID, "zeroline": False,
+              "tickfont": {"color": _CHART_TICK, "size": 10, "family": _CHART_FONT}},
+}
+
+
+def _washed_color(hex6: str, alpha_hex: str = "88") -> str:
+    """Convierte '#RRGGBB' + alpha hex ('88' del HTML) a 'rgba(r,g,b,a)'.
+
+    El HTML usaba `color + "88"` (hex de 8 dígitos) para el trace YoY washed-out.
+    Esta versión de Plotly RECHAZA el hex de 8 dígitos en line.color (sólo acepta
+    #RRGGBB o rgba) → portamos el mismo alpha a rgba (0x88 = 136/255 ≈ 0.533).
+    Mismo efecto visual, formato válido.
+    """
+    h = hex6.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    a = int(alpha_hex, 16) / 255.0
+    return f"rgba({r},{g},{b},{a:.3f})"
+
+
+def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
+                  show_yoy: bool = False) -> "go.Figure":
+    """Construye la figura de UNA métrica del catálogo `_METRICS`.
+
+    Hasta 3 traces: histórico (spline sólido), forecast (dashed, mismo color) y
+    YoY opcional (dotted, color washed-out `+"88"`). Todos los valores salen de
+    `_bridge`/`_yoy_series` con los accessors del catálogo — NO se recalcula nada.
+    Eje Y formateado según `unit` (currency/count/percent).
+
+    Guard: `hist_rows` vacío → figura VACÍA (con layout), NO excepción (fiel al
+    HTML `if (state.historical.length === 0) return;`).
+    """
+    m = _METRICS[metric_id]
+    fig = go.Figure()
+    fig.update_layout(**_PLOTLY_LAYOUT)
+
+    if not hist_rows:
+        return fig
+
+    hist, fc = _bridge(hist_rows, fc_rows, m["from_hist"], m["from_fc"])
+
+    # Trace 1 — histórico (siempre).
+    fig.add_trace(go.Scatter(
+        x=hist["x"], y=hist["y"], name=m["label"],
+        mode="lines+markers",
+        line=dict(color=m["color"], width=2, shape="spline", smoothing=0.3),
+        marker=dict(size=4),
+        connectgaps=True,
+    ))
+
+    # Trace 2 — forecast (sólo si hay).
+    if fc["x"]:
+        fig.add_trace(go.Scatter(
+            x=fc["x"], y=fc["y"], name=f'{m["label"]} (forecast)',
+            mode="lines+markers",
+            line=dict(color=m["color"], width=2, dash="dash",
+                      shape="spline", smoothing=0.3),
+            marker=dict(size=6),
+            connectgaps=True,
+        ))
+
+    # Trace 3 — YoY (sólo si show_yoy).
+    if show_yoy:
+        yoy = _yoy_series(hist_rows, fc_rows, m["from_hist"])
+        fig.add_trace(go.Scatter(
+            x=yoy["x"], y=yoy["y"], name=f'{m["label"]} YoY',
+            mode="lines+markers",
+            line=dict(color=_washed_color(m["color"]), width=1, dash="dot",
+                      shape="spline", smoothing=0.3),
+            marker=dict(size=2),
+            connectgaps=True,
+        ))
+
+    # Eje Y según unidad.
+    unit = m["unit"]
+    if unit == "currency":
+        fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    elif unit == "percent":
+        fig.update_yaxes(ticksuffix="%", tickformat=".1f")
+    else:  # count
+        fig.update_yaxes(tickformat=",.0f")
+
+    return fig
 
 
 # ─────────────────────────────────────────────────────────────────────────────
