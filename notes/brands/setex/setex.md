@@ -782,8 +782,8 @@ Temple rankea #19–#128 o sin rank en el cluster de lentes; el motor B081GB8F89
 - Audit copy B0B94KBY8H (Sujetador): 499-731 sess, CVR 8,5-9,6%, 100% paid-driven, sin base orgánica. "sujetador de lentes" (SV 2194) — Setex no rankea orgánico.
 - Reposición motor B081GB8F89 (entró a Prime con ~18d de runway). Ver PENDIENTES_RESTOCK.md.
 
-### Pendiente de trabajo
-- **Informe Prime Day 7v7** (evento 23-29/06 vs previa comparable 16-22/06) — NO HECHO. Requiere: Business Report by child + BSE performance de las 2 ventanas.
+### Nota — informe Prime Day 7v7 (NO es un pendiente)
+Se mencionó como posible análisis del evento (23-29/06 vs previa 16-22/06), pero **nunca fue solicitado y no está en el alcance**. No es una deuda abierta. Si alguna vez se pide, requeriría: Business Report by child + BSE performance de las 2 ventanas.
 
 ### 📌 REGLA OPERATIVA para el próximo 360° (desalineación a corregir)
 - El Advertised Product quedó en 16d (03-27/06) vs 30d de los demás → generó ruido en el split orgánico/pagado por ASIN (algunos daban "pagado > total" por desfase).
