@@ -1,0 +1,18 @@
+# Normalizar line endings: LF en el repo, CRLF en checkout de Windows.
+# Crítico para archivos que consume el contenedor Linux de Streamlit Cloud.
+* text=auto eol=lf
+
+# Archivos que SIEMPRE deben ser LF (los lee Linux directamente)
+requirements.txt text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binarios: no tocar
+*.png binary
+*.jpg binary
+*.xlsx binary
+*.parquet binary
+*.pdf binary

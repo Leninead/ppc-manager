@@ -1,11 +1,19 @@
 ---
 tipo: state
-actualizado: 2026-07-10
+actualizado: 2026-07-13
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-13 — 🔴 Incidente prod (resuelto)
+
+**🔴 Incidente prod (resuelto):** segfault por streamlit 1.43.2 + numpy>=2.2/pyarrow>=19 en serialización Arrow. Pineado en requirements.txt (`f6c332c`). GOTCHA: no subir numpy/pyarrow mientras streamlit siga en 1.43.2. `.gitattributes` agregado, line endings normalizados a LF.
+
+Detalle: [[2026-07-13]]
 
 ---
 
