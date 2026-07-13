@@ -2217,6 +2217,171 @@ def _run_forecast_for_active_client(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# F6-G1 — Helpers puros de series para charts (bridge, YoY, accessors hist/fc)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Sin Streamlit, sin Plotly. Producen dicts {"x": [...], "y": [...]} listos para
+# graficar. Las hist rows y las fc rows tienen SHAPE DISTINTO (port verbatim del
+# HTML): aov/acos/tacos/salesVelocity NO existen en hist (se CALCULAN) pero SÍ en
+# fc (los escribe recompute_forecast_row respetando los overrides acosTarget/
+# tacosTarget del AM). Por eso cada métrica tiene DOS accessors: from_hist
+# (calcula) y from_fc (LEE, nunca recalcula → respeta el override). Un solo
+# _bridge cubre los 7 charts.
+
+
+def _safe_num(v: Any) -> Optional[float]:
+    """Normaliza a float para charts, con None cuando el dato está AUSENTE.
+
+    None / '' / NaN → None (hueco en el chart, NO 0). Resto → float delegando en
+    `_parse_num` (que ya cubre '$1,234', '1,234.5', '12%', 'MX$...'). 0 → 0.0.
+
+    Reuso deliberado: NO se envuelve `_js_number` (su semántica JS colapsa
+    ''/None/NaN → 0.0, lo opuesto a lo que el chart necesita, y no parsea monedas
+    con coma/$/%). `_parse_num` es el parser rico existente; acá sólo se agrega el
+    guard "ausente → None". Un único parser de números en el módulo.
+    """
+    if v is None:
+        return None
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    if isinstance(v, str) and v.strip() == "":
+        return None
+    return _parse_num(v)
+
+
+def _shift_period(date_iso: str, months: int) -> str:
+    """Desplaza una fecha ISO por N meses. Aritmética entera sobre y*12 + (m-1).
+
+    '2026-03-01', -12 → '2025-03-01'. Sin dateutil (no está en requirements).
+    Devuelve siempre día 01.
+    """
+    y, m = int(date_iso[:4]), int(date_iso[5:7])
+    total = y * 12 + (m - 1) + months
+    ny, nm = divmod(total, 12)
+    return f"{ny:04d}-{nm + 1:02d}-01"
+
+
+# ── Accessors ────────────────────────────────────────────────────────────────
+# Reads directos (revenue/units/sessions/cvr/spend/ventasPPC) via factory.
+# Computados en hist (aov/acos/tacos/salesVelocity) con guards. En fc TODOS se
+# leen (el motor ya los escribió respetando los overrides del AM).
+
+def _reader(key: str):
+    """Factory de accessor que lee `key` de la row vía _safe_num."""
+    def _acc(r: dict) -> Optional[float]:
+        return _safe_num(r.get(key))
+    return _acc
+
+
+def _acc_hist_aov(r: dict) -> Optional[float]:
+    """AOV en hist = revenue/units (units>0, si no None)."""
+    units = _safe_num(r.get("units"))
+    rev = _safe_num(r.get("revenue"))
+    if units and units > 0 and rev is not None:
+        return rev / units
+    return None
+
+
+def _acc_hist_acos(r: dict) -> Optional[float]:
+    """ACOS en hist = spend/ventasPPC*100 (spend no-None Y ventasPPC>0)."""
+    spend = _safe_num(r.get("spend"))
+    vppc = _safe_num(r.get("ventasPPC"))
+    if spend is not None and vppc is not None and vppc > 0:
+        return spend / vppc * 100.0
+    return None
+
+
+def _acc_hist_tacos(r: dict) -> Optional[float]:
+    """TACOS en hist = spend/revenue*100 (spend no-None Y revenue>0)."""
+    spend = _safe_num(r.get("spend"))
+    rev = _safe_num(r.get("revenue"))
+    if spend is not None and rev is not None and rev > 0:
+        return spend / rev * 100.0
+    return None
+
+
+def _acc_hist_sales_velocity(r: dict) -> Optional[float]:
+    """Sales velocity en hist = units / max(1, días del mes). Port verbatim del
+    HTML `r.units / Math.max(1, dim)` (el guard es gratis, mantiene el port
+    rastreable). Reusa `_days_in_month`."""
+    units = _safe_num(r.get("units"))
+    if units is None:
+        return None
+    return units / max(1, _days_in_month(r["date"]))
+
+
+# ── Catálogo de métricas ─────────────────────────────────────────────────────
+# metric_id = id del HTML tal cual (ventasPPC, salesVelocity camelCase) para que
+# el port sea rastreable. Colores VERIFICADOS contra el HTML (L2330-2372).
+
+_METRICS: dict = {
+    "revenue":       {"label": "Revenue",        "unit": "currency", "color": "#FF3300",
+                      "from_hist": _reader("revenue"),   "from_fc": _reader("revenue")},
+    "units":         {"label": "Units Sold",     "unit": "count",    "color": "#E85B03",
+                      "from_hist": _reader("units"),     "from_fc": _reader("units")},
+    "sessions":      {"label": "Sessions",       "unit": "count",    "color": "#FBBF24",
+                      "from_hist": _reader("sessions"),  "from_fc": _reader("sessions")},
+    "cvr":           {"label": "CVR %",          "unit": "percent",  "color": "#34D399",
+                      "from_hist": _reader("cvr"),       "from_fc": _reader("cvr")},
+    "aov":           {"label": "AOV",            "unit": "currency", "color": "#60A5FA",
+                      "from_hist": _acc_hist_aov,        "from_fc": _reader("aov")},
+    "spend":         {"label": "Spend",          "unit": "currency", "color": "#A78BFA",
+                      "from_hist": _reader("spend"),     "from_fc": _reader("spend")},
+    "ventasPPC":     {"label": "Ventas PPC",     "unit": "currency", "color": "#F472B6",
+                      "from_hist": _reader("ventasPPC"), "from_fc": _reader("ventasPPC")},
+    "acos":          {"label": "ACOS %",         "unit": "percent",  "color": "#F87171",
+                      "from_hist": _acc_hist_acos,       "from_fc": _reader("acos")},
+    "tacos":         {"label": "TACOS %",        "unit": "percent",  "color": "#22D3EE",
+                      "from_hist": _acc_hist_tacos,      "from_fc": _reader("tacos")},
+    "salesVelocity": {"label": "Sales Velocity", "unit": "count",    "color": "#FB923C",
+                      "from_hist": _acc_hist_sales_velocity, "from_fc": _reader("salesVelocity")},
+}
+
+
+def _series(rows: list, acc) -> dict:
+    """Serie {x: [dates], y: [acc(row)]} sobre `rows` con el accessor dado."""
+    return {"x": [r["date"] for r in rows], "y": [acc(r) for r in rows]}
+
+
+def _bridge(hist_rows: list, fc_rows: list, from_hist, from_fc) -> tuple:
+    """Devuelve (serie_hist, serie_fc). La serie fc ARRANCA repitiendo el último
+    punto histórico (BRIDGE) → las líneas se tocan en el chart.
+
+    El punto de bridge se computa con `from_hist` sobre la ÚLTIMA row histórica
+    (el bridge ES el último punto hist, no un from_fc). Contratos:
+      - con hist y fc: len(fc.x)==len(fc_rows)+1, fc.x[0]==hist.x[-1], fc.y[0]==hist.y[-1]
+      - hist vacío → fc SIN bridge (len(fc.x)==len(fc_rows))
+      - fc vacío → (serie_hist, {x:[],y:[]})
+      - hist.y[-1] is None → el bridge copia None (no inventa valor)
+    """
+    serie_hist = _series(hist_rows, from_hist)
+    if not fc_rows:
+        return serie_hist, {"x": [], "y": []}
+    fc_x = [f["date"] for f in fc_rows]
+    fc_y = [from_fc(f) for f in fc_rows]
+    if hist_rows:
+        last = hist_rows[-1]
+        fc_x = [last["date"]] + fc_x
+        fc_y = [from_hist(last)] + fc_y   # bridge = último punto hist (from_hist)
+    return serie_hist, {"x": fc_x, "y": fc_y}
+
+
+def _yoy_series(hist_rows: list, fc_rows: list, from_hist) -> dict:
+    """Serie del mismo mes del año previo, sobre el eje COMPLETO (hist+fc), SIN
+    bridge. La fuente es SIEMPRE `hist_rows` + `from_hist` (nunca fc: proyectar
+    contra proyección no tiene sentido). Sin 12+ meses de match → valores None
+    (lista alineada al eje, NO vacía).
+    """
+    axis = [r["date"] for r in hist_rows] + [f["date"] for f in fc_rows]
+    by_date = {r["date"]: r for r in hist_rows}
+    y = []
+    for d in axis:
+        prev = by_date.get(_shift_period(d, -12))
+        y.append(from_hist(prev) if prev is not None else None)
+    return {"x": axis, "y": y}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Render principal — Fase 2: selector + datos
 # ─────────────────────────────────────────────────────────────────────────────
 
