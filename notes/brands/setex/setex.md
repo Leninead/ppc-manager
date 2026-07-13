@@ -737,3 +737,59 @@ Pendiente validación live en Campaign Manager.
 
 ### Output
 `Setex_WoW_10jun.html` (outputs Claude, no commiteado · política igual 2026-06-03).
+
+---
+
+## 2026-07-06 — Análisis 360° + re-acomodo post-Prime + WoW
+
+### ⚠️ LECTURA CRÍTICA DEL WoW (22/06–05/07) — no repetir el error del reporte automático
+
+El reporte automático de Amazon dice "ventas cayeron 16%, revisar ranking y presupuesto". **ESA CONCLUSIÓN ES FALSA.** Compara contra la semana de Prime (el pico del evento). La lectura correcta:
+
+- Sales $54,575: **−16% vs semana Prime**, pero **+19% vs semana normal pre-Prime** (~$45,7k).
+- Prime dejó un **piso más alto**. La cuenta quedó MEJOR que antes del evento.
+- NO es caída — es normalización post-evento.
+
+Narrativa correcta para el cliente: "la cuenta normalizó tras Prime quedando en un piso más alto que pre-evento, con el gasto ya contenido y el ACoS/TACoS mejorando por el re-acomodo del 03/07."
+
+### Análisis 360° (7 pasos, 03/07)
+STR 30d (03/06–02/07) · SQP Week26 (21-27/06, Prime) · cruzado 5-bucket · BSR by child (split 70% pago / 30% org) · Campaign report · Advertised Product · BSE all-states.
+Estado: cuenta sana. ACoS 15,3%, TACoS 11,5%.
+
+### 5 bulks ejecutados 03/07 (perfil A14DWN8NSBJGFJ) — todos Success
+- **A · biddown PAT:** Thick·MOCOFLY 5.76→3.46 (2do recorte, seguía a 51%), 1mm·MOCOFLY 10.2→6.12, Temple·MOCOFLY 7.2→4.32, Thick+Temple·Slzhds 12→7.2. La red PAT de competidores quedó clonada en 4 familias (1mm/Thick/Temple/Nano) — no estaba cubierta el 26/06.
+- **B · revert push Prime:** UltraThin Transp+Negro 6.5→5.0 (evento terminó, corrían a 20-23% ACoS).
+- **C · push rank (alineado a data de Tati):** subida de bids SOLO en 4 kw donde el motor ya rankea top-5 orgánico (soporte, sostenedor, antideslizante, almohadillas). Principio: reforzar con ads donde ya ganamos, no donde no hay base.
+- **D · gecko ads off:** Product Ad Temple XG9LB51 pausado en 2 PAT que sangraban a 78% ACoS; conservadas las EXACT ESCALAR (nicho propio).
+- **E · negativos extendidos:** 7kw + 2 asin × 7 campañas AUTO CLOSE. Resultado: 59 Success + 4 duplicados (B0GF1XTQCK).
+
+### Cruce rank tracking Tati (parent Temple B0F4M9PS7R)
+Temple rankea #19–#128 o sin rank en el cluster de lentes; el motor B081GB8F89 domina esos términos orgánicamente (#1–#5).
+**Decisión:** Temple NO pelea genéricas de lentes (canibalizaría al motor) → enfocar nicho propio. El push PPC del BULK C se alineó a esa lógica.
+
+### Validación del re-acomodo (WoW 22/06–05/07)
+- Revert B08PZF22R1 **funcionó**: ad spend −56%, ACoS 23% → 18,1%.
+- Contención de gasto OK: ad spend cuenta −24% ($7,062 → $5,336), TACoS 11,5% → 9,8%, ACoS 15,1% en target.
+- Thumbsticks siguen en $0 ad spend (pausados) ✅.
+
+### Alertas abiertas (P1)
+- 🔴 **B0BQ8FNGR5** (Thick) ACoS 31,2%, ad sales −92% ($3,180 → $240). **SIN ACCIÓN — en observación.** Criterio: actuar sobre una semana post-evento es reaccionar a ruido. Si en el próximo WoW sigue >30%, ahí sí bid down.
+- 🟡 1mm·MOCOFLY aún a 26,3% — el bid down del 03/07 recién entró, el efecto completo se ve la semana que viene.
+- 🟡 B0DK7Q4ZTY (Nano) ad spend +345% (ACoS 9,3%, todavía sano) — vigilar que no se desmadre.
+- 🟡 B08SNRCL63 ad sales $0 con spend arriba — verificar en vivo.
+
+### Pendientes con Tatiana
+- Audit copy B0B94KBY8H (Sujetador): 499-731 sess, CVR 8,5-9,6%, 100% paid-driven, sin base orgánica. "sujetador de lentes" (SV 2194) — Setex no rankea orgánico.
+- Reposición motor B081GB8F89 (entró a Prime con ~18d de runway). Ver PENDIENTES_RESTOCK.md.
+
+### Pendiente de trabajo
+- **Informe Prime Day 7v7** (evento 23-29/06 vs previa comparable 16-22/06) — NO HECHO. Requiere: Business Report by child + BSE performance de las 2 ventanas.
+
+### 📌 REGLA OPERATIVA para el próximo 360° (desalineación a corregir)
+- El Advertised Product quedó en 16d (03-27/06) vs 30d de los demás → generó ruido en el split orgánico/pagado por ASIN (algunos daban "pagado > total" por desfase).
+- Faltó la 2da semana de SQP (solo se subió W26) → no se pudo hacer tendencia semana a semana, solo la foto de Prime.
+- **Para el próximo 360°: bajar los 4 reportes de performance (STR, Campaign, Advertised Product, BSR) con la MISMA ventana exacta de 30 días.** Así el cruce sale limpio y el split org/pagado es exacto.
+
+### Gotchas de bulk confirmados (amazon-bulk-upload-guide 17-18)
+- Negative PAT requiere **Ad Group ID** (aplicado el 03/07, sin fails estructurales).
+- **"Failed" ≠ fallo total:** hay que leer el Processing Summary. El 03/07: 59 Success + 4 duplicados, no un fallo.

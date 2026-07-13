@@ -9,6 +9,18 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
+## 2026-07-13 — Frente SETEX (documental, sin git)
+
+**Frente SETEX (documental, sin git):** 360° + re-acomodo post-Prime ejecutado 03/07 (5 bulks, todos Success). Cuenta sana: ACoS 15,1%, TACoS 9,8%.
+- ⚠️ Lectura WoW: la caída de −16% es NORMALIZACIÓN post-Prime, NO un problema. Contra semana normal, la cuenta quedó +19% arriba. El reporte automático de Amazon dice "revisar ranking/presupuesto" — es engañoso, no seguirlo.
+- 🔴 Alerta abierta: B0BQ8FNGR5 ACoS 31,2% — en observación, sin acción (evitar reaccionar a ruido post-evento). Revisar en próximo WoW.
+- 📌 Pendiente: informe Prime Day 7v7 (23-29/06 vs 16-22/06) — no hecho.
+- 📌 Regla: próximo 360° con ventanas alineadas (30d exactos en STR/Campaign/Advertised/BSR).
+
+Detalle: [[setex]]
+
+---
+
 ## 2026-07-13 — 🔴 Incidente prod (resuelto)
 
 **🔴 Incidente prod (resuelto):** segfault por streamlit 1.43.2 + numpy>=2.2/pyarrow>=19 en serialización Arrow. Pineado en requirements.txt (`f6c332c`). GOTCHA: no subir numpy/pyarrow mientras streamlit siga en 1.43.2. `.gitattributes` agregado, line endings normalizados a LF.
