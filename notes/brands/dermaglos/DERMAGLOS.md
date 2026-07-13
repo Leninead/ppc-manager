@@ -755,3 +755,15 @@ Micellar −51% · Body Cream −25% · Facial Cleanser −25% · Ultra Night �
 2. **04/07** — Post-Prime review: ROAS/ACoS/BSR delta + decisión final Hipoglos (pausa permanente vs continúe)
 3. **07/07** — Seller-initiated Prime Day activación (Edu confirma push via Seller Central)
 4. **15/07** — Semana post-Prime: análisis completo + P0 pendientes (portfolio assignment, listing fix B0CYLMJJJC)
+
+---
+
+### 2026-07-13 — M31 F6.3c: fix arranque del forecast por-ASIN
+
+El forecast por-ASIN arrancaba en el mes siguiente al último mes COMPLETO. Con may/jun completos + julio parcial, re-proyectaba julio full-month (~$1980) mientras las tablas mostraban el julio real parcial ($243). Contradicción visible cliente-facing.
+
+Fix: el forecast ahora arranca en el mes siguiente al último mes CARGADO (incluye el parcial) → agosto. Julio queda solo en el histórico, marcado como parcial. El crecimiento MoM sigue anclado a los meses completos (may+jun), así que la proyección no se distorsiona.
+
+Validado con datos reales de Dermaglos (hero B0CYLMJJJC, mayo 1512 / junio 1176 / julio 243 sessions). 41 tests verde.
+
+**Del pedido de Edu: 2 de 4 cerrados.** Falta gráficas de tendencia (7 charts) y export HTML.

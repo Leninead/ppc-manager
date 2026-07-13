@@ -17,6 +17,28 @@ Detalle: [[2026-07-13]]
 
 ---
 
+## 2026-07-13 — M31 F6.3c: fix arranque forecast por-ASIN (por-ASIN)
+
+**Estado:** F6.3c CERRADO. MVP F1–F5 + F6 (por-ASIN) + F6.3c en `main` (merge `7d2b0c0`, push OK).
+
+**Pedido de Edu (AM Dermaglos) — 2 de 4 cerrados:**
+- ✅ (1) Forecast por-ASIN desde "Detail Page Sales and Traffic By Child Item".
+- ✅ (2) F6.3c — forecast arranca en el mes siguiente al último CARGADO (no al último completo). Elimina la contradicción julio-real ($243 parcial) vs julio-proyectado (~$1980) en la UI. `start_from` opcional en `generate_forecast` (MVP global no lo pasa → no-op); `_forecast_single_asin` lo calcula desde el history COMPLETO (incluye parcial) → arranca en agosto. MoM sigue anclado a los completos.
+- 🔴 (3) **Gráficas de tendencia** — NO arrancado. **Discovery HECHO** (ver [[2026-07-13]]). 7 charts (no 6): custom, revenue, sessions, CVR, units, ads, ACOS/TACOS. **Decisión: Plotly** (no Chart.js embebido). **Secuencia: G-A globales (7/7) → G-B por-ASIN (5/7)**. Estimado 10–14h.
+- 🔴 (4) **Export HTML a cliente** — NO arrancado. Estimado 4–6h. Sale barato con Plotly (`fig.to_html()`).
+
+**Restricción dura descubierta:** el reporte By Child Item NO trae `spend` ni `ventasPPC` → **Ads y ACOS/TACOS son imposibles a nivel ASIN**. Solo 5 de 7 charts aplican por-ASIN. La pregunta a Edu ("¿spend por ASIN vía reporte Advertised Product?") se hace AL ENTREGAR G-A, no antes.
+
+**Tests:** 41/41 por-ASIN verde (17 parser + 11 accumulate + 13 forecast), 0 skip. Validado en main tras merge.
+
+**Fixtures main:** los 3 canónicos (05/06/07) copiados a `tests/fixtures/real/` (reemplazan el julio stale 1128 mislabel). Gitignorados, dato de cliente.
+
+**Regla:** no decirle "listo" a Edu hasta que los 3 ítems (F6.3c ✅ + gráficas + export) estén.
+
+Detalle: [[2026-07-13]]
+
+---
+
 ## 2026-07-10 — M31 F6: acumulación + UI + forecast por-ASIN (F6.1b→F6.3b DONE)
 
 **M31 F6 avanzado fuerte.** 5 commits del frente `feature/m31-forecast-asin` integrados a main (FF `e9f158c..1d165d7`, push OK). 38/38 tests verde, 0 skip.
