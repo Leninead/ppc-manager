@@ -9,6 +9,22 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
+## 2026-07-13 — Frente LTD-MX (documental, sin git)
+
+**Frente LTD (AM Agustín), sesión 26/06→09/07:** 6 bulks aplicados, Prime Day analizado.
+
+- 🔑 **Umbral de precio LTD: ≤1.2x del mercado para convertir en genéricos.** Probado con el Prime Day (gap 1.0x → PurShr 67%; gap 1.5x → CVR 0%). No pujar genéricos por encima de ese gap — no es problema de bid, es precio.
+- 📊 **Prime Day: el motor fue TRÁFICO (+71% sessions), no budget** (CVR +0.64pp). Palanca = tráfico externo cualificado, NO subir puja.
+- 🔴 **DIRECTIVA CLIENTE: no hay restock.** Enfocar budget en SKUs high-stock. Ya murieron B0F8PB4NHX (OAT M) y B005ULUZIQ (GR M).
+- 🔴 **B09MG1PM6L (hero #1, 2u): decisión de pausar push TOMADA. Ejecución 10/07** con BSE fresco del análisis completo. Borrador de bulk generado (17 ads no-branded; se conserva brand defense). **NO subir el borrador — data del 03/07 stale.**
+- 📌 KW research + títulos (~50 ASINs) — EN ESPERA de exports Helium 10.
+- 📌 Listings 0% CVR (B0DJSGBR4P, B0FLP81RZF, línea "Traje de dormir") — no es PPC, es listing/precio.
+- 📌 RANK proliferation: ~90 campañas RANK sobre genéricos, revisión estructural pendiente.
+
+Detalle: [[LTD]]
+
+---
+
 ## 2026-07-13 — Frente SETEX (documental, sin git)
 
 **Frente SETEX (documental, sin git):** 360° + re-acomodo post-Prime ejecutado 03/07 (5 bulks, todos Success). Cuenta sana: ACoS 15,1%, TACoS 9,8%.

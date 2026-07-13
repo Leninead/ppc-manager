@@ -278,3 +278,27 @@ La verificación anti-duplicado debe incluir entities `Negative Product Targetin
 
 ### #4 — CREATE row-by-row confirmado
 Upload con 18 errores sobre 172 filas → 154 aplicados igual. El header "Failed" del upload NO significa rollback: significa que el archivo tuvo ≥1 error. Los records exitosos SÍ se aplican (CREATE row-by-row). Verificar siempre "Number of records successful" en el reporte, no el header.
+
+---
+
+## Learnings 2026-07-09 (LTD Prime Day + 360° julio)
+
+### #5 — IDs numéricos en UPDATE: pandas los lee como float y agrega ".0"
+Amazon lo rechaza como "temporary ID".
+FIX: `str(v).split('.')[0]` + formato de celda `"@"`.
+Aplica a: Keyword ID, Ad Group ID, Campaign ID, Product Targeting ID.
+(Caso real: LTD 03/07, el bulk C v1 falló entero por esto; la v2 con el fix entró OK.)
+
+### #6 — "Failed" de Amazon puede esconder éxito parcial
+Si UNA fila tiene error, Amazon marca TODO el upload como Failed aunque N-1 filas hayan entrado.
+**Verificar el record count (successful vs errors) en el Processing Summary, NO el flag Failed/Success del listado.**
+
+### #7 — Re-subir un bulk de negativos que ya entró parcialmente rebota con "already exists"
+Eso NO es un error — confirma que el trabajo previo SÍ se aplicó.
+(Caso real: LTD 03/07, 19/32 nuevos + 13 already-exists.)
+
+### #8 — Advertised Product report usa atribución 7-day-from-click
+NO sirve para segmentar ads por ventana temporal corta. Distorsiona: las ventas del evento se corren a fechas previas.
+Síntoma: al hacer split orgánico/pagado por semana, aparece "pagado > total" o incluso orgánico negativo.
+**Para split orgánico/pagado por ventana, usar período agregado con atribución cerrada.**
+(Casos reales: LTD dio orgánico negativo al intentar split semanal; Setex dio "pagado > total" en el 360° del 03/07 — mismo mecanismo.)

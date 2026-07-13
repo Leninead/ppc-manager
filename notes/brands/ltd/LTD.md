@@ -1001,3 +1001,82 @@ Detalle completo en [[2026-06-10]].
 **Aprendizajes de bulk (PROMOVER A CLAUDE.md — lo hace el consolidador):**
 1. Bulksheets 2.0: celdas VACÍAS de `Start Date` y `State` en filas Entity=Campaign se leen como "0" → upload Failed. Fix: poblarlas con el valor REAL aunque no las cambies (Start Date como TEXTO yyyyMMdd, State actual). Aplica también a updates de budget (son filas Campaign).
 2. Budget Rules: hacerlas por UI (Add budget rule → Schedule → date range → % increase), NO por bulk. La hoja "Budget Rules" del BSE viene vacía y los enum (Budget Rule Type / Recurrence Type / Increase By Type) no están documentados de forma confiable → riesgo de Failed. UI = 60 seg, confiable, auto-revert.
+
+---
+
+## 2026-07-09 — Prime Day + 360° julio + hallazgo del umbral de precio
+
+Sesión 26/06 → 09/07. AM Agustín. 6 bulks aplicados. Análisis Prime Day completo.
+
+### 🔑 HALLAZGO CENTRAL — el problema de conversión en genéricos es 100% PRECIO
+
+Probado empíricamente con el Prime Day:
+- Con el deal activo, "swaddle" pasó a **gap 1.0x vs mercado** → PurShr saltó a **67%**.
+- Donde el gap quedó en **1.5x** ("saco de dormir") → conversión **0%**.
+
+**UMBRAL LTD: necesita estar a ≤1.2x del mercado para convertir en genéricos.**
+
+Consecuencia operativa: no tiene sentido pujar en genéricos donde el gap de precio supera 1.2x. No es un problema de bid ni de copy — es precio. Cualquier decisión futura de bids sobre genéricos depende de este umbral.
+
+### 📊 ARCO PRIME DAY (23-29/06) — el motor fue TRÁFICO, no budget
+
+| Ventana | Ventas | Sessions | CVR |
+|---|---|---|---|
+| PRE (16-22/06) | $49,800 | 1,968 | 2.95% |
+| EVENTO (23-29/06) | $86,648 (+74%) | 3,374 (+71%) | 3.59% |
+| POST (30/06-06/07) | $63,554 (+28% sobre base) | 2,440 | 3.03% |
+
+Split del período: 63% pagado / 37% orgánico · TACoS 11% · ACoS 17.5%.
+
+**LECTURA (importante, no malinterpretar):** las ventas subieron +74% pero el CVR apenas +0.64pp. **El motor fue el tráfico (+71%), no el budget ni la conversión.** Si alguien lee "+74% en ventas" y concluye "subamos budget", está leyendo mal.
+→ **Palanca real: tráfico externo cualificado (Meta/TikTok) hacia fichas que ya convierten.**
+
+Nota: el POST quedó +28% SOBRE la base pre-evento — el evento dejó un piso más alto.
+
+### 🔴 INVENTARIO — el Prime Day drenó los heroes (stock al 09/07)
+
+**DIRECTIVA DEL CLIENTE (vía Agustín): NO hay restock. Enfocar en SKUs high-stock.**
+
+Muertos:
+- B0F8PB4NHX (OAT M): 0u — OOS desde 30/06.
+- B005ULUZIQ (GR M): 0u — se agotó 01/07 (tenía 414u).
+
+Críticos:
+- **B09MG1PM6L (OLV S, HERO #1): 2u** — a punto de morir. Estaba quemando **4.826 MXN/mes de PPC con 2 unidades de stock**.
+- B0DT6KF69K, B09S14W4SS: 2u c/u.
+
+Con stock profundo (destino del budget): B0081GJ038 (1131u), B09MG3MW3H (528u), B00MJXHM48 (544u), B0081GIZ52 (246u), B09MFZVWYH (191u), B09MG28M9D (149u).
+
+### Bulks aplicados (6)
+26/06:
+- BULK1 negativos ✅ (23/24, 1 dup benigno)
+- BULK2 biddown RANK ✅
+- BULK3 budgets ✅
+
+03/07 (360° julio):
+- A negativos ✅ (19/32, 13 already-exists → confirma que el trabajo previo se aplicó)
+- B pausas ✅
+- C biddown v2 ✅ (la v1 falló por IDs con `.0` — ver SOP)
+
+### Informes generados
+- LTD_WoW_Report_PrimeDay_20260704.html (WoW post-evento)
+- LTD_PrimeDay_Analysis_20260709.html (3 columnas: Pre/Evento/Post)
+(No versionados — se regeneran desde los exports.)
+
+### Resueltos esta sesión
+- **Auditoría RANK** (sin owner desde abril): RESUELTA. Las EXACT RANK con genéricos tipo "saco de dormir" son **price-traps sistémicos** (el umbral de 1.2x explica por qué). 3 peores pausadas.
+- **B0081GIZ52**: NO estaba OOS — el stub del 25/04 estaba mal. Vivo, 246u, CVR top.
+- **B09MG1J3LC**: confirmado OOS.
+- **Consulta restock a Agustín** (B09MG1PM6L + B0F8PB4NHX): RESUELTA — el cliente dijo NO. Consecuencia directa: OAT M ya murió, OLV S está a 2u.
+
+### Decisión tomada — pausa de push en B09MG1PM6L (ejecución 10/07)
+Con 2u y sin restock, el push es plata quemada hacia una ficha que va a quedar OOS.
+**Decisión: pausar el push. TOMADA.**
+Ejecución el 10/07 con BSE fresco (el del 03/07 está stale — en 6 días murieron 2 ASINs y el hero pasó de 20u a 2u; los Ad IDs pueden haber cambiado).
+Borrador ya armado: 17 product ads no-branded a pausar (gastan 4.779 MXN/mes). **Se conservan los 5 de BRAND DEFENSE** (47 MXN, ACoS ~3% — el branded se captura casi gratis; matarlo sería regalárselo a un competidor).
+⚠️ NO subir el borrador — data del 03/07 stale.
+
+### Pendientes abiertos
+1. **KW research + títulos nuevos (~50 ASINs)** — tarea Asana pedida. EN ESPERA de exports Helium 10 (Cerebro reverse-ASIN de heroes + competidores).
+2. **Reporte cliente: listings 0% CVR** — B0DJSGBR4P (295 sess), B0FLP81RZF, línea "Traje de dormir" (1.479 MXN). **No es PPC — es listing/precio.** Cae bajo el umbral de 1.2x.
+3. **RANK proliferation**: ~90 campañas RANK sobre genéricos. Revisión estructural pendiente.
