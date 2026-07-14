@@ -3766,6 +3766,82 @@ def _render_forecast_section(cur: dict) -> None:
         _render_forecast_summary(cur)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# F6-G5 — Wiring UI de los 7 charts (tabs + st.pills + toggle YoY)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# CERO lógica: pasa hist/forecast (del cliente activo) a los charts PUROS de
+# G1-G4 y los muestra en tabs. Buffers keyless en session_state (gotcha 1.43.2:
+# nunca key= + default=/value= juntos). El chart custom SIEMPRE se dibuja con el
+# BUFFER (nunca con el return de st.pills) → deseleccionar el último chip se
+# ignora silencioso, verbatim del HTML (`if (sel.length === 0) return;`).
+
+_K_CHARTS_YOY = f"{_STATE_PREFIX}charts_yoy"
+_K_CHARTS_CUSTOM = f"{_STATE_PREFIX}charts_custom"
+
+
+def _render_charts_section(cur: dict) -> None:
+    """Sección GRÁFICAS (G5): 7 charts en tabs + toggle YoY global. Sólo wiring."""
+    st.divider()
+    st.markdown("### 📊 Gráficas")
+
+    hist_rows = cur.get("historical", [])
+    if not hist_rows:
+        st.info("Cargá el histórico para ver los gráficos.")
+        return
+    fc_rows = cur.get("forecast", [])
+
+    # Buffers (una sola vez, defaults del HTML).
+    if _K_CHARTS_CUSTOM not in st.session_state:
+        st.session_state[_K_CHARTS_CUSTOM] = ["revenue"]   # HTML L2378
+    if _K_CHARTS_YOY not in st.session_state:
+        st.session_state[_K_CHARTS_YOY] = True             # HTML L937 (checked)
+
+    # Toggle YoY global (aplica a los 7 charts). Buffer keyless.
+    yoy = st.toggle("Mostrar YoY", value=st.session_state[_K_CHARTS_YOY],
+                    help="Compara contra el mismo mes del año previo (línea punteada).")
+    st.session_state[_K_CHARTS_YOY] = yoy
+
+    tabs = st.tabs(["Revenue", "Sessions", "CVR", "Units", "Ads",
+                    "ACOS/TACOS", "Custom"])
+
+    with tabs[0]:
+        st.plotly_chart(_metric_chart("revenue", hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[1]:
+        st.plotly_chart(_metric_chart("sessions", hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[2]:
+        st.plotly_chart(_metric_chart("cvr", hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[3]:
+        st.plotly_chart(_metric_chart("units", hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[4]:
+        st.plotly_chart(_ads_chart(hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[5]:
+        st.plotly_chart(_acos_tacos_chart(hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[6]:
+        sel = st.pills(
+            "Métricas",
+            options=list(_METRICS.keys()),
+            format_func=lambda mid: _METRICS[mid]["label"],
+            selection_mode="multi",
+            default=st.session_state[_K_CHARTS_CUSTOM],   # SIN key=
+        )
+        # Mínimo 1 chip: vacío → IGNORAR (el buffer NO se actualiza).
+        if sel:
+            st.session_state[_K_CHARTS_CUSTOM] = sel
+        # Orden de catálogo (eje izquierdo estable entre reruns). El chart SIEMPRE
+        # se dibuja con el BUFFER, nunca con `sel`.
+        selected = [mid for mid in _METRICS
+                    if mid in st.session_state[_K_CHARTS_CUSTOM]]
+        st.plotly_chart(_custom_chart(selected, hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+
+
 def _render_asin_section(cur: dict) -> None:
     """Sección F6.2 — Por ASIN: multi-upload de reportes By Child Item, acumulación
     al vuelo (sin persistencia), niveles child/parent/cuenta y forecast por-ASIN
@@ -4069,6 +4145,9 @@ def render() -> None:
     # 6) Sección FORECAST (F4) — port del HTML L788-820 (controles) +
     # L2064 (cards/tabla) + L2193 (summary).
     _render_forecast_section(cur)
+
+    # 6a) Sección GRÁFICAS (G5) — 7 charts (hist + forecast) en tabs + toggle YoY.
+    _render_charts_section(cur)
 
     # 6b) Sección POR ASIN (F6.2 + F6.3) — multi-upload By Child Item + niveles + forecast.
     _render_asin_section(cur)
