@@ -2493,6 +2493,116 @@ def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# F6-G3 — Charts multi-métrica: Ads (spend+ventasPPC) y ACOS/TACOS
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Estos 2 charts meten DOS métricas del catálogo en la MISMA figura (5 traces),
+# por eso no salen de _metric_chart (una métrica por figura). Puro ensamblado:
+# los valores vienen de _bridge/_yoy_series con los accessors de _METRICS. Cero
+# cálculo nuevo. El estilo de trace se centraliza en _chart_trace (mismos tokens
+# que G2) para que el lenguaje visual sea idéntico en los 7 charts.
+
+
+def _chart_trace(x: list, y: list, name: str, color: str, role: str) -> "go.Scatter":
+    """Arma un go.Scatter con el estilo del módulo según `role`:
+        'hist' → sólido, width 2, marker 4
+        'fc'   → dashed, width 2, marker 6   (dashed = forecast, en los 7 charts)
+        'yoy'  → dotted, width 1, marker 2, color washed-out (_washed_color)
+    Mismos tokens que _metric_chart (G2). Todos con spline 0.3 + connectgaps.
+    """
+    if role == "hist":
+        line = dict(color=color, width=2, shape="spline", smoothing=0.3)
+        marker = dict(size=4)
+    elif role == "fc":
+        line = dict(color=color, width=2, dash="dash", shape="spline", smoothing=0.3)
+        marker = dict(size=6)
+    else:  # yoy
+        line = dict(color=_washed_color(color), width=1, dash="dot",
+                    shape="spline", smoothing=0.3)
+        marker = dict(size=2)
+    return go.Scatter(x=x, y=y, name=name, mode="lines+markers",
+                      line=line, marker=marker, connectgaps=True)
+
+
+def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False) -> "go.Figure":
+    """Chart de Ads: spend + ventasPPC en la misma figura (hasta 5 traces).
+
+    Trazas: Spend (hist/fc) + Ventas PPC (hist/fc) + UN solo YoY (el de SPEND —
+    verbatim del HTML: con 5 líneas, un 2do YoY lo vuelve ilegible). Eje Y en $
+    con `rangemode="tozero"` — es el ÚNICO de los 7 charts con beginAtZero
+    (HTML L2653). Guard: hist vacío → figura vacía, sin excepción.
+    """
+    fig = go.Figure()
+    fig.update_layout(**_PLOTLY_LAYOUT)
+    if not hist_rows:
+        return fig
+
+    sp_hist, sp_fc = _bridge(hist_rows, fc_rows,
+                             _METRICS["spend"]["from_hist"], _METRICS["spend"]["from_fc"])
+    vp_hist, vp_fc = _bridge(hist_rows, fc_rows,
+                             _METRICS["ventasPPC"]["from_hist"], _METRICS["ventasPPC"]["from_fc"])
+    sp_color = _METRICS["spend"]["color"]
+    vp_color = _METRICS["ventasPPC"]["color"]
+
+    fig.add_trace(_chart_trace(sp_hist["x"], sp_hist["y"], "Spend (hist.)", sp_color, "hist"))
+    if sp_fc["x"]:
+        fig.add_trace(_chart_trace(sp_fc["x"], sp_fc["y"], "Spend (forecast)", sp_color, "fc"))
+    fig.add_trace(_chart_trace(vp_hist["x"], vp_hist["y"], "Ventas PPC (hist.)", vp_color, "hist"))
+    if vp_fc["x"]:
+        fig.add_trace(_chart_trace(vp_fc["x"], vp_fc["y"], "Ventas PPC (forecast)", vp_color, "fc"))
+    if show_yoy:
+        sp_yoy = _yoy_series(hist_rows, fc_rows, _METRICS["spend"]["from_hist"])
+        fig.add_trace(_chart_trace(sp_yoy["x"], sp_yoy["y"], "Spend año previo (YoY)", sp_color, "yoy"))
+
+    fig.update_yaxes(tickprefix="$", tickformat=",.0f", rangemode="tozero")
+    return fig
+
+
+def _acos_tacos_chart(hist_rows: list, fc_rows: list,
+                      show_yoy: bool = False) -> "go.Figure":
+    """Chart de ACOS/TACOS: acos + tacos en la misma figura (hasta 5 traces).
+
+    DESVIACIÓN CONSCIENTE DEL HTML (decisión de Lenin): en el HTML este era el
+    ÚNICO chart que NO separaba hist/forecast en traces (concatenaba todo) y usaba
+    `borderDash:[6,4]` en TACOS para distinguirlo de ACOS — o sea, "dashed"
+    significaba dos cosas distintas según el chart. Como los 7 charts se ven
+    juntos en el reporte cliente-facing, se NORMALIZA: **dashed = forecast en los
+    7 charts, sin excepción**. Acá ACOS y TACOS se distinguen por COLOR (catálogo),
+    nunca por dash; el dash queda reservado al tramo de forecast.
+
+    Los valores del forecast salen de `from_fc` → LEEN `f["acos"]`/`f["tacos"]`
+    (que el motor escribió respetando los overrides acosTarget/tacosTarget del AM).
+    NUNCA se recalcula spend/ventasPPC*100 en el forecast (sería el bug F6.3c:
+    chart ≠ tabla). Eje Y en % SIN rangemode (ese es exclusivo de Ads). Guard:
+    hist vacío → figura vacía, sin excepción.
+    """
+    fig = go.Figure()
+    fig.update_layout(**_PLOTLY_LAYOUT)
+    if not hist_rows:
+        return fig
+
+    ac_hist, ac_fc = _bridge(hist_rows, fc_rows,
+                             _METRICS["acos"]["from_hist"], _METRICS["acos"]["from_fc"])
+    tc_hist, tc_fc = _bridge(hist_rows, fc_rows,
+                             _METRICS["tacos"]["from_hist"], _METRICS["tacos"]["from_fc"])
+    ac_color = _METRICS["acos"]["color"]
+    tc_color = _METRICS["tacos"]["color"]
+
+    fig.add_trace(_chart_trace(ac_hist["x"], ac_hist["y"], "ACOS %", ac_color, "hist"))
+    if ac_fc["x"]:
+        fig.add_trace(_chart_trace(ac_fc["x"], ac_fc["y"], "ACOS % (forecast)", ac_color, "fc"))
+    fig.add_trace(_chart_trace(tc_hist["x"], tc_hist["y"], "TACOS %", tc_color, "hist"))
+    if tc_fc["x"]:
+        fig.add_trace(_chart_trace(tc_fc["x"], tc_fc["y"], "TACOS % (forecast)", tc_color, "fc"))
+    if show_yoy:
+        ac_yoy = _yoy_series(hist_rows, fc_rows, _METRICS["acos"]["from_hist"])
+        fig.add_trace(_chart_trace(ac_yoy["x"], ac_yoy["y"], "ACOS año previo (YoY)", ac_color, "yoy"))
+
+    fig.update_yaxes(ticksuffix="%", tickformat=".1f")
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Render principal — Fase 2: selector + datos
 # ─────────────────────────────────────────────────────────────────────────────
 
