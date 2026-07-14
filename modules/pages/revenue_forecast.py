@@ -2603,6 +2603,107 @@ def _acos_tacos_chart(hist_rows: list, fc_rows: list,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# F6-G4 — Chart custom: N métricas del catálogo en 1 figura, con doble eje Y
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El HTML deja al usuario prender/apagar chips de las 10 métricas y las mete
+# todas en un solo chart. Como las unidades conviven (currency + count + percent),
+# hay hasta 2 ejes Y. Esta capa es PURA: recibe `metric_ids` como argumento; los
+# chips/session_state son de G5. Reusa _bridge/_yoy_series/_chart_trace (cero
+# estilos nuevos, cero recálculo).
+
+# Formato de tick por unidad (mismos tokens que _metric_chart/_ads/_acos).
+_AXIS_FMT: dict = {
+    "currency": {"tickprefix": "$", "tickformat": ",.0f"},
+    "count":    {"tickformat": ",.0f"},
+    "percent":  {"ticksuffix": "%", "tickformat": ".1f"},
+}
+
+
+def _axis_split(metric_ids: list) -> tuple:
+    """Devuelve (left_unit, right_unit) según la regla VERBATIM del HTML.
+
+    `units_used` = unidades distintas EN ORDEN DE APARICIÓN en `metric_ids`.
+      1 unidad         → (unit, None)                 eje único
+      hay 'percent'    → (1ra no-percent, 'percent')  percent SIEMPRE a la derecha
+      sin percent      → (units[0], units[1])         orden de aparición
+
+    Sin métricas válidas → (None, None). El caso 3-unidades (currency+count+
+    percent) manda count al eje derecho junto al percent — no hay 3er eje. Es el
+    comportamiento que Edu ya vio; se porta tal cual (ver test del caso borde).
+    """
+    units_used: list = []
+    for mid in metric_ids:
+        m = _METRICS.get(mid)
+        if m is None:
+            continue
+        if m["unit"] not in units_used:
+            units_used.append(m["unit"])
+
+    if not units_used:
+        return None, None
+    if len(units_used) == 1:
+        return units_used[0], None
+    if "percent" in units_used:
+        left = next(u for u in units_used if u != "percent")
+        return left, "percent"
+    return units_used[0], units_used[1]
+
+
+def _custom_chart(metric_ids: list, hist_rows: list, fc_rows: list,
+                  show_yoy: bool = False) -> "go.Figure":
+    """Chart custom: hasta 3 traces por métrica seleccionada, con doble eje Y.
+
+    Guards: hist vacío → figura vacía; metric_ids vacío → figura vacía (el
+    "mínimo 1 chip" se enforcea en G5); metric_id desconocido → se ignora
+    (fiel al `if (!m) return;` del HTML). Los 3 traces de una métrica van al
+    MISMO eje (el que le toca por su unidad). dashed=forecast, dotted=YoY —
+    idéntico a los otros 6 charts. Sin rangemode (eso es de _ads_chart).
+    """
+    fig = go.Figure()
+    fig.update_layout(**_PLOTLY_LAYOUT)
+    if not hist_rows or not metric_ids:
+        return fig
+
+    left_unit, right_unit = _axis_split(metric_ids)
+
+    for mid in metric_ids:
+        m = _METRICS.get(mid)
+        if m is None:
+            continue
+        yaxis = "y" if m["unit"] == left_unit else "y2"
+        color = m["color"]
+        hist, fc = _bridge(hist_rows, fc_rows, m["from_hist"], m["from_fc"])
+
+        tr = _chart_trace(hist["x"], hist["y"], m["label"], color, "hist")
+        tr.yaxis = yaxis
+        fig.add_trace(tr)
+        if fc["x"]:
+            tr = _chart_trace(fc["x"], fc["y"], f'{m["label"]} (forecast)', color, "fc")
+            tr.yaxis = yaxis
+            fig.add_trace(tr)
+        if show_yoy:
+            yoy = _yoy_series(hist_rows, fc_rows, m["from_hist"])
+            tr = _chart_trace(yoy["x"], yoy["y"], f'{m["label"]} YoY', color, "yoy")
+            tr.yaxis = yaxis
+            fig.add_trace(tr)
+
+    # Eje izquierdo: merge sobre el yaxis de _PLOTLY_LAYOUT (conserva grid/tickfont).
+    fig.update_layout(yaxis=_AXIS_FMT.get(left_unit, {}))
+    # Eje derecho: sólo si hay 2da unidad. showgrid=False → no duplica grilla
+    # (verbatim del HTML: grid.drawOnChartArea=false en el eje secundario).
+    if right_unit is not None:
+        ax2 = {
+            "overlaying": "y", "side": "right", "showgrid": False,
+            "zeroline": False, "gridcolor": _CHART_GRID,
+            "tickfont": {"color": _CHART_TICK, "size": 10, "family": _CHART_FONT},
+        }
+        ax2.update(_AXIS_FMT.get(right_unit, {}))
+        fig.update_layout(yaxis2=ax2)
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Render principal — Fase 2: selector + datos
 # ─────────────────────────────────────────────────────────────────────────────
 
