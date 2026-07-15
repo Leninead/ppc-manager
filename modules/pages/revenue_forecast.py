@@ -73,6 +73,7 @@ Decisiones de diseño F1 (documentadas in-line)
 from __future__ import annotations
 
 import calendar
+import html
 import json
 import math
 import os
@@ -3725,6 +3726,43 @@ def _render_export_section(cur: dict) -> None:
         ),
     )
 
+    # ── Reporte HTML (G6) — deliverable cliente-facing con los 7 charts ──
+    # Corre DENTRO del guard `if not forecast: return` de arriba → acá el
+    # forecast está garantizado. No se toca ese guard: un "Revenue Forecast
+    # report" sin forecast no es un deliverable.
+    st.markdown("#### Reporte HTML")
+    st.caption(
+        "Documento self-contained con los 7 gráficos interactivos, el resumen "
+        "de la proyección y el detalle mes a mes. Respeta el toggle YoY de la "
+        "sección Gráficas. Se abre en cualquier browser."
+    )
+    # Buffer keyless (gotcha 1.43.2: nunca key= + value= juntos). No se
+    # persiste: la nota es por-descarga.
+    note = st.text_area(
+        "Nota para el cliente (opcional)",
+        value="",
+        placeholder="Contexto de la proyección, supuestos, próximos pasos…",
+    )
+    # RESPETA el toggle del AM (G5). `.get(..., True)` porque el buffer sólo se
+    # siembra si la sección Gráficas llegó a renderizar.
+    yoy = st.session_state.get(_K_CHARTS_YOY, True)
+    html_str = _build_export_html(cur, note=note or "", show_yoy=yoy)
+    fname_html = (
+        f"forecast_{_cliente_slug(cur.get('name', ''))}_"
+        f"{date.today().isoformat()}.html"
+    )
+    st.download_button(
+        label="📄 Descargar reporte HTML",
+        data=html_str.encode("utf-8"),
+        file_name=fname_html,
+        mime="text/html",
+        key=f"rf_export_html_{cur['id']}",
+        help=(
+            "Los gráficos se sirven desde el CDN de Plotly → el reporte pesa "
+            "cientos de KB (no 24MB) pero necesita internet para dibujarlos."
+        ),
+    )
+
 
 def _render_forecast_section(cur: dict) -> None:
     """Orquestador del bloque "Forecast" (F4): controles + tabla + summary + reset.
@@ -3840,6 +3878,276 @@ def _render_charts_section(cur: dict) -> None:
                     if mid in st.session_state[_K_CHARTS_CUSTOM]]
         st.plotly_chart(_custom_chart(selected, hist_rows, fc_rows, yoy),
                         use_container_width=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F6-G6 — Export HTML self-contained (7 charts Plotly + design system Capybaras)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# DECISIÓN DE ARQUITECTURA (Lenin): el reporte NO es una réplica del export
+# Chart.js del HTML de Edu. Es un documento propio, con el design system de
+# Capybaras, que embebe los MISMOS charts Plotly que el AM ve en pantalla (G1-G5).
+# Es el "cobro" de haber elegido Plotly sobre Chart.js en G1: los charts del
+# reporte son interactivos (hover, zoom) sin escribir una línea de JS.
+#
+# Capa PURA: estas 3 funciones no tocan Streamlit ni session_state. El wiring
+# (`_render_export_section`) les pasa `cur` y el buffer de YoY. Testeables como
+# strings, sin runtime ni browser.
+#
+# REUSO (no se duplica nada):
+#   - `_metric_chart` / `_ads_chart` / `_acos_tacos_chart` / `_custom_chart` (G1-G4)
+#   - `_fmt_currency` / `_fmt_num` / `_fmt_pct` (L628+) — ya devuelven '—' para None
+#   - `_build_forecast_summary_cards` (L3063) — los 8 totales, ya formateados
+#   - `_cliente_slug` (L3517) — filename filesystem-safe
+#   - `html.escape` (stdlib) — en vez de un `_esc` propio
+
+# Design system Capybaras (tema oscuro, default del OS). Tokens alineados con
+# los del chart (`_CHART_GRID`/`_CHART_TICK`/`_CHART_FONT`, L2394+): el reporte y
+# los charts embebidos comparten paleta, no se pelean.
+_SHELL_CSS = """
+:root{
+  --bg:#000000; --panel:#0a0a0a; --line:#2a2a2a; --line-2:#1d1d1d;
+  --text:#FFFFFF; --text-mute:#a8a8a8; --accent:#E84000;
+}
+*{box-sizing:border-box;}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:'Geist',system-ui,-apple-system,sans-serif;
+  font-size:14px; line-height:1.6;
+}
+.wrap{max-width:1100px; margin:0 auto; padding:40px 28px 64px;}
+h1,h2{font-family:'Bricolage Grotesque',Georgia,serif; font-weight:600; margin:0;}
+h1{font-size:2rem; letter-spacing:-0.02em;}
+h2{font-size:1.15rem; margin:0 0 12px; letter-spacing:-0.01em;}
+header{border-bottom:1px solid var(--line); padding-bottom:24px; margin-bottom:32px;}
+.brand{
+  font-family:'Bricolage Grotesque',Georgia,serif; font-weight:700;
+  font-size:0.8rem; letter-spacing:0.14em; text-transform:uppercase;
+  color:var(--accent); margin-bottom:10px;
+}
+.meta{color:var(--text-mute); font-size:0.82rem; margin-top:6px;}
+.note{
+  background:var(--panel); border:1px solid var(--line);
+  border-left:3px solid var(--accent); border-radius:6px;
+  padding:14px 18px; margin-bottom:32px; color:var(--text-mute);
+}
+section{margin-bottom:40px;}
+.cards{display:flex; flex-wrap:wrap; gap:12px;}
+.card{
+  flex:1 1 180px; background:var(--panel); border:1px solid var(--line);
+  border-radius:8px; padding:14px 16px;
+}
+.card .label{
+  color:var(--text-mute); font-size:0.7rem; text-transform:uppercase;
+  letter-spacing:0.08em; margin-bottom:6px;
+}
+.card .value{
+  font-family:'JetBrains Mono',ui-monospace,monospace;
+  font-size:1.25rem; font-weight:600; color:var(--text);
+}
+.chart{margin-bottom:36px;}
+table{width:100%; border-collapse:collapse; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:0.8rem;}
+thead th{
+  color:var(--text-mute); font-weight:500; font-size:0.68rem;
+  text-transform:uppercase; letter-spacing:0.08em; text-align:right;
+  padding:10px 12px; border-bottom:1px solid var(--line);
+}
+thead th:first-child{text-align:left;}
+tbody td{padding:9px 12px; text-align:right; border-bottom:1px solid var(--line-2);}
+tbody td:first-child{text-align:left; color:var(--text-mute);}
+tbody tr:last-child td{border-bottom:none;}
+footer{
+  border-top:1px solid var(--line); padding-top:20px; margin-top:48px;
+  color:var(--text-mute); font-size:0.75rem;
+}
+"""
+
+_EXPORT_FONTS = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
+    "family=Bricolage+Grotesque:wght@600;700&family=Geist:wght@400;500&"
+    'family=JetBrains+Mono:wght@400;600&display=swap">'
+)
+
+# Los 7 charts del reporte, en el mismo orden que las tabs de G5.
+_EXPORT_CHART_TITLES = [
+    "Revenue", "Sessions", "CVR", "Units", "Ads", "ACOS/TACOS", "Custom",
+]
+
+
+def _fig_to_div(fig: "go.Figure", first: bool) -> str:
+    """Convierte UNA figura a HTML embebible (sin `<html>`, sólo el div + script).
+
+    🔴 LOAD-BEARING — TAMAÑO DEL ARCHIVO. `to_html()` embebe plotly.js (~3.5MB)
+    en CADA figura por default. Con 7 figuras el reporte pesaría ~24MB y Gmail
+    lo rebota. Fix en dos partes:
+        - `include_plotlyjs="cdn"` (NO `True`): la lib se sirve desde el CDN de
+          Plotly, no se embebe → el archivo queda en cientos de KB.
+        - Sólo la PRIMERA figura la carga (`first=True`); las otras 6 pasan
+          `False` y reusan la lib ya cargada en el documento.
+    El test `test_export_loads_plotlyjs_once` afirma esto contando el marcador
+    `cdn.plot.ly` (== 1). Si alguien cambia esto a `True`, el test lo caza.
+
+    Trade-off del CDN: el reporte necesita internet para dibujar los charts.
+    Aceptado — es un deliverable que se manda por mail y se abre en un browser
+    con conexión; 24MB no es una alternativa real.
+    """
+    return fig.to_html(
+        full_html=False,
+        include_plotlyjs="cdn" if first else False,
+        config={"displayModeBar": False},
+    )
+
+
+def _table_cell(v: Any) -> Optional[float]:
+    """Normaliza un valor de celda a float o None (para que los `_fmt_*` den '—').
+
+    Los `_fmt_*` (L628+) ya mapean None/NaN → '—', pero explotan con `''`
+    (`f"{'':,.0f}"` → TypeError). Este normalizador cubre el hueco: None, '',
+    no-numérico y NaN colapsan a None → '—'.
+    """
+    if v is None or v == "":
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(f) else f
+
+
+def _forecast_table_html(fc_rows: list, currency: str = "USD") -> str:
+    """Tabla HTML del forecast — una fila por mes proyectado.
+
+    Columnas: Mes, Revenue, Units, Sessions, CVR, ACOS, TACOS.
+    Formato delegado a los `_fmt_*` existentes (currency respeta la moneda de la
+    cuenta, NO hardcodea '$'). Valores ausentes → '—' vía `_table_cell`.
+    El `date` se escapa con `html.escape` — viene de datos, podría traer `<`/`&`.
+
+    `fc_rows` vacío → devuelve '' (el caller decide si omite la sección).
+    """
+    if not fc_rows:
+        return ""
+    head = ["Mes", "Revenue", "Units", "Sessions", "CVR", "ACOS", "TACOS"]
+    out = ["<table><thead><tr>"]
+    out += [f"<th>{html.escape(h)}</th>" for h in head]
+    out.append("</tr></thead><tbody>")
+    for f in fc_rows:
+        cells = [
+            html.escape(str(f.get("date", "") or "—")),
+            _fmt_currency(_table_cell(f.get("revenue")), currency),
+            _fmt_num(_table_cell(f.get("units"))),
+            _fmt_num(_table_cell(f.get("sessions"))),
+            _fmt_pct(_table_cell(f.get("cvr")), 2),
+            _fmt_pct(_table_cell(f.get("acos"))),
+            _fmt_pct(_table_cell(f.get("tacos"))),
+        ]
+        out.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+    out.append("</tbody></table>")
+    return "".join(out)
+
+
+def _export_shell(title: str, body: str) -> str:
+    """Envuelve `body` en el documento completo (head + fonts + CSS + wrap)."""
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="es">\n<head>\n'
+        '<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"<title>{html.escape(title)}</title>\n"
+        f"{_EXPORT_FONTS}\n"
+        f"<style>{_SHELL_CSS}</style>\n"
+        "</head>\n<body>\n"
+        f'<div class="wrap">\n{body}\n</div>\n'
+        "</body>\n</html>\n"
+    )
+
+
+def _build_export_html(cur: dict, note: str = "", show_yoy: bool = True) -> str:
+    """Reporte HTML self-contained del forecast: 7 charts Plotly + resumen + tabla.
+
+    Args:
+        cur: dict del cliente activo (keys: name, currency, historical, forecast).
+        note: nota opcional del AM para el cliente. Se escapa (`html.escape`) —
+              es texto libre que termina en un documento que se manda por mail.
+        show_yoy: se propaga a los 7 charts. Default True para que los tests NO
+                  dependan de session_state; el wiring le pasa el buffer real de
+                  G5 (`_K_CHARTS_YOY`) → el reporte RESPETA el toggle del AM en
+                  vez de forzar un valor.
+
+    Returns:
+        Documento HTML completo como string.
+
+    Guard: `historical` vacío → documento MÍNIMO con un mensaje, NO excepción.
+    En producción no se dispara (el guard de `_render_export_section` ya exige
+    forecast, que no existe sin historial); queda como red de seguridad.
+    """
+    name = cur.get("name") or "Cuenta"
+    currency = cur.get("currency", "USD")
+    hist = cur.get("historical", []) or []
+    fc = cur.get("forecast", []) or []
+    gen = date.today().isoformat()
+
+    head = (
+        "<header>\n"
+        '<div class="brand">Capybaras</div>\n'
+        f"<h1>{html.escape(name)}</h1>\n"
+        f'<div class="meta">Revenue Forecast · generado el {gen}</div>\n'
+        "</header>"
+    )
+
+    if not hist:
+        body = (
+            f"{head}\n"
+            '<section><p class="meta">Sin datos para exportar. Cargá el '
+            "histórico para generar el reporte.</p></section>"
+        )
+        return _export_shell(f"Forecast · {name}", body)
+
+    parts = [head]
+
+    if note.strip():
+        parts.append(f'<div class="note">{html.escape(note.strip())}</div>')
+
+    # Resumen — reusa el builder puro del summary de F4 (8 cards ya formateados).
+    cards = _build_forecast_summary_cards(fc, currency)
+    if cards:
+        cards_html = "".join(
+            f'<div class="card"><div class="label">{html.escape(c["label"])}</div>'
+            f'<div class="value">{html.escape(str(c["value"]))}</div></div>'
+            for c in cards
+        )
+        parts.append(
+            f'<section><h2>Resumen de la proyección</h2>'
+            f'<div class="cards">{cards_html}</div></section>'
+        )
+
+    # Los 7 charts — se CONSTRUYEN llamando a los charts puros de G1-G4, con el
+    # mismo `show_yoy` que el AM tiene en pantalla. Orden = tabs de G5.
+    figs = [
+        _metric_chart("revenue", hist, fc, show_yoy),
+        _metric_chart("sessions", hist, fc, show_yoy),
+        _metric_chart("cvr", hist, fc, show_yoy),
+        _metric_chart("units", hist, fc, show_yoy),
+        _ads_chart(hist, fc, show_yoy),
+        _acos_tacos_chart(hist, fc, show_yoy),
+        _custom_chart(["revenue"], hist, fc, show_yoy),  # custom arranca en revenue
+    ]
+    charts_html = "".join(
+        f'<div class="chart"><h2>{html.escape(t)}</h2>'
+        f"{_fig_to_div(f, first=(i == 0))}</div>"
+        for i, (t, f) in enumerate(zip(_EXPORT_CHART_TITLES, figs))
+    )
+    parts.append(f"<section>{charts_html}</section>")
+
+    table = _forecast_table_html(fc, currency)
+    if table:
+        parts.append(f"<section><h2>Detalle del forecast</h2>{table}</section>")
+
+    parts.append(
+        f"<footer>Generado por Agency OS · Capybaras Agency · {gen[:4]}</footer>"
+    )
+    return _export_shell(f"Forecast · {name}", "\n".join(parts))
 
 
 def _render_asin_section(cur: dict) -> None:
