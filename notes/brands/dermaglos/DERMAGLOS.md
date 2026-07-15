@@ -767,3 +767,15 @@ Fix: el forecast ahora arranca en el mes siguiente al último mes CARGADO (inclu
 Validado con datos reales de Dermaglos (hero B0CYLMJJJC, mayo 1512 / junio 1176 / julio 243 sessions). 41 tests verde.
 
 **Del pedido de Edu: 2 de 4 cerrados.** Falta gráficas de tendencia (7 charts) y export HTML.
+
+---
+
+## 2026-07-15 — Forecast tool: 7 charts + export HTML entregado (pedido Edu 4/4)
+
+La herramienta de forecast de M31 quedó completa para Dermaglos con lo que pidió Eduardo:
+- 7 gráficas interactivas (Revenue, Units, Sessions, CVR, Ads spend/ventas PPC, ACOS/TACOS, y un chart Custom configurable con 10 métricas y doble eje Y).
+- Toggle YoY (comparación año contra año) en todos los charts.
+- Botón "Descargar reporte HTML": genera un reporte self-contained con los 7 charts y el diseño Capybaras, listo para mandar al cliente (plotly.js carga una vez desde CDN → liviano, no lo rebota Gmail).
+- El chart Custom del export refleja la selección del AM (no un duplicado fijo de Revenue).
+
+En producción en capybaras-os.streamlit.app. Pedido de Eduardo completo 4/4.

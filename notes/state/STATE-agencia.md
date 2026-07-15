@@ -1,11 +1,21 @@
 ---
 tipo: state
-actualizado: 2026-07-13
+actualizado: 2026-07-15
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-15 — M31 Gráficas + export HTML (pedido Edu CERRADO 4/4)
+
+**M31 Gráficas + export HTML:** frente charts mergeado a main (`5c30c2e`) y en producción. 7 charts Plotly (tabs + pills + toggle YoY) + botón "Descargar reporte HTML" self-contained. **Pedido de Eduardo CERRADO 4/4** (F6.3c + F6 por-ASIN + gráficas + export). 103 tests nuevos, verde.
+
+- Deuda no bloqueante: 5 tests de `_ensure_state` sin aislar del `data/` local (verde en CI, rojo en máquina con data — diagnóstico completo en el daily); ruido EOL 39 archivos (renormalización aparte).
+
+Detalle: [[2026-07-15]] · [[DERMAGLOS]]
 
 ---
 
