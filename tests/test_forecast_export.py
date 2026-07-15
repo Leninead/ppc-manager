@@ -200,8 +200,53 @@ def test_export_escapes_client_name():
     assert "A &amp; B &lt;Co&gt;" in html
 
 
-def test_export_show_yoy_toggle_changes_output():
-    """El reporte RESPETA el toggle del AM: con/sin YoY el HTML difiere."""
+def test_export_show_yoy_toggle_respected():
+    """El reporte RESPETA el toggle del AM: los traces YoY aparecen sólo si on.
+
+    NO se compara `on != off`: Plotly le pone un uuid aleatorio a cada div, así
+    que dos builds NUNCA son string-iguales y esa aserción pasaría aunque
+    `show_yoy` se ignorara por completo. Se afirma el marcador real: los traces
+    YoY se llaman '{label} YoY' (L2476).
+    """
     on = _build_export_html(_cur(), show_yoy=True)
     off = _build_export_html(_cur(), show_yoy=False)
-    assert on != off
+    assert "YoY" in on
+    assert "YoY" not in off
+
+
+def test_export_custom_reflects_selection():
+    """El 7º chart (Custom) refleja la selección del AM, no ["revenue"] fijo.
+
+    Antes del fix, `_custom_chart` recibía `["revenue"]` hardcodeado → el Custom
+    era un DUPLICADO exacto del 1er chart. El trace de ACOS sólo puede venir del
+    Custom: ningún otro de los 7 charts nombra 'ACOS %' (el de ACOS/TACOS usa el
+    label del catálogo también, así que se compara el CONTEO, no la presencia).
+    """
+    default = _build_export_html(_cur())                               # → revenue
+
+    # Señal BINARIA: 'Sales Velocity' no aparece en NINGUNO de los otros 6
+    # charts, así que su presencia sólo puede venir del Custom.
+    sv = _build_export_html(_cur(), custom_metrics=["salesVelocity"])
+    assert "Sales Velocity" not in default
+    assert "Sales Velocity" in sv
+
+    # El caso pedido (acos). Se compara con '>' y NO con aritmética exacta:
+    # cada métrica aporta 3 traces (hist + forecast + YoY) y además 'TACOS %'
+    # CONTIENE 'ACOS %' como substring → el delta real es +3, no +1.
+    picked = _build_export_html(_cur(), custom_metrics=["acos", "revenue"])
+    assert picked.count("ACOS %") > default.count("ACOS %")
+
+
+def test_export_custom_empty_falls_back_to_revenue():
+    """`[]` → default (revenue), NO un chart en blanco.
+
+    G5 enforcea el mínimo de 1 chip, así que en producción no se dispara; el
+    guard cubre el caller futuro que pase [] sin saberlo.
+
+    Se comparan CONTEOS, no los strings enteros: los uuid de los divs de Plotly
+    hacen que dos builds nunca sean iguales.
+    """
+    empty = _build_export_html(_cur(), custom_metrics=[])
+    default = _build_export_html(_cur())
+    assert empty.count("plotly-graph-div") == 7      # el 7º existe, no se cayó
+    assert empty.count("ACOS %") == default.count("ACOS %")   # se comporta como revenue

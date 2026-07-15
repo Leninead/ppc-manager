@@ -3733,8 +3733,9 @@ def _render_export_section(cur: dict) -> None:
     st.markdown("#### Reporte HTML")
     st.caption(
         "Documento self-contained con los 7 gráficos interactivos, el resumen "
-        "de la proyección y el detalle mes a mes. Respeta el toggle YoY de la "
-        "sección Gráficas. Se abre en cualquier browser."
+        "de la proyección y el detalle mes a mes. Respeta el toggle YoY y la "
+        "selección del chart Custom de la sección Gráficas. Se abre en "
+        "cualquier browser."
     )
     # Buffer keyless (gotcha 1.43.2: nunca key= + value= juntos). No se
     # persiste: la nota es por-descarga.
@@ -3743,10 +3744,14 @@ def _render_export_section(cur: dict) -> None:
         value="",
         placeholder="Contexto de la proyección, supuestos, próximos pasos…",
     )
-    # RESPETA el toggle del AM (G5). `.get(..., True)` porque el buffer sólo se
-    # siembra si la sección Gráficas llegó a renderizar.
+    # RESPETA lo que el AM está viendo en Gráficas (G5): toggle YoY + selección
+    # del chart Custom. `.get(..., default)` porque los buffers sólo se siembran
+    # si la sección Gráficas llegó a renderizar.
     yoy = st.session_state.get(_K_CHARTS_YOY, True)
-    html_str = _build_export_html(cur, note=note or "", show_yoy=yoy)
+    custom = st.session_state.get(_K_CHARTS_CUSTOM, ["revenue"])
+    html_str = _build_export_html(
+        cur, note=note or "", show_yoy=yoy, custom_metrics=custom,
+    )
     fname_html = (
         f"forecast_{_cliente_slug(cur.get('name', ''))}_"
         f"{date.today().isoformat()}.html"
@@ -4063,7 +4068,12 @@ def _export_shell(title: str, body: str) -> str:
     )
 
 
-def _build_export_html(cur: dict, note: str = "", show_yoy: bool = True) -> str:
+def _build_export_html(
+    cur: dict,
+    note: str = "",
+    show_yoy: bool = True,
+    custom_metrics: Optional[list] = None,
+) -> str:
     """Reporte HTML self-contained del forecast: 7 charts Plotly + resumen + tabla.
 
     Args:
@@ -4074,6 +4084,17 @@ def _build_export_html(cur: dict, note: str = "", show_yoy: bool = True) -> str:
                   dependan de session_state; el wiring le pasa el buffer real de
                   G5 (`_K_CHARTS_YOY`) → el reporte RESPETA el toggle del AM en
                   vez de forzar un valor.
+        custom_metrics: métricas del 7º chart (Custom). None o `[]` → `["revenue"]`
+                  (default del HTML L2378). El caso `[]` se cubre a propósito:
+                  `_custom_chart([])` devuelve figura VACÍA, y un chart en blanco
+                  en un deliverable es peor que el default. G5 ya enforcea el
+                  mínimo de 1 chip, así que en producción no se dispara.
+                  Mismo patrón que `show_yoy`: param
+                  con default en vez de leer session_state, para que la capa
+                  siga PURA y testeable. El wiring le pasa el buffer real de G5
+                  (`_K_CHARTS_CUSTOM`) → el Custom del reporte refleja lo que el
+                  AM eligió en pantalla, en vez de ser un duplicado del chart de
+                  Revenue.
 
     Returns:
         Documento HTML completo como string.
@@ -4131,7 +4152,7 @@ def _build_export_html(cur: dict, note: str = "", show_yoy: bool = True) -> str:
         _metric_chart("units", hist, fc, show_yoy),
         _ads_chart(hist, fc, show_yoy),
         _acos_tacos_chart(hist, fc, show_yoy),
-        _custom_chart(["revenue"], hist, fc, show_yoy),  # custom arranca en revenue
+        _custom_chart(custom_metrics or ["revenue"], hist, fc, show_yoy),
     ]
     charts_html = "".join(
         f'<div class="chart"><h2>{html.escape(t)}</h2>'
