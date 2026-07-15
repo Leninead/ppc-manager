@@ -1,3 +1,8 @@
+---
+tipo: sop
+actualizado: 2026-07-15
+---
+
 # SOP PPC 360° — De reporte a decisión (Capybaras Agency)
 
 **Qué es:** el método senior de auditoría de cuentas Amazon Ads fusionado con el flujo 360° de Capybaras. Convierte 7 fuentes de reporte en decisiones defendibles sobre bid, placement, budget, corte y escala.
