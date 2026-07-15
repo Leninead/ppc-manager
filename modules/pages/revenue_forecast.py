@@ -73,6 +73,7 @@ Decisiones de diseño F1 (documentadas in-line)
 from __future__ import annotations
 
 import calendar
+import html
 import json
 import math
 import os
@@ -83,6 +84,7 @@ from io import BytesIO
 from typing import Any, Optional
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from core.helpers import kpi_card
@@ -2217,6 +2219,492 @@ def _run_forecast_for_active_client(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# F6-G1 — Helpers puros de series para charts (bridge, YoY, accessors hist/fc)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Sin Streamlit, sin Plotly. Producen dicts {"x": [...], "y": [...]} listos para
+# graficar. Las hist rows y las fc rows tienen SHAPE DISTINTO (port verbatim del
+# HTML): aov/acos/tacos/salesVelocity NO existen en hist (se CALCULAN) pero SÍ en
+# fc (los escribe recompute_forecast_row respetando los overrides acosTarget/
+# tacosTarget del AM). Por eso cada métrica tiene DOS accessors: from_hist
+# (calcula) y from_fc (LEE, nunca recalcula → respeta el override). Un solo
+# _bridge cubre los 7 charts.
+
+
+def _safe_num(v: Any) -> Optional[float]:
+    """Normaliza a float para charts, con None cuando el dato está AUSENTE.
+
+    None / '' / NaN → None (hueco en el chart, NO 0). Resto → float delegando en
+    `_parse_num` (que ya cubre '$1,234', '1,234.5', '12%', 'MX$...'). 0 → 0.0.
+
+    Reuso deliberado: NO se envuelve `_js_number` (su semántica JS colapsa
+    ''/None/NaN → 0.0, lo opuesto a lo que el chart necesita, y no parsea monedas
+    con coma/$/%). `_parse_num` es el parser rico existente; acá sólo se agrega el
+    guard "ausente → None". Un único parser de números en el módulo.
+    """
+    if v is None:
+        return None
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    if isinstance(v, str) and v.strip() == "":
+        return None
+    return _parse_num(v)
+
+
+def _shift_period(date_iso: str, months: int) -> str:
+    """Desplaza una fecha ISO por N meses. Aritmética entera sobre y*12 + (m-1).
+
+    '2026-03-01', -12 → '2025-03-01'. Sin dateutil (no está en requirements).
+    Devuelve siempre día 01.
+    """
+    y, m = int(date_iso[:4]), int(date_iso[5:7])
+    total = y * 12 + (m - 1) + months
+    ny, nm = divmod(total, 12)
+    return f"{ny:04d}-{nm + 1:02d}-01"
+
+
+# ── Accessors ────────────────────────────────────────────────────────────────
+# Reads directos (revenue/units/sessions/cvr/spend/ventasPPC) via factory.
+# Computados en hist (aov/acos/tacos/salesVelocity) con guards. En fc TODOS se
+# leen (el motor ya los escribió respetando los overrides del AM).
+
+def _reader(key: str):
+    """Factory de accessor que lee `key` de la row vía _safe_num."""
+    def _acc(r: dict) -> Optional[float]:
+        return _safe_num(r.get(key))
+    return _acc
+
+
+def _acc_hist_aov(r: dict) -> Optional[float]:
+    """AOV en hist = revenue/units (units>0, si no None)."""
+    units = _safe_num(r.get("units"))
+    rev = _safe_num(r.get("revenue"))
+    if units and units > 0 and rev is not None:
+        return rev / units
+    return None
+
+
+def _acc_hist_acos(r: dict) -> Optional[float]:
+    """ACOS en hist = spend/ventasPPC*100 (spend no-None Y ventasPPC>0)."""
+    spend = _safe_num(r.get("spend"))
+    vppc = _safe_num(r.get("ventasPPC"))
+    if spend is not None and vppc is not None and vppc > 0:
+        return spend / vppc * 100.0
+    return None
+
+
+def _acc_hist_tacos(r: dict) -> Optional[float]:
+    """TACOS en hist = spend/revenue*100 (spend no-None Y revenue>0)."""
+    spend = _safe_num(r.get("spend"))
+    rev = _safe_num(r.get("revenue"))
+    if spend is not None and rev is not None and rev > 0:
+        return spend / rev * 100.0
+    return None
+
+
+def _acc_hist_sales_velocity(r: dict) -> Optional[float]:
+    """Sales velocity en hist = units / max(1, días del mes). Port verbatim del
+    HTML `r.units / Math.max(1, dim)` (el guard es gratis, mantiene el port
+    rastreable). Reusa `_days_in_month`."""
+    units = _safe_num(r.get("units"))
+    if units is None:
+        return None
+    return units / max(1, _days_in_month(r["date"]))
+
+
+# ── Catálogo de métricas ─────────────────────────────────────────────────────
+# metric_id = id del HTML tal cual (ventasPPC, salesVelocity camelCase) para que
+# el port sea rastreable. Colores VERIFICADOS contra el HTML (L2330-2372).
+
+_METRICS: dict = {
+    "revenue":       {"label": "Revenue",        "unit": "currency", "color": "#FF3300",
+                      "from_hist": _reader("revenue"),   "from_fc": _reader("revenue")},
+    "units":         {"label": "Units Sold",     "unit": "count",    "color": "#E85B03",
+                      "from_hist": _reader("units"),     "from_fc": _reader("units")},
+    "sessions":      {"label": "Sessions",       "unit": "count",    "color": "#FBBF24",
+                      "from_hist": _reader("sessions"),  "from_fc": _reader("sessions")},
+    "cvr":           {"label": "CVR %",          "unit": "percent",  "color": "#34D399",
+                      "from_hist": _reader("cvr"),       "from_fc": _reader("cvr")},
+    "aov":           {"label": "AOV",            "unit": "currency", "color": "#60A5FA",
+                      "from_hist": _acc_hist_aov,        "from_fc": _reader("aov")},
+    "spend":         {"label": "Spend",          "unit": "currency", "color": "#A78BFA",
+                      "from_hist": _reader("spend"),     "from_fc": _reader("spend")},
+    "ventasPPC":     {"label": "Ventas PPC",     "unit": "currency", "color": "#F472B6",
+                      "from_hist": _reader("ventasPPC"), "from_fc": _reader("ventasPPC")},
+    "acos":          {"label": "ACOS %",         "unit": "percent",  "color": "#F87171",
+                      "from_hist": _acc_hist_acos,       "from_fc": _reader("acos")},
+    "tacos":         {"label": "TACOS %",        "unit": "percent",  "color": "#22D3EE",
+                      "from_hist": _acc_hist_tacos,      "from_fc": _reader("tacos")},
+    "salesVelocity": {"label": "Sales Velocity", "unit": "count",    "color": "#FB923C",
+                      "from_hist": _acc_hist_sales_velocity, "from_fc": _reader("salesVelocity")},
+}
+
+
+def _series(rows: list, acc) -> dict:
+    """Serie {x: [dates], y: [acc(row)]} sobre `rows` con el accessor dado."""
+    return {"x": [r["date"] for r in rows], "y": [acc(r) for r in rows]}
+
+
+def _bridge(hist_rows: list, fc_rows: list, from_hist, from_fc) -> tuple:
+    """Devuelve (serie_hist, serie_fc). La serie fc ARRANCA repitiendo el último
+    punto histórico (BRIDGE) → las líneas se tocan en el chart.
+
+    El punto de bridge se computa con `from_hist` sobre la ÚLTIMA row histórica
+    (el bridge ES el último punto hist, no un from_fc). Contratos:
+      - con hist y fc: len(fc.x)==len(fc_rows)+1, fc.x[0]==hist.x[-1], fc.y[0]==hist.y[-1]
+      - hist vacío → fc SIN bridge (len(fc.x)==len(fc_rows))
+      - fc vacío → (serie_hist, {x:[],y:[]})
+      - hist.y[-1] is None → el bridge copia None (no inventa valor)
+    """
+    serie_hist = _series(hist_rows, from_hist)
+    if not fc_rows:
+        return serie_hist, {"x": [], "y": []}
+    fc_x = [f["date"] for f in fc_rows]
+    fc_y = [from_fc(f) for f in fc_rows]
+    if hist_rows:
+        last = hist_rows[-1]
+        fc_x = [last["date"]] + fc_x
+        fc_y = [from_hist(last)] + fc_y   # bridge = último punto hist (from_hist)
+    return serie_hist, {"x": fc_x, "y": fc_y}
+
+
+def _yoy_series(hist_rows: list, fc_rows: list, from_hist) -> dict:
+    """Serie del mismo mes del año previo, sobre el eje COMPLETO (hist+fc), SIN
+    bridge. La fuente es SIEMPRE `hist_rows` + `from_hist` (nunca fc: proyectar
+    contra proyección no tiene sentido). Sin 12+ meses de match → valores None
+    (lista alineada al eje, NO vacía).
+    """
+    axis = [r["date"] for r in hist_rows] + [f["date"] for f in fc_rows]
+    by_date = {r["date"]: r for r in hist_rows}
+    y = []
+    for d in axis:
+        prev = by_date.get(_shift_period(d, -12))
+        y.append(from_hist(prev) if prev is not None else None)
+    return {"x": axis, "y": y}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F6-G2 — Charts del patrón común (Plotly go.Figure, sin Streamlit)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# _metric_chart es LA función genérica: los 4 charts del patrón (revenue,
+# sessions, cvr, units) salen de acá parametrizados por metric_id. Hasta 3 traces
+# (hist / forecast dashed / YoY dotted washed-out), reusando _bridge y _yoy_series
+# de G1. NO recalcula nada, NO llama a Streamlit (el st.plotly_chart es de G5).
+
+_CHART_GRID = "#1d1d1d"       # --line-2 (tema oscuro, default del OS)
+_CHART_TICK = "#a8a8a8"       # --text-mute
+_CHART_FONT = "JetBrains Mono, monospace"
+
+# Layout base VERIFICADO contra el HTML de Edu. Fondo transparente → hereda el
+# tema de Streamlit; valores del tema OSCURO fijos (Streamlit no expone
+# getComputedStyle). Los 10 colores de métrica son fijos en ambos temas.
+_PLOTLY_LAYOUT: dict = {
+    "paper_bgcolor": "rgba(0,0,0,0)",
+    "plot_bgcolor": "rgba(0,0,0,0)",
+    "font": {"family": _CHART_FONT, "color": _CHART_TICK, "size": 10},
+    "hovermode": "x unified",
+    "margin": {"l": 50, "r": 50, "t": 30, "b": 40},
+    "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.02,
+               "xanchor": "left", "x": 0},
+    "xaxis": {"gridcolor": _CHART_GRID, "zeroline": False,
+              "tickfont": {"color": _CHART_TICK, "size": 10, "family": _CHART_FONT}},
+    "yaxis": {"gridcolor": _CHART_GRID, "zeroline": False,
+              "tickfont": {"color": _CHART_TICK, "size": 10, "family": _CHART_FONT}},
+}
+
+
+def _washed_color(hex6: str, alpha_hex: str = "88") -> str:
+    """Convierte '#RRGGBB' + alpha hex ('88' del HTML) a 'rgba(r,g,b,a)'.
+
+    El HTML usaba `color + "88"` (hex de 8 dígitos) para el trace YoY washed-out.
+    Esta versión de Plotly RECHAZA el hex de 8 dígitos en line.color (sólo acepta
+    #RRGGBB o rgba) → portamos el mismo alpha a rgba (0x88 = 136/255 ≈ 0.533).
+    Mismo efecto visual, formato válido.
+    """
+    h = hex6.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    a = int(alpha_hex, 16) / 255.0
+    return f"rgba({r},{g},{b},{a:.3f})"
+
+
+def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
+                  show_yoy: bool = False) -> "go.Figure":
+    """Construye la figura de UNA métrica del catálogo `_METRICS`.
+
+    Hasta 3 traces: histórico (spline sólido), forecast (dashed, mismo color) y
+    YoY opcional (dotted, color washed-out `+"88"`). Todos los valores salen de
+    `_bridge`/`_yoy_series` con los accessors del catálogo — NO se recalcula nada.
+    Eje Y formateado según `unit` (currency/count/percent).
+
+    Guard: `hist_rows` vacío → figura VACÍA (con layout), NO excepción (fiel al
+    HTML `if (state.historical.length === 0) return;`).
+    """
+    m = _METRICS[metric_id]
+    fig = go.Figure()
+    fig.update_layout(**_PLOTLY_LAYOUT)
+
+    if not hist_rows:
+        return fig
+
+    hist, fc = _bridge(hist_rows, fc_rows, m["from_hist"], m["from_fc"])
+
+    # Trace 1 — histórico (siempre).
+    fig.add_trace(go.Scatter(
+        x=hist["x"], y=hist["y"], name=m["label"],
+        mode="lines+markers",
+        line=dict(color=m["color"], width=2, shape="spline", smoothing=0.3),
+        marker=dict(size=4),
+        connectgaps=True,
+    ))
+
+    # Trace 2 — forecast (sólo si hay).
+    if fc["x"]:
+        fig.add_trace(go.Scatter(
+            x=fc["x"], y=fc["y"], name=f'{m["label"]} (forecast)',
+            mode="lines+markers",
+            line=dict(color=m["color"], width=2, dash="dash",
+                      shape="spline", smoothing=0.3),
+            marker=dict(size=6),
+            connectgaps=True,
+        ))
+
+    # Trace 3 — YoY (sólo si show_yoy).
+    if show_yoy:
+        yoy = _yoy_series(hist_rows, fc_rows, m["from_hist"])
+        fig.add_trace(go.Scatter(
+            x=yoy["x"], y=yoy["y"], name=f'{m["label"]} YoY',
+            mode="lines+markers",
+            line=dict(color=_washed_color(m["color"]), width=1, dash="dot",
+                      shape="spline", smoothing=0.3),
+            marker=dict(size=2),
+            connectgaps=True,
+        ))
+
+    # Eje Y según unidad.
+    unit = m["unit"]
+    if unit == "currency":
+        fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    elif unit == "percent":
+        fig.update_yaxes(ticksuffix="%", tickformat=".1f")
+    else:  # count
+        fig.update_yaxes(tickformat=",.0f")
+
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F6-G3 — Charts multi-métrica: Ads (spend+ventasPPC) y ACOS/TACOS
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Estos 2 charts meten DOS métricas del catálogo en la MISMA figura (5 traces),
+# por eso no salen de _metric_chart (una métrica por figura). Puro ensamblado:
+# los valores vienen de _bridge/_yoy_series con los accessors de _METRICS. Cero
+# cálculo nuevo. El estilo de trace se centraliza en _chart_trace (mismos tokens
+# que G2) para que el lenguaje visual sea idéntico en los 7 charts.
+
+
+def _chart_trace(x: list, y: list, name: str, color: str, role: str) -> "go.Scatter":
+    """Arma un go.Scatter con el estilo del módulo según `role`:
+        'hist' → sólido, width 2, marker 4
+        'fc'   → dashed, width 2, marker 6   (dashed = forecast, en los 7 charts)
+        'yoy'  → dotted, width 1, marker 2, color washed-out (_washed_color)
+    Mismos tokens que _metric_chart (G2). Todos con spline 0.3 + connectgaps.
+    """
+    if role == "hist":
+        line = dict(color=color, width=2, shape="spline", smoothing=0.3)
+        marker = dict(size=4)
+    elif role == "fc":
+        line = dict(color=color, width=2, dash="dash", shape="spline", smoothing=0.3)
+        marker = dict(size=6)
+    else:  # yoy
+        line = dict(color=_washed_color(color), width=1, dash="dot",
+                    shape="spline", smoothing=0.3)
+        marker = dict(size=2)
+    return go.Scatter(x=x, y=y, name=name, mode="lines+markers",
+                      line=line, marker=marker, connectgaps=True)
+
+
+def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False) -> "go.Figure":
+    """Chart de Ads: spend + ventasPPC en la misma figura (hasta 5 traces).
+
+    Trazas: Spend (hist/fc) + Ventas PPC (hist/fc) + UN solo YoY (el de SPEND —
+    verbatim del HTML: con 5 líneas, un 2do YoY lo vuelve ilegible). Eje Y en $
+    con `rangemode="tozero"` — es el ÚNICO de los 7 charts con beginAtZero
+    (HTML L2653). Guard: hist vacío → figura vacía, sin excepción.
+    """
+    fig = go.Figure()
+    fig.update_layout(**_PLOTLY_LAYOUT)
+    if not hist_rows:
+        return fig
+
+    sp_hist, sp_fc = _bridge(hist_rows, fc_rows,
+                             _METRICS["spend"]["from_hist"], _METRICS["spend"]["from_fc"])
+    vp_hist, vp_fc = _bridge(hist_rows, fc_rows,
+                             _METRICS["ventasPPC"]["from_hist"], _METRICS["ventasPPC"]["from_fc"])
+    sp_color = _METRICS["spend"]["color"]
+    vp_color = _METRICS["ventasPPC"]["color"]
+
+    fig.add_trace(_chart_trace(sp_hist["x"], sp_hist["y"], "Spend (hist.)", sp_color, "hist"))
+    if sp_fc["x"]:
+        fig.add_trace(_chart_trace(sp_fc["x"], sp_fc["y"], "Spend (forecast)", sp_color, "fc"))
+    fig.add_trace(_chart_trace(vp_hist["x"], vp_hist["y"], "Ventas PPC (hist.)", vp_color, "hist"))
+    if vp_fc["x"]:
+        fig.add_trace(_chart_trace(vp_fc["x"], vp_fc["y"], "Ventas PPC (forecast)", vp_color, "fc"))
+    if show_yoy:
+        sp_yoy = _yoy_series(hist_rows, fc_rows, _METRICS["spend"]["from_hist"])
+        fig.add_trace(_chart_trace(sp_yoy["x"], sp_yoy["y"], "Spend año previo (YoY)", sp_color, "yoy"))
+
+    fig.update_yaxes(tickprefix="$", tickformat=",.0f", rangemode="tozero")
+    return fig
+
+
+def _acos_tacos_chart(hist_rows: list, fc_rows: list,
+                      show_yoy: bool = False) -> "go.Figure":
+    """Chart de ACOS/TACOS: acos + tacos en la misma figura (hasta 5 traces).
+
+    DESVIACIÓN CONSCIENTE DEL HTML (decisión de Lenin): en el HTML este era el
+    ÚNICO chart que NO separaba hist/forecast en traces (concatenaba todo) y usaba
+    `borderDash:[6,4]` en TACOS para distinguirlo de ACOS — o sea, "dashed"
+    significaba dos cosas distintas según el chart. Como los 7 charts se ven
+    juntos en el reporte cliente-facing, se NORMALIZA: **dashed = forecast en los
+    7 charts, sin excepción**. Acá ACOS y TACOS se distinguen por COLOR (catálogo),
+    nunca por dash; el dash queda reservado al tramo de forecast.
+
+    Los valores del forecast salen de `from_fc` → LEEN `f["acos"]`/`f["tacos"]`
+    (que el motor escribió respetando los overrides acosTarget/tacosTarget del AM).
+    NUNCA se recalcula spend/ventasPPC*100 en el forecast (sería el bug F6.3c:
+    chart ≠ tabla). Eje Y en % SIN rangemode (ese es exclusivo de Ads). Guard:
+    hist vacío → figura vacía, sin excepción.
+    """
+    fig = go.Figure()
+    fig.update_layout(**_PLOTLY_LAYOUT)
+    if not hist_rows:
+        return fig
+
+    ac_hist, ac_fc = _bridge(hist_rows, fc_rows,
+                             _METRICS["acos"]["from_hist"], _METRICS["acos"]["from_fc"])
+    tc_hist, tc_fc = _bridge(hist_rows, fc_rows,
+                             _METRICS["tacos"]["from_hist"], _METRICS["tacos"]["from_fc"])
+    ac_color = _METRICS["acos"]["color"]
+    tc_color = _METRICS["tacos"]["color"]
+
+    fig.add_trace(_chart_trace(ac_hist["x"], ac_hist["y"], "ACOS %", ac_color, "hist"))
+    if ac_fc["x"]:
+        fig.add_trace(_chart_trace(ac_fc["x"], ac_fc["y"], "ACOS % (forecast)", ac_color, "fc"))
+    fig.add_trace(_chart_trace(tc_hist["x"], tc_hist["y"], "TACOS %", tc_color, "hist"))
+    if tc_fc["x"]:
+        fig.add_trace(_chart_trace(tc_fc["x"], tc_fc["y"], "TACOS % (forecast)", tc_color, "fc"))
+    if show_yoy:
+        ac_yoy = _yoy_series(hist_rows, fc_rows, _METRICS["acos"]["from_hist"])
+        fig.add_trace(_chart_trace(ac_yoy["x"], ac_yoy["y"], "ACOS año previo (YoY)", ac_color, "yoy"))
+
+    fig.update_yaxes(ticksuffix="%", tickformat=".1f")
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F6-G4 — Chart custom: N métricas del catálogo en 1 figura, con doble eje Y
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El HTML deja al usuario prender/apagar chips de las 10 métricas y las mete
+# todas en un solo chart. Como las unidades conviven (currency + count + percent),
+# hay hasta 2 ejes Y. Esta capa es PURA: recibe `metric_ids` como argumento; los
+# chips/session_state son de G5. Reusa _bridge/_yoy_series/_chart_trace (cero
+# estilos nuevos, cero recálculo).
+
+# Formato de tick por unidad (mismos tokens que _metric_chart/_ads/_acos).
+_AXIS_FMT: dict = {
+    "currency": {"tickprefix": "$", "tickformat": ",.0f"},
+    "count":    {"tickformat": ",.0f"},
+    "percent":  {"ticksuffix": "%", "tickformat": ".1f"},
+}
+
+
+def _axis_split(metric_ids: list) -> tuple:
+    """Devuelve (left_unit, right_unit) según la regla VERBATIM del HTML.
+
+    `units_used` = unidades distintas EN ORDEN DE APARICIÓN en `metric_ids`.
+      1 unidad         → (unit, None)                 eje único
+      hay 'percent'    → (1ra no-percent, 'percent')  percent SIEMPRE a la derecha
+      sin percent      → (units[0], units[1])         orden de aparición
+
+    Sin métricas válidas → (None, None). El caso 3-unidades (currency+count+
+    percent) manda count al eje derecho junto al percent — no hay 3er eje. Es el
+    comportamiento que Edu ya vio; se porta tal cual (ver test del caso borde).
+    """
+    units_used: list = []
+    for mid in metric_ids:
+        m = _METRICS.get(mid)
+        if m is None:
+            continue
+        if m["unit"] not in units_used:
+            units_used.append(m["unit"])
+
+    if not units_used:
+        return None, None
+    if len(units_used) == 1:
+        return units_used[0], None
+    if "percent" in units_used:
+        left = next(u for u in units_used if u != "percent")
+        return left, "percent"
+    return units_used[0], units_used[1]
+
+
+def _custom_chart(metric_ids: list, hist_rows: list, fc_rows: list,
+                  show_yoy: bool = False) -> "go.Figure":
+    """Chart custom: hasta 3 traces por métrica seleccionada, con doble eje Y.
+
+    Guards: hist vacío → figura vacía; metric_ids vacío → figura vacía (el
+    "mínimo 1 chip" se enforcea en G5); metric_id desconocido → se ignora
+    (fiel al `if (!m) return;` del HTML). Los 3 traces de una métrica van al
+    MISMO eje (el que le toca por su unidad). dashed=forecast, dotted=YoY —
+    idéntico a los otros 6 charts. Sin rangemode (eso es de _ads_chart).
+    """
+    fig = go.Figure()
+    fig.update_layout(**_PLOTLY_LAYOUT)
+    if not hist_rows or not metric_ids:
+        return fig
+
+    left_unit, right_unit = _axis_split(metric_ids)
+
+    for mid in metric_ids:
+        m = _METRICS.get(mid)
+        if m is None:
+            continue
+        yaxis = "y" if m["unit"] == left_unit else "y2"
+        color = m["color"]
+        hist, fc = _bridge(hist_rows, fc_rows, m["from_hist"], m["from_fc"])
+
+        tr = _chart_trace(hist["x"], hist["y"], m["label"], color, "hist")
+        tr.yaxis = yaxis
+        fig.add_trace(tr)
+        if fc["x"]:
+            tr = _chart_trace(fc["x"], fc["y"], f'{m["label"]} (forecast)', color, "fc")
+            tr.yaxis = yaxis
+            fig.add_trace(tr)
+        if show_yoy:
+            yoy = _yoy_series(hist_rows, fc_rows, m["from_hist"])
+            tr = _chart_trace(yoy["x"], yoy["y"], f'{m["label"]} YoY', color, "yoy")
+            tr.yaxis = yaxis
+            fig.add_trace(tr)
+
+    # Eje izquierdo: merge sobre el yaxis de _PLOTLY_LAYOUT (conserva grid/tickfont).
+    fig.update_layout(yaxis=_AXIS_FMT.get(left_unit, {}))
+    # Eje derecho: sólo si hay 2da unidad. showgrid=False → no duplica grilla
+    # (verbatim del HTML: grid.drawOnChartArea=false en el eje secundario).
+    if right_unit is not None:
+        ax2 = {
+            "overlaying": "y", "side": "right", "showgrid": False,
+            "zeroline": False, "gridcolor": _CHART_GRID,
+            "tickfont": {"color": _CHART_TICK, "size": 10, "family": _CHART_FONT},
+        }
+        ax2.update(_AXIS_FMT.get(right_unit, {}))
+        fig.update_layout(yaxis2=ax2)
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Render principal — Fase 2: selector + datos
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -3238,6 +3726,48 @@ def _render_export_section(cur: dict) -> None:
         ),
     )
 
+    # ── Reporte HTML (G6) — deliverable cliente-facing con los 7 charts ──
+    # Corre DENTRO del guard `if not forecast: return` de arriba → acá el
+    # forecast está garantizado. No se toca ese guard: un "Revenue Forecast
+    # report" sin forecast no es un deliverable.
+    st.markdown("#### Reporte HTML")
+    st.caption(
+        "Documento self-contained con los 7 gráficos interactivos, el resumen "
+        "de la proyección y el detalle mes a mes. Respeta el toggle YoY y la "
+        "selección del chart Custom de la sección Gráficas. Se abre en "
+        "cualquier browser."
+    )
+    # Buffer keyless (gotcha 1.43.2: nunca key= + value= juntos). No se
+    # persiste: la nota es por-descarga.
+    note = st.text_area(
+        "Nota para el cliente (opcional)",
+        value="",
+        placeholder="Contexto de la proyección, supuestos, próximos pasos…",
+    )
+    # RESPETA lo que el AM está viendo en Gráficas (G5): toggle YoY + selección
+    # del chart Custom. `.get(..., default)` porque los buffers sólo se siembran
+    # si la sección Gráficas llegó a renderizar.
+    yoy = st.session_state.get(_K_CHARTS_YOY, True)
+    custom = st.session_state.get(_K_CHARTS_CUSTOM, ["revenue"])
+    html_str = _build_export_html(
+        cur, note=note or "", show_yoy=yoy, custom_metrics=custom,
+    )
+    fname_html = (
+        f"forecast_{_cliente_slug(cur.get('name', ''))}_"
+        f"{date.today().isoformat()}.html"
+    )
+    st.download_button(
+        label="📄 Descargar reporte HTML",
+        data=html_str.encode("utf-8"),
+        file_name=fname_html,
+        mime="text/html",
+        key=f"rf_export_html_{cur['id']}",
+        help=(
+            "Los gráficos se sirven desde el CDN de Plotly → el reporte pesa "
+            "cientos de KB (no 24MB) pero necesita internet para dibujarlos."
+        ),
+    )
+
 
 def _render_forecast_section(cur: dict) -> None:
     """Orquestador del bloque "Forecast" (F4): controles + tabla + summary + reset.
@@ -3277,6 +3807,368 @@ def _render_forecast_section(cur: dict) -> None:
                     st.rerun()
         st.markdown("")
         _render_forecast_summary(cur)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F6-G5 — Wiring UI de los 7 charts (tabs + st.pills + toggle YoY)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# CERO lógica: pasa hist/forecast (del cliente activo) a los charts PUROS de
+# G1-G4 y los muestra en tabs. Buffers keyless en session_state (gotcha 1.43.2:
+# nunca key= + default=/value= juntos). El chart custom SIEMPRE se dibuja con el
+# BUFFER (nunca con el return de st.pills) → deseleccionar el último chip se
+# ignora silencioso, verbatim del HTML (`if (sel.length === 0) return;`).
+
+_K_CHARTS_YOY = f"{_STATE_PREFIX}charts_yoy"
+_K_CHARTS_CUSTOM = f"{_STATE_PREFIX}charts_custom"
+
+
+def _render_charts_section(cur: dict) -> None:
+    """Sección GRÁFICAS (G5): 7 charts en tabs + toggle YoY global. Sólo wiring."""
+    st.divider()
+    st.markdown("### 📊 Gráficas")
+
+    hist_rows = cur.get("historical", [])
+    if not hist_rows:
+        st.info("Cargá el histórico para ver los gráficos.")
+        return
+    fc_rows = cur.get("forecast", [])
+
+    # Buffers (una sola vez, defaults del HTML).
+    if _K_CHARTS_CUSTOM not in st.session_state:
+        st.session_state[_K_CHARTS_CUSTOM] = ["revenue"]   # HTML L2378
+    if _K_CHARTS_YOY not in st.session_state:
+        st.session_state[_K_CHARTS_YOY] = True             # HTML L937 (checked)
+
+    # Toggle YoY global (aplica a los 7 charts). Buffer keyless.
+    yoy = st.toggle("Mostrar YoY", value=st.session_state[_K_CHARTS_YOY],
+                    help="Compara contra el mismo mes del año previo (línea punteada).")
+    st.session_state[_K_CHARTS_YOY] = yoy
+
+    tabs = st.tabs(["Revenue", "Sessions", "CVR", "Units", "Ads",
+                    "ACOS/TACOS", "Custom"])
+
+    with tabs[0]:
+        st.plotly_chart(_metric_chart("revenue", hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[1]:
+        st.plotly_chart(_metric_chart("sessions", hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[2]:
+        st.plotly_chart(_metric_chart("cvr", hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[3]:
+        st.plotly_chart(_metric_chart("units", hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[4]:
+        st.plotly_chart(_ads_chart(hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[5]:
+        st.plotly_chart(_acos_tacos_chart(hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+    with tabs[6]:
+        sel = st.pills(
+            "Métricas",
+            options=list(_METRICS.keys()),
+            format_func=lambda mid: _METRICS[mid]["label"],
+            selection_mode="multi",
+            default=st.session_state[_K_CHARTS_CUSTOM],   # SIN key=
+        )
+        # Mínimo 1 chip: vacío → IGNORAR (el buffer NO se actualiza).
+        if sel:
+            st.session_state[_K_CHARTS_CUSTOM] = sel
+        # Orden de catálogo (eje izquierdo estable entre reruns). El chart SIEMPRE
+        # se dibuja con el BUFFER, nunca con `sel`.
+        selected = [mid for mid in _METRICS
+                    if mid in st.session_state[_K_CHARTS_CUSTOM]]
+        st.plotly_chart(_custom_chart(selected, hist_rows, fc_rows, yoy),
+                        use_container_width=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F6-G6 — Export HTML self-contained (7 charts Plotly + design system Capybaras)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# DECISIÓN DE ARQUITECTURA (Lenin): el reporte NO es una réplica del export
+# Chart.js del HTML de Edu. Es un documento propio, con el design system de
+# Capybaras, que embebe los MISMOS charts Plotly que el AM ve en pantalla (G1-G5).
+# Es el "cobro" de haber elegido Plotly sobre Chart.js en G1: los charts del
+# reporte son interactivos (hover, zoom) sin escribir una línea de JS.
+#
+# Capa PURA: estas 3 funciones no tocan Streamlit ni session_state. El wiring
+# (`_render_export_section`) les pasa `cur` y el buffer de YoY. Testeables como
+# strings, sin runtime ni browser.
+#
+# REUSO (no se duplica nada):
+#   - `_metric_chart` / `_ads_chart` / `_acos_tacos_chart` / `_custom_chart` (G1-G4)
+#   - `_fmt_currency` / `_fmt_num` / `_fmt_pct` (L628+) — ya devuelven '—' para None
+#   - `_build_forecast_summary_cards` (L3063) — los 8 totales, ya formateados
+#   - `_cliente_slug` (L3517) — filename filesystem-safe
+#   - `html.escape` (stdlib) — en vez de un `_esc` propio
+
+# Design system Capybaras (tema oscuro, default del OS). Tokens alineados con
+# los del chart (`_CHART_GRID`/`_CHART_TICK`/`_CHART_FONT`, L2394+): el reporte y
+# los charts embebidos comparten paleta, no se pelean.
+_SHELL_CSS = """
+:root{
+  --bg:#000000; --panel:#0a0a0a; --line:#2a2a2a; --line-2:#1d1d1d;
+  --text:#FFFFFF; --text-mute:#a8a8a8; --accent:#E84000;
+}
+*{box-sizing:border-box;}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:'Geist',system-ui,-apple-system,sans-serif;
+  font-size:14px; line-height:1.6;
+}
+.wrap{max-width:1100px; margin:0 auto; padding:40px 28px 64px;}
+h1,h2{font-family:'Bricolage Grotesque',Georgia,serif; font-weight:600; margin:0;}
+h1{font-size:2rem; letter-spacing:-0.02em;}
+h2{font-size:1.15rem; margin:0 0 12px; letter-spacing:-0.01em;}
+header{border-bottom:1px solid var(--line); padding-bottom:24px; margin-bottom:32px;}
+.brand{
+  font-family:'Bricolage Grotesque',Georgia,serif; font-weight:700;
+  font-size:0.8rem; letter-spacing:0.14em; text-transform:uppercase;
+  color:var(--accent); margin-bottom:10px;
+}
+.meta{color:var(--text-mute); font-size:0.82rem; margin-top:6px;}
+.note{
+  background:var(--panel); border:1px solid var(--line);
+  border-left:3px solid var(--accent); border-radius:6px;
+  padding:14px 18px; margin-bottom:32px; color:var(--text-mute);
+}
+section{margin-bottom:40px;}
+.cards{display:flex; flex-wrap:wrap; gap:12px;}
+.card{
+  flex:1 1 180px; background:var(--panel); border:1px solid var(--line);
+  border-radius:8px; padding:14px 16px;
+}
+.card .label{
+  color:var(--text-mute); font-size:0.7rem; text-transform:uppercase;
+  letter-spacing:0.08em; margin-bottom:6px;
+}
+.card .value{
+  font-family:'JetBrains Mono',ui-monospace,monospace;
+  font-size:1.25rem; font-weight:600; color:var(--text);
+}
+.chart{margin-bottom:36px;}
+table{width:100%; border-collapse:collapse; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:0.8rem;}
+thead th{
+  color:var(--text-mute); font-weight:500; font-size:0.68rem;
+  text-transform:uppercase; letter-spacing:0.08em; text-align:right;
+  padding:10px 12px; border-bottom:1px solid var(--line);
+}
+thead th:first-child{text-align:left;}
+tbody td{padding:9px 12px; text-align:right; border-bottom:1px solid var(--line-2);}
+tbody td:first-child{text-align:left; color:var(--text-mute);}
+tbody tr:last-child td{border-bottom:none;}
+footer{
+  border-top:1px solid var(--line); padding-top:20px; margin-top:48px;
+  color:var(--text-mute); font-size:0.75rem;
+}
+"""
+
+_EXPORT_FONTS = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
+    "family=Bricolage+Grotesque:wght@600;700&family=Geist:wght@400;500&"
+    'family=JetBrains+Mono:wght@400;600&display=swap">'
+)
+
+# Los 7 charts del reporte, en el mismo orden que las tabs de G5.
+_EXPORT_CHART_TITLES = [
+    "Revenue", "Sessions", "CVR", "Units", "Ads", "ACOS/TACOS", "Custom",
+]
+
+
+def _fig_to_div(fig: "go.Figure", first: bool) -> str:
+    """Convierte UNA figura a HTML embebible (sin `<html>`, sólo el div + script).
+
+    🔴 LOAD-BEARING — TAMAÑO DEL ARCHIVO. `to_html()` embebe plotly.js (~3.5MB)
+    en CADA figura por default. Con 7 figuras el reporte pesaría ~24MB y Gmail
+    lo rebota. Fix en dos partes:
+        - `include_plotlyjs="cdn"` (NO `True`): la lib se sirve desde el CDN de
+          Plotly, no se embebe → el archivo queda en cientos de KB.
+        - Sólo la PRIMERA figura la carga (`first=True`); las otras 6 pasan
+          `False` y reusan la lib ya cargada en el documento.
+    El test `test_export_loads_plotlyjs_once` afirma esto contando el marcador
+    `cdn.plot.ly` (== 1). Si alguien cambia esto a `True`, el test lo caza.
+
+    Trade-off del CDN: el reporte necesita internet para dibujar los charts.
+    Aceptado — es un deliverable que se manda por mail y se abre en un browser
+    con conexión; 24MB no es una alternativa real.
+    """
+    return fig.to_html(
+        full_html=False,
+        include_plotlyjs="cdn" if first else False,
+        config={"displayModeBar": False},
+    )
+
+
+def _table_cell(v: Any) -> Optional[float]:
+    """Normaliza un valor de celda a float o None (para que los `_fmt_*` den '—').
+
+    Los `_fmt_*` (L628+) ya mapean None/NaN → '—', pero explotan con `''`
+    (`f"{'':,.0f}"` → TypeError). Este normalizador cubre el hueco: None, '',
+    no-numérico y NaN colapsan a None → '—'.
+    """
+    if v is None or v == "":
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(f) else f
+
+
+def _forecast_table_html(fc_rows: list, currency: str = "USD") -> str:
+    """Tabla HTML del forecast — una fila por mes proyectado.
+
+    Columnas: Mes, Revenue, Units, Sessions, CVR, ACOS, TACOS.
+    Formato delegado a los `_fmt_*` existentes (currency respeta la moneda de la
+    cuenta, NO hardcodea '$'). Valores ausentes → '—' vía `_table_cell`.
+    El `date` se escapa con `html.escape` — viene de datos, podría traer `<`/`&`.
+
+    `fc_rows` vacío → devuelve '' (el caller decide si omite la sección).
+    """
+    if not fc_rows:
+        return ""
+    head = ["Mes", "Revenue", "Units", "Sessions", "CVR", "ACOS", "TACOS"]
+    out = ["<table><thead><tr>"]
+    out += [f"<th>{html.escape(h)}</th>" for h in head]
+    out.append("</tr></thead><tbody>")
+    for f in fc_rows:
+        cells = [
+            html.escape(str(f.get("date", "") or "—")),
+            _fmt_currency(_table_cell(f.get("revenue")), currency),
+            _fmt_num(_table_cell(f.get("units"))),
+            _fmt_num(_table_cell(f.get("sessions"))),
+            _fmt_pct(_table_cell(f.get("cvr")), 2),
+            _fmt_pct(_table_cell(f.get("acos"))),
+            _fmt_pct(_table_cell(f.get("tacos"))),
+        ]
+        out.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+    out.append("</tbody></table>")
+    return "".join(out)
+
+
+def _export_shell(title: str, body: str) -> str:
+    """Envuelve `body` en el documento completo (head + fonts + CSS + wrap)."""
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="es">\n<head>\n'
+        '<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"<title>{html.escape(title)}</title>\n"
+        f"{_EXPORT_FONTS}\n"
+        f"<style>{_SHELL_CSS}</style>\n"
+        "</head>\n<body>\n"
+        f'<div class="wrap">\n{body}\n</div>\n'
+        "</body>\n</html>\n"
+    )
+
+
+def _build_export_html(
+    cur: dict,
+    note: str = "",
+    show_yoy: bool = True,
+    custom_metrics: Optional[list] = None,
+) -> str:
+    """Reporte HTML self-contained del forecast: 7 charts Plotly + resumen + tabla.
+
+    Args:
+        cur: dict del cliente activo (keys: name, currency, historical, forecast).
+        note: nota opcional del AM para el cliente. Se escapa (`html.escape`) —
+              es texto libre que termina en un documento que se manda por mail.
+        show_yoy: se propaga a los 7 charts. Default True para que los tests NO
+                  dependan de session_state; el wiring le pasa el buffer real de
+                  G5 (`_K_CHARTS_YOY`) → el reporte RESPETA el toggle del AM en
+                  vez de forzar un valor.
+        custom_metrics: métricas del 7º chart (Custom). None o `[]` → `["revenue"]`
+                  (default del HTML L2378). El caso `[]` se cubre a propósito:
+                  `_custom_chart([])` devuelve figura VACÍA, y un chart en blanco
+                  en un deliverable es peor que el default. G5 ya enforcea el
+                  mínimo de 1 chip, así que en producción no se dispara.
+                  Mismo patrón que `show_yoy`: param
+                  con default en vez de leer session_state, para que la capa
+                  siga PURA y testeable. El wiring le pasa el buffer real de G5
+                  (`_K_CHARTS_CUSTOM`) → el Custom del reporte refleja lo que el
+                  AM eligió en pantalla, en vez de ser un duplicado del chart de
+                  Revenue.
+
+    Returns:
+        Documento HTML completo como string.
+
+    Guard: `historical` vacío → documento MÍNIMO con un mensaje, NO excepción.
+    En producción no se dispara (el guard de `_render_export_section` ya exige
+    forecast, que no existe sin historial); queda como red de seguridad.
+    """
+    name = cur.get("name") or "Cuenta"
+    currency = cur.get("currency", "USD")
+    hist = cur.get("historical", []) or []
+    fc = cur.get("forecast", []) or []
+    gen = date.today().isoformat()
+
+    head = (
+        "<header>\n"
+        '<div class="brand">Capybaras</div>\n'
+        f"<h1>{html.escape(name)}</h1>\n"
+        f'<div class="meta">Revenue Forecast · generado el {gen}</div>\n'
+        "</header>"
+    )
+
+    if not hist:
+        body = (
+            f"{head}\n"
+            '<section><p class="meta">Sin datos para exportar. Cargá el '
+            "histórico para generar el reporte.</p></section>"
+        )
+        return _export_shell(f"Forecast · {name}", body)
+
+    parts = [head]
+
+    if note.strip():
+        parts.append(f'<div class="note">{html.escape(note.strip())}</div>')
+
+    # Resumen — reusa el builder puro del summary de F4 (8 cards ya formateados).
+    cards = _build_forecast_summary_cards(fc, currency)
+    if cards:
+        cards_html = "".join(
+            f'<div class="card"><div class="label">{html.escape(c["label"])}</div>'
+            f'<div class="value">{html.escape(str(c["value"]))}</div></div>'
+            for c in cards
+        )
+        parts.append(
+            f'<section><h2>Resumen de la proyección</h2>'
+            f'<div class="cards">{cards_html}</div></section>'
+        )
+
+    # Los 7 charts — se CONSTRUYEN llamando a los charts puros de G1-G4, con el
+    # mismo `show_yoy` que el AM tiene en pantalla. Orden = tabs de G5.
+    figs = [
+        _metric_chart("revenue", hist, fc, show_yoy),
+        _metric_chart("sessions", hist, fc, show_yoy),
+        _metric_chart("cvr", hist, fc, show_yoy),
+        _metric_chart("units", hist, fc, show_yoy),
+        _ads_chart(hist, fc, show_yoy),
+        _acos_tacos_chart(hist, fc, show_yoy),
+        _custom_chart(custom_metrics or ["revenue"], hist, fc, show_yoy),
+    ]
+    charts_html = "".join(
+        f'<div class="chart"><h2>{html.escape(t)}</h2>'
+        f"{_fig_to_div(f, first=(i == 0))}</div>"
+        for i, (t, f) in enumerate(zip(_EXPORT_CHART_TITLES, figs))
+    )
+    parts.append(f"<section>{charts_html}</section>")
+
+    table = _forecast_table_html(fc, currency)
+    if table:
+        parts.append(f"<section><h2>Detalle del forecast</h2>{table}</section>")
+
+    parts.append(
+        f"<footer>Generado por Agency OS · Capybaras Agency · {gen[:4]}</footer>"
+    )
+    return _export_shell(f"Forecast · {name}", "\n".join(parts))
 
 
 def _render_asin_section(cur: dict) -> None:
@@ -3582,6 +4474,9 @@ def render() -> None:
     # 6) Sección FORECAST (F4) — port del HTML L788-820 (controles) +
     # L2064 (cards/tabla) + L2193 (summary).
     _render_forecast_section(cur)
+
+    # 6a) Sección GRÁFICAS (G5) — 7 charts (hist + forecast) en tabs + toggle YoY.
+    _render_charts_section(cur)
 
     # 6b) Sección POR ASIN (F6.2 + F6.3) — multi-upload By Child Item + niveles + forecast.
     _render_asin_section(cur)
