@@ -2800,7 +2800,7 @@ def _render_upload_and_demo(cur: dict) -> None:
         "\"By Date · Sales and Traffic\". CSV o XLSX, mensual."
     )
 
-    col_up, col_demo = st.columns([2, 1])
+    col_up, col_demo, col_clear = st.columns([2, 1, 1])
     with col_up:
         uploaded = st.file_uploader(
             "Business Report (CSV o XLSX)",
@@ -2821,6 +2821,29 @@ def _render_upload_and_demo(cur: dict) -> None:
                 st.rerun()
             else:
                 st.error("No se pudo cargar el demo (sin cliente activo).")
+
+    with col_clear:
+        n_hist = len(cur.get("historical", []))
+        with st.popover(
+            "🗑️ Limpiar histórico",
+            disabled=(n_hist == 0),
+            help="Vacía el histórico del cliente activo. Útil antes de re-subir un reporte desde cero.",
+        ):
+            st.markdown(
+                f"**¿Vaciar el histórico de _{cur['name']}_?**  \n"
+                f"Se van a borrar **{n_hist} mes{'es' if n_hist != 1 else ''}** "
+                f"de datos (incluyendo Spend y Ventas PPC manuales). "
+                f"Esta acción no se puede deshacer."
+            )
+            if st.button(
+                "Sí, vaciar histórico",
+                key=f"rf_clear_confirm_{cur['id']}",
+                type="primary",
+            ):
+                cur["historical"] = []
+                _try_persist()
+                st.success("Histórico vaciado. Re-subí el reporte para empezar de cero.")
+                st.rerun()
 
     if uploaded is not None:
         # `.getvalue()` para que el parser cacheado reciba bytes (patrón M30).
