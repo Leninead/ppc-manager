@@ -162,3 +162,10 @@ Confirmación de Tati de:
 ## 📜 Historial de actualizaciones
 
 - **2026-04-29**: playbook creado — 5 campañas + 12 KWs preparadas para reactivación con bid +25-30% post-restock. Disparadores definidos.
+
+## 2026-07-17 — Alerta stock post-360°
+
+- 🔴 **B081GB8F89 (motor #1, 30% de la cuenta): 3 días de runway.** Escala cancelada a propósito (excluido del BULK3), pauta contenida. Reposición URGENTE — mensaje enviado a Tatiana 17/07. Si no repone en la ventana, cae ~30% de la facturación de Setex.
+- 🔴 B09HW4VWQR (Thick negro): 3d. Pauta ya bajada.
+- 🟠 B0B94KBY8H (Sujetador): 14d. No escalar.
+- 🟢 B08PZF22R1 (Thin): overstock 682d — clearance pendiente.

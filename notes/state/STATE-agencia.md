@@ -1,11 +1,26 @@
 ---
 tipo: state
-actualizado: 2026-07-15
+actualizado: 2026-07-17
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-17 — Frente SETEX 360° (documental, sin git)
+
+**🔴 STOCK CRÍTICO — B081GB8F89 (motor #1 de Setex, 30% de la cuenta): 3 DÍAS de runway.** Escala cancelada, pauta contenida, reposición URGENTE (mensaje a Tatiana 17/07). Sin reposición → cae 30% de la facturación. B09HW4VWQR 3d. B0B94KBY8H 14d.
+
+**Frente SETEX (documental, sin git) 17/07:** 360° completo 9 reportes (v1.1 SOP) + 4 bulks Success. Cuenta sana ACoS 14,8% / TACoS 11,2%.
+- 🟠 Decisión pendiente Tatiana: sujetador de lentes / B0B94KBY8H (ACoS 40%, PurShr 0.9%, gap 1.82x, paid-dependiente).
+- 📌 Precio gobierna CVR: gap ≤1.2x→PurShr 64%, >1.5x→23%. Setex gana marca + genéricos baratos. (Mismo hallazgo que LTD — método replica entre cuentas.)
+- 📌 Clearance Thin B08PZF22R1 (682d runway) sigue abierto.
+- 📌 Nota org: Adam Pixler en status Setex (territorio Tatiana) — vigilar mapa AM.
+- 📌 Sugerencia SOP: WoW debería traer split Advertised/Other SKU (incorporar al método).
+
+Detalle: [[setex]]
 
 ---
 

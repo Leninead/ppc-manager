@@ -793,3 +793,27 @@ Se mencionó como posible análisis del evento (23-29/06 vs previa 16-22/06), pe
 ### Gotchas de bulk confirmados (amazon-bulk-upload-guide 17-18)
 - Negative PAT requiere **Ad Group ID** (aplicado el 03/07, sin fails estructurales).
 - **"Failed" ≠ fallo total:** hay que leer el Processing Summary. El 03/07: 59 Success + 4 duplicados, no un fallo.
+
+## 360° 17/07/2026 — ventana 01/06–15/07 (9 reportes, v1.1 SOP)
+
+Primer 360° con los 9 reportes (Placement + Targeting promovidos). Ventanas alineadas.
+
+**Estado cuenta:** ACoS 14,8% · TACoS 11,2% · Spend $33,9k · Sales $228,7k · BuyBox ~100%.
+
+**Estructura por canal (BSR + Advertised):**
+- Orgánico puro: B08C2T72ND ($44k, sin ads, 27d stock), B086H3TZ6B, B08SNRCL63, B08SP1JFZ8, B0C7WPFVGV (Temple, ads cortados 03/07 sostiene $8k org).
+- Motor mixto: B081GB8F89 ($100k BSR, 30% cuenta, orgánico-fuerte).
+- Paid-dependiente (revisar): B0B94KBY8H (CVR 7,4%), B0BQ8GJFQH (CVR 3,5%), B0BQ8FNGR5 (CVR 5,8%).
+
+**Diagnóstico precio (dato duro para Tatiana):**
+| Gap Setex/mercado | PurShr |
+|---|---|
+| ≤1.2x | 64% |
+| 1.2–1.5x | 30% |
+| >1.5x | 23% |
+
+**Buckets 5-way:** SCALE 33 terms ($4.5k→$59.5k, branded + genéricos ≤1.4x) · DEFENDER 4 · FIX-PRECIO/INVESTIGAR (sujetador de lentes 14 camp ACoS 40% PurShr 0.9%) · NEGATIVIZAR 3 nuevos.
+
+**4 bulks 17/07 (Success):** negativos a17512bb · bid-down eb7a8a85 · bid-up 4f0957b3 · budget a5e69409.
+
+**Watch actualizado:** B08SNXF8HP sano este ciclo · doble-SKU CLOSED B081GB8F89 NO reincidió · nuevo: stock hero 3d.
