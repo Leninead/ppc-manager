@@ -1,11 +1,20 @@
 ---
 tipo: state
-actualizado: 2026-07-17
+actualizado: 2026-07-20
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-20 — Fix Campaign Analyzer (en producción)
+
+**Campaign Analyzer arreglado** (`4cffa01`): se bloqueaba con todas las cuentas porque asumía un set fijo de columnas, y el export de Campaign Manager es configurable. Ahora el validador exige solo lo imprescindible, deriva ACOS desde ROAS o spend/sales, y degrada Impressions con guard. El usuario no cambia su export. Reportado por Cuki, validado contra 2 exports reales de Areté.
+- ⚠️ Deuda: el fix NO tiene tests propios (validación manual). Segundo frente seguido sin cobertura. Módulo de uso transversal → micro-frente de tests prioritario.
+
+Detalle: [[2026-07-20]]
 
 ---
 
