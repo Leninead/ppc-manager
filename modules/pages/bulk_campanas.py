@@ -256,6 +256,9 @@ def render():
                 if 'Campaign bid strategy' in df_show.columns:
                     show_cols.append('Campaign bid strategy')
 
+                if not _has_impr:
+                    show_cols = [c for c in show_cols if c != '_impr']
+
                 rename_map = {
                     '_spend': 'Spend ($)',
                     '_sales': 'Sales ($)',
