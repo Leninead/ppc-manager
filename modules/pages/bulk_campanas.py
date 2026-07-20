@@ -80,10 +80,19 @@ def render():
             st.caption("Diagnóstico automático de campañas. Los thresholds los define el AM según el objetivo de la cuenta.")
 
             # ── Detectar si el archivo tiene columnas de performance ──────
-            has_perf = all(c in df_bulk_raw.columns for c in ["Total cost", "Sales", "Purchases", "Impressions"])
+            _REQUIRED_PERF = ["State", "Total cost", "Sales", "Purchases"]
+            _missing_perf = [c for c in _REQUIRED_PERF if c not in df_bulk_raw.columns]
+            has_perf = not _missing_perf
+            _has_impr = "Impressions" in df_bulk_raw.columns
+            _has_acos = "ACOS" in df_bulk_raw.columns
+            _has_roas = "ROAS" in df_bulk_raw.columns
 
             if not has_perf:
-                st.warning("⚠️ Este archivo no tiene columnas de performance (Spend, Sales, Purchases, Impressions). Subí el Campaign CSV descargado desde Campaign Manager con métricas incluidas.")
+                st.warning(
+                    f"⚠️ Este archivo no tiene las columnas mínimas para el análisis "
+                    f"({', '.join(_missing_perf)}). Subí el Campaign CSV descargado desde "
+                    "Campaign Manager con las métricas incluidas."
+                )
             else:
                 # ── Preparar dataframe limpio ─────────────────────────────
                 df_ca = df_bulk_raw.copy()
@@ -96,9 +105,20 @@ def render():
 
                 df_ca['_spend']   = _clean_money(df_ca['Total cost'])
                 df_ca['_sales']   = _clean_money(df_ca['Sales'])
-                df_ca['_acos']    = pd.to_numeric(df_ca['ACOS'], errors='coerce').fillna(0) * 100
+                if _has_acos:
+                    df_ca['_acos'] = pd.to_numeric(df_ca['ACOS'], errors='coerce').fillna(0) * 100
+                elif _has_roas:
+                    _roas = pd.to_numeric(df_ca['ROAS'], errors='coerce').fillna(0)
+                    df_ca['_acos'] = (100 / _roas.where(_roas > 0)).fillna(0)
+                else:
+                    df_ca['_acos'] = (
+                        df_ca['_spend'] / df_ca['_sales'].where(df_ca['_sales'] > 0) * 100
+                    ).fillna(0)
                 df_ca['_orders']  = pd.to_numeric(df_ca['Purchases'], errors='coerce').fillna(0)
-                df_ca['_impr']    = pd.to_numeric(df_ca['Impressions'], errors='coerce').fillna(0)
+                df_ca['_impr']    = (
+                    pd.to_numeric(df_ca['Impressions'], errors='coerce').fillna(0)
+                    if _has_impr else None
+                )
                 df_ca['_clicks']  = pd.to_numeric(df_ca['Clicks'], errors='coerce').fillna(0) if 'Clicks' in df_ca.columns else 0
 
                 # Solo campañas ENABLED
@@ -132,7 +152,7 @@ def render():
                     orders  = row['_orders']
                     impr    = row['_impr']
 
-                    if impr == 0 and spend == 0:
+                    if spend == 0 and (impr == 0 if _has_impr else row['_clicks'] == 0):
                         return "👻 FANTASMA"
                     if orders == 0 and spend >= spend_pausar:
                         return "🔴 PAUSAR"
@@ -165,7 +185,7 @@ def render():
                 tgt_col = next((c for c in df_ca.columns if 'targeting' in c.lower() and 'type' not in c.lower()), None)
                 has_tgt_graduation = False
                 df_tgt_dead = pd.DataFrame()
-                if tgt_col:
+                if tgt_col and _has_impr:
                     # Targets con 0 impresiones = candidatos a pausar
                     tgt_rows = df_ca[df_ca[tgt_col].notna() & (df_ca[tgt_col].astype(str).str.strip() != "")]
                     if not tgt_rows.empty:
@@ -185,6 +205,17 @@ def render():
                 k4.metric("ACoS cuenta", f"{total_acos:.1f}%")
                 k5.metric("💰 Spend recuperable", f"${spend_recup:,.2f}",
                           help="Spend acumulado en campañas marcadas como PAUSAR")
+
+                _avisos = []
+                if not _has_impr:
+                    _avisos.append(
+                        "no incluye **Impressions** — el diagnóstico FANTASMA se calcula con Clicks"
+                    )
+                if not _has_acos:
+                    _origen = "ROAS" if _has_roas else "Spend / Sales"
+                    _avisos.append(f"no incluye **ACOS** — se calcula a partir de {_origen}")
+                if _avisos:
+                    st.caption("ℹ️ El archivo " + "; ".join(_avisos) + ". El resto del análisis no cambia.")
 
                 # ── Conteo por diagnóstico ────────────────────────────────
                 st.markdown("#### Resumen por diagnóstico")
@@ -239,6 +270,9 @@ def render():
                     show_cols.append('Campaign start date')
                 if 'Campaign bid strategy' in df_show.columns:
                     show_cols.append('Campaign bid strategy')
+
+                if not _has_impr:
+                    show_cols = [c for c in show_cols if c != '_impr']
 
                 rename_map = {
                     '_spend': 'Spend ($)',
