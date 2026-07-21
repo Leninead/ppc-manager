@@ -13,15 +13,6 @@ from core.innovation_persistence import (
     _upsert_voto,
 )
 
-# Equipo Capybaras — fallback cuando no llega user_name desde el router.
-# TODO: cablear a st.secrets["credentials"]["usernames"] en vez de esta constante.
-_USUARIOS = [
-    "Lenin Acosta", "Marcos Callorda", "Eduardo Maya", "Freddy Neuman",
-    "Tatiana Velasquez", "Ramiro Folgueras", "Daniel Suarez", "Guillermo Neuman",
-    "Keila Vivas", "Fernanda Rojas", "Ivan Mendoza", "Julian Lopez",
-    "Gregorio Martino", "Federico Valero", "Diego Ghelfi",
-]
-
 
 def _parse_md_file(data, name):
     """Parse a markdown file, extract headers, tags, and date from filename."""
@@ -272,6 +263,18 @@ _IB_IMPACTO_W = {"alto": 2, "medio": 1, "bajo": 0}
 _IB_ESFUERZO_W = {"bajo": 2, "medio": 1, "alto": 0}  # menor esfuerzo = mejor
 
 
+def _ib_usuarios():
+    """Nombres del equipo desde secrets; fallback mínimo si no hay secrets."""
+    try:
+        creds = st.secrets["credentials"]["usernames"]
+        nombres = sorted(v.get("name", k) for k, v in creds.items())
+        if nombres:
+            return nombres
+    except Exception:
+        pass
+    return ["Usuario local"]
+
+
 def _ib_score(votos):
     """Score de una idea = suma de los valores de sus votos."""
     return sum(int(v.get("valor", 0) or 0) for v in votos)
@@ -308,7 +311,7 @@ def _render_innovation_board(user_name=None, user_slug=None):
         autor = user_name
         st.caption(f"👤 Publicando y votando como **{autor}**")
     else:
-        autor = st.selectbox("👤 ¿Quién sos?", _USUARIOS, key="ib_autor")
+        autor = st.selectbox("👤 ¿Quién sos?", _ib_usuarios(), key="ib_autor")
     votante_id = user_slug or autor
 
     # ── Sub-sección: Nueva idea ──────────────────────────────────────────
