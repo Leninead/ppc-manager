@@ -382,7 +382,7 @@ if selected == "📊 Account Pulse":
     render_account_pulse()
 
 if selected == "📚 Knowledge Base":
-    render_knowledge()
+    render_knowledge(_name, _username)
 
 if selected == "🛡️ Listing Compliance":
     render_listing_compliance()

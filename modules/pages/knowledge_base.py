@@ -5,6 +5,23 @@ from datetime import datetime
 import streamlit as st
 import pandas as pd
 
+from core.helpers import kpi_card
+from core.innovation_persistence import (
+    _create_idea,
+    _list_ideas,
+    _list_votos,
+    _upsert_voto,
+)
+
+# Equipo Capybaras — fallback cuando no llega user_name desde el router.
+# TODO: cablear a st.secrets["credentials"]["usernames"] en vez de esta constante.
+_USUARIOS = [
+    "Lenin Acosta", "Marcos Callorda", "Eduardo Maya", "Freddy Neuman",
+    "Tatiana Velasquez", "Ramiro Folgueras", "Daniel Suarez", "Guillermo Neuman",
+    "Keila Vivas", "Fernanda Rojas", "Ivan Mendoza", "Julian Lopez",
+    "Gregorio Martino", "Federico Valero", "Diego Ghelfi",
+]
+
 
 def _parse_md_file(data, name):
     """Parse a markdown file, extract headers, tags, and date from filename."""
@@ -50,7 +67,7 @@ def _parse_md_file(data, name):
     }
 
 
-def render():
+def render(user_name=None, user_slug=None):
     st.markdown(
         "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
         "<span style='font-size:2rem;'>📚</span>"
@@ -81,7 +98,7 @@ def render():
             "3. Descargá el .md generado y guardalo en notes/knowledge/"
         )
 
-    tab1, tab2 = st.tabs(["📖 Explorar notas", "✏️ Agregar nota"])
+    tab1, tab2, tab3 = st.tabs(["📖 Explorar notas", "✏️ Agregar nota", "💡 Innovation Board"])
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 1 — Explore notes
@@ -234,3 +251,254 @@ def render():
             )
         else:
             st.info("Completá el título y contenido para previsualizar y descargar.")
+
+    # ══════════════════════════════════════════════════════════════════
+    # TAB 3 — Innovation Board (M24)
+    # ══════════════════════════════════════════════════════════════════
+    with tab3:
+        _render_innovation_board(user_name, user_slug)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Innovation Board (M24) — helpers module-level
+# ══════════════════════════════════════════════════════════════════════════
+
+_IB_AREAS = ["ppc", "account", "sales", "research", "ops"]
+_IB_NIVELES = ["alto", "medio", "bajo"]
+_IB_ESTADOS = ["nueva", "en revisión", "aprobada", "descartada"]
+
+# Pesos para el desempate por cuadrante impacto/esfuerzo.
+_IB_IMPACTO_W = {"alto": 2, "medio": 1, "bajo": 0}
+_IB_ESFUERZO_W = {"bajo": 2, "medio": 1, "alto": 0}  # menor esfuerzo = mejor
+
+
+def _ib_score(votos):
+    """Score de una idea = suma de los valores de sus votos."""
+    return sum(int(v.get("valor", 0) or 0) for v in votos)
+
+
+def _ib_quadrant_rank(idea):
+    """Ranking de cuadrante (mayor = mejor). Quick Win (alto/bajo) queda arriba."""
+    imp = _IB_IMPACTO_W.get(idea.get("impacto", "medio"), 1)
+    esf = _IB_ESFUERZO_W.get(idea.get("esfuerzo", "medio"), 1)
+    return imp + esf
+
+
+def _ib_is_quick_win(idea):
+    return idea.get("impacto") == "alto" and idea.get("esfuerzo") == "bajo"
+
+
+def _ib_badge(text, bg, fg):
+    return (
+        f"<span style='background:{bg};color:{fg};font-size:0.65rem;"
+        f"padding:2px 8px;border-radius:6px;font-weight:700;"
+        f"margin-right:4px;'>{text}</span>"
+    )
+
+
+def _render_innovation_board(user_name=None, user_slug=None):
+    st.subheader("💡 Innovation Board")
+    st.caption(
+        "Proponé ideas de mejora para el Agency OS, votá las de tus compañeros "
+        "y priorizá por impacto vs esfuerzo."
+    )
+
+    # ── Resolución de autor / votante ────────────────────────────────────
+    if user_name:
+        autor = user_name
+        st.caption(f"👤 Publicando y votando como **{autor}**")
+    else:
+        autor = st.selectbox("👤 ¿Quién sos?", _USUARIOS, key="ib_autor")
+    votante_id = user_slug or autor
+
+    # ── Sub-sección: Nueva idea ──────────────────────────────────────────
+    st.markdown("#### ➕ Nueva idea")
+    ic1, ic2 = st.columns([3, 2])
+    ic1.text_input(
+        "Título", placeholder="Ej: Auto-negativizar términos sin conversión",
+        key="ib_new_titulo",
+    )
+    ic2.text_input(
+        "Módulo destino (opcional)", placeholder="Ej: STR, Campaign Builder...",
+        key="ib_new_modulo",
+    )
+    st.text_area(
+        "Descripción", placeholder="¿Qué es la idea y cómo funcionaría?",
+        key="ib_new_desc", height=90,
+    )
+    st.text_area(
+        "Problema — ¿qué duele hoy?",
+        placeholder="El dolor concreto que esta idea resuelve.",
+        key="ib_new_problema", height=70,
+    )
+    mc1, mc2, mc3 = st.columns(3)
+    mc1.selectbox("Área", _IB_AREAS, key="ib_new_area")
+    mc2.selectbox("Impacto", _IB_NIVELES, key="ib_new_impacto")
+    mc3.selectbox("Esfuerzo", _IB_NIVELES, key="ib_new_esfuerzo")
+
+    if st.button("🚀 Publicar idea", key="ib_publicar", type="primary"):
+        titulo = st.session_state.get("ib_new_titulo", "").strip()
+        if not titulo:
+            st.warning("El título es obligatorio.")
+        else:
+            _create_idea(
+                {
+                    "titulo": titulo,
+                    "descripcion": st.session_state.get("ib_new_desc", "").strip(),
+                    "problema": st.session_state.get("ib_new_problema", "").strip(),
+                    "area": st.session_state.get("ib_new_area", "ops"),
+                    "impacto": st.session_state.get("ib_new_impacto", "medio"),
+                    "esfuerzo": st.session_state.get("ib_new_esfuerzo", "medio"),
+                    "modulo_destino": st.session_state.get("ib_new_modulo", "").strip(),
+                    "autor": autor,
+                }
+            )
+            st.success(f"✅ Idea publicada: {titulo}")
+            st.rerun()
+
+    st.divider()
+
+    # ── Sub-sección: Board ───────────────────────────────────────────────
+    st.markdown("#### 🗂️ Board")
+
+    fc1, fc2 = st.columns(2)
+    filtro_area = fc1.selectbox(
+        "Filtrar por área", ["(todas)"] + _IB_AREAS, key="ib_filtro_area"
+    )
+    filtro_estado = fc2.selectbox(
+        "Filtrar por estado", ["(todos)"] + _IB_ESTADOS, key="ib_filtro_estado"
+    )
+
+    area_arg = None if filtro_area == "(todas)" else filtro_area
+    estado_arg = None if filtro_estado == "(todos)" else filtro_estado
+    ideas = _list_ideas(area_arg, estado_arg)
+
+    # Enriquecer con votos + score
+    enriched = []
+    for idea in ideas:
+        votos = _list_votos(idea["id"])
+        enriched.append({"idea": idea, "votos": votos, "score": _ib_score(votos)})
+
+    # Orden: score desc, luego cuadrante (quick win primero), luego título
+    enriched.sort(
+        key=lambda e: (
+            -e["score"],
+            -_ib_quadrant_rank(e["idea"]),
+            e["idea"].get("titulo", "").lower(),
+        )
+    )
+
+    # ── Métricas ─────────────────────────────────────────────────────────
+    total_ideas = len(enriched)
+    ideas_votadas = sum(1 for e in enriched if e["votos"])
+    quick_wins = sum(1 for e in enriched if _ib_is_quick_win(e["idea"]))
+    k1, k2, k3 = st.columns(3)
+    k1.markdown(kpi_card("Total ideas", str(total_ideas)), unsafe_allow_html=True)
+    k2.markdown(kpi_card("Ideas votadas", str(ideas_votadas)), unsafe_allow_html=True)
+    k3.markdown(kpi_card("Quick Wins", str(quick_wins)), unsafe_allow_html=True)
+
+    if not enriched:
+        st.markdown(
+            "<div style='text-align:center;padding:2.5rem 1rem;border:2px dashed #FFD9B3;"
+            "border-radius:12px;margin:1rem 0;'>"
+            "<div style='font-size:2.5rem;margin-bottom:0.4rem;'>💡</div>"
+            "<div style='font-size:0.95rem;color:#666;font-weight:600;'>"
+            "Todavía no hay ideas con estos filtros.</div>"
+            "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+            "Publicá la primera con el formulario de arriba.</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    # ── Cards ────────────────────────────────────────────────────────────
+    for e in enriched:
+        idea = e["idea"]
+        votos = e["votos"]
+        idea_id = idea["id"]
+        qw = " ⚡ Quick Win" if _ib_is_quick_win(idea) else ""
+
+        badges = (
+            _ib_badge(idea.get("area", "—"), "#E3F2FD", "#1565C0")
+            + _ib_badge("Impacto " + idea.get("impacto", "—"), "#FFF3E0", "#E84000")
+            + _ib_badge("Esfuerzo " + idea.get("esfuerzo", "—"), "#F3E5F5", "#6A1B9A")
+        )
+        modulo = idea.get("modulo_destino", "")
+        modulo_html = (
+            _ib_badge("→ " + modulo, "#E8F5E9", "#1B6B2F") if modulo else ""
+        )
+
+        st.markdown(
+            "<div style='border:1px solid #EEE;border-left:4px solid #E84000;"
+            "border-radius:10px;padding:0.85rem 1rem;margin:0.6rem 0;'>"
+            "<div style='display:flex;justify-content:space-between;align-items:center;'>"
+            f"<div style='font-size:1.05rem;font-weight:800;color:#1F1F1F;'>{idea.get('titulo','')}{qw}</div>"
+            f"<div style='font-size:1.1rem;font-weight:800;color:#E84000;'>★ {e['score']}</div>"
+            "</div>"
+            f"<div style='font-size:0.72rem;color:#888;margin:0.2rem 0 0.5rem;'>por {idea.get('autor','—')} · {len(votos)} voto(s)</div>"
+            f"<div style='margin-bottom:0.5rem;'>{badges}{modulo_html}</div>"
+            + (
+                f"<div style='font-size:0.9rem;color:#333;margin-bottom:0.3rem;'>{idea.get('descripcion','')}</div>"
+                if idea.get("descripcion") else ""
+            )
+            + (
+                f"<div style='font-size:0.82rem;color:#B71C1C;'>🔴 <b>Duele:</b> {idea.get('problema','')}</div>"
+                if idea.get("problema") else ""
+            )
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Voto existente de este usuario (para precarga)
+        mi_voto = next((v for v in votos if v.get("votante") == votante_id), None)
+
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            _ib_vote_popover(idea_id, votante_id, mi_voto)
+        with pc2:
+            with st.popover(f"👀 Ver votos ({len(votos)})", use_container_width=True):
+                if not votos:
+                    st.caption("Sin votos todavía.")
+                for v in votos:
+                    signo = "➕" if v.get("valor", 0) > 0 else ("➖" if v.get("valor", 0) < 0 else "•")
+                    st.markdown(
+                        f"**{v.get('votante','—')}** · {signo} {v.get('valor',0)}"
+                    )
+                    st.caption(v.get("razon", "") or "—")
+
+
+def _ib_vote_popover(idea_id, votante_id, mi_voto):
+    """Popover de votación con radio (+1/0/-1) + razón obligatoria.
+
+    Precarga el voto existente vía buffers en session_state (patrón Plan D:
+    se siembra el key ANTES de crear el widget, sin pasar value=).
+    """
+    val_key = f"ib_vote_val_{idea_id}"
+    razon_key = f"ib_vote_razon_{idea_id}"
+
+    # Sembrado único: solo si el buffer aún no existe en esta sesión.
+    if val_key not in st.session_state:
+        st.session_state[val_key] = int(mi_voto["valor"]) if mi_voto else 0
+    if razon_key not in st.session_state:
+        st.session_state[razon_key] = mi_voto.get("razon", "") if mi_voto else ""
+
+    btn_label = "✏️ Actualizar voto" if mi_voto else "🗳️ Votar"
+    with st.popover(btn_label, use_container_width=True):
+        st.radio(
+            "Tu voto",
+            options=[1, 0, -1],
+            format_func=lambda x: {1: "➕ A favor (+1)", 0: "• Neutral (0)", -1: "➖ En contra (−1)"}[x],
+            key=val_key,
+            horizontal=True,
+        )
+        st.text_area("Razón (obligatoria)", key=razon_key, height=80)
+        if st.button("Guardar voto", key=f"ib_vote_btn_{idea_id}", type="primary"):
+            razon_val = str(st.session_state.get(razon_key, "")).strip()
+            if not razon_val:
+                st.warning("La razón es obligatoria — no se guardó el voto.")
+            else:
+                _upsert_voto(
+                    idea_id, votante_id, int(st.session_state[val_key]), razon_val
+                )
+                st.success("✅ Voto registrado.")
+                st.rerun()
