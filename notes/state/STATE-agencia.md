@@ -1,11 +1,23 @@
 ---
 tipo: state
-actualizado: 2026-07-20
+actualizado: 2026-07-21
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-21 — Frente M24 Innovation Board (F1+F2)
+
+**M24 Innovation Board — F1+F2 completos**, 3 commits locales en `feature/m24-innovation-board` (`d8be8d3` · `17143e2` · `3707621`), pendiente push. Worktree `C:\proyectos\ppc-manager-innovation`. Board de ideas del equipo (votación + prototipos HTML + pipeline de estados) dentro de Knowledge Base. Backend Supabase **dormido**: schema escrito sin ejecutar, corre local hasta swap-day. Verificación 718 passed / 24 skipped, cero regresiones, nunca se levantó `streamlit run`.
+
+**Deudas / pendientes:**
+- **Ruido EOL CRLF→LF ahora en DOS worktrees** (`-charts` y `-innovation`). La renormalización repo-wide sigue pendiente y es del consolidador. Ningún frente debe tocar, stagear ni limpiar esos archivos.
+- **Swap-day M24:** ejecutar `scripts/sql/m24_innovation_schema.sql` + agregar `innovation_backend = 'supabase'` al bloque `[supabase]` de secrets.
+
+Detalle: [[2026-07-21]] · [[m24-innovation-board]]
 
 ---
 
