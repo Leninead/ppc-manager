@@ -5,11 +5,20 @@ from datetime import datetime
 import streamlit as st
 import pandas as pd
 
+from streamlit.components.v1 import html as st_html
+
 from core.helpers import kpi_card
 from core.innovation_persistence import (
+    _add_comentario,
+    _add_prototipo,
     _create_idea,
+    _get_prototipo,
+    _list_comentarios,
     _list_ideas,
+    _list_prototipos,
     _list_votos,
+    _toggle_destacado,
+    _update_idea,
     _upsert_voto,
 )
 
@@ -299,6 +308,27 @@ def _ib_badge(text, bg, fg):
     )
 
 
+# Colores del badge de estado (pipeline).
+_IB_ESTADO_COLORS = {
+    "nueva": ("#E3F2FD", "#1565C0"),
+    "en revisión": ("#FFF3E0", "#E84000"),
+    "aprobada": ("#E8F5E9", "#1B6B2F"),
+    "descartada": ("#EEEEEE", "#888888"),
+}
+
+
+def _ib_estado_badge(estado):
+    bg, fg = _IB_ESTADO_COLORS.get(estado, ("#EEEEEE", "#888888"))
+    return _ib_badge(estado, bg, fg)
+
+
+def _ib_on_estado_change(idea_id, state_key):
+    """Callback on_change del selectbox de estado — persiste el nuevo estado."""
+    nuevo = st.session_state.get(state_key)
+    if nuevo:
+        _update_idea(idea_id, {"estado": nuevo})
+
+
 def _render_innovation_board(user_name=None, user_slug=None):
     st.subheader("💡 Innovation Board")
     st.caption(
@@ -395,10 +425,12 @@ def _render_innovation_board(user_name=None, user_slug=None):
     total_ideas = len(enriched)
     ideas_votadas = sum(1 for e in enriched if e["votos"])
     quick_wins = sum(1 for e in enriched if _ib_is_quick_win(e["idea"]))
-    k1, k2, k3 = st.columns(3)
+    aprobadas = sum(1 for e in enriched if e["idea"].get("estado") == "aprobada")
+    k1, k2, k3, k4 = st.columns(4)
     k1.markdown(kpi_card("Total ideas", str(total_ideas)), unsafe_allow_html=True)
     k2.markdown(kpi_card("Ideas votadas", str(ideas_votadas)), unsafe_allow_html=True)
     k3.markdown(kpi_card("Quick Wins", str(quick_wins)), unsafe_allow_html=True)
+    k4.markdown(kpi_card("Aprobadas", str(aprobadas)), unsafe_allow_html=True)
 
     if not enriched:
         st.markdown(
@@ -422,7 +454,8 @@ def _render_innovation_board(user_name=None, user_slug=None):
         qw = " ⚡ Quick Win" if _ib_is_quick_win(idea) else ""
 
         badges = (
-            _ib_badge(idea.get("area", "—"), "#E3F2FD", "#1565C0")
+            _ib_estado_badge(idea.get("estado", "nueva"))
+            + _ib_badge(idea.get("area", "—"), "#E3F2FD", "#1565C0")
             + _ib_badge("Impacto " + idea.get("impacto", "—"), "#FFF3E0", "#E84000")
             + _ib_badge("Esfuerzo " + idea.get("esfuerzo", "—"), "#F3E5F5", "#6A1B9A")
         )
@@ -455,11 +488,23 @@ def _render_innovation_board(user_name=None, user_slug=None):
         # Voto existente de este usuario (para precarga)
         mi_voto = next((v for v in votos if v.get("votante") == votante_id), None)
 
-        pc1, pc2 = st.columns(2)
+        # Pipeline de estado — on_change persiste (sin polling).
+        state_key = f"ib_estado_{idea_id}"
+        cur_estado = idea.get("estado", "nueva")
+        cur_idx = _IB_ESTADOS.index(cur_estado) if cur_estado in _IB_ESTADOS else 0
+        sc1, sc2 = st.columns([1, 3])
+        sc1.caption("Estado")
+        sc2.selectbox(
+            "Estado", _IB_ESTADOS, index=cur_idx, key=state_key,
+            on_change=_ib_on_estado_change, args=(idea_id, state_key),
+            label_visibility="collapsed",
+        )
+
+        pc1, pc2, pc3, pc4 = st.columns(4)
         with pc1:
             _ib_vote_popover(idea_id, votante_id, mi_voto)
         with pc2:
-            with st.popover(f"👀 Ver votos ({len(votos)})", use_container_width=True):
+            with st.popover(f"👀 Votos ({len(votos)})", use_container_width=True):
                 if not votos:
                     st.caption("Sin votos todavía.")
                 for v in votos:
@@ -468,6 +513,17 @@ def _render_innovation_board(user_name=None, user_slug=None):
                         f"**{v.get('votante','—')}** · {signo} {v.get('valor',0)}"
                     )
                     st.caption(v.get("razon", "") or "—")
+        with pc3:
+            _ib_proto_popover(idea_id, autor)
+        with pc4:
+            _ib_coment_popover(idea_id, autor, idea)
+
+    # ── Render del prototipo activo — FUERA de todo popover ──────────────
+    # Decisión: st.components.v1.html vive en el flujo principal (no dentro del
+    # popover). Un iframe de 700px dentro de un popover es mala UX y su render
+    # no es validable headless; acá es full-width y seguro. La idea/proto activo
+    # se elige vía session_state["ib_active_proto"].
+    _ib_render_active_prototype()
 
 
 def _ib_vote_popover(idea_id, votante_id, mi_voto):
@@ -504,4 +560,133 @@ def _ib_vote_popover(idea_id, votante_id, mi_voto):
                     idea_id, votante_id, int(st.session_state[val_key]), razon_val
                 )
                 st.success("✅ Voto registrado.")
+                st.rerun()
+
+
+def _ib_proto_popover(idea_id, autor):
+    """Popover de prototipos HTML: subida (versionada) + selección para ver.
+
+    El render del HTML NO va acá (ver `_ib_render_active_prototype`) — solo
+    subida y selección. El versionado lo maneja la capa de persistencia.
+    """
+    protos = _list_prototipos(idea_id)
+    with st.popover(f"🧪 Prototipos ({len(protos)})", use_container_width=True):
+        st.caption(
+            "⚠️ El HTML es de terceros y ejecuta JS en un iframe. "
+            "Subí solo prototipos de gente del equipo."
+        )
+        up = st.file_uploader(
+            "Subir prototipo (.html)", type=["html"], key=f"ib_proto_up_{idea_id}"
+        )
+        if up is not None:
+            data = up.getvalue()
+            sig = f"{up.name}:{len(data)}"
+            sig_key = f"ib_proto_sig_{idea_id}"
+            # Guarda anti-duplicado: el uploader retorna el archivo en cada rerun.
+            if st.session_state.get(sig_key) != sig:
+                st.session_state[sig_key] = sig
+                if len(data) > 2_000_000:
+                    st.error("El archivo supera 2 MB — no se guardó.")
+                else:
+                    html = data.decode("utf-8", errors="replace")
+                    _add_prototipo(idea_id, up.name, html, autor)
+                    st.success(f"✅ Prototipo guardado: {up.name}")
+                    st.rerun()
+
+        if protos:
+            labels = {
+                f"{p.get('nombre','?')} · v{p.get('version','?')} · {p.get('autor','—')}": p["id"]
+                for p in protos
+            }
+            sel_label = st.selectbox(
+                "Ver prototipo", list(labels.keys()), key=f"ib_proto_sel_{idea_id}"
+            )
+            if st.button("👁️ Ver seleccionado", key=f"ib_proto_view_{idea_id}"):
+                st.session_state["ib_active_proto"] = labels[sel_label]
+                st.rerun()
+        else:
+            st.caption("Sin prototipos todavía.")
+
+
+def _ib_render_active_prototype():
+    """Renderiza el prototipo activo (session_state) en el flujo principal.
+
+    FUERA de cualquier popover — un iframe de 700px dentro de un popover es
+    mala UX y su render no es validable headless.
+    """
+    active = st.session_state.get("ib_active_proto")
+    if not active:
+        return
+    proto = _get_prototipo(active)
+    if not proto:
+        return
+
+    st.divider()
+    tc1, tc2 = st.columns([4, 1])
+    tc1.markdown(
+        f"#### 🧪 Prototipo: {proto.get('nombre','?')} · v{proto.get('version','?')}"
+    )
+    if tc2.button("✖ Cerrar", key="ib_proto_close"):
+        st.session_state["ib_active_proto"] = None
+        st.rerun()
+
+    st.caption(
+        "⚠️ HTML de terceros — ejecuta JS en el iframe. "
+        "Solo prototipos de gente del equipo."
+    )
+    html = proto.get("html_content", "") or ""
+    st.download_button(
+        "⬇️ Descargar HTML",
+        data=html.encode("utf-8"),
+        file_name=proto.get("nombre", "prototipo.html"),
+        mime="text/html",
+        key="ib_proto_dl",
+    )
+    st_html(html, height=700, scrolling=True)
+
+
+def _ib_coment_popover(idea_id, autor, idea):
+    """Popover de comentarios: listado (destacados resaltados) + alta.
+
+    El toggle de destacado solo lo ve el dueño de la idea (autor == idea.autor).
+    """
+    coms = _list_comentarios(idea_id)
+    es_dueno = autor == idea.get("autor")
+    with st.popover(f"💬 Comentarios ({len(coms)})", use_container_width=True):
+        if not coms:
+            st.caption("Sin comentarios todavía.")
+        for c in coms:
+            fecha = (c.get("created_at") or "")[:10] or "—"
+            destacado = bool(c.get("destacado"))
+            bg = "#FFF3E0" if destacado else "#FAFAFA"
+            badge = (
+                "<span style='background:#E84000;color:#fff;font-size:0.6rem;"
+                "padding:1px 6px;border-radius:4px;font-weight:700;'>"
+                "⭐ Aporte destacado</span>"
+                if destacado else ""
+            )
+            st.markdown(
+                f"<div style='background:{bg};border-radius:8px;"
+                f"padding:0.5rem 0.7rem;margin:0.3rem 0;'>"
+                f"<div style='font-size:0.72rem;color:#888;'>"
+                f"{c.get('autor','—')} · {fecha} {badge}</div>"
+                f"<div style='font-size:0.88rem;color:#333;margin-top:0.2rem;'>"
+                f"{c.get('cuerpo','')}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            if es_dueno:
+                lbl = "☆ Quitar destacado" if destacado else "⭐ Destacar"
+                if st.button(lbl, key=f"ib_com_star_{c['id']}"):
+                    _toggle_destacado(c["id"], not destacado)
+                    st.rerun()
+
+        st.divider()
+        st.text_area("Nuevo comentario", key=f"ib_com_txt_{idea_id}", height=70)
+        if st.button("💬 Comentar", key=f"ib_com_btn_{idea_id}"):
+            cuerpo = str(st.session_state.get(f"ib_com_txt_{idea_id}", "")).strip()
+            if not cuerpo:
+                st.warning("El comentario no puede estar vacío.")
+            else:
+                _add_comentario(idea_id, autor, cuerpo)
                 st.rerun()
