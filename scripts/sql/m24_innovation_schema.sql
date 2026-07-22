@@ -24,9 +24,18 @@ create table if not exists innovation_ideas (
     esfuerzo       text        not null default 'medio',   -- alto | medio | bajo
     modulo_destino text        not null default '',
     autor          text        not null default '',
-    estado         text        not null default 'nueva',
-    created_at     timestamptz not null default now()
+    estado            text        not null default 'nueva',
+    asignado_a        text        not null default '',
+    razon_descarte    text        not null default '',
+    estado_updated_at timestamptz not null default now(),
+    created_at        timestamptz not null default now()
 );
+
+-- F3 — columnas nuevas idempotentes (para DBs ya creadas sin ellas).
+-- Sobre una tabla fresca son no-ops (ya vienen del create de arriba).
+alter table innovation_ideas add column if not exists asignado_a        text        not null default '';
+alter table innovation_ideas add column if not exists razon_descarte    text        not null default '';
+alter table innovation_ideas add column if not exists estado_updated_at timestamptz not null default now();
 
 create index if not exists idx_innovation_ideas_area_estado
     on innovation_ideas (area, estado);

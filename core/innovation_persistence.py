@@ -564,31 +564,67 @@ def _set_backend_for_testing(backend) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Migración defensiva de estados (en el punto de lectura, sin script aparte)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# El estado "en revisión" (F2) pasó a llamarse "en debate" en F3. Se mapea al
+# LEER, para no requerir un backfill en disco/DB. Los otros 3 estados viejos
+# (nueva/aprobada/descartada) siguen siendo válidos.
+_ESTADO_MIGRATION = {"en revisión": "en debate"}
+
+
+def _migrate_estado(idea: dict) -> dict:
+    """Mapea estados legacy a los actuales. Devuelve copia si hubo cambio."""
+    if idea and idea.get("estado") in _ESTADO_MIGRATION:
+        idea = dict(idea)
+        idea["estado"] = _ESTADO_MIGRATION[idea["estado"]]
+    return idea
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API pública — wrappers con cache + invalidación
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @_cache_data
 def _list_ideas(area=None, estado=None) -> list[dict]:
-    """Lista ideas, opcionalmente filtradas por area y/o estado."""
-    return _get_backend().list_ideas(area, estado)
+    """Lista ideas (estados migrados), filtradas opcionalmente por area/estado.
+
+    El filtro de estado se aplica DESPUÉS de la migración para que una idea
+    legacy ("en revisión" → "en debate") se filtre por su estado actual.
+    """
+    rows = [_migrate_estado(r) for r in _get_backend().list_ideas(area, None)]
+    if estado:
+        rows = [r for r in rows if r.get("estado") == estado]
+    return rows
 
 
 @_cache_data
 def _get_idea(idea_id: str) -> dict:
-    """Devuelve una idea por id, o {} si no existe."""
-    return _get_backend().get_idea(idea_id)
+    """Devuelve una idea por id (estado migrado), o {} si no existe."""
+    return _migrate_estado(_get_backend().get_idea(idea_id))
 
 
 def _create_idea(payload: dict) -> str:
-    """Crea una idea nueva. Devuelve su idea_id. Invalida cache de lecturas."""
+    """Crea una idea nueva con los defaults de F3. Devuelve su idea_id."""
+    payload = dict(payload)
+    payload.setdefault("asignado_a", "")
+    payload.setdefault("razon_descarte", "")
+    payload.setdefault("estado_updated_at", _now_iso())
     idea_id = _get_backend().create_idea(payload)
     _invalidate(_list_ideas, _get_idea)
     return idea_id
 
 
 def _update_idea(idea_id: str, patch: dict) -> None:
-    """Aplica un patch parcial a una idea. Invalida cache de lecturas."""
+    """Aplica un patch parcial. Si toca 'estado', sella estado_updated_at.
+
+    El sellado del timestamp NO se delega a la UI — vive acá para que cualquier
+    cambio de estado quede fechado sí o sí.
+    """
+    patch = dict(patch)
+    if "estado" in patch:
+        patch["estado_updated_at"] = _now_iso()
     _get_backend().update_idea(idea_id, patch)
     _invalidate(_list_ideas, _get_idea)
 

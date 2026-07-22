@@ -22,6 +22,7 @@ _testing = pytest.importorskip("streamlit.testing.v1")
 AppTest = _testing.AppTest
 
 from core import innovation_persistence as ip
+from modules.pages import knowledge_base as kb
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -223,3 +224,105 @@ def test_prototipo_render_en_flujo_principal(local_backend):
     blob = " ".join(m.value for m in at.markdown)
     assert "Prototipo:" in blob
     assert any(getattr(b, "key", None) == "ib_proto_close" for b in at.button)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F3 — prioridad, migración de estados, descarte, asignación, 3 vistas
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_prioridad_max_score_zero_no_explota():
+    idea = {"impacto": "medio", "esfuerzo": "medio"}
+    score = kb._ib_prioridad(idea, [], 0)  # max_score=0 → sin división por cero
+    assert isinstance(score, int)
+    assert score == 36  # 35*0.6 + 25*0.6 = 36
+
+
+def test_prioridad_quick_win_votos_maximos_es_100():
+    idea = {"impacto": "alto", "esfuerzo": "bajo"}
+    votos = [{"valor": 1}, {"valor": 1}]  # score 2
+    assert kb._ib_prioridad(idea, votos, max_score=2) == 100  # 40+35+25
+
+
+def test_migracion_en_revision_a_en_debate(local_backend):
+    idea_id = ip._create_idea({"titulo": "legacy", "area": "ppc"})
+    ip._update_idea(idea_id, {"estado": "en revisión"})  # estado legacy en storage
+
+    assert ip._get_idea(idea_id)["estado"] == "en debate"
+    # _list_ideas también migra + filtra por el estado NUEVO.
+    listed = ip._list_ideas(estado="en debate")
+    assert any(i["id"] == idea_id for i in listed)
+
+
+def test_update_idea_estado_sella_timestamp(local_backend):
+    idea_id = ip._create_idea({"titulo": "x", "area": "ops"})
+    ts0 = ip._get_idea(idea_id).get("estado_updated_at")
+
+    # Update SIN estado → no toca estado_updated_at.
+    ip._update_idea(idea_id, {"asignado_a": "Alguien"})
+    ts1 = ip._get_idea(idea_id).get("estado_updated_at")
+    assert ts1 == ts0
+
+    # Update CON estado → sella un timestamp nuevo.
+    ip._update_idea(idea_id, {"estado": "aprobada"})
+    ts2 = ip._get_idea(idea_id).get("estado_updated_at")
+    assert ts2 and ts2 != ts1
+
+
+def test_descartar_sin_razon_no_persiste(local_backend):
+    at = AppTest.from_string(_SCRIPT)
+    at.run()
+    idea_id = _publish_idea(at, "Idea a descartar")
+
+    _by_key(at.selectbox, f"ib_estado_{idea_id}").set_value("descartada")
+    at.run()
+    # Confirmar sin razón → warning, no persiste.
+    _by_key(at.button, f"ib_descarte_btn_{idea_id}").click()
+    at.run()
+    assert not at.exception
+
+    _clear_caches()
+    assert ip._get_idea(idea_id)["estado"] != "descartada"
+
+
+def test_descartar_con_razon_persiste_y_guarda(local_backend):
+    at = AppTest.from_string(_SCRIPT)
+    at.run()
+    idea_id = _publish_idea(at, "Idea a descartar 2")
+
+    _by_key(at.selectbox, f"ib_estado_{idea_id}").set_value("descartada")
+    at.run()
+    _by_key(at.text_area, f"ib_descarte_razon_{idea_id}").set_value("duplicada de otra")
+    at.run()
+    _by_key(at.button, f"ib_descarte_btn_{idea_id}").click()
+    at.run()
+    assert not at.exception
+
+    _clear_caches()
+    idea = ip._get_idea(idea_id)
+    assert idea["estado"] == "descartada"
+    assert idea["razon_descarte"] == "duplicada de otra"
+
+
+def test_asignar_usuario_persiste(local_backend):
+    at = AppTest.from_string(_SCRIPT)
+    at.run()
+    idea_id = _publish_idea(at, "Idea a asignar")
+
+    # Sin secrets, _ib_usuarios() → ["Usuario local"].
+    _by_key(at.selectbox, f"ib_asignado_{idea_id}").set_value("Usuario local")
+    at.run()
+    assert not at.exception
+
+    _clear_caches()
+    assert ip._get_idea(idea_id)["asignado_a"] == "Usuario local"
+
+
+def test_tres_vistas_renderizan_sin_excepcion(local_backend):
+    at = AppTest.from_string(_SCRIPT)
+    at.run()
+    _publish_idea(at, "Idea multi-vista")
+
+    for vista in ["📋 Lista", "🗂️ Kanban", "📊 Matriz"]:
+        _by_key(at.radio, "ib_vista").set_value(vista)
+        at.run()
+        assert not at.exception, f"la vista {vista} rompió el render"

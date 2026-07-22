@@ -265,11 +265,17 @@ def render(user_name=None, user_slug=None):
 
 _IB_AREAS = ["ppc", "account", "sales", "research", "ops"]
 _IB_NIVELES = ["alto", "medio", "bajo"]
-_IB_ESTADOS = ["nueva", "en revisión", "aprobada", "descartada"]
 
-# Pesos para el desempate por cuadrante impacto/esfuerzo.
-_IB_IMPACTO_W = {"alto": 2, "medio": 1, "bajo": 0}
-_IB_ESFUERZO_W = {"bajo": 2, "medio": 1, "alto": 0}  # menor esfuerzo = mejor
+# Pipeline de 6 estados. Este ORDEN es el del Kanban y la barra de progreso.
+_IB_ESTADOS = ["nueva", "en debate", "aprobada", "en desarrollo",
+               "completada", "descartada"]
+
+# Score de prioridad (0-100): votos normalizados + impacto + facilidad.
+_IB_PESO_VOTOS = 40
+_IB_PESO_IMPACTO = 35
+_IB_PESO_FACILIDAD = 25
+_IB_IMPACTO_VAL = {"alto": 1.0, "medio": 0.6, "bajo": 0.2}
+_IB_FACILIDAD_VAL = {"bajo": 1.0, "medio": 0.6, "alto": 0.2}  # menor esfuerzo = más fácil
 
 
 def _ib_usuarios():
@@ -289,15 +295,37 @@ def _ib_score(votos):
     return sum(int(v.get("valor", 0) or 0) for v in votos)
 
 
-def _ib_quadrant_rank(idea):
-    """Ranking de cuadrante (mayor = mejor). Quick Win (alto/bajo) queda arriba."""
-    imp = _IB_IMPACTO_W.get(idea.get("impacto", "medio"), 1)
-    esf = _IB_ESFUERZO_W.get(idea.get("esfuerzo", "medio"), 1)
-    return imp + esf
-
-
 def _ib_is_quick_win(idea):
     return idea.get("impacto") == "alto" and idea.get("esfuerzo") == "bajo"
+
+
+def _ib_prioridad(idea, votos, max_score):
+    """Score de prioridad 0-100. max_score = mayor score de votos del board.
+
+    Guarda: si max_score <= 0, la componente de votos es 0 (sin división por
+    cero). Los scores de votos pueden ser negativos → se clampea a [0, 1].
+    """
+    votos_norm = (_ib_score(votos) / max_score) if max_score > 0 else 0.0
+    votos_norm = max(0.0, min(1.0, votos_norm))
+    imp = _IB_IMPACTO_VAL.get(idea.get("impacto", "medio"), 0.6)
+    fac = _IB_FACILIDAD_VAL.get(idea.get("esfuerzo", "medio"), 0.6)
+    total = (
+        _IB_PESO_VOTOS * votos_norm
+        + _IB_PESO_IMPACTO * imp
+        + _IB_PESO_FACILIDAD * fac
+    )
+    return int(round(total))
+
+
+def _ib_prioridad_label(score):
+    """(label, color) por umbral: >=75 CRÍTICA · >=50 ALTA · >=25 MEDIA · BAJA."""
+    if score >= 75:
+        return ("CRÍTICA", "#B71C1C")
+    if score >= 50:
+        return ("ALTA", "#E84000")
+    if score >= 25:
+        return ("MEDIA", "#F9A825")
+    return ("BAJA", "#888888")
 
 
 def _ib_badge(text, bg, fg):
@@ -308,25 +336,39 @@ def _ib_badge(text, bg, fg):
     )
 
 
-# Colores del badge de estado (pipeline).
-_IB_ESTADO_COLORS = {
-    "nueva": ("#E3F2FD", "#1565C0"),
-    "en revisión": ("#FFF3E0", "#E84000"),
-    "aprobada": ("#E8F5E9", "#1B6B2F"),
-    "descartada": ("#EEEEEE", "#888888"),
+# Metadata de estado del pipeline: (emoji, bg, fg).
+_IB_ESTADO_META = {
+    "nueva":         ("💡", "#F5F5F5", "#666666"),
+    "en debate":     ("🗣️", "#E3F2FD", "#1565C0"),
+    "aprobada":      ("✅", "#E8F5E9", "#1B6B2F"),
+    "en desarrollo": ("🔨", "#FFF3E0", "#E84000"),
+    "completada":    ("🚀", "#1B6B2F", "#FFFFFF"),
+    "descartada":    ("🗑️", "#EEEEEE", "#999999"),
+}
+
+# Colores sólidos y visibles para los puntos de la matriz (los bg pálidos del
+# badge no se leen como marcadores en un scatter).
+_IB_ESTADO_PLOT = {
+    "nueva": "#9E9E9E",
+    "en debate": "#1565C0",
+    "aprobada": "#1B6B2F",
+    "en desarrollo": "#E84000",
+    "completada": "#2E7D32",
+    "descartada": "#BDBDBD",
 }
 
 
 def _ib_estado_badge(estado):
-    bg, fg = _IB_ESTADO_COLORS.get(estado, ("#EEEEEE", "#888888"))
-    return _ib_badge(estado, bg, fg)
+    emoji, bg, fg = _IB_ESTADO_META.get(estado, ("•", "#EEEEEE", "#999999"))
+    return _ib_badge(f"{emoji} {estado}", bg, fg)
 
 
-def _ib_on_estado_change(idea_id, state_key):
-    """Callback on_change del selectbox de estado — persiste el nuevo estado."""
-    nuevo = st.session_state.get(state_key)
-    if nuevo:
-        _update_idea(idea_id, {"estado": nuevo})
+def _ib_on_asignado_change(idea_id, asig_key):
+    """Callback on_change del selectbox de asignación — persiste asignado_a."""
+    val = st.session_state.get(asig_key)
+    if val == "(sin asignar)":
+        val = ""
+    _update_idea(idea_id, {"asignado_a": val or ""})
 
 
 def _render_innovation_board(user_name=None, user_slug=None):
@@ -394,6 +436,11 @@ def _render_innovation_board(user_name=None, user_slug=None):
     # ── Sub-sección: Board ───────────────────────────────────────────────
     st.markdown("#### 🗂️ Board")
 
+    # Cambio de vista pendiente (seteado desde Kanban) → aplicar ANTES de crear
+    # el radio, para no modificar un widget key ya instanciado (gotcha 1.43.2).
+    if "ib_vista_pending" in st.session_state:
+        st.session_state["ib_vista"] = st.session_state.pop("ib_vista_pending")
+
     fc1, fc2 = st.columns(2)
     filtro_area = fc1.selectbox(
         "Filtrar por área", ["(todas)"] + _IB_AREAS, key="ib_filtro_area"
@@ -406,19 +453,18 @@ def _render_innovation_board(user_name=None, user_slug=None):
     estado_arg = None if filtro_estado == "(todos)" else filtro_estado
     ideas = _list_ideas(area_arg, estado_arg)
 
-    # Enriquecer con votos + score
+    # Enriquecer con votos + score + prioridad
     enriched = []
     for idea in ideas:
         votos = _list_votos(idea["id"])
         enriched.append({"idea": idea, "votos": votos, "score": _ib_score(votos)})
+    max_score = max((e["score"] for e in enriched), default=0)
+    for e in enriched:
+        e["prioridad"] = _ib_prioridad(e["idea"], e["votos"], max_score)
 
-    # Orden: score desc, luego cuadrante (quick win primero), luego título
+    # Orden: prioridad desc, luego título.
     enriched.sort(
-        key=lambda e: (
-            -e["score"],
-            -_ib_quadrant_rank(e["idea"]),
-            e["idea"].get("titulo", "").lower(),
-        )
+        key=lambda e: (-e["prioridad"], e["idea"].get("titulo", "").lower())
     )
 
     # ── Métricas ─────────────────────────────────────────────────────────
@@ -446,84 +492,337 @@ def _render_innovation_board(user_name=None, user_slug=None):
         )
         return
 
-    # ── Cards ────────────────────────────────────────────────────────────
-    for e in enriched:
-        idea = e["idea"]
-        votos = e["votos"]
-        idea_id = idea["id"]
-        qw = " ⚡ Quick Win" if _ib_is_quick_win(idea) else ""
+    # ── Barra de progreso (sobre las 3 vistas) ───────────────────────────
+    _ib_barra_progreso(enriched)
 
-        badges = (
-            _ib_estado_badge(idea.get("estado", "nueva"))
-            + _ib_badge(idea.get("area", "—"), "#E3F2FD", "#1565C0")
-            + _ib_badge("Impacto " + idea.get("impacto", "—"), "#FFF3E0", "#E84000")
-            + _ib_badge("Esfuerzo " + idea.get("esfuerzo", "—"), "#F3E5F5", "#6A1B9A")
-        )
-        modulo = idea.get("modulo_destino", "")
-        modulo_html = (
-            _ib_badge("→ " + modulo, "#E8F5E9", "#1B6B2F") if modulo else ""
-        )
+    # ── Toggle de vista ──────────────────────────────────────────────────
+    vista = st.radio(
+        "Vista", ["📋 Lista", "🗂️ Kanban", "📊 Matriz"],
+        key="ib_vista", horizontal=True,
+    )
+    if vista == "🗂️ Kanban":
+        _ib_vista_kanban(enriched)
+    elif vista == "📊 Matriz":
+        _ib_vista_matriz(enriched)
+    else:
+        _ib_vista_lista(enriched, autor, votante_id)
 
-        st.markdown(
-            "<div style='border:1px solid #EEE;border-left:4px solid #E84000;"
-            "border-radius:10px;padding:0.85rem 1rem;margin:0.6rem 0;'>"
-            "<div style='display:flex;justify-content:space-between;align-items:center;'>"
-            f"<div style='font-size:1.05rem;font-weight:800;color:#1F1F1F;'>{idea.get('titulo','')}{qw}</div>"
-            f"<div style='font-size:1.1rem;font-weight:800;color:#E84000;'>★ {e['score']}</div>"
-            "</div>"
-            f"<div style='font-size:0.72rem;color:#888;margin:0.2rem 0 0.5rem;'>por {idea.get('autor','—')} · {len(votos)} voto(s)</div>"
-            f"<div style='margin-bottom:0.5rem;'>{badges}{modulo_html}</div>"
-            + (
-                f"<div style='font-size:0.9rem;color:#333;margin-bottom:0.3rem;'>{idea.get('descripcion','')}</div>"
-                if idea.get("descripcion") else ""
-            )
-            + (
-                f"<div style='font-size:0.82rem;color:#B71C1C;'>🔴 <b>Duele:</b> {idea.get('problema','')}</div>"
-                if idea.get("problema") else ""
-            )
-            + "</div>",
-            unsafe_allow_html=True,
-        )
-
-        # Voto existente de este usuario (para precarga)
-        mi_voto = next((v for v in votos if v.get("votante") == votante_id), None)
-
-        # Pipeline de estado — on_change persiste (sin polling).
-        state_key = f"ib_estado_{idea_id}"
-        cur_estado = idea.get("estado", "nueva")
-        cur_idx = _IB_ESTADOS.index(cur_estado) if cur_estado in _IB_ESTADOS else 0
-        sc1, sc2 = st.columns([1, 3])
-        sc1.caption("Estado")
-        sc2.selectbox(
-            "Estado", _IB_ESTADOS, index=cur_idx, key=state_key,
-            on_change=_ib_on_estado_change, args=(idea_id, state_key),
-            label_visibility="collapsed",
-        )
-
-        pc1, pc2, pc3, pc4 = st.columns(4)
-        with pc1:
-            _ib_vote_popover(idea_id, votante_id, mi_voto)
-        with pc2:
-            with st.popover(f"👀 Votos ({len(votos)})", use_container_width=True):
-                if not votos:
-                    st.caption("Sin votos todavía.")
-                for v in votos:
-                    signo = "➕" if v.get("valor", 0) > 0 else ("➖" if v.get("valor", 0) < 0 else "•")
-                    st.markdown(
-                        f"**{v.get('votante','—')}** · {signo} {v.get('valor',0)}"
-                    )
-                    st.caption(v.get("razon", "") or "—")
-        with pc3:
-            _ib_proto_popover(idea_id, autor)
-        with pc4:
-            _ib_coment_popover(idea_id, autor, idea)
-
-    # ── Render del prototipo activo — FUERA de todo popover ──────────────
-    # Decisión: st.components.v1.html vive en el flujo principal (no dentro del
-    # popover). Un iframe de 700px dentro de un popover es mala UX y su render
-    # no es validable headless; acá es full-width y seguro. La idea/proto activo
-    # se elige vía session_state["ib_active_proto"].
+    # Render del prototipo activo — FUERA de todo popover/vista. Un iframe de
+    # 700px dentro de un popover es mala UX y su render no es validable headless;
+    # acá es full-width y seguro (session_state["ib_active_proto"]).
     _ib_render_active_prototype()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Vistas del board (Lista / Kanban / Matriz) + barra de progreso
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def _ib_estado_counts(enriched):
+    counts = {est: 0 for est in _IB_ESTADOS}
+    for e in enriched:
+        est = e["idea"].get("estado", "nueva")
+        counts[est] = counts.get(est, 0) + 1
+    return counts
+
+
+def _ib_barra_progreso(enriched):
+    """Barra segmentada por estado (ancho ∝ conteo) + leyenda. Vacío → nada."""
+    if not enriched:
+        return
+    counts = _ib_estado_counts(enriched)
+    total = sum(counts.values()) or 1
+    segs = ""
+    for est in _IB_ESTADOS:
+        n = counts.get(est, 0)
+        if n == 0:
+            continue
+        _emoji, bg, fg = _IB_ESTADO_META.get(est, ("•", "#EEE", "#999"))
+        pct = n / total * 100
+        segs += (
+            f"<div style='width:{pct:.1f}%;background:{bg};color:{fg};"
+            f"font-size:0.62rem;text-align:center;padding:0.25rem 0;"
+            f"font-weight:700;'>{n}</div>"
+        )
+    st.markdown(
+        "<div style='display:flex;border-radius:6px;overflow:hidden;"
+        f"margin:0.5rem 0 0.2rem;'>{segs}</div>",
+        unsafe_allow_html=True,
+    )
+    leyenda = "  ·  ".join(
+        f"{_IB_ESTADO_META.get(est, ('•', '', ''))[0]} {est} ({counts.get(est, 0)})"
+        for est in _IB_ESTADOS if counts.get(est, 0) > 0
+    )
+    st.caption(leyenda)
+
+
+def _ib_prioridad_badge(prioridad):
+    label, color = _ib_prioridad_label(prioridad)
+    return (
+        f"<span style='border:1.5px solid {color};color:{color};font-size:0.65rem;"
+        f"padding:1px 7px;border-radius:6px;font-weight:800;margin-right:4px;'>"
+        f"P{prioridad} · {label}</span>"
+    )
+
+
+def _ib_vista_lista(enriched, autor, votante_id):
+    """Vista Lista: cards completas. Respeta el focus fijado desde Kanban."""
+    focus = st.session_state.get("ib_idea_focus")
+    if focus:
+        foco = [e for e in enriched if e["idea"]["id"] == focus]
+        if foco:
+            st.info(f"🔎 Mostrando solo: **{foco[0]['idea'].get('titulo','')}**")
+            if st.button("← Ver todas", key="ib_focus_clear"):
+                st.session_state.pop("ib_idea_focus", None)
+                st.rerun()
+            enriched = foco
+        else:
+            st.session_state.pop("ib_idea_focus", None)  # la idea ya no existe
+
+    for e in enriched:
+        _ib_card_lista(e, autor, votante_id)
+
+
+def _ib_card_lista(e, autor, votante_id):
+    idea = e["idea"]
+    votos = e["votos"]
+    idea_id = idea["id"]
+    estado = idea.get("estado", "nueva")
+    qw = " ⚡ Quick Win" if _ib_is_quick_win(idea) else ""
+
+    badges = (
+        _ib_prioridad_badge(e["prioridad"])
+        + _ib_estado_badge(estado)
+        + _ib_badge(idea.get("area", "—"), "#E3F2FD", "#1565C0")
+        + _ib_badge("Impacto " + idea.get("impacto", "—"), "#FFF3E0", "#E84000")
+        + _ib_badge("Esfuerzo " + idea.get("esfuerzo", "—"), "#F3E5F5", "#6A1B9A")
+    )
+    modulo = idea.get("modulo_destino", "")
+    modulo_html = _ib_badge("→ " + modulo, "#E8F5E9", "#1B6B2F") if modulo else ""
+
+    asignado = idea.get("asignado_a", "") or ""
+    asignado_html = (
+        f"<div style='font-size:0.72rem;color:#1565C0;margin-top:0.25rem;'>"
+        f"👤 Asignado a: <b>{asignado}</b></div>"
+        if asignado else ""
+    )
+    fecha_estado = (idea.get("estado_updated_at") or "")[:10]
+    fecha_html = (
+        f"<div style='font-size:0.68rem;color:#AAA;margin-top:0.2rem;'>"
+        f"Estado desde: {fecha_estado}</div>"
+        if fecha_estado else ""
+    )
+    razon_desc = idea.get("razon_descarte", "") or ""
+    razon_html = (
+        f"<div style='font-size:0.8rem;color:#999;margin-top:0.3rem;'>"
+        f"🗑️ <b>Descartada:</b> {razon_desc}</div>"
+        if estado == "descartada" and razon_desc else ""
+    )
+
+    st.markdown(
+        "<div style='border:1px solid #EEE;border-left:4px solid #E84000;"
+        "border-radius:10px;padding:0.85rem 1rem;margin:0.6rem 0;'>"
+        "<div style='display:flex;justify-content:space-between;align-items:center;'>"
+        f"<div style='font-size:1.05rem;font-weight:800;color:#1F1F1F;'>{idea.get('titulo','')}{qw}</div>"
+        f"<div style='font-size:1.1rem;font-weight:800;color:#E84000;'>★ {e['score']}</div>"
+        "</div>"
+        f"<div style='font-size:0.72rem;color:#888;margin:0.2rem 0 0.5rem;'>por {idea.get('autor','—')} · {len(votos)} voto(s)</div>"
+        f"<div style='margin-bottom:0.4rem;'>{badges}{modulo_html}</div>"
+        + (
+            f"<div style='font-size:0.9rem;color:#333;margin-bottom:0.3rem;'>{idea.get('descripcion','')}</div>"
+            if idea.get("descripcion") else ""
+        )
+        + (
+            f"<div style='font-size:0.82rem;color:#B71C1C;'>🔴 <b>Duele:</b> {idea.get('problema','')}</div>"
+            if idea.get("problema") else ""
+        )
+        + asignado_html + fecha_html + razon_html
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Aviso: en desarrollo / completada sin responsable (D3).
+    if estado in ("en desarrollo", "completada") and not asignado:
+        st.caption("⚠️ sin asignar")
+
+    # Controles: estado (con flujo de descarte) + asignación.
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        _ib_estado_control(idea_id, estado)
+    with ec2:
+        _ib_asignado_control(idea_id, asignado)
+
+    # Popovers: votar · ver votos · prototipos · comentarios.
+    mi_voto = next((v for v in votos if v.get("votante") == votante_id), None)
+    pc1, pc2, pc3, pc4 = st.columns(4)
+    with pc1:
+        _ib_vote_popover(idea_id, votante_id, mi_voto)
+    with pc2:
+        with st.popover(f"👀 Votos ({len(votos)})", use_container_width=True):
+            if not votos:
+                st.caption("Sin votos todavía.")
+            for v in votos:
+                signo = "➕" if v.get("valor", 0) > 0 else ("➖" if v.get("valor", 0) < 0 else "•")
+                st.markdown(f"**{v.get('votante','—')}** · {signo} {v.get('valor',0)}")
+                st.caption(v.get("razon", "") or "—")
+    with pc3:
+        _ib_proto_popover(idea_id, autor)
+    with pc4:
+        _ib_coment_popover(idea_id, autor, idea)
+
+
+def _ib_estado_control(idea_id, cur_estado):
+    """Selectbox de estado. 'descartada' exige razón; el resto se aplica al vuelo.
+
+    No usa on_change: el descarte necesita un paso de confirmación con razón
+    obligatoria, incompatible con el auto-persist inmediato de on_change.
+    """
+    state_key = f"ib_estado_{idea_id}"
+    cur_idx = _IB_ESTADOS.index(cur_estado) if cur_estado in _IB_ESTADOS else 0
+    st.caption("Estado")
+    sel = st.selectbox(
+        "Estado", _IB_ESTADOS, index=cur_idx, key=state_key,
+        label_visibility="collapsed",
+    )
+    if sel == cur_estado:
+        return
+    if sel == "descartada":
+        razon_key = f"ib_descarte_razon_{idea_id}"
+        st.text_area("Razón del descarte (obligatoria)", key=razon_key, height=68)
+        if st.button("Confirmar descarte", key=f"ib_descarte_btn_{idea_id}"):
+            razon = str(st.session_state.get(razon_key, "")).strip()
+            if not razon:
+                st.warning("La razón del descarte es obligatoria — no se aplicó el cambio.")
+            else:
+                _update_idea(idea_id, {"estado": "descartada", "razon_descarte": razon})
+                st.rerun()
+    else:
+        # Estados no-descarte: aplicar al cambiar (sin polling — reacción al cambio).
+        _update_idea(idea_id, {"estado": sel})
+        st.rerun()
+
+
+def _ib_asignado_control(idea_id, cur_asig):
+    """Selectbox de asignación (on_change persiste asignado_a)."""
+    asig_key = f"ib_asignado_{idea_id}"
+    opciones = ["(sin asignar)"] + _ib_usuarios()
+    cur_val = cur_asig if cur_asig in opciones else "(sin asignar)"
+    cur_idx = opciones.index(cur_val)
+    st.caption("Asignado a")
+    st.selectbox(
+        "Asignado a", opciones, index=cur_idx, key=asig_key,
+        on_change=_ib_on_asignado_change, args=(idea_id, asig_key),
+        label_visibility="collapsed",
+    )
+
+
+def _ib_vista_kanban(enriched):
+    """6 columnas (una por estado). Cards compactas, sin popovers. Botón Abrir."""
+    by_estado = {est: [] for est in _IB_ESTADOS}
+    for e in enriched:
+        by_estado.setdefault(e["idea"].get("estado", "nueva"), []).append(e)
+
+    cols = st.columns(len(_IB_ESTADOS))
+    for col, est in zip(cols, _IB_ESTADOS):
+        emoji, bg, fg = _IB_ESTADO_META.get(est, ("•", "#EEE", "#999"))
+        items = by_estado.get(est, [])
+        with col:
+            st.markdown(
+                f"<div style='background:{bg};color:{fg};border-radius:8px;"
+                f"padding:0.3rem 0.2rem;text-align:center;font-size:0.66rem;"
+                f"font-weight:800;margin-bottom:0.4rem;'>{emoji} {est}<br>({len(items)})</div>",
+                unsafe_allow_html=True,
+            )
+            for e in items:
+                idea = e["idea"]
+                label, color = _ib_prioridad_label(e["prioridad"])
+                asignado = idea.get("asignado_a", "") or ""
+                asig_html = (
+                    f"<div style='font-size:0.6rem;color:#888;'>→ {asignado}</div>"
+                    if asignado else ""
+                )
+                st.markdown(
+                    "<div style='border:1px solid #EEE;border-radius:8px;"
+                    "padding:0.4rem 0.5rem;margin-bottom:0.4rem;'>"
+                    f"<div style='font-size:0.76rem;font-weight:700;color:#1F1F1F;'>{idea.get('titulo','')}</div>"
+                    f"<div style='font-size:0.6rem;font-weight:800;color:{color};margin:0.15rem 0;'>P{e['prioridad']} · {label}</div>"
+                    f"<div style='font-size:0.6rem;color:#888;'>{idea.get('autor','—')}</div>"
+                    f"{asig_html}"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                if st.button("Abrir", key=f"ib_kanban_open_{idea['id']}", use_container_width=True):
+                    st.session_state["ib_idea_focus"] = idea["id"]
+                    st.session_state["ib_vista_pending"] = "📋 Lista"
+                    st.rerun()
+
+
+def _ib_vista_matriz(enriched):
+    """Scatter Plotly: X=esfuerzo, Y=impacto, tamaño=prioridad, color=estado."""
+    try:
+        import plotly.express as px
+    except Exception:
+        st.info("Plotly no está disponible — no se puede dibujar la matriz.")
+        return
+
+    niv = {"bajo": 0, "medio": 1, "alto": 2}
+    rows = []
+    for i, e in enumerate(enriched):
+        idea = e["idea"]
+        # Jitter DETERMINISTA por índice (sin random) para no superponer.
+        jx = ((i * 37) % 11 - 5) / 25.0
+        jy = ((i * 53) % 11 - 5) / 25.0
+        rows.append(
+            {
+                "x": niv.get(idea.get("esfuerzo", "medio"), 1) + jx,
+                "y": niv.get(idea.get("impacto", "medio"), 1) + jy,
+                "titulo": str(idea.get("titulo", "") or ""),
+                "autor": str(idea.get("autor", "") or ""),
+                "estado": str(idea.get("estado", "") or "nueva"),
+                "prioridad": int(e["prioridad"]),
+                "size": max(int(e["prioridad"]), 8),  # piso para que se vea
+            }
+        )
+    df = pd.DataFrame(rows)
+    # Sanitizar None/NaN antes de Arrow.
+    for c in ("titulo", "autor", "estado"):
+        df[c] = df[c].fillna("").astype(str)
+
+    fig = px.scatter(
+        df, x="x", y="y", size="size", color="estado",
+        color_discrete_map=_IB_ESTADO_PLOT,
+        size_max=26,
+        custom_data=["titulo", "autor", "prioridad", "estado"],
+    )
+    fig.update_traces(
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>por %{customdata[1]}"
+            "<br>Prioridad: %{customdata[2]}<br>Estado: %{customdata[3]}<extra></extra>"
+        )
+    )
+    fig.update_xaxes(
+        tickvals=[0, 1, 2], ticktext=["bajo", "medio", "alto"],
+        title="Esfuerzo →", range=[-0.6, 2.6],
+    )
+    fig.update_yaxes(
+        tickvals=[0, 1, 2], ticktext=["bajo", "medio", "alto"],
+        title="Impacto →", range=[-0.6, 2.6],
+    )
+    # Divisorias en el medio de cada eje (sin hex de 8 dígitos en line.color).
+    fig.add_vline(x=1, line_width=1, line_dash="dash", line_color="#CCCCCC")
+    fig.add_hline(y=1, line_width=1, line_dash="dash", line_color="#CCCCCC")
+    for x, y, txt in (
+        (0, 2.4, "⚡ Quick Wins"),
+        (2, 2.4, "🎯 Grandes Apuestas"),
+        (0, -0.4, "🔧 Rellenos"),
+        (2, -0.4, "❓ Cuestionables"),
+    ):
+        fig.add_annotation(
+            x=x, y=y, text=txt, showarrow=False,
+            font=dict(size=11, color="#888888"),
+        )
+    fig.update_layout(height=520, margin=dict(l=40, r=20, t=20, b=40))
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _ib_vote_popover(idea_id, votante_id, mi_voto):
