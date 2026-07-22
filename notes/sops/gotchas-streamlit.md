@@ -1,7 +1,7 @@
 ---
 tipo: sop
-actualizado: 2026-07-21
-version: v1.0
+actualizado: 2026-07-22
+version: v1.1
 tags: [streamlit, apptest, testing, gotchas]
 ---
 
@@ -36,3 +36,27 @@ mismo bloque (markdown o botón regular) + `at.exception` vacío.
 
 Sin guarda, cada rerun re-inserta el mismo upload. Fix: firma
 `f"{name}:{len(bytes)}"` en session_state, y procesar solo si cambió.
+
+---
+
+## 4. `st.text_area` exige `height >= 68px`
+
+Un valor menor (ej. 60) lanza `StreamlitAPIException` en runtime. No lo detecta
+`py_compile` — solo aparece al renderizar o en AppTest.
+
+---
+
+## 5. Selectbox con `on_change` no sirve si el cambio necesita confirmación
+
+`on_change` persiste inmediatamente; un flujo que requiere un paso intermedio
+(ej. razón obligatoria antes de aplicar) necesita comparar el valor seleccionado
+contra el actual y decidir en el CUERPO del render, no en el callback. Patrón mixto
+válido: `on_change` para los cambios directos, comparación + botón de confirmación
+para los que necesitan validación.
+
+---
+
+## 6. Jitter en scatter Plotly: función determinista del índice, no `random`
+
+Con `random`, cada rerun de Streamlit mueve los puntos. Fórmula estable:
+`((i * 37) % 11 - 5) / 25.0`.
