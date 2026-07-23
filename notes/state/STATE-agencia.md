@@ -9,6 +9,17 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
+## 2026-07-22 — M24 Innovation Board en producción (merge consolidador)
+
+**M24 mergeado a main** (`8681068`) y en prod: ideas + voto, prototipos versionados, pipeline de 6 estados, score de prioridad 0-100, vistas kanban/matriz, asignación. Backend Supabase.
+- ⚠️ **Incidente evitado:** la branch estaba desactualizada y habría BORRADO los dailies 21/22, `gotchas-streamlit.md` y la sección 22/07 de STATE. Git no lo marca como conflicto. Se resolvió actualizando la branch (`git merge main`) desde su worktree antes de mergear.
+- 📌 **REGLA:** antes de mergear branch vieja → correr `git diff --stat` CON y SIN `--ignore-cr-at-eol`. Si `notes/` aparece con borrados en ambos → actualizar la branch primero. `merge-tree` limpio no garantiza que no se pierda contenido.
+- 🔴 **Deuda de aislamiento de tests: PRIORITARIA.** 7 tests fallan por entorno local (5 `_ensure_state` + 2 knowledge_base) + 3 preexistentes = 10 rojos por corrida. Obliga a re-clasificar a mano en cada merge.
+
+Detalle: [[2026-07-22]]
+
+---
+
 ## 2026-07-22 — Frente M24 Innovation Board F3
 
 **M24 Innovation Board — F1+F2+F3 completos.** 4 commits en `feature/m24-innovation-board`: `d8be8d3` · `17143e2` · `3707621` (pusheados) + `a568ae1` (F3, local). Pipeline de 6 estados (`nueva → en debate → aprobada → en desarrollo → completada → descartada`) con vistas Kanban/Matriz/Lista, score de prioridad 0-100, asignación y descarte con razón. 726 tests verde. Worktree `C:\proyectos\ppc-manager-innovation`.
