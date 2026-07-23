@@ -302,3 +302,14 @@ NO sirve para segmentar ads por ventana temporal corta. Distorsiona: las ventas 
 Síntoma: al hacer split orgánico/pagado por semana, aparece "pagado > total" o incluso orgánico negativo.
 **Para split orgánico/pagado por ventana, usar período agregado con atribución cerrada.**
 (Casos reales: LTD dio orgánico negativo al intentar split semanal; Setex dio "pagado > total" en el 360° del 03/07 — mismo mecanismo.)
+
+---
+
+## Learnings 2026-07-16 (Dermaglós US — 360° + 3 bulks)
+
+### #9 — Campaign Negative Keyword: valor de Match Type
+Los `Campaign Negative Keyword` usan `negativeExact` o `negativePhrase` como Match Type.
+**NO existe `campaignNegativeExact`** — Amazon lo rechaza con `"Invalid value: campaignNegativeExact for column: Match Type"` y hace **ROLLBACK TOTAL del upload** (ninguna fila aplica, ni las válidas).
+El prefijo "campaign" lo infiere Amazon del Entity, no se repite en el Match Type.
+⚠️ Ojo con la distinción: este caso es rollback total (Failed = nada entró), distinto del learning #6 "Failed ≠ fallo total" (donde Failed esconde éxito parcial). Siempre leer el Processing Summary para saber cuál de los dos es.
+Detectado en Dermaglós US, bulk 2 del 16-jul-2026 (Failed → v2 Success).

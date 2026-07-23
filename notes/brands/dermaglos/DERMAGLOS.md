@@ -779,3 +779,63 @@ La herramienta de forecast de M31 quedó completa para Dermaglos con lo que pidi
 - El chart Custom del export refleja la selección del AM (no un duplicado fijo de Revenue).
 
 En producción en capybaras-os.streamlit.app. Pedido de Eduardo completo 4/4.
+
+---
+
+## 2026-07-16 · Análisis 360° completo + 3 bulks
+
+**Ventana analizada:** 01-jun → 15-jul-2026. Los 9 reportes corridos completos.
+
+**Diagnóstico central:** la palanca de crecimiento es **POSICIÓN**, no conversión ni precio. ToS convierte 23% vs 13% en Rest of Search. Las campañas rentables estaban con ToS IS de 11-15%. El SQP confirma que el precio de Dermaglós es igual o mejor que el mercado en casi todos los términos con volumen (el hallazgo #6 del SOP NO se activó).
+
+**Config del Anexo US cerrada:**
+- Ticket: $6.75–$32.11, grueso $9.99–$18.89
+- Stop-loss keyword: PVP×10% acotado [$3, $8] · modelo: PVP×50%
+- Familia excluida de PPC: Micellar Water (B0CY2XC91Z) + draft 6-in-1
+- Mapa de ASINs verificado 9/9 contra Advertised (sin ASINs fantasma)
+- Pendiente: COGS por familia (AM) → hasta entonces BE 60% queda (est.)
+
+**Mapa de productos:**
+- HEROES: Cream single B0CYLMJJJC ($9.99) · Cream 2pack B0F4KXZVNM ($16.99) · Lotion single B0CYLM4L23 ($18.89) · Lotion 2pack B0F548KTXD ($32.11)
+- Parents: Cream = B0FDX9XR56 · Lotion = B0FG84HMRN
+- DEFENSIVOS: Body Cream B0CYLDSQ5L · Cleanser B0CYK4G2Y8 · Serum B0CYKDSDJX · Night Cream B0CYL1RLNQ
+- EXCLUIDA: Micellar B0CY2XC91Z
+
+**Hallazgos clave:**
+- **Other SKU 39% = HALO SANO** single→2pack del mismo parent, no fuga. El 2pack convierte mejor (28% vs 17%) y tiene ticket más alto. Desempatado con BSR by child.
+- Micellar aislada en portfolio Scavenger ($1.05 spend, 0 ventas). No drena a los heroes.
+- `vitamin a cream`: término estratégico. ImpShr 7% pero PurShr 25% → subrepresentado en visibilidad, convierte por encima de su share. Precio 0.77x del mercado (favorable).
+- `vitamin a cream for skin`: PurShr 57%→100% en jul. Long tail de alta intención.
+- `allantoin`: bucket FIX. CVR 6-8% CON precio favorable → la causa es ficha/intención, no bid ni precio. **Palanca fuera de PPC.**
+- `hyaluronic acid` genérico: vol 163k pero ImpShr 0.01% → invisible, no es problema de precio.
+- Rest of Search sangra $405 @ 71% ACoS. No se baja por placement (no hay modificador negativo) → se ataca con bid base + negativos.
+- La cuenta ya tenía buena higiene de negativos: ~53 vigentes cruzados en BSE (hyaluronic 12, vitamin a and e 15, micellar 14, allantoin 12). Solo los 3 conquest eran negativos nuevos legítimos.
+- BSE all-states: 270 campaign entities SP → 52 enabled / 206 paused / 12 archived.
+- **Discrepancia detectada:** CONQUEST Hipoglos figura ENDED en Campaign report pero `enabled` en BSE. **Mandó el BSE** (fuente de estado real).
+
+**Bulks aplicados 16-jul-2026 (todos Success):**
+
+| Archivo | Qué hizo | Resultado |
+|---|---|---|
+| DG_bulk1_bid_placement | +25% bid en 6 ad groups joya + mod ToS recalibrado no lineal | Success |
+| DG_bulk2_negativos_conquest_v2 | hipoglos/dermacept/dermovate campaign-level en 3 hero | Success (v1 Failed) |
+| DG_bulk3_consolidacion_negativos | negativos phrase vitamin a cream + dermaglos en AUTO/Scavenger | Success |
+
+Recalibración ToS no lineal aplicada: +40pp donde ToS<25%, +10pp donde 25-60%, sin tocar los >60% (Dermaglós Crema ya venía en 90%). Bid efectivo verificado contra stop-loss por modelo en los 6 casos.
+Nota: la consolidación NO pausó campañas — las AUTO/Scavenger sirven otros términos. Se concentró vía negativos, que es lo quirúrgico.
+
+**WoW al 15-jul (previo a los bulks, NO mide el trabajo):**
+Ventas $1.097 (−1,4%) · unidades planas en 78 · ad sales $335 (−25,3%) · ad spend $163 (−5,2%) · orgánico $762 (+14,7%) · share orgánico 59,7%→69,4% · TACoS 14,9% (mejora) · ACoS 48,7% (+10,3 pts).
+Lectura honesta: el orgánico compensó la caída de ads. **Causa no determinada.**
+
+**Alarmas abiertas:**
+- Body Cream ASIN Related: ACoS 85,6%, ad spend +178% WoW sin ad sales
+- Cream Broad: ACoS 179,6% — la más ineficiente de la cuenta
+
+**Cola del frente (pendiente):**
+- Medir test de ToS a 7-10 días. **Criterio declarado: IMPRESSION SHARE, no ventas.**
+- Rest of Search: atacar con bid base + negativos de baja intención
+- Contener Body Cream ASIN Related y Cream Broad
+- allantoin/allantoin cream: palanca es ficha, no PPC
+- Micellar dentro de Scavenger: negativizar (limpieza $1)
+- Cleanser paused con ROAS>3: evaluar con muestra madura, **NO por recomendación de Amazon**

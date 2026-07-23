@@ -1,11 +1,25 @@
 ---
 tipo: state
-actualizado: 2026-07-22
+actualizado: 2026-07-23
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-23 — Frente Dermaglós US (documental, sin git)
+
+**Dermaglós US:** 360° completo corrido 16-jul (9 reportes) + 3 bulks aplicados Success. Config del Anexo US cerrada (ticket, stop-loss [$3,$8], familias excluidas, mapa ASINs 9/9).
+- 📌 **Diagnóstico: la palanca es POSICIÓN, no precio ni conversión.** ToS convierte 23% vs 13% en Rest of Search; las joyas estaban con ToS IS 11-15%.
+- 📌 **Pendiente: medir test de ToS a 7-10 días desde 16-jul** (vence ~23-26/07). Criterio declarado: IMPRESSION SHARE, no ventas.
+- 📌 Pendiente: meet con cliente Dermaglós.
+- 📌 Pendiente: COGS por familia (a pedir al AM) → hasta entonces BE 60% es estimación.
+- 🟠 Alarmas: Body Cream ASIN Related (ACoS 85,6%, spend +178% sin ad sales) · Cream Broad (ACoS 179,6%).
+- 📌 **SOP PPC 360 → v1.1 (9 reportes)**: Placement y Targeting promovidos a pasos propios.
+
+Detalle: [[DERMAGLOS]] · [[2026-07-23]]
 
 ---
 

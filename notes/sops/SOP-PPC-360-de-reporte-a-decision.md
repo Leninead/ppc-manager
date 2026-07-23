@@ -1,11 +1,11 @@
 ---
 tipo: sop
-actualizado: 2026-07-15
+actualizado: 2026-07-23
 ---
 
 # SOP PPC 360° — De reporte a decisión (Capybaras Agency)
 
-**Qué es:** el método senior de auditoría de cuentas Amazon Ads fusionado con el flujo 360° de Capybaras. Convierte 7 fuentes de reporte en decisiones defendibles sobre bid, placement, budget, corte y escala.
+**Qué es:** el método senior de auditoría de cuentas Amazon Ads fusionado con el flujo 360° de Capybaras. Convierte 9 fuentes de reporte en decisiones defendibles sobre bid, placement, budget, corte y escala.
 
 **Principio rector:** ningún reporte se lee aislado, ningún número se lee sin su denominador, ninguna decisión se toma sin verificar el parent ASIN.
 
@@ -123,31 +123,31 @@ El 360° de Capybaras arranca por la capa orgánica (STR → SQP → cruzado), q
 ── CAPA PAGADA (motor del método) ──
 5. CAMPAIGN            → dónde está la plata (motor/sangrado/joya) + hipótesis + OOB
 6. ADVERTISED PRODUCT  → verificar por ASIN → ¿real o mirage?  [regla cardinal, cruza con paso 4]
-   (PLACEMENT)         → si hay Placement report: dónde se va el gasto (ToS/PDP/RoS)
-   (TARGETING)         → si hay Targeting report: ToS IS + bid → sella visibilidad
+7. PLACEMENT           → dónde se va el gasto (ToS/PDP/RoS) → sesga placement [si la cuenta lo expone]
+8. TARGETING           → ToS IS fino + bid → sella visibilidad [si la cuenta lo expone]
         ↓
-7. BSE (all-states)    → estado real para generar bulks: IDs, negativos vigentes, ENDED
+9. BSE (all-states)    → estado real para generar bulks: IDs, negativos vigentes, ENDED
         ↓
 ── DECISIÓN ──
-8. ARITMÉTICA          → agregá cluster → CVR real → BE CPC (est.) vs piso → stop-loss $
-9. DECISIONES          → bid · placement · budget · corte · escala
-10. BULKS              → generar desde BSE, con fecha de upload por archivo
+10. ARITMÉTICA         → agregá cluster → CVR real → BE CPC (est.) vs piso → stop-loss $
+11. DECISIONES         → bid · placement · budget · corte · escala
+12. BULKS              → generar desde BSE, con fecha de upload por archivo
 ```
 
-**Nota sobre el Bulk / BSE (doble uso):** el método lee el Bulk *al inicio* (estado real, negativos vigentes). En el 360° de Capybaras el BSE va *al final* porque su uso principal es **generar bulks** (trae los IDs numéricos). Consecuencia práctica: la lectura de **negativos vigentes** que el método hace en el paso 1, en este flujo se hace en el paso **1 (STR)** contra la cola de negativos y se **confirma contra el BSE del paso 7 antes de generar** (para no duplicar). Si en algún análisis necesitás el estado de negativos/ENDED antes de decidir, tirá un BSE de lectura temprana — es el mismo archivo.
+**Nota sobre el Bulk / BSE (doble uso):** el método lee el Bulk *al inicio* (estado real, negativos vigentes). En el 360° de Capybaras el BSE va *al final* porque su uso principal es **generar bulks** (trae los IDs numéricos). Consecuencia práctica: la lectura de **negativos vigentes** que el método hace en el paso 1, en este flujo se hace en el paso **1 (STR)** contra la cola de negativos y se **confirma contra el BSE del paso 9 antes de generar** (para no duplicar). Si en algún análisis necesitás el estado de negativos/ENDED antes de decidir, tirá un BSE de lectura temprana — es el mismo archivo.
 
 **Por qué este orden funciona:** la capa orgánica te da la demanda y el precio (¿la gente busca esto? ¿a qué precio compra?) antes de mirar la plata pagada. El BSR by child resuelve la ambigüedad de "Other SKU" que el método admite no poder resolver solo. Recién ahí entra el motor pagado del método, que ya llega con contexto.
 
 ---
 
-## A.3 — Los 7 reportes: qué responde cada uno
+## A.3 — Los 9 reportes: qué responde cada uno
 
 ### 1. STR (Search Term Report)
 `Targeting` (tu keyword) vs `Customer Search Term` (lo que buscó el cliente).
 - Coinciden → match limpio · Difieren → derrame (evaluar negativo)
 - **Mismo search term en varias campañas → cluster/canibalización (Regla 2, se ve en vivo acá)**
 - Cazás: derrame a basura (negativizar), el cluster, términos con gasto y 0 conversión.
-- **Antes de recomendar un negativo:** cruzalo contra el BSE (paso 7) para no duplicar uno vigente. Recordá los **dos niveles**: ad group (`Negative keyword`) y campaña (`Campaign negative keyword`).
+- **Antes de recomendar un negativo:** cruzalo contra el BSE (paso 9) para no duplicar uno vigente. Recordá los **dos niveles**: ad group (`Negative keyword`) y campaña (`Campaign negative keyword`).
 
 ### 2. SQP (Search Query Performance) — capa orgánica Capybaras
 Share de la query: `Impression Share` y `Purchase Share` orgánicos.
@@ -173,11 +173,13 @@ Columnas que deciden: `Advertised ASIN`, `7 Day Advertised SKU Sales`, `7 Day Ot
 - **Other SKU no es sinónimo de fuga:** halo sano (misma familia) vs fuga real (modelo excluido). El reporte no los separa → **acá entra el BSR by child (paso 4)** para desambiguar.
 - Cualquier ROAS por ASIN **incluye Other SKU**. Si el 45% de tus ventas son Other, tus métricas por ASIN tienen 45% de ambigüedad — saberlo antes de presentar un número.
 
-**Placement report** (si está disponible): SP tiene ToS · Product Pages · Rest of Search. **No existe modificador negativo** — el rango es 0% a +900%, no podés bajar Product Pages, solo subir ToS/RoS para sesgar. Cualquier plan de "bajar Product Pages" es inejecutable. `Bid efectivo ToS = bid × (1 + mod ToS)`. Patrón a cazar: 78% del gasto en PDP y casi nada en ToS = no validás la keyword, validás prospecting lateral.
+### 7. Placement report (si la cuenta lo expone)
+SP tiene ToS · Product Pages · Rest of Search. **No existe modificador negativo** — el rango es 0% a +900%, no podés bajar Product Pages, solo subir ToS/RoS para sesgar. Cualquier plan de "bajar Product Pages" es inejecutable. `Bid efectivo ToS = bid × (1 + mod ToS)`. Patrón a cazar: 78% del gasto en PDP y casi nada en ToS = no validás la keyword, validás prospecting lateral.
 
-**Targeting report** (si está disponible): trae el **ToS IS en valor fino** (Campaign da buckets). ToS IS <1% = casi no aparecés arriba aunque gastes → explica por qué un head term "no funciona": no lo probaste, no ganaste la subasta. Ausencia de data ≠ conclusión (11 impresiones no es un test). **Suggested bid: ignorar** (Amazon maximiza sus impresiones, no tu margen). Prueba real de underbidding: si `CPC real ≈ tu bid` **y** hay impresiones → estás ganando subastas, no hay underbidding.
+### 8. Targeting report (si la cuenta lo expone)
+Trae el **ToS IS en valor fino** (Campaign da buckets). ToS IS <1% = casi no aparecés arriba aunque gastes → explica por qué un head term "no funciona": no lo probaste, no ganaste la subasta. Ausencia de data ≠ conclusión (11 impresiones no es un test). **Suggested bid: ignorar** (Amazon maximiza sus impresiones, no tu margen). Prueba real de underbidding: si `CPC real ≈ tu bid` **y** hay impresiones → estás ganando subastas, no hay underbidding.
 
-### 7. BSE (Bulk Sheet Export, all-states)
+### 9. BSE (Bulk Sheet Export, all-states)
 Única fuente con Campaign/Ad Group IDs y negativos vigentes. Filtrar por `Entity` → Campaign / Ad Group / Keyword / **Negative keyword** / **Campaign negative keyword** / Product Ad / Bidding Adjustment.
 - **Dos exports distintos:** el de *performance* (con fechas) trae métricas pero filas de keyword/negativo **vacías**. El *Bulk Sheet Export* completo trae la estructura. **Validación:** si `Entity` no tiene ninguna fila `Negative keyword` → export equivocado, **parar, no inferir negativos por ausencia**.
 - **ENDED ≠ ENABLED.** UPDATE sobre campañas ENDED puede hacer **fallar todo el upload** (rollback total). Filtrar por state antes de generar.
@@ -273,14 +275,15 @@ NUNCA escalar sin pasar por el Advertised Product.
 - [ ] Clusters identificados (close variants agrupados)
 - [ ] Mapa de ASINs verificado contra el Advertised (¿falta alguno que se anuncia?)
 
-**Los 7 reportes:**
+**Los 9 reportes:**
 - [ ] STR: derrame + cluster en vivo + cola de negativos (dos niveles)
 - [ ] SQP: ImpShr / PurShr por query (capa orgánica)
 - [ ] Cruzado STR×SQP: 5 buckets asignados
 - [ ] BSR by child: split orgánico/pagado listo para desambiguar Other SKU
 - [ ] Campaign: zonas marcadas. ¿OOB con ROAS sano? (ojo SB/SD 14 días)
 - [ ] Advertised: verificado por parent. ¿`Other SKU`? ¿el chequeo tiene ventas que verificar?
-- [ ] (Placement / Targeting si están: ToS IS, bid efectivo, suggested ignorado)
+- [ ] Placement: reparto ToS/PDP/RoS · bid efectivo ToS · ¿gasto sesgado a PDP? (si la cuenta lo expone)
+- [ ] Targeting: ToS IS fino · suggested ignorado · test de underbidding (CPC≈bid + impresiones) (si la cuenta lo expone)
 - [ ] BSE: ¿es el completo? ¿trae `Negative keyword`? ¿hay ENDED?
 
 **Aritmética:**
@@ -410,5 +413,6 @@ Techo por MODELO  = neto × 0.30 = ~$62 MXN por modelo (banda baja, ticket < 175
 # NOTAS DE VERSIÓN
 
 - **v1 (hoy):** core fusionado + 3 anexos, modo sin-COGS operativo. Neto MX validado estructural. Stop-loss recalibrado a tickets reales (LTD $859 / Setex $240). Dermaglos con BE ACoS 60% dado, ticket pendiente.
+- **v1.1 (2026-07-23):** Placement y Targeting promovidos de sub-bloques del Advertised (paso 6) a **pasos propios (7 y 8)** en la secuencia A.2, en el catálogo A.3 y en el checklist A.7. La cuenta pasa de **7 a 9 reportes**. BSE corre a paso 9; aritmética/decisiones/bulks a 10-12 (refs internas "BSE del paso 7" actualizadas a paso 9). Se mantiene la condicionalidad *si la cuenta lo expone* en los tres lugares: Amazon no siempre expone Placement/Targeting (ej. SD) → cuando falta, el paso se salta y se documenta la ausencia.
 - **Pendientes para v2:** COGS por familia (activa BE rentable) · ticket Dermaglos · mapas de ASINs verificados contra Advertised por cuenta · familias excluidas · clavado exacto del 0.862 con venta unitaria MX.
 - **Vive en:** `notes/sops/` del vault. Registrar vía chat consolidador (este chat no toca git).
