@@ -1,11 +1,36 @@
 ---
 tipo: state
-actualizado: 2026-07-20
+actualizado: 2026-07-22
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-22 — Frente M24 Innovation Board F3
+
+**M24 Innovation Board — F1+F2+F3 completos.** 4 commits en `feature/m24-innovation-board`: `d8be8d3` · `17143e2` · `3707621` (pusheados) + `a568ae1` (F3, local). Pipeline de 6 estados (`nueva → en debate → aprobada → en desarrollo → completada → descartada`) con vistas Kanban/Matriz/Lista, score de prioridad 0-100, asignación y descarte con razón. 726 tests verde. Worktree `C:\proyectos\ppc-manager-innovation`.
+
+**Deudas / pendientes:**
+- **Swap-day M24 sigue pendiente y ahora es BLOQUEANTE para uso real:** el board corre local, cada worktree tiene su propio JSON, no es multi-usuario. Ejecutar `scripts/sql/m24_innovation_schema.sql` (ya incluye las columnas de F3) + agregar `innovation_backend = 'supabase'` al bloque `[supabase]` de secrets.
+- **M24: branch con 4 commits sin mergear a main.** Si Marcos arranca QA sobre lo pusheado (F1+F2), avisarle que F3 cambió los estados y el orden del board.
+- **Ruido EOL CRLF→LF** en los worktrees `-charts` y `-innovation` — renormalización repo-wide sigue pendiente (consolidador). Ningún frente debe tocar/stagear/limpiar esos archivos.
+
+Detalle: [[2026-07-22]] · [[m24-innovation-board]] · [[2026-07-21]]
+
+---
+
+## 2026-07-21 — Frente M24 Innovation Board (F1+F2)
+
+**M24 Innovation Board — F1+F2 completos**, 3 commits locales en `feature/m24-innovation-board` (`d8be8d3` · `17143e2` · `3707621`), pendiente push. Worktree `C:\proyectos\ppc-manager-innovation`. Board de ideas del equipo (votación + prototipos HTML + pipeline de estados) dentro de Knowledge Base. Backend Supabase **dormido**: schema escrito sin ejecutar, corre local hasta swap-day. Verificación 718 passed / 24 skipped, cero regresiones, nunca se levantó `streamlit run`.
+
+**Deudas / pendientes:**
+- **Ruido EOL CRLF→LF ahora en DOS worktrees** (`-charts` y `-innovation`). La renormalización repo-wide sigue pendiente y es del consolidador. Ningún frente debe tocar, stagear ni limpiar esos archivos.
+- **Swap-day M24:** ejecutar `scripts/sql/m24_innovation_schema.sql` + agregar `innovation_backend = 'supabase'` al bloque `[supabase]` de secrets.
+
+Detalle: [[2026-07-21]] · [[m24-innovation-board]]
 
 ---
 
