@@ -1,11 +1,26 @@
 ---
 tipo: state
-actualizado: 2026-07-23
+actualizado: 2026-07-24
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-24 — Frente SETEX (WoW 06–19/07, sin bulks)
+
+🔴 **QUIEBRE DEL HERO CONSUMADO — B081GB8F89:** −49% en ventas ($31,530 → $16,078), CVR 11.49% → 5.72% con el mismo tráfico. **Se alertó el 17/07 con 3d de runway y no hubo reposición en 7 días.** Es el 30% de la facturación de Setex. Cada semana sin stock erosiona ranking orgánico, que no vuelve solo.
+- ⚠️ **Hueco de proceso:** la alerta del 17/07 quedó **sin owner ni fecha de follow-up** de nuestro lado. Pedido a Tatiana, nadie controló. → Corregido en SOP v1.2: toda alerta de stock se registra con destinatario, controlador y fecha.
+- ✅ **Regla 4 (stock antes de escalar) VALIDADA EN PRODUCCIÓN.** Vetó una escala que la aritmética aprobaba (joya CONQUEST, ACoS 6%, 3d runway). La escala se redirigió a familias con runway → **la cuenta cerró plana pese a perder medio hero**. Promovida a regla previa dura en el SOP (v1.2).
+- 🟠 Alarmas nuevas: Temple·PAT·Slzhds+ZENSUKYE **64.2% ACoS** (pausar) · B08SMSBFG9 CVR 5.49%, ACoS 23.8% (auditar).
+- 📌 Efecto de los bulks del 17/07 **direccional** (solo 3d de ventana) — confirmar con WoW completo la próxima semana.
+- 📌 **SOP → v1.2:** Regla 4 (runway) + split Advertised/Other SKU en el WoW.
+- 📌 **Playbook 360 genérico PENDIENTE DE VERSIONAR** — generado en la sesión del frente, vive solo en outputs. Si no se versiona, se pierde.
+- 📌 Siguen abiertos: `sujetador de lentes`/B0B94KBY8H · clearance B08PZF22R1 (682d).
+
+Detalle: [[setex]] · [[2026-07-24]]
 
 ---
 
