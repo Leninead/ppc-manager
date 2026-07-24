@@ -1080,3 +1080,50 @@ Borrador ya armado: 17 product ads no-branded a pausar (gastan 4.779 MXN/mes). *
 1. **KW research + títulos nuevos (~50 ASINs)** — tarea Asana pedida. EN ESPERA de exports Helium 10 (Cerebro reverse-ASIN de heroes + competidores).
 2. **Reporte cliente: listings 0% CVR** — B0DJSGBR4P (295 sess), B0FLP81RZF, línea "Traje de dormir" (1.479 MXN). **No es PPC — es listing/precio.** Cae bajo el umbral de 1.2x.
 3. **RANK proliferation**: ~90 campañas RANK sobre genéricos. Revisión estructural pendiente.
+
+## 2026-07-16 — 360° completo (9 reportes) + 6 bulks · validación del umbral ≤1.2x
+
+**Ventana:** 01-jun → 15-jul-2026. 9/9 reportes (STR → SQP → cruzado → BSR by child → Campaign → Advertised → Placement → Targeting → BSE), SOP v1.1 CORE + ANEXO MX-LTD.
+
+### 🔑 Umbral ≤1.2x reproducido con PRECIO REAL (no proxy)
+El SQP Brand View trae `Clicks: Price (Median)` vs `Clicks: Brand Price (Median)` → ratio directo. Validado por las dos vías del SOP: BE CPC (CVR→0 → BE CPC bajo el piso) y piso/SQP (ImpShr 8–19% con PurShr 0%).
+
+| Query | Vol/mes | ImpShr | PurShr | Ratio |
+|---|---|---|---|---|
+| swaddle up | 94 | 77.3% | 100% | 1.00x |
+| love to dream swaddle | 508 | 92.7% | 100% | 1.00x |
+| swaddle | 1.509 | 33.0% | 50% | 1.18x |
+| swaddle para bebe 0-3 | 2.178 | 26.5% | 35.3% | 1.23x |
+| **— umbral ≈1.2x —** | | | | |
+| costalito para dormir bebe | 572 | 11.6% | 0% | 1.41x |
+| bolsa de dormir bebe | 291 | 13.7% | 0% | 1.44x |
+| saco de dormir bebe | 4.748 | 8.4% | 0% | 1.75x |
+| saco para dormir bebe | 10.666 | 8.5% | 1.7% | 1.80x |
+
+**Sin casos intermedios que rompan la regla.** El corte es limpio: hasta 1.23x convierte, desde 1.41x no. Confirma que en genéricos el problema es precio, no PPC.
+
+### 6 bulks aplicados 16-jul (todos Success)
+BULK1 bid `swaddle` $1.8→$5.50 (brand $6.00, 6 filas) · BULK2 7 neg phrase × 2 motoras (14) · BULK3 6 ASINs competencia neg PT × 2 AG (12) · BULK4 mod ToS 0→60% en 2 motoras (2) · BULK5 budget CATEGORY DISCOVERY $650→$750 (1) · BULK6 pausar `saco bebe` exact ROAS 0 (2).
+
+Campaign IDs: 272400834797969 · 131721462546833 · 14358007672873 · 193230408459250.
+
+### Near-miss: 2 ASINs propios entre los candidatos a negativizar
+`B0CLCBQQN2` y `B09MFZVWYH` aparecían en el STR como candidatos legítimos a Negative Product Targeting (gasto sin conversión). **Son ASINs propios de LTD.** Solo el cruce contra el BSE/mapa los detectó. Negativizarlos habría bloqueado tráfico al propio catálogo.
+
+### Negativos vigentes que siguen gastando (a auditar)
+`saco para dormir bebe`, `saco de dormir bebe`, `cobijas`, `baby` figuran negativizados en el BSE pero **siguen apareciendo con gasto en el STR**. Hipótesis: negativo phrase sin cobertura completa de ad groups, o entran variantes. Pendiente auditoría ad-group por ad-group.
+
+### 🔴 B09MG1PM6L — el hold sigue, pero el motivo cambió
+| Ventana | Datos |
+|---|---|
+| 360° (01-jun→15-jul) | ROAS 5.5 · $51.602 venta · #1 en gasto · Other 52% |
+| WoW (05–18 jul) | **846 sesiones, CVR 0.12%** · $1.619 spend → $809 venta |
+
+La pausa de bulk **sigue en hold** (viene del cierre del 9-jul, motivo original: 2 unidades sin restock). Ahora se suma un desplome de CVR con tráfico intacto. **Investigar causa (stock/precio/ficha) antes de resolver el hold.**
+
+### Otros ASINs
+- **B0F8PB4NHX:** restock confirmado, activo, 18 units en BSR.
+- **B0F8PCWD6J:** ROAS 0.8 en el 360° (sangrado real) → repuntó a $13.339 con CVR 5.41% en el WoW. **El problema era el PPC sobre ese ASIN, no el producto.**
+- **B0F8P9GBZN:** mejor performer del WoW, $24.203 / 29 units / **CVR 6.65%** (el más alto del catálogo). Fuerza orgánica.
+- **Flags no-PPC:** B0FLP81RZF (305 sesiones, 0 venta, BB 100%) · B0DG6WRDDL (193, 0).
+- **Buy Box:** B09MG1W91D 50% · B0BJLCL8ST 60% · B005ULUZIQ 88.5% · B09MFZK239 94.4%.

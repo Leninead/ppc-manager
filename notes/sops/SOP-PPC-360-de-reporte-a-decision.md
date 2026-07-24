@@ -189,11 +189,15 @@ Columnas que deciden: `Advertised ASIN`, `7 Day Advertised SKU Sales`, `7 Day Ot
 - **Chequeo vacío:** verificar `Other SKU = 0` con `Total = 0` **no verifica nada**. Sin ventas no hay mirage que detectar.
 - **Other SKU no es sinónimo de fuga:** halo sano (misma familia) vs fuga real (modelo excluido). El reporte no los separa → **acá entra el BSR by child (paso 4)** para desambiguar.
 - Cualquier ROAS por ASIN **incluye Other SKU**. Si el 45% de tus ventas son Other, tus métricas por ASIN tienen 45% de ambigüedad — saberlo antes de presentar un número.
+- **A nivel search term:** el split `7 Day Advertised SKU Sales` / `7 Day Other SKU Sales` viene también **por search term**, no solo por ASIN. Permite pre-detectar halo antes de llegar al cruce del paso 6.
 
 ### 7. Placement report (si la cuenta lo expone)
 SP tiene ToS · Product Pages · Rest of Search. **No existe modificador negativo** — el rango es 0% a +900%, no podés bajar Product Pages, solo subir ToS/RoS para sesgar. Cualquier plan de "bajar Product Pages" es inejecutable. `Bid efectivo ToS = bid × (1 + mod ToS)`. Patrón a cazar: 78% del gasto en PDP y casi nada en ToS = no validás la keyword, validás prospecting lateral.
 
 ### 8. Targeting report (si la cuenta lo expone)
+⚠️ **PARSEO: `Top-of-search Impression Share` viene en FRACCIÓN DECIMAL, no en porcentaje.** `0.077` = 7.7% · `1.0` = 100%.
+Si se parsea como porcentaje, da **"ToS IS 0%" falso en TODAS las filas** y **el diagnóstico se invierte**: parece "no aparecemos arriba" cuando la realidad es "aparecemos y perdemos la subasta". Son dos conclusiones con acciones opuestas (subir bid vs. arreglar relevancia/precio). Verificar el rango de la columna antes de interpretar.
+
 Trae el **ToS IS en valor fino** (Campaign da buckets). ToS IS <1% = casi no aparecés arriba aunque gastes → explica por qué un head term "no funciona": no lo probaste, no ganaste la subasta. Ausencia de data ≠ conclusión (11 impresiones no es un test). **Suggested bid: ignorar** (Amazon maximiza sus impresiones, no tu margen). Prueba real de underbidding: si `CPC real ≈ tu bid` **y** hay impresiones → estás ganando subastas, no hay underbidding.
 
 ### 9. BSE (Bulk Sheet Export, all-states)
@@ -211,6 +215,9 @@ Trae el **ToS IS en valor fino** (Campaign da buckets). ToS IS <1% = casi no apa
 
 ### Nota sobre el WoW (reporte semanal)
 El WoW debe incluir el **split Advertised / Other SKU en Ad Sales**. Sin ese corte no se distingue el orgánico puro del atribuido, y se generan lecturas falsas de atribución (un ASIN puede parecer sostenido por ads cuando en realidad vende orgánico, o al revés).
+
+⚠️ **Nunca heredar datos de ASIN entre WoW.** Cuando llega un WoW nuevo, **todo dato de ASIN se recalcula contra el archivo fresco.** Reutilizar los ganadores del deck anterior produce cifras invertidas.
+Caso real (LTD, jul-2026): 3 de 4 ASINs mostraban crecimiento (+507%, +198%, +100%) cuando en realidad habían caído (−60%, −11.5%, −4.6%). Se detectó en revisión antes de enviar al cliente.
 
 ---
 
@@ -443,5 +450,6 @@ Techo por MODELO  = neto × 0.30 = ~$62 MXN por modelo (banda baja, ticket < 175
 - **v1 (hoy):** core fusionado + 3 anexos, modo sin-COGS operativo. Neto MX validado estructural. Stop-loss recalibrado a tickets reales (LTD $859 / Setex $240). Dermaglos con BE ACoS 60% dado, ticket pendiente.
 - **v1.1 (2026-07-23):** Placement y Targeting promovidos de sub-bloques del Advertised (paso 6) a **pasos propios (7 y 8)** en la secuencia A.2, en el catálogo A.3 y en el checklist A.7. La cuenta pasa de **7 a 9 reportes**. BSE corre a paso 9; aritmética/decisiones/bulks a 10-12 (refs internas "BSE del paso 7" actualizadas a paso 9). Se mantiene la condicionalidad *si la cuenta lo expone* en los tres lugares: Amazon no siempre expone Placement/Targeting (ej. SD) → cuando falta, el paso se salta y se documenta la ausencia.
 - **v1.2 (2026-07-24):** agregada **Regla 4 — runway de stock** como cuarta regla previa dura (con tabla de corte <15d / 15-25d / >25d / >300d), validada en producción en Setex. Agregada nota sobre el split Advertised/Other SKU en el WoW. Corolario: las alertas de stock se registran con destinatario, controlador y fecha.
+- **v1.3 (2026-07-24):** tres correcciones de método traídas del frente LTD. (1) ⚠️ El `Top-of-search Impression Share` del Targeting report viene en **fracción decimal** — parsearlo como porcentaje invierte el diagnóstico. (2) El Advertised trae el split Advertised/Other SKU también **a nivel search term**. (3) ⚠️ **Nunca heredar datos de ASIN entre WoW**: recalcular siempre contra el archivo fresco (caso real con 3 de 4 ASINs invertidos).
 - **Pendientes para v2:** COGS por familia (activa BE rentable) · ticket Dermaglos · mapas de ASINs verificados contra Advertised por cuenta · familias excluidas · clavado exacto del 0.862 con venta unitaria MX.
 - **Vive en:** `notes/sops/` del vault. Registrar vía chat consolidador (este chat no toca git).

@@ -9,6 +9,22 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ---
 
+## 2026-07-24 — Frente LTD/Love To Dream MX (360° del 16-jul, registro diferido)
+
+**LTD MX:** 360° completo (9 reportes, ventana 01-jun→15-jul) + **6 bulks aplicados 16-jul, todos Success**. Registro diferido al 24-jul.
+- 🔑 **Umbral ≤1.2x REPRODUCIDO con precio real** (SQP Brand View trae ratio directo, sin proxy). Corte limpio: hasta 1.23x convierte (PurShr 35-100%), desde 1.41x no convierte (PurShr 0%). **Sin casos intermedios.** En genéricos el problema es precio, no PPC.
+- 🔴 **B09MG1PM6L (hero): el hold sigue, pero el motivo CAMBIÓ.** En el 360° era ROAS 5.5 y #1 en gasto; en el WoW 05-18 jul se desplomó a **846 sesiones con CVR 0.12%** ($1.619 spend → $809 venta). **Investigar causa (stock/precio/ficha) ANTES de resolver el hold.**
+- ⚠️ **SOP → v1.3** con 3 correcciones de método: parseo de ToS IS en fracción decimal (parsearlo mal **invierte el diagnóstico**) · Advertised trae split a nivel search term · **nunca heredar datos de ASIN entre WoW**.
+- ✅ **Near-miss evitado:** 2 candidatos a negativizar (`B0CLCBQQN2`, `B09MFZVWYH`) eran **ASINs propios**. Los cazó el cruce contra BSE. *(Mismo tipo de near-miss que en Dermaglós con los PAT — la regla funciona en dos cuentas.)*
+- 📌 **Test de ToS pendiente de medir** (mod +60% aplicado 16-jul). Criterio: ganar impression share, NO venta inmediata. Si confirma → budget a $900; si no → mantener $750.
+- 📌 Auditar cobertura de negativos ad-group por ad-group (hay negativos vigentes que siguen gastando).
+- 📌 Flags no-PPC a Agustín: B0FLP81RZF (305 sesiones, 0 venta) · B0DG6WRDDL (193, 0).
+- 🟠 Buy Box: B09MG1W91D 50% · B0BJLCL8ST 60%.
+
+Detalle: [[LTD]] · [[2026-07-24]]
+
+---
+
 ## 2026-07-24 — Frente SETEX (WoW 06–19/07, sin bulks)
 
 🔴 **QUIEBRE DEL HERO CONSUMADO — B081GB8F89:** −49% en ventas ($31,530 → $16,078), CVR 11.49% → 5.72% con el mismo tráfico. **Se alertó el 17/07 con 3d de runway y no hubo reposición en 7 días.** Es el 30% de la facturación de Setex. Cada semana sin stock erosiona ranking orgánico, que no vuelve solo.
