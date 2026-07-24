@@ -169,3 +169,13 @@ Confirmación de Tati de:
 - 🔴 B09HW4VWQR (Thick negro): 3d. Pauta ya bajada.
 - 🟠 B0B94KBY8H (Sujetador): 14d. No escalar.
 - 🟢 B08PZF22R1 (Thin): overstock 682d — clearance pendiente.
+
+## 2026-07-24 — 🔴 QUIEBRE CONSUMADO B081GB8F89
+
+La alerta del 17/07 (3d de runway) **se materializó**: ventas −49% ($31,530 → $16,078), CVR 11.49% → 5.72% con el mismo tráfico. Sin reposición en 7 días.
+
+- **Pedido a:** Tatiana (mensaje 17/07)
+- **Estado:** sin respuesta reflejada en stock al 24/07
+- **Costo corriendo:** cada semana sin stock erosiona ranking orgánico. El ranking NO se recupera solo cuando entra el stock.
+- ⚠️ **Falta definir: quién controla el follow-up y con qué frecuencia.** La alerta del 17/07 no tenía owner de seguimiento — ese es el motivo por el que pasó una semana sin control.
+- También pendiente: B09HW4VWQR (Thick negro).

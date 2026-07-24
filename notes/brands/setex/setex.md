@@ -817,3 +817,32 @@ Primer 360° con los 9 reportes (Placement + Targeting promovidos). Ventanas ali
 **4 bulks 17/07 (Success):** negativos a17512bb · bid-down eb7a8a85 · bid-up 4f0957b3 · budget a5e69409.
 
 **Watch actualizado:** B08SNXF8HP sano este ciclo · doble-SKU CLOSED B081GB8F89 NO reincidió · nuevo: stock hero 3d.
+
+## WoW 24/07/2026 — ventana 06–19/07 (seguimiento post-360°)
+
+Sin bulks. Verificación del efecto de los 4 del 17/07.
+
+**Cuenta:** Sales $50,534 (−0.9%) · Sessions 2,113 (+11.6%) · CVR 8.25% (−16.2%) · ACoS 16.8% · TACoS 12.2% · BuyBox 99.8%.
+
+### 🔴 Hito — quiebre del hero B081GB8F89 confirmado
+−49% ventas, CVR 11.49% → 5.72%, **mismo tráfico**. Alertado 17/07 con 3d de runway, sin reposición. 30% de la facturación de la cuenta.
+Hueco de proceso: la alerta quedó sin owner de follow-up de nuestro lado. Corregido a partir de hoy: toda alerta de stock crítico se registra con destinatario, controlador y fecha de control.
+
+### ✅ Validación del método
+La cuenta cerró **plana perdiendo la mitad del hero** porque la escala del 17/07 se dirigió a familias con runway (Thin/Ear Hook/Nano).
+**La Regla 4 (verificar stock antes de escalar) se validó en producción:** vetó una escala que la aritmética aprobaba (joya CONQUEST B081GB8F89, ACoS 6%) y esa contención evitó acelerar el quiebre. Donde había stock, la escala sostuvo la cuenta; donde no lo había, el producto se quebró igual.
+
+### Deltas post-bulk (3d, direccional — NO maduro)
+| ASIN | Familia | Δ Ad Sales | ACoS |
+|---|---|---|---|
+| B0DK7PHXXC | Nano negro | +224% | 9.6% |
+| B0DK7Q4ZTY | Nano transp | +92% | 8.6% |
+| B09HVXDH7M | Thick transp | +60% | 14.7% |
+| B08PZF22R1 | Thin transp | +25% | 8.3% |
+| B0F63LTD92 | Ear Hook | +21% | 13.0% |
+| B0BQ8FNGR5 | Thick 15p negro | −60% (contención ✓) | — |
+| B0BQ8GJFQH | Thick 15p transp | −58% (contención ✓) | — |
+
+**Alarmas nuevas:** Temple·PAT·Slzhds+ZENSUKYE 64.2% ACoS (pausar) · B08SMSBFG9 CVR 5.49% / ACoS 23.8% (auditar).
+
+**Watch:** B08C2T72ND pasó a #1 de la semana ($17,039, CVR 17.03%, orgánico puro) **al caer el hero**.

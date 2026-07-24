@@ -1,6 +1,6 @@
 ---
 tipo: sop
-actualizado: 2026-07-23
+actualizado: 2026-07-24
 ---
 
 # SOP PPC 360° — De reporte a decisión (Capybaras Agency)
@@ -17,7 +17,7 @@ actualizado: 2026-07-23
 
 # PARTE A — MÉTODO CORE (marketplace-agnóstico)
 
-## A.0 — Las 3 reglas previas (se aplican ANTES de mirar un número)
+## A.0 — Las 4 reglas previas (se aplican ANTES de mirar un número)
 
 Si te salteás estas, todo lo que sigue está contaminado.
 
@@ -42,6 +42,23 @@ Dump de Manage Inventory, mapa de ASINs y esquema de SKU están **todos incomple
 - **Operativa:** antes de declarar "no existe" → búsqueda directa por SKU/ASIN con filtro **All** (no solo Active), fallback al Bulk Export.
 - Antes de anunciar un ASIN por primera vez → agregarlo al mapa, o la campaña nace ciega para todo tu sistema de análisis.
 - **Paso obligatorio de verificación de mapa** (ver A.2, secuencia): cruzar los ASINs del Advertised contra el mapa. Todo ASIN que se anuncia y no está clasificado (parent/familia/línea/medida, **por SKU nunca por título**) → marcar "sin clasificar", **no escalar** hasta resolver.
+
+### Regla 4 — Runway de stock: verificar ANTES de escalar
+
+Ninguna decisión de escala es válida sin verificar el runway del ASIN. La aritmética puede aprobar una escala que el stock veta.
+
+| Runway | Decisión |
+|---|---|
+| < 15 días | **NO escalar.** Contener pauta si el quiebre es inminente |
+| 15–25 días | Escalar con cuidado, revisar en el siguiente ciclo |
+| > 25 días | Escalable |
+| > 300 días | Overstock → candidato a **clearance** |
+
+**Por qué es regla previa y no un chequeo tardío:** escalar un ASIN sin stock acelera su quiebre y quema presupuesto en tráfico hacia una ficha que va a quedar OOS. Peor: el quiebre cuesta **ranking orgánico**, que no se recupera solo cuando el stock vuelve.
+
+**Caso real (Setex, jul-2026):** la Regla 4 vetó la escala de una joya CONQUEST con ACoS 6% (aritmética la aprobaba) porque el ASIN tenía 3 días de runway. La escala se redirigió a familias con stock. Resultado: el hero se quebró igual (−49% en ventas) pero **la cuenta cerró plana** porque el sostén vino de las familias escaladas. Sin la Regla 4, se habría acelerado el quiebre y perdido la compensación.
+
+**Corolario operativo:** toda alerta de stock crítico se registra con (a) a quién se le pidió la reposición, (b) quién controla el follow-up, (c) fecha de control. Una alerta sin owner de seguimiento es una alerta que nadie mira.
 
 ---
 
@@ -191,6 +208,9 @@ Trae el **ToS IS en valor fino** (Campaign da buckets). ToS IS <1% = casi no apa
 - **Placement: bajar por ventana chica, NUNCA largo.** Si se baja agregado se pierde el corte PRE/POST necesario para medir cualquier test de placement.
 - **Amazon topea las descargas de Ads a ~90 días** hacia atrás.
 - **Auditoría iterativa de entregables:** cada corrección abre superficie nueva. En un caso real, 5 pasadas sobre un HTML: la 1ª encontró 4 errores de dato, la 2ª 5 inconsistencias, la 3ª 3 de encuadre, la 4ª 2 introducidos por la 3ª, la 5ª 1 residuo de la 4ª. **Regla: cuando las pasadas solo encuentran residuos de correcciones previas, parar.**
+
+### Nota sobre el WoW (reporte semanal)
+El WoW debe incluir el **split Advertised / Other SKU en Ad Sales**. Sin ese corte no se distingue el orgánico puro del atribuido, y se generan lecturas falsas de atribución (un ASIN puede parecer sostenido por ads cuando en realidad vende orgánico, o al revés).
 
 ---
 
@@ -422,5 +442,6 @@ Techo por MODELO  = neto × 0.30 = ~$62 MXN por modelo (banda baja, ticket < 175
 
 - **v1 (hoy):** core fusionado + 3 anexos, modo sin-COGS operativo. Neto MX validado estructural. Stop-loss recalibrado a tickets reales (LTD $859 / Setex $240). Dermaglos con BE ACoS 60% dado, ticket pendiente.
 - **v1.1 (2026-07-23):** Placement y Targeting promovidos de sub-bloques del Advertised (paso 6) a **pasos propios (7 y 8)** en la secuencia A.2, en el catálogo A.3 y en el checklist A.7. La cuenta pasa de **7 a 9 reportes**. BSE corre a paso 9; aritmética/decisiones/bulks a 10-12 (refs internas "BSE del paso 7" actualizadas a paso 9). Se mantiene la condicionalidad *si la cuenta lo expone* en los tres lugares: Amazon no siempre expone Placement/Targeting (ej. SD) → cuando falta, el paso se salta y se documenta la ausencia.
+- **v1.2 (2026-07-24):** agregada **Regla 4 — runway de stock** como cuarta regla previa dura (con tabla de corte <15d / 15-25d / >25d / >300d), validada en producción en Setex. Agregada nota sobre el split Advertised/Other SKU en el WoW. Corolario: las alertas de stock se registran con destinatario, controlador y fecha.
 - **Pendientes para v2:** COGS por familia (activa BE rentable) · ticket Dermaglos · mapas de ASINs verificados contra Advertised por cuenta · familias excluidas · clavado exacto del 0.862 con venta unitaria MX.
 - **Vive en:** `notes/sops/` del vault. Registrar vía chat consolidador (este chat no toca git).
