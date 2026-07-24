@@ -1,0 +1,120 @@
+{
+  "module": "meli-stock",
+  "version": 1,
+  "created": "2026-07-24",
+  "description": "Mercado Libre — snapshot de stock por publicación y sugerencia de reposición. Cruza el stock en depósito del export de publicaciones con la velocidad de venta del reporte de rendimiento, descontando lo que ya viene en camino. Multi-cuenta. Una fila por MLA (las variantes se suman en el parser).",
+  "primary_key": ["mla"],
+  "period_column": "_period",
+  "columns": {
+    "mla": {
+      "dtype": "string",
+      "required": true,
+      "description": "ID de publicación normalizado al formato MLA<digitos>."
+    },
+    "titulo": {
+      "dtype": "string",
+      "required": true,
+      "description": "Título tomado del export de publicaciones, no del reporte de rendimiento: existe también para las publicaciones que no tuvieron visitas en el período."
+    },
+    "estado": {
+      "dtype": "string",
+      "required": true,
+      "description": "Estado normalizado. Las publicaciones pausadas, inactivas, finalizadas o cerradas se excluyen del cálculo porque no pueden vender y por lo tanto no generan necesidad de reposición."
+    },
+    "stock": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Unidades disponibles en depósito, sumadas across variantes. El equipo de cuentas excluye FULL antes de exportar la planilla."
+    },
+    "en_transito": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Unidades en camino que llegan DENTRO del horizonte de cobertura. Solo estas se descuentan de la sugerencia: una unidad que arriba después del horizonte no cubre el período, y descontarla haría que el sistema recomiende de menos."
+    },
+    "transito_tardio": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Unidades en camino que llegan DESPUÉS del horizonte. Se registran para que el equipo las vea, pero no reducen la sugerencia."
+    },
+    "unidades": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Unidades vendidas en el período de referencia, del reporte de rendimiento."
+    },
+    "velocidad_diaria": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Unidades vendidas por día. Se normaliza con los días reales que cubre el reporte y no con la ventana configurada, porque los períodos de MELI no siempre miden lo mismo."
+    },
+    "dias_cobertura": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Días que dura el stock disponible al ritmo de venta actual. Es el número que ordena la urgencia: importa más cuánto falta para el quiebre que cuántas unidades hay."
+    },
+    "necesidad": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Unidades necesarias para cubrir el horizonte objetivo: velocidad_diaria por días de cobertura."
+    },
+    "sugerido": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Unidades a enviar: necesidad menos stock menos tránsito a tiempo, con piso en cero. Sin mínimo de envío por decisión del equipo de cuentas."
+    },
+    "facturacion": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Ventas brutas del período. Ordena la salida: quedarse sin stock cuesta más caro en lo que más factura."
+    },
+    "precio": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Precio de la publicación (mediana entre variantes)."
+    },
+    "urgencia": {
+      "dtype": "string",
+      "required": true,
+      "description": "critico (7 días o menos de cobertura), alto (hasta 15), medio (hasta el horizonte objetivo), ok (por encima), sin_ventas (no vendió en el período, no se puede proyectar)."
+    }
+  },
+  "entities": {
+    "snapshot": {
+      "filename_pattern": "<YYYY-MM-DD>.parquet",
+      "path": "data/marketplaces/<cuenta>/meli-stock/<YYYY-MM-DD>.parquet",
+      "frequency": "según disponibilidad del export de publicaciones",
+      "primary_key": ["mla"]
+    },
+    "transito": {
+      "filename": "transito.parquet",
+      "path": "data/marketplaces/<cuenta>/meli-stock/transito.parquet",
+      "frequency": "append-only",
+      "description": "Unidades en camino al depósito. El cliente informa la fecha y el equipo de cuentas la carga manualmente.",
+      "columns": {
+        "timestamp": {"dtype": "string", "required": true, "description": "ISO 8601 de la carga."},
+        "mla": {"dtype": "string", "required": true, "description": "Publicación a la que corresponde el envío."},
+        "unidades": {"dtype": "float64", "required": true, "description": "Unidades en camino."},
+        "fecha_llegada": {
+          "dtype": "string",
+          "required": true,
+          "description": "Fecha estimada de arribo en ISO 8601. Es lo que decide si el envío cubre o no el horizonte. Si falta, se asume que llega a tiempo (criterio conservador para no sugerir un envío que ya está en camino)."
+        },
+        "nota": {"dtype": "string", "required": false, "description": "Detalle libre del envío."}
+      }
+    }
+  },
+  "business_rules": {
+    "dias_cobertura_objetivo": 30,
+    "dias_velocidad_venta": 15,
+    "minimo_envio": 0,
+    "excluye": ["FULL (lo excluye el equipo antes de exportar)", "pausadas", "inactivas", "finalizadas", "cerradas"],
+    "rationale_urgencia": "Ordenar por cantidad sugerida pone arriba a los productos de alto volumen aunque tengan stock de sobra. Ordenar por días de cobertura pone arriba lo que está por quebrar, que es la decisión que hay que tomar esta semana."
+  },
+  "evolution_notes": {
+    "v1_baseline": "Derivado del export 'Modifica tus publicaciones' de julio 2026: hoja Publicaciones, nombres técnicos en fila 0, datos desde fila 6.",
+    "future_v2_candidates": [
+      "lead_time por proveedor (hoy el horizonte es fijo en 30 días para todos)",
+      "estacionalidad (ajustar la velocidad esperada según el mes)",
+      "costo_unitario (para priorizar por margen y no solo por facturación)"
+    ]
+  }
+}
