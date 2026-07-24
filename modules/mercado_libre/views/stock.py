@@ -21,12 +21,20 @@ _COLOR_URGENCIA = {
 }
 
 _ETIQUETA_URGENCIA = {
-    "critico": "Crítico",
-    "alto": "Alto",
-    "medio": "Medio",
-    "ok": "OK",
-    "sin_ventas": "Sin ventas",
+    "critico": "🔴 Crítico",
+    "alto": "🟠 Alto",
+    "medio": "🟡 Medio",
+    "ok": "🟢 OK",
+    "sin_ventas": "⚪ Sin ventas",
 }
+
+
+def _color_urgencia(valor):
+    """Colorea la celda de urgencia con los colores de config (patrón de alerts.py)."""
+    for clave, etiqueta in _ETIQUETA_URGENCIA.items():
+        if valor == etiqueta:
+            return f"color: {_COLOR_URGENCIA[clave]}; font-weight: 600"
+    return ""
 
 
 @st.dialog("Registrar stock en tránsito")
@@ -115,6 +123,12 @@ def render(cuenta: str, rendimiento: pd.DataFrame | None,
     with columna_info:
         st.caption(f"Envíos en tránsito registrados: **{len(transito)}**")
 
+    if len(transito) == 0:
+        st.caption(
+            "Todavía no hay envíos en tránsito cargados. La columna 'En tránsito' "
+            "va a mostrar 0 hasta que registres alguno."
+        )
+
     sugerencias = sugerir_reposicion(
         rendimiento, publicaciones, transito,
         dias_periodo=dias_periodo,
@@ -156,6 +170,7 @@ def render(cuenta: str, rendimiento: pd.DataFrame | None,
         options=list(_ETIQUETA_URGENCIA),
         default=[],
         format_func=lambda clave: _ETIQUETA_URGENCIA[clave],
+        placeholder="Todas las urgencias",
         key="meli_stock_urgencia",
     )
 
@@ -179,7 +194,9 @@ def render(cuenta: str, rendimiento: pd.DataFrame | None,
     })
 
     st.dataframe(
-        tabla.style.format({
+        tabla.style
+        .map(_color_urgencia, subset=["Urgencia"])
+        .format({
             "Stock": fmt_num, "En tránsito": fmt_num, "Vendidas": fmt_num,
             "Sugerido": fmt_num, "Facturación": fmt_money,
             "Venta/día": lambda v: fmt_decimal(v, 2),

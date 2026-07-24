@@ -143,6 +143,8 @@ def _importar(cuenta: str) -> None:
     archivo_rendimiento = st.file_uploader(
         "Reporte de métricas de publicaciones", type=["xlsx"],
         key="meli_up_rendimiento",
+        help="Arrastrá o elegí el archivo .xlsx (máximo 200 MB por archivo). "
+             "Sale de Mercado Libre → Métricas → Publicaciones → Descargar reporte.",
     )
     if archivo_rendimiento:
         try:
@@ -190,6 +192,8 @@ def _importar(cuenta: str) -> None:
     archivo_publicaciones = st.file_uploader(
         "Export de 'Modifica tus publicaciones'", type=["xlsx"],
         key="meli_up_publicaciones",
+        help="Arrastrá o elegí el archivo .xlsx (máximo 200 MB por archivo). "
+             "Sale de Mercado Libre → Publicaciones → Modificar masivamente → Descargar.",
     )
     if archivo_publicaciones:
         try:
@@ -234,6 +238,8 @@ def _importar(cuenta: str) -> None:
     st.markdown("#### 3. Reporte de Product Ads")
     archivo_ads = st.file_uploader(
         "Reporte por anuncios", type=["xlsx"], key="meli_up_ads",
+        help="Arrastrá o elegí el archivo .xlsx (máximo 200 MB por archivo). "
+             "Sale de Mercado Libre Ads → Reportes → Reporte por anuncios.",
     )
     if archivo_ads:
         try:

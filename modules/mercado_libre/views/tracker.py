@@ -167,6 +167,7 @@ def render(cuenta: str, publicaciones: pd.DataFrame | None = None) -> None:
         options=list(config.ETIQUETA_RESULTADO),
         default=[],
         format_func=lambda clave: config.ETIQUETA_RESULTADO[clave],
+        placeholder="Todos los resultados",
         key="meli_tracker_filtro",
     )
     mostrar = evaluacion[evaluacion["resultado"].isin(filtro)] if filtro else evaluacion
