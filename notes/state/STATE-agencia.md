@@ -11,13 +11,15 @@ Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
 
 ## 2026-07-23 — Frente Dermaglós US (documental, sin git)
 
-**Dermaglós US:** 360° completo corrido 16-jul (9 reportes) + 3 bulks aplicados Success. Config del Anexo US cerrada (ticket, stop-loss [$3,$8], familias excluidas, mapa ASINs 9/9).
-- 📌 **Diagnóstico: la palanca es POSICIÓN, no precio ni conversión.** ToS convierte 23% vs 13% en Rest of Search; las joyas estaban con ToS IS 11-15%.
-- 📌 **Pendiente: medir test de ToS a 7-10 días desde 16-jul** (vence ~23-26/07). Criterio declarado: IMPRESSION SHARE, no ventas.
-- 📌 Pendiente: meet con cliente Dermaglós.
-- 📌 Pendiente: COGS por familia (a pedir al AM) → hasta entonces BE 60% es estimación.
-- 🟠 Alarmas: Body Cream ASIN Related (ACoS 85,6%, spend +178% sin ad sales) · Cream Broad (ACoS 179,6%).
-- 📌 **SOP PPC 360 → v1.1 (9 reportes)**: Placement y Targeting promovidos a pasos propios.
+**Dermaglós US:** 360° v1.1 completo (9 pasos) sobre ventana limpia 27-jun→19-jul + Fase 2 (recálculo, test ToS, Prime Day, MoM). 3 bulks aplicados 23-jul, los 3 Success. Entregable HTML para primera meet con el cliente (24-jul).
+- 📌 **Tesis de posición CONFIRMADA y reforzada.** ToS: CVR 28,4% / ACoS 28,1% / ROAS 3,56. RoS: CVR 7,7% / ACoS 110% / ROAS 0,91. **El gap limpio (20,7pp) es el DOBLE del contaminado (10pp)** — Prime Day achataba la diferencia. Corrige el "23% vs 13%" del cierre del 16-jul.
+- 📌 **Test de ToS: positivo débil.** ToS IS 13,82% → 15,88% (duro) → 14,61% (prov), CPC estable $1,15. El reparto de gasto a ToS no se movió (60,0%). Subir bid mejora posición donde ya competimos, no agrega búsquedas. **Lectura firme 26-jul.**
+- 🔴 **FRAGMENTACIÓN: se usa el 3% del presupuesto configurado** ($24,96 real vs $736/día). 559 keywords activas → 277 con impresiones → 54 con gasto. 28 de 52 campañas con modificador ToS en 0%.
+- 🔴 **Prime Day fue evento de PRECIO.** Descuento 29% (deducido del ticket). Unidades +73%, facturación +23%. ImpShr de marca cayó 3× mientras el mercado ×4. CPC +29%, ACoS 32%→43,7%. El PPC no aportó.
+- 📌 **CORRECCIÓN de diagnóstico previo: los PAT sobre ASINs propios NO son fuga.** Rinden $52,22 → $248,26 (ACoS 21%). Es cross-sell en PDP que financia el halo single→2pack. **Búsqueda-por-ASIN en STR ≠ Product Targeting sobre ASIN** (learning al bulk guide). El bulk que iba a negativizarlos habría destruido $248.
+- 🟠 **Defensivos: colapso estructural.** Cleanser 11,2%→2,6%, Night 11,5%→2,3%, Serum 8,2%→3,8% con tráfico casi intacto. No venden a precio de lista. 33% del tráfico, 9% de la facturación. **Fuera del scope PPC.**
+- 🟠 TACoS 9,8% → 15,6% (efecto denominador post-PD, no de eficiencia).
+- 📌 Pendientes: **Bulk D (28 campañas ToS 0%) el 27-jul** · lectura firme test ToS 26-jul · COGS por familia · decisión sobre línea de apoyo · verificar stock jun/jul · quién decidió excluir Micellar · `allantoin` pasó de FIX a candidato a corte.
 
 Detalle: [[DERMAGLOS]] · [[2026-07-23]]
 

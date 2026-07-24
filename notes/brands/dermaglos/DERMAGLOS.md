@@ -839,3 +839,89 @@ Lectura honesta: el orgánico compensó la caída de ads. **Causa no determinada
 - allantoin/allantoin cream: palanca es ficha, no PPC
 - Micellar dentro de Scavenger: negativizar (limpieza $1)
 - Cleanser paused con ROAS>3: evaluar con muestra madura, **NO por recomendación de Amazon**
+
+## Sesión 2026-07-23 — 360° v1.1 completo + prep meet cliente
+
+**Ventana de referencia:** 27-jun → 19-jul-2026 (limpia, Prime Day excluido).
+
+⚠️ **Esta entrada CORRIGE dos datos de la entrada del 2026-07-16:**
+1. El gap ToS/RoS registrado como "23% vs 13%" estaba contaminado por Prime Day. **El limpio es 28,4% vs 7,7%** — el doble de gap. La tesis de posición sale reforzada, no debilitada.
+2. El "fuego amigo por ASIN" **no era fuga**: era búsqueda-por-ASIN en STR, no Product Targeting. Ver más abajo.
+
+### Parámetros confirmados
+- Mapa ASINs verificado 9/9 contra Advertised y BSR en las 3 ventanas.
+- Fila espuria detectada en BSR: parent Cream `B0FDX9XR56` aparece como su propio child (1 sesión, 0 ventas, BuyBox 0%). Ruido de catálogo, **excluir siempre**.
+- Prime Day 2026 US: **23-26 junio** (adelantado vs julio de años anteriores). PD 2025 fue 08-11 julio → **el YoY no alinea por calendario**, hay que comparar evento contra evento.
+
+### Métricas de referencia (ventana limpia, 23 días)
+| Métrica | Valor |
+|---|---|
+| Spend | $574,13 |
+| Venta PPC | $1.150,67 |
+| Venta total | $3.677,40 |
+| PPC sobre venta total | 31% |
+| TACoS | 15,6% |
+| ACoS | 49,9% |
+| CPC | $1,21 |
+| CVR PPC | 16,2% |
+
+### MoM (Advertised daily)
+| Mes | Inv/día | Ventas/día | ACoS | ROAS | CVR |
+|---|---|---|---|---|---|
+| Abril (5d) | $48,12 | $50,27 | 95,7% | 1,04× | 11,5% |
+| Mayo | $44,86 | $69,59 | 64,5% | 1,55× | 15,3% |
+| Junio | $31,98 | $65,60 | 48,7% | 2,05× | 18,6% |
+| Julio (1-22) | $23,32 | $50,87 | 45,8% | 2,18× | 17,1% |
+
+### Placement (06-15 jul, base sin Off Amazon)
+| Ubicación | %spend | CVR | ACoS | ROAS |
+|---|---|---|---|---|
+| Top of Search | 60,0% | 28,4% | 28,1% | 3,56 |
+| Rest of Search | 27,0% | 7,7% | 110,0% | 0,91 |
+| Product pages | 13,0% | 6,9% | 57,8% | 1,73 |
+
+### Bandas de ToS IS por target (PRE)
+| Banda | %spend | CVR | ACoS | CPC |
+|---|---|---|---|---|
+| 0-1% | 12,7% | 8,2% | 41,0% | $0,59 |
+| 15-30% | 46,2% | 21,9% | 52,0% | $1,45 |
+| 30-60% | 37,5% | 23,2% | 32,7% | $1,24 |
+
+### Estructura de cuenta (BSE 01-jun → 22-jul)
+- 270 campaign entities SP: 52 enabled / 206 paused / 12 archived
+- Presupuesto configurado $736/día · gasto real $24,96/día = **3% de uso**
+- 559 keywords enabled en campañas enabled → 277 con impresiones → 54 con gasto
+- 28 de 52 campañas con modificador ToS en 0%
+- 1.045 negativos vigentes (586 ad group + 459 campaign)
+
+### Buckets del cruzado STR×SQP (cobertura 73,1% del gasto)
+| Bucket | n | Spend | ACoS | CVR |
+|---|---|---|---|---|
+| SCALE | 5 | $196,41 | 55,8% | 22,8% |
+| DEFEND | 5 | $114,23 | 19,6% | 30,0% |
+| FIX | 27 | $58,63 | 587% | 2,5% |
+| INVESTIGAR | 36 | $41,39 | 155% | 5,1% |
+| NEGATIVIZAR | 2 | $8,96 | — | 0% |
+
+SCALE = familia `vitamin a cream` completa, con PurShr 2,6× a 13× su ImpShr y precio igual o mejor que el mercado.
+DEFEND = `dermaglos` y variantes: ImpShr ~50%, PurShr 100%, precio en paridad.
+
+### Oportunidades sin explotar (SQP, 3 semanas)
+| Búsqueda | Volumen | ImpShr | Precio vs mercado |
+|---|---|---|---|
+| micellar water | 133.959 | 0,02% | −23% |
+| scar cream | 77.999 | 0,05% | −27% |
+| vitamin e cream | 10.933 | 0,12% | +11% |
+
+`scar cream` es la oportunidad más limpia: volumen alto, precio favorable, sin cobertura.
+
+### 📌 Corrección: los PAT sobre ASINs propios NO son fuga
+El STR mostraba `b0f4kxzvnm` con $50,84 y 0 ventas — eso es el **SEARCH TERM** (gente tipeando el ASIN), no el **PRODUCT TARGETING**. Los PAT sobre ASINs propios rinden **$52,22 → $248,26, ACoS 21,0%**: cross-selling en PDP que financia el halo single→2pack. El bulk que iba a negativizarlos **habría destruido $248 de ventas**. Solo se pausaron los 4 PAT sin ventas ($10,83).
+
+### Bulks 23-jul (los 3 Success, 17:40 ART)
+A: 10 targets pausados · B: 6 negativos nuevos · C: 3 cierres de hueco.
+Ahorro anualizado estimado ~$1.100 sobre ~$8.500 = 13% del presupuesto redirigido.
+
+### Entregables
+- `Dermaglos_US_Analisis_PPC_Julio_2026.html` (cliente)
+- `MACHETE_meet_Dermaglos_24-07.html` (interno)

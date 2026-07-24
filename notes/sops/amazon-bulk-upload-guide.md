@@ -313,3 +313,12 @@ Los `Campaign Negative Keyword` usan `negativeExact` o `negativePhrase` como Mat
 El prefijo "campaign" lo infiere Amazon del Entity, no se repite en el Match Type.
 ⚠️ Ojo con la distinción: este caso es rollback total (Failed = nada entró), distinto del learning #6 "Failed ≠ fallo total" (donde Failed esconde éxito parcial). Siempre leer el Processing Summary para saber cuál de los dos es.
 Detectado en Dermaglós US, bulk 2 del 16-jul-2026 (Failed → v2 Success).
+
+---
+
+## Learnings 2026-07-23 (Dermaglós US — 360° v1.1)
+
+### #10 — Búsqueda por ASIN en STR ≠ Product Targeting sobre ASIN — verificar contra BSE antes de negativizar
+En el STR, un ASIN puede aparecer como `Customer Search Term` (gente tipeando el ASIN en el buscador). Eso NO es lo mismo que un Product Targeting sobre ese ASIN. **Se ven casi idénticos en el reporte y llevan a conclusiones opuestas.**
+Caso real (Dermaglós US, 23-jul-2026): el STR mostraba `b0f4kxzvnm` con $50,84 y 0 ventas → parecía fuga, se preparó bulk de negativos. Al cruzar contra BSE se vio que los **PAT sobre ASINs propios rendían $52,22 → $248,26 (ACoS 21%)** — cross-selling en PDP. **El bulk habría destruido $248 de ventas.**
+**Regla: antes de negativizar cualquier cosa que parezca un ASIN, cruzar contra el BSE para distinguir search term de product target.**

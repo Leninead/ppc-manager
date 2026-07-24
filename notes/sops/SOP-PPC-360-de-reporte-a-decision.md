@@ -184,6 +184,14 @@ Trae el **ToS IS en valor fino** (Campaign da buckets). ToS IS <1% = casi no apa
 - **Dos exports distintos:** el de *performance* (con fechas) trae métricas pero filas de keyword/negativo **vacías**. El *Bulk Sheet Export* completo trae la estructura. **Validación:** si `Entity` no tiene ninguna fila `Negative keyword` → export equivocado, **parar, no inferir negativos por ausencia**.
 - **ENDED ≠ ENABLED.** UPDATE sobre campañas ENDED puede hacer **fallar todo el upload** (rollback total). Filtrar por state antes de generar.
 
+### Cómo bajar los reportes (aprendido en campo, 2026-07-23)
+- **Advertised / Campaign desde la vista de tabla viene AGREGADO** — una fila por combinación campaña/adgroup/SKU, sin corte temporal. Para análisis con ventanas hay que bajarlo desde **Measurement & Reporting con `Time unit: Daily`**. El daily reemplaza `Start Date`/`End Date` por una sola columna `Date`.
+- **El Targeting report SÍ expone `Top-of-search Impression Share`** en valor fino (fracción numérica). Es el **único** reporte que lo da a nivel target — el Campaign lo da en buckets.
+- **El Campaign report de vista de tabla trae ToS IS y `Top-of-search bid adjustment`** por campaña. Útil aunque venga agregado.
+- **Placement: bajar por ventana chica, NUNCA largo.** Si se baja agregado se pierde el corte PRE/POST necesario para medir cualquier test de placement.
+- **Amazon topea las descargas de Ads a ~90 días** hacia atrás.
+- **Auditoría iterativa de entregables:** cada corrección abre superficie nueva. En un caso real, 5 pasadas sobre un HTML: la 1ª encontró 4 errores de dato, la 2ª 5 inconsistencias, la 3ª 3 de encuadre, la 4ª 2 introducidos por la 3ª, la 5ª 1 residuo de la 4ª. **Regla: cuando las pasadas solo encuentran residuos de correcciones previas, parar.**
+
 ---
 
 ## A.4 — Las 5 decisiones
