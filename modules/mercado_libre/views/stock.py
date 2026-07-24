@@ -80,7 +80,7 @@ def dialogo_registrar_transito(cuenta: str, publicaciones: pd.DataFrame) -> None
             },
             area=config.AREA,
             cliente=cuenta,
-            modulo=config.MODULO_STOCK,
+            modulo=config.MODULO_PUBLICACIONES,
             log_name=config.LOG_TRANSITO,
         )
         st.success(f"{unidades} unidades en tránsito registradas para {mla}.")
@@ -104,7 +104,7 @@ def render(cuenta: str, rendimiento: pd.DataFrame | None,
         )
         return
 
-    transito = _load_log(config.AREA, cuenta, config.MODULO_STOCK,
+    transito = _load_log(config.AREA, cuenta, config.MODULO_PUBLICACIONES,
                          config.LOG_TRANSITO)
 
     columna_boton, columna_info = st.columns([1.6, 4])

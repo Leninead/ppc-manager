@@ -15,9 +15,9 @@ equipo de cuentas:
   3. Alertas de campañas — semáforo por ACOS y ROAS sobre el reporte de ads.
 
 Persiste vía core.persistence:
-  - Snapshots en data/marketplaces/<cuenta>/meli-{rendimiento,stock,ads}/<YYYY-MM-DD>.parquet
+  - Snapshots en data/marketplaces/<cuenta>/meli-{rendimiento,publicaciones,ads}/<YYYY-MM-DD>.parquet
   - Log de cambios en meli-rendimiento/cambios.parquet
-  - Log de tránsito en meli-stock/transito.parquet
+  - Log de tránsito en meli-publicaciones/transito.parquet
 
 Schemas validados: data/_schemas/meli-{rendimiento,stock,ads}-v1.json
 
@@ -211,14 +211,24 @@ def _importar(cuenta: str) -> None:
 
             if st.button("✓ Guardar publicaciones", type="primary",
                          key="meli_guardar_publicaciones"):
-                _save_snapshot(publicaciones, config.AREA, cuenta,
-                               config.MODULO_STOCK, period)
-                try:
-                    _rebuild_history(config.AREA, cuenta, config.MODULO_STOCK)
-                except FileNotFoundError:
-                    pass
-                st.success(f"✓ Snapshot {period} guardado.")
-                st.rerun()
+                errores = _validate_against_schema(
+                    publicaciones, config.MODULO_PUBLICACIONES,
+                    config.SCHEMA_VERSION
+                )
+                if errores:
+                    st.error("El snapshot no respeta el schema:")
+                    for detalle in errores:
+                        st.caption(f"• {detalle}")
+                else:
+                    _save_snapshot(publicaciones, config.AREA, cuenta,
+                                   config.MODULO_PUBLICACIONES, period)
+                    try:
+                        _rebuild_history(config.AREA, cuenta,
+                                         config.MODULO_PUBLICACIONES)
+                    except FileNotFoundError:
+                        pass
+                    st.success(f"✓ Snapshot {period} guardado.")
+                    st.rerun()
 
     st.divider()
     st.markdown("#### 3. Reporte de Product Ads")
@@ -260,7 +270,7 @@ def _administrar(cuenta: str) -> None:
     st.markdown("### ⚙️ Administrar snapshots")
     modulos = [
         ("Rendimiento", config.MODULO_RENDIMIENTO),
-        ("Stock", config.MODULO_STOCK),
+        ("Stock", config.MODULO_PUBLICACIONES),
         ("Ads", config.MODULO_ADS),
     ]
     columnas = st.columns(3)
@@ -327,7 +337,7 @@ def render() -> None:
     st.divider()
 
     rendimiento = _ultimo_snapshot(cuenta, config.MODULO_RENDIMIENTO)
-    publicaciones = _ultimo_snapshot(cuenta, config.MODULO_STOCK)
+    publicaciones = _ultimo_snapshot(cuenta, config.MODULO_PUBLICACIONES)
     ads = _ultimo_snapshot(cuenta, config.MODULO_ADS)
 
     dias_periodo = None

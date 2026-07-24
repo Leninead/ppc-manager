@@ -11,7 +11,7 @@ AREA = "marketplaces"
 SCHEMA_VERSION = 1
 
 MODULO_RENDIMIENTO = "meli-rendimiento"
-MODULO_STOCK = "meli-stock"
+MODULO_PUBLICACIONES = "meli-publicaciones"
 MODULO_ADS = "meli-ads"
 
 LOG_CAMBIOS = "cambios"
