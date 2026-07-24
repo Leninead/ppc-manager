@@ -149,6 +149,7 @@ El 360° de Capybaras arranca por la capa orgánica (STR → SQP → cruzado), q
 10. ARITMÉTICA         → agregá cluster → CVR real → BE CPC (est.) vs piso → stop-loss $
 11. DECISIONES         → bid · placement · budget · corte · escala
 12. BULKS              → generar desde BSE, con fecha de upload por archivo
+13. REPORTE SEMANAL    → resumen a Slack del canal interno de la marca [OBLIGATORIO]
 ```
 
 **Nota sobre el Bulk / BSE (doble uso):** el método lee el Bulk *al inicio* (estado real, negativos vigentes). En el 360° de Capybaras el BSE va *al final* porque su uso principal es **generar bulks** (trae los IDs numéricos). Consecuencia práctica: la lectura de **negativos vigentes** que el método hace en el paso 1, en este flujo se hace en el paso **1 (STR)** contra la cola de negativos y se **confirma contra el BSE del paso 9 antes de generar** (para no duplicar). Si en algún análisis necesitás el estado de negativos/ENDED antes de decidir, tirá un BSE de lectura temprana — es el mismo archivo.
@@ -218,6 +219,18 @@ El WoW debe incluir el **split Advertised / Other SKU en Ad Sales**. Sin ese cor
 
 ⚠️ **Nunca heredar datos de ASIN entre WoW.** Cuando llega un WoW nuevo, **todo dato de ASIN se recalcula contra el archivo fresco.** Reutilizar los ganadores del deck anterior produce cifras invertidas.
 Caso real (LTD, jul-2026): 3 de 4 ASINs mostraban crecimiento (+507%, +198%, +100%) cuando en realidad habían caído (−60%, −11.5%, −4.6%). Se detectó en revisión antes de enviar al cliente.
+
+### 13. Reporte semanal a Slack (paso final obligatorio)
+
+Todo 360° cierra con el resumen al canal interno de la marca. **No es opcional** — es requisito del PPC Leader (Guille, La Logia 23-jul-2026).
+
+Los 4 campos obligatorios:
+1. **Objetivo general de optimización** (qué se buscaba: bajar ACoS/TACoS, subir gasto para más ventas, ganar posición…). Si hubo bid optimization, declarar **la intención**, no solo el ajuste.
+2. **Limpieza de WAS**: si se hizo, cuándo, y si fue **profunda** (auditoría completa de search terms + negativos + pausas sobre toda la cuenta — sale del 360°) o **no profunda** (ajuste puntual sobre las campañas que sangraban).
+3. **Lanzamiento de campañas**: si hubo, reportar **los dos números** — budget configurado $/día **y** consumo esperado ~$/mes según histórico. (Reportar solo el configurado infla la cifra: Dermaglós tenía $736/día configurados contra $24,96/día reales = 3% de uso.)
+4. **📣 El emoji `:mega:` va siempre en el mensaje.**
+
+→ Plantilla completa en [[plantilla-resumen-semanal-slack]].
 
 ---
 
@@ -338,6 +351,13 @@ NUNCA escalar sin pasar por el Advertised Product.
 **Bulks:**
 - [ ] IDs numéricos como texto (`str(v).split('.')[0]` + formato `@`)
 - [ ] Verificar processing summary: Amazon marca todo como Failed si una fila falla
+
+**Reporte semanal (paso 13, OBLIGATORIO):**
+- [ ] Objetivo general de optimización declarado (el para qué, antes del qué)
+- [ ] Limpieza de WAS: hecha o no · fecha · **profunda / no profunda**
+- [ ] Campañas lanzadas: sí/no · si sí, budget configurado $/día **y** consumo esperado $/mes
+- [ ] 📣 **Emoji `:mega:` incluido en el mensaje**
+- [ ] Enviado al canal interno de la marca (no al general)
 - [ ] Negative Product Targeting requiere Ad Group ID a nivel ad group
 - [ ] **Fecha de upload especificada por cada archivo entregado** (tabla archivo → fecha)
 
@@ -451,5 +471,6 @@ Techo por MODELO  = neto × 0.30 = ~$62 MXN por modelo (banda baja, ticket < 175
 - **v1.1 (2026-07-23):** Placement y Targeting promovidos de sub-bloques del Advertised (paso 6) a **pasos propios (7 y 8)** en la secuencia A.2, en el catálogo A.3 y en el checklist A.7. La cuenta pasa de **7 a 9 reportes**. BSE corre a paso 9; aritmética/decisiones/bulks a 10-12 (refs internas "BSE del paso 7" actualizadas a paso 9). Se mantiene la condicionalidad *si la cuenta lo expone* en los tres lugares: Amazon no siempre expone Placement/Targeting (ej. SD) → cuando falta, el paso se salta y se documenta la ausencia.
 - **v1.2 (2026-07-24):** agregada **Regla 4 — runway de stock** como cuarta regla previa dura (con tabla de corte <15d / 15-25d / >25d / >300d), validada en producción en Setex. Agregada nota sobre el split Advertised/Other SKU en el WoW. Corolario: las alertas de stock se registran con destinatario, controlador y fecha.
 - **v1.3 (2026-07-24):** tres correcciones de método traídas del frente LTD. (1) ⚠️ El `Top-of-search Impression Share` del Targeting report viene en **fracción decimal** — parsearlo como porcentaje invierte el diagnóstico. (2) El Advertised trae el split Advertised/Other SKU también **a nivel search term**. (3) ⚠️ **Nunca heredar datos de ASIN entre WoW**: recalcular siempre contra el archivo fresco (caso real con 3 de 4 ASINs invertidos).
+- **v1.4 (2026-07-24):** agregado el **paso 13 — Reporte semanal a Slack** como cierre obligatorio del 360° (pedido de Guille, PPC Leader, La Logia 23-jul). 4 campos obligatorios: objetivo de optimización · limpieza de WAS con grado (profunda = auditoría completa de toda la cuenta; no profunda = ajuste puntual) · campañas lanzadas con budget configurado **y** consumo esperado · emoji 📣 `:mega:`. Plantilla en `notes/sops/plantilla-resumen-semanal-slack.md`. Agregado también al checklist A.7.
 - **Pendientes para v2:** COGS por familia (activa BE rentable) · ticket Dermaglos · mapas de ASINs verificados contra Advertised por cuenta · familias excluidas · clavado exacto del 0.862 con venta unitaria MX.
 - **Vive en:** `notes/sops/` del vault. Registrar vía chat consolidador (este chat no toca git).
