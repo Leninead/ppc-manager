@@ -23,7 +23,7 @@ _COLOR_URGENCIA = {
 _ETIQUETA_URGENCIA = {
     "critico": "🔴 Crítico",
     "alto": "🟠 Alto",
-    "medio": "🟡 Medio",
+    "medio": "🔵 Medio",
     "ok": "🟢 OK",
     "sin_ventas": "⚪ Sin ventas",
 }
