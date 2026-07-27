@@ -214,6 +214,8 @@ def _new_client(
         "yoy_mode": yoy_mode,
         "historical": [],          # lista de dicts {date, revenue, units, …}
         "forecast": [],            # lista de dicts {date, projected_revenue, …}
+        "actual": [],              # F7-A: real mes a mes contra el forecast
+                                   # (mismo shape que historical + partial/days_covered)
         "snapshots": [],           # lista de snapshots versionados del forecast
         "seasonality": {
             "enabled": False,
@@ -358,6 +360,16 @@ def _get_forecast(state: Optional[Any] = None) -> list:
     """Forecast del cliente activo. Lista vacía si no hay activo."""
     c = _cur_client(state)
     return c["forecast"] if c else []
+
+
+def _get_actual(state: Optional[Any] = None) -> list:
+    """Capa `actual` del cliente activo (F7-A). Lista vacía si no hay activo.
+
+    Usa `.get` (no `[...]`) a propósito: los clientes persistidos ANTES de F7-A
+    se hidratan sin la key `actual`, y el getter no debe romper con ellos.
+    """
+    c = _cur_client(state)
+    return c.get("actual", []) if c else []
 
 
 def _get_seasonality(state: Optional[Any] = None) -> dict:
@@ -970,6 +982,73 @@ def _has_sessions_column(df: pd.DataFrame) -> bool:
     return False
 
 
+def _read_br_rows(data: bytes, filename: str) -> list[dict]:
+    """Lee el BR (CSV/XLSX) y devuelve las filas EN SU GRANULARIDAD ORIGINAL.
+
+    Extracción (F7-A1) de la primera mitad de `_parse_business_report`: leer el
+    archivo, rechazar el reporte sin tráfico, mapear con `_map_row_by_date` y
+    ordenar por fecha. NO agrega día→mes.
+
+    Existe porque la capa `actual` necesita CONTAR DÍAS para saber si un mes está
+    parcial, y la agregación los colapsa a 1 fila mensual. Sin este extract habría
+    que duplicar la lectura de archivo en el camino de `actual`.
+
+    Sin `@st.cache_data`: el cache vive en `_parse_business_report` /
+    `_parse_actual_report`, que son los puntos de entrada públicos.
+
+    Raises:
+        ReportLacksSessionsError: si el archivo no incluye Sessions.
+    """
+    lower = filename.lower()
+    if lower.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(BytesIO(data))
+    else:
+        # CSV. Autodetección de separador como en el resto del repo.
+        sample = data[:4096].decode("utf-8-sig", errors="ignore")
+        first_line = sample.split("\n", 1)[0] if sample else ""
+        sep = ";" if first_line.count(";") > first_line.count(",") else ","
+        df = pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=sep)
+
+    # Rechazo temprano si NO hay sessions (reporte equivocado).
+    # Hacemos esto ANTES del mapeo fila por fila porque queremos un error claro
+    # al AM, no ingerir "a medias" con sessions=0 que rompe el motor F3.
+    if not _has_sessions_column(df):
+        raise ReportLacksSessionsError(_SESSIONLESS_HINT)
+
+    # Iteramos dict por fila para reusar el mapeo verbatim.
+    rows: list[dict] = []
+    for raw in df.to_dict("records"):
+        mapped = _map_row_by_date(raw)
+        if mapped is not None:
+            rows.append(mapped)
+    rows.sort(key=lambda r: r["date"])
+    return rows
+
+
+def _to_monthly_rows(rows: list[dict]) -> list[dict]:
+    """Normaliza filas del BR a mensuales (1 fila por mes, fecha YYYY-MM-01).
+
+    Segunda mitad extraída de `_parse_business_report` (F7-A1), compartida con
+    `_parse_actual_report` para no duplicar la rama de granularidad.
+
+    El HTML original asume mensual (su demo es mensual ISO); los BRs reales
+    by-date de Amazon vienen diarios. Si `_detect_granularity` dice "daily" se
+    agrega; si dice "monthly" sólo se normaliza la fecha al día 01.
+    """
+    if _detect_granularity(rows) == "daily":
+        return _aggregate_daily_to_monthly(rows)
+    out: list[dict] = []
+    for r in rows:
+        row = dict(r)
+        try:
+            y, m, _d = row["date"].split("-")
+            row["date"] = f"{int(y):04d}-{int(m):02d}-01"
+        except (ValueError, AttributeError):
+            pass
+        out.append(row)
+    return out
+
+
 @st.cache_data(show_spinner=False)
 def _parse_business_report(data: bytes, filename: str) -> list[dict]:
     """Parsea CSV o XLSX del BR by-date. Recibe bytes (no UploadedFile) para
@@ -997,45 +1076,91 @@ def _parse_business_report(data: bytes, filename: str) -> list[dict]:
             reporte equivocado — Sales and Orders by Month en vez de Sales
             and Traffic by Date).
     """
-    lower = filename.lower()
-    if lower.endswith((".xlsx", ".xls")):
-        df = pd.read_excel(BytesIO(data))
-    else:
-        # CSV. Autodetección de separador como en el resto del repo.
-        sample = data[:4096].decode("utf-8-sig", errors="ignore")
-        first_line = sample.split("\n", 1)[0] if sample else ""
-        sep = ";" if first_line.count(";") > first_line.count(",") else ","
-        df = pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=sep)
+    return _to_monthly_rows(_read_br_rows(data, filename))
 
-    # Rechazo temprano si NO hay sessions (reporte equivocado).
-    # Hacemos esto ANTES del mapeo fila por fila porque queremos un error claro
-    # al AM, no ingerir "a medias" con sessions=0 que rompe el motor F3.
-    if not _has_sessions_column(df):
-        raise ReportLacksSessionsError(_SESSIONLESS_HINT)
 
-    # Iteramos dict por fila para reusar el mapeo verbatim.
-    rows: list[dict] = []
-    for raw in df.to_dict("records"):
-        mapped = _map_row_by_date(raw)
-        if mapped is not None:
-            rows.append(mapped)
-    rows.sort(key=lambda r: r["date"])
+# ─────────────────────────────────────────────────────────────────────────────
+# F7-A1 — Capa `actual`: el REAL mes a mes, para comparar contra el forecast
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# `actual` es una TERCERA serie que CONVIVE con `historical` y `forecast` — no
+# pisa ninguna. Sale del MISMO Business Report que `historical`, así que tiene el
+# MISMO shape: los accessors `from_hist` de las 10 métricas de `_METRICS`
+# funcionan tal cual sobre estas filas (cero accessors nuevos).
+#
+# Lo único que agrega son 2 keys de cobertura, para poder marcar visualmente el
+# mes que todavía está corriendo.
 
-    # Detección de granularidad + agregación día→mes.
-    # El HTML original asume mensual (su demo es mensual ISO); BRs reales by-date
-    # de Amazon vienen diarios. Agregamos acá para mantener el contrato del
-    # historical: 1 fila por mes, fecha YYYY-MM-01.
-    if _detect_granularity(rows) == "daily":
-        rows = _aggregate_daily_to_monthly(rows)
-    else:
-        # Mensual: normalizar fechas a YYYY-MM-01 por consistencia.
-        for r in rows:
-            try:
-                y, m, _d = r["date"].split("-")
-                r["date"] = f"{int(y):04d}-{int(m):02d}-01"
-            except (ValueError, AttributeError):
-                pass
-    return rows
+
+def _count_days_by_month(rows: list[dict]) -> dict[str, int]:
+    """Días DISTINTOS presentes por mes. Clave: fecha del mes en ISO (YYYY-MM-01).
+
+    Cuenta días únicos (dos filas del mismo día no inflan la cobertura). Filas con
+    `date` ausente o malformado se saltean — mismo guard defensivo que
+    `_detect_granularity`.
+    """
+    seen: dict[str, set] = {}
+    for r in rows:
+        try:
+            y, m, d = r["date"].split("-")
+            key = f"{int(y):04d}-{int(m):02d}-01"
+        except (ValueError, AttributeError, KeyError, TypeError):
+            continue
+        seen.setdefault(key, set()).add(d)
+    return {k: len(v) for k, v in seen.items()}
+
+
+def _parse_actual_report(data: bytes, filename: str) -> list[dict]:
+    """Parsea un BR y devuelve filas mensuales de la capa `actual`.
+
+    Shape = el mismo de `_parse_business_report` (lo que alimenta `historical`)
+    más 2 keys de cobertura:
+
+        days_covered: Optional[int]   días con dato dentro de ese mes
+        partial:      Optional[bool]  TRI-ESTADO
+
+    Los tres estados de `partial`:
+        True  → cobertura conocida e INCOMPLETA (BR diario, faltan días del mes)
+        False → cobertura conocida y COMPLETA   (BR diario, mes cerrado)
+        None  → cobertura DESCONOCIDA           (BR mensual: Amazon ya agregó)
+
+    El caso `None` NO se resuelve acá: esta función es PURA (no llama a
+    `date.today()`). Lo desambigua la UI comparando el mes de la fila contra hoy
+    — mes en curso → parcial, mes pasado → cerrado. Asumir `True` a ciegas
+    pintaría un mes CERRADO bajado en By Month como parcial en el evolutivo, que
+    es un dato engañoso hacia el cliente.
+
+    Multi-mes: cada mes se resuelve por separado (un BR diario de junio+julio da
+    junio `partial=False` y julio `partial=True`). Eso es lo que hace evolutiva a
+    la capa, en vez de "sólo el mes en curso".
+
+    Borde conocido: un BR diario con UNA sola fila es indistinguible de un BR
+    mensual (`_detect_granularity` lo llama "monthly") → `partial=None`. Sólo
+    ocurre el día 1 del mes, y la UI lo resuelve igual que al resto de los `None`.
+
+    Raises:
+        ReportLacksSessionsError: si el archivo no incluye Sessions (heredado de
+            `_read_br_rows`).
+    """
+    raw_rows = _read_br_rows(data, filename)
+    # La cobertura sólo es medible si el BR vino diario: si Amazon ya agregó,
+    # 1 fila por mes no dice cuántos días cubre.
+    days_by_month = (
+        _count_days_by_month(raw_rows)
+        if _detect_granularity(raw_rows) == "daily"
+        else {}
+    )
+
+    out: list[dict] = []
+    for r in _to_monthly_rows(raw_rows):
+        row = dict(r)
+        covered = days_by_month.get(row["date"])
+        row["days_covered"] = covered
+        row["partial"] = (
+            None if covered is None else covered < _days_in_month(row["date"])
+        )
+        out.append(row)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2366,6 +2491,43 @@ def _bridge(hist_rows: list, fc_rows: list, from_hist, from_fc) -> tuple:
         fc_x = [last["date"]] + fc_x
         fc_y = [from_hist(last)] + fc_y   # bridge = último punto hist (from_hist)
     return serie_hist, {"x": fc_x, "y": fc_y}
+
+
+def _actual_series(hist_rows: list, actual_rows: list, accessor) -> dict:
+    """Serie de la capa `actual` (F7-A): {x, y, partial}, con bridge al histórico.
+
+    La serie `actual` arranca repitiendo el último punto histórico — igual que la
+    de forecast — para que ambas líneas salgan del MISMO lugar y se vea dónde
+    divergen. Eso es exactamente la lectura que el AM necesita: real vs proyectado.
+
+    Reusa `_bridge` sin tocarlo: como las filas de `actual` tienen shape de
+    `historical`, `from_hist` y `from_fc` son el MISMO accessor, y el segundo
+    elemento que devuelve `_bridge` ya es la serie puenteada que hace falta.
+
+    El ancla es el último histórico ESTRICTAMENTE ANTERIOR al primer `actual`, no
+    `hist_rows[-1]`: cuando un mes de `actual` cierra entra también a `historical`,
+    y anclar al último a secas haría que la línea vuelva para atrás.
+
+    `partial` viene alineado con x/y. El punto de bridge es un punto histórico
+    (mes cerrado) → `False`. El resto copia el flag de cada fila, incluido `None`
+    (cobertura desconocida — ver `_parse_actual_report`).
+
+    Contratos:
+      - actual vacío → {"x": [], "y": [], "partial": []}
+      - sin histórico anterior al primer actual → SIN bridge
+      - valor None en el punto de ancla → el bridge copia None (no inventa 0)
+    """
+    if not actual_rows:
+        return {"x": [], "y": [], "partial": []}
+
+    first_date = actual_rows[0]["date"]
+    anchor_rows = [r for r in hist_rows if r["date"] < first_date]
+    _hist_serie, serie = _bridge(anchor_rows, actual_rows, accessor, accessor)
+
+    partial = [r.get("partial") for r in actual_rows]
+    if len(serie["x"]) == len(actual_rows) + 1:      # hubo bridge
+        partial = [False] + partial
+    return {"x": serie["x"], "y": serie["y"], "partial": partial}
 
 
 def _yoy_series(hist_rows: list, fc_rows: list, from_hist) -> dict:
