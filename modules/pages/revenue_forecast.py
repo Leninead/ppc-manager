@@ -2563,6 +2563,12 @@ _CHART_FONT = "JetBrains Mono, monospace"
 # el chart de CVR muestre las dos.
 _CHART_ACTUAL = "#22C55E"
 
+# Tamaño y grosor de anillo del punto de un mes PARCIAL (mes en curso). Ver el
+# docstring de `_chart_trace`: con los defaults el `circle-open` se dibuja pero
+# no se ve. 8 (no más) para que lea "incompleto" y no "destacado".
+_MARKER_SIZE_PARTIAL = 8
+_MARKER_RING_PARTIAL = 2
+
 # Layout base VERIFICADO contra el HTML de Edu. Fondo transparente → hereda el
 # tema de Streamlit; valores del tema OSCURO fijos (Streamlit no expone
 # getComputedStyle). Los 10 colores de métrica son fijos en ambos temas.
@@ -2695,13 +2701,21 @@ def _chart_trace(x: list, y: list, name: str, color: str, role: str,
 
     `partial` (F7-A2, ADITIVO): lista de `Optional[bool]` alineada con x/y que
     marca qué puntos son de un mes todavía en curso.
-        None (default) → el símbolo NO se setea; queda el default de Plotly
-                         (círculo lleno). Es lo que mantiene intactos los roles
-                         viejos, que no lo pasan.
-        lista          → `marker.symbol` pasa a ser un ARRAY: 'circle-open' donde
-                         el punto es parcial, 'circle' en el resto. Sólo `True`
-                         abre el marcador: `False` y `None` (cobertura
-                         desconocida, ver `_parse_actual_report`) van llenos.
+        None (default) → NADA se arma; el marker queda como siempre (size
+                         escalar, sin symbol, sin line). Es lo que mantiene
+                         intactos los roles viejos, que no lo pasan.
+        lista          → se arman TRES arrays paralelos. Sólo `True` marca el
+                         punto: `False` y `None` (cobertura desconocida, ver
+                         `_parse_actual_report`) van llenos y del tamaño normal.
+
+    Por qué tres arrays y no sólo `symbol` (hallazgo del smoke visual de A3):
+    plotly.js estroquea los símbolos `-open` con `marker.line.width`, cuyo default
+    de schema en scatter es 0 → cae a un fallback de 1px. Un anillo de 1px sobre
+    un marcador de 5px, atravesado por la línea de 2px del MISMO color, deja medio
+    píxel de hueco a cada lado: el `circle-open` se dibujaba, pero era ilegible.
+    Con size 8 + anillo de 2px el hueco interior queda en ~6px → ~2px visibles a
+    cada lado de la línea. Size 8 y no más: el mensaje es "mes incompleto", no
+    "mes destacado". `line.width=0` en los no-parciales deja esos puntos exactos.
     El param NO está acoplado al role — si se pasa, se aplica.
     """
     if role == "hist":
@@ -2719,7 +2733,13 @@ def _chart_trace(x: list, y: list, name: str, color: str, role: str,
         marker = dict(size=2)
 
     if partial is not None:
+        base = marker["size"]
         marker["symbol"] = ["circle-open" if p is True else "circle" for p in partial]
+        marker["size"] = [_MARKER_SIZE_PARTIAL if p is True else base for p in partial]
+        marker["line"] = dict(
+            color=line["color"],
+            width=[_MARKER_RING_PARTIAL if p is True else 0 for p in partial],
+        )
 
     return go.Scatter(x=x, y=y, name=name, mode="lines+markers",
                       line=line, marker=marker, connectgaps=True)

@@ -125,6 +125,81 @@ def test_chart_trace_partial_aplica_a_cualquier_role():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# LEGIBILIDAD del punto parcial
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El smoke visual de A3 encontró el hueco de cobertura de A2: los tests asertaban
+# que el SÍMBOLO fuera 'circle-open', y lo era — pero no se veía. Verificado
+# contra el bundle plotly.min.js:
+#
+#     e.om = u % 200 >= 100;                              // "open marker"
+#     m = (e.mlw+1 || b+1 || marker.line.width+1) - 1 || 0;
+#     if (e.om) t.style({"stroke-width": (m||1)+"px", fill:"none"});
+#
+# Con `marker.line.width` sin setear (default 0 del schema de scatter), `m` cae al
+# fallback de 1px. Un anillo de 1px sobre un marcador de 5px, atravesado por la
+# línea de 2px del mismo color, deja ~0.5px de hueco a cada lado: invisible.
+#
+# Estos tests afirman LEGIBILIDAD (tamaño + grosor del anillo), no sólo que el
+# símbolo exista.
+
+
+def test_punto_parcial_es_mas_grande_que_los_llenos():
+    """`size` pasa a ARRAY: 8 el parcial, 5 el resto. 8 y no más — el mensaje es
+    'mes incompleto', no 'mes destacado'.
+    """
+    tr = rf._chart_trace([1, 2], [3, 4], "x", rf._CHART_ACTUAL, "actual",
+                         partial=[False, True])
+    assert tuple(tr.marker.size) == (5, 8)
+
+
+def test_punto_parcial_tiene_anillo_grueso_y_los_llenos_no():
+    """El anillo del hueco necesita 2px para leerse contra la línea de 2px.
+
+    `line.width=0` en los NO parciales es deliberado: deja los puntos llenos
+    exactamente como estaban, sin agregarles un contorno.
+    """
+    tr = rf._chart_trace([1, 2], [3, 4], "x", rf._CHART_ACTUAL, "actual",
+                         partial=[False, True])
+    assert tuple(tr.marker.line.width) == (0, 2)
+    assert tr.marker.line.color == rf._CHART_ACTUAL   # anillo del color de la serie
+
+
+def test_los_tres_arrays_van_alineados():
+    """symbol / size / line.width describen el MISMO punto en cada índice."""
+    partial = [False, True, None, True]
+    tr = rf._chart_trace([1, 2, 3, 4], [1, 2, 3, 4], "x", rf._CHART_ACTUAL,
+                         "actual", partial=partial)
+    assert tuple(tr.marker.symbol) == ("circle", "circle-open", "circle", "circle-open")
+    assert tuple(tr.marker.size) == (5, 8, 5, 8)
+    assert tuple(tr.marker.line.width) == (0, 2, 0, 2)
+
+
+def test_sin_partial_el_marker_queda_escalar_y_sin_anillo():
+    """🔴 No-regresión: sin `partial`, NADA de los arrays se arma. Los roles
+    viejos conservan su marker de siempre (size escalar, sin symbol, sin line).
+    """
+    for role, size in (("hist", 4), ("fc", 6), ("yoy", 2), ("actual", 5)):
+        tr = rf._chart_trace([1, 2], [3, 4], "x", "#FF3300", role)
+        assert tr.marker.size == size, f"role {role}"
+        assert tr.marker.symbol is None, f"role {role}"
+        assert tr.marker.line.width is None, f"role {role}"
+        assert tr.marker.line.color is None, f"role {role}"
+
+
+def test_legibilidad_llega_hasta_la_figura():
+    """End-to-end del fix: el chart real termina con los 3 arrays, no sólo el
+    trace suelto. Es lo que se vio roto en el smoke visual.
+    """
+    fig = rf._metric_chart("revenue", _hist(), _fc(), False, actual_rows=_actual())
+    verde = _green_traces(fig)[0]
+    # bridge (hist) · julio cerrado · agosto en curso
+    assert tuple(verde.marker.symbol) == ("circle", "circle", "circle-open")
+    assert tuple(verde.marker.size) == (5, 5, 8)
+    assert tuple(verde.marker.line.width) == (0, 0, 2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # _metric_chart
 # ─────────────────────────────────────────────────────────────────────────────
 
