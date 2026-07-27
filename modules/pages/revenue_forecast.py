@@ -3133,6 +3133,114 @@ def _render_upload_and_demo(cur: dict) -> None:
         st.success(f"✓ {' · '.join(parts)} (Spend y Ventas PPC manuales se conservaron).")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# F7-A3 — wiring de la capa `actual`
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# A1 dejó los helpers puros, A2 los charts listos para recibir `actual_rows`.
+# Acá se conecta: uploader del mes real + la única pieza que necesita saber qué
+# día es hoy.
+
+
+def _resolve_partial(actual_rows: list, today: Optional[date] = None) -> list:
+    """Cierra el `partial=None` que deja `_parse_actual_report` para el BR mensual.
+
+    A1 es PURO: cuando Amazon ya agregó el mes (1 fila, sin días), no hay forma de
+    medir la cobertura y deja `None` en vez de adivinar. Acá sí sabemos la fecha,
+    así que se resuelve por comparación: el mes EN CURSO está corriendo (parcial),
+    cualquier otro está cerrado.
+
+    Lo que A1 SÍ midió (BR diario → `True`/`False`) NO se pisa: es la verdad del
+    dato. Un julio subido a los 20 días sigue siendo parcial aunque julio ya haya
+    cerrado.
+
+    Devuelve COPIAS. `cur["actual"]` es el dato persistido del cliente y no debe
+    quedar contaminado con un flag derivado de HOY — mañana la respuesta cambia.
+
+    Args:
+        actual_rows: filas de la capa `actual`.
+        today: inyectable para tests; default `date.today()`.
+    """
+    if today is None:
+        today = date.today()
+    mes_en_curso = f"{today.year:04d}-{today.month:02d}-01"
+
+    out: list[dict] = []
+    for r in actual_rows:
+        row = dict(r)
+        if row.get("partial") is None:
+            row["partial"] = (row.get("date") == mes_en_curso)
+        out.append(row)
+    return out
+
+
+def _render_actual_upload(cur: dict) -> None:
+    """Uploader del mes real: el BR del mes en curso, para comparar REAL vs forecast.
+
+    Vive en su propia función y NO al final de `_render_upload_and_demo` a
+    propósito: esa función corta con `return` cuando el BR del histórico falla al
+    parsear, y un bloque agregado abajo quedaría invisible justo en ese caso.
+
+    Mergea sobre `cur["actual"]` con `_merge_historical` — su contrato ya sirve
+    tal cual (match por mes, preserva Spend/Ventas PPC manuales, ordena asc) y no
+    toca `cur["historical"]`: las dos capas conviven.
+
+    NO llama `_try_persist()`, igual que el uploader del histórico: el AM guarda
+    las dos capas de una con el botón 💾.
+    """
+    st.markdown("##### Cargar mes real")
+    st.caption(
+        "El mismo reporte \"By Date · Sales and Traffic\", pero del mes que está "
+        "corriendo. Se dibuja como línea verde en los gráficos, contra el "
+        "forecast — no toca el histórico."
+    )
+
+    uploaded = st.file_uploader(
+        "Mes real (CSV o XLSX)",
+        type=["csv", "xlsx", "xls"],
+        key=f"rf_actual_uploader_{cur['id']}",
+        label_visibility="collapsed",
+    )
+    if uploaded is None:
+        return
+
+    data = uploaded.getvalue()
+    try:
+        rows = _parse_actual_report(data, uploaded.name)
+    except ReportLacksSessionsError as e:
+        st.error(str(e))
+        return
+    except Exception as e:  # noqa: BLE001 — fail-soft al AM
+        st.error(f"No se pudo parsear el archivo: {e}")
+        return
+
+    if not rows:
+        st.warning(
+            "No se reconocieron filas con formato by-date en este archivo. "
+            "Verificá que tenga columnas 'Date' y 'Ordered Product Sales'."
+        )
+        return
+
+    merged, _added, _updated = _merge_historical(cur.get("actual", []), rows)
+    cur["actual"] = merged
+
+    resueltas = _resolve_partial(merged)
+    n = len(resueltas)
+    msg = (
+        f"✓ {n} mes{'es' if n != 1 else ''} con datos reales "
+        f"cargado{'s' if n != 1 else ''}."
+    )
+    en_curso = [r["date"] for r in resueltas if r["partial"] is True]
+    if en_curso:
+        ultimo = en_curso[-1]
+        nombre = f"{_MONTHS_FULL[int(ultimo[5:7]) - 1]} {ultimo[:4]}"
+        msg += (
+            f" {nombre} todavía está en curso: es un mes incompleto y se marca "
+            f"con punto hueco en los gráficos."
+        )
+    st.success(msg)
+
+
 def _render_quick_stats(cur: dict) -> None:
     """Render del bloque "Indicadores actuales" (port del HTML L767-771)."""
     st.markdown("##### Indicadores actuales")
@@ -4103,7 +4211,12 @@ _K_CHARTS_CUSTOM = f"{_STATE_PREFIX}charts_custom"
 
 
 def _render_charts_section(cur: dict) -> None:
-    """Sección GRÁFICAS (G5): 7 charts en tabs + toggle YoY global. Sólo wiring."""
+    """Sección GRÁFICAS (G5 + F7-A2): 7 charts en tabs + toggle YoY global.
+
+    Sólo wiring. La 3ª serie (`actual`) se resuelve contra hoy y se pasa a los 7;
+    si el AM no cargó el mes real, `actual_rows=[]` y los charts se ven igual que
+    antes de F7 (garantizado por A2, sin guards extra acá).
+    """
     st.divider()
     st.markdown("### 📊 Gráficas")
 
@@ -4112,6 +4225,7 @@ def _render_charts_section(cur: dict) -> None:
         st.info("Cargá el histórico para ver los gráficos.")
         return
     fc_rows = cur.get("forecast", [])
+    actual_rows = _resolve_partial(cur.get("actual", []))
 
     # Buffers (una sola vez, defaults del HTML).
     if _K_CHARTS_CUSTOM not in st.session_state:
@@ -4128,22 +4242,28 @@ def _render_charts_section(cur: dict) -> None:
                     "ACOS/TACOS", "Custom"])
 
     with tabs[0]:
-        st.plotly_chart(_metric_chart("revenue", hist_rows, fc_rows, yoy),
+        st.plotly_chart(_metric_chart("revenue", hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[1]:
-        st.plotly_chart(_metric_chart("sessions", hist_rows, fc_rows, yoy),
+        st.plotly_chart(_metric_chart("sessions", hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[2]:
-        st.plotly_chart(_metric_chart("cvr", hist_rows, fc_rows, yoy),
+        st.plotly_chart(_metric_chart("cvr", hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[3]:
-        st.plotly_chart(_metric_chart("units", hist_rows, fc_rows, yoy),
+        st.plotly_chart(_metric_chart("units", hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[4]:
-        st.plotly_chart(_ads_chart(hist_rows, fc_rows, yoy),
+        st.plotly_chart(_ads_chart(hist_rows, fc_rows, yoy,
+                                   actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[5]:
-        st.plotly_chart(_acos_tacos_chart(hist_rows, fc_rows, yoy),
+        st.plotly_chart(_acos_tacos_chart(hist_rows, fc_rows, yoy,
+                                          actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[6]:
         sel = st.pills(
@@ -4160,7 +4280,8 @@ def _render_charts_section(cur: dict) -> None:
         # se dibuja con el BUFFER, nunca con `sel`.
         selected = [mid for mid in _METRICS
                     if mid in st.session_state[_K_CHARTS_CUSTOM]]
-        st.plotly_chart(_custom_chart(selected, hist_rows, fc_rows, yoy),
+        st.plotly_chart(_custom_chart(selected, hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
 
 
@@ -4745,6 +4866,8 @@ def render() -> None:
     _render_account_config(cur)
     st.markdown("")
     _render_upload_and_demo(cur)
+    st.markdown("")
+    _render_actual_upload(cur)
     st.markdown("")
     _render_quick_stats(cur)
     st.markdown("")
