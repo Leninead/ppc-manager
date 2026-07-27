@@ -2558,6 +2558,11 @@ _CHART_GRID = "#1d1d1d"       # --line-2 (tema oscuro, default del OS)
 _CHART_TICK = "#a8a8a8"       # --text-mute
 _CHART_FONT = "JetBrains Mono, monospace"
 
+# F7-A2 — color único de la línea `actual` (el REAL contra el forecast). Verde
+# más saturado que el CVR del catálogo (#34D399) para que no se confundan cuando
+# el chart de CVR muestre las dos.
+_CHART_ACTUAL = "#22C55E"
+
 # Layout base VERIFICADO contra el HTML de Edu. Fondo transparente → hereda el
 # tema de Streamlit; valores del tema OSCURO fijos (Streamlit no expone
 # getComputedStyle). Los 10 colores de métrica son fijos en ambos temas.
@@ -2591,13 +2596,17 @@ def _washed_color(hex6: str, alpha_hex: str = "88") -> str:
 
 
 def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
-                  show_yoy: bool = False) -> "go.Figure":
+                  show_yoy: bool = False,
+                  actual_rows: Optional[list] = None) -> "go.Figure":
     """Construye la figura de UNA métrica del catálogo `_METRICS`.
 
-    Hasta 3 traces: histórico (spline sólido), forecast (dashed, mismo color) y
-    YoY opcional (dotted, color washed-out `+"88"`). Todos los valores salen de
-    `_bridge`/`_yoy_series` con los accessors del catálogo — NO se recalcula nada.
+    Hasta 4 traces: histórico (spline sólido), forecast (dashed, mismo color),
+    YoY opcional (dotted, color washed-out `+"88"`) y `actual` opcional (sólido
+    verde, F7-A2). Todos los valores salen de `_bridge`/`_yoy_series`/
+    `_actual_series` con los accessors del catálogo — NO se recalcula nada.
     Eje Y formateado según `unit` (currency/count/percent).
+
+    `actual_rows` None o [] → figura idéntica a la de antes de F7-A2.
 
     Guard: `hist_rows` vacío → figura VACÍA (con layout), NO excepción (fiel al
     HTML `if (state.historical.length === 0) return;`).
@@ -2643,6 +2652,12 @@ def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
             connectgaps=True,
         ))
 
+    # Trace 4 — actual (F7-A2, sólo si el AM cargó el real).
+    if actual_rows:
+        tr = _actual_trace(hist_rows, actual_rows, m)
+        if tr is not None:
+            fig.add_trace(tr)
+
     # Eje Y según unidad.
     unit = m["unit"]
     if unit == "currency":
@@ -2666,12 +2681,28 @@ def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
 # que G2) para que el lenguaje visual sea idéntico en los 7 charts.
 
 
-def _chart_trace(x: list, y: list, name: str, color: str, role: str) -> "go.Scatter":
+def _chart_trace(x: list, y: list, name: str, color: str, role: str,
+                 partial: Optional[list] = None) -> "go.Scatter":
     """Arma un go.Scatter con el estilo del módulo según `role`:
-        'hist' → sólido, width 2, marker 4
-        'fc'   → dashed, width 2, marker 6   (dashed = forecast, en los 7 charts)
-        'yoy'  → dotted, width 1, marker 2, color washed-out (_washed_color)
+        'hist'   → sólido, width 2, marker 4
+        'fc'     → dashed, width 2, marker 6   (dashed = forecast, en los 7 charts)
+        'yoy'    → dotted, width 1, marker 2, color washed-out (_washed_color)
+        'actual' → sólido, width 2, marker 5   (F7-A2: el REAL vs el forecast)
     Mismos tokens que _metric_chart (G2). Todos con spline 0.3 + connectgaps.
+
+    `actual` va SÓLIDA a propósito: es dato real cerrado, con el mismo peso visual
+    que la línea histórica. El dash queda reservado al forecast en los 7 charts.
+
+    `partial` (F7-A2, ADITIVO): lista de `Optional[bool]` alineada con x/y que
+    marca qué puntos son de un mes todavía en curso.
+        None (default) → el símbolo NO se setea; queda el default de Plotly
+                         (círculo lleno). Es lo que mantiene intactos los roles
+                         viejos, que no lo pasan.
+        lista          → `marker.symbol` pasa a ser un ARRAY: 'circle-open' donde
+                         el punto es parcial, 'circle' en el resto. Sólo `True`
+                         abre el marcador: `False` y `None` (cobertura
+                         desconocida, ver `_parse_actual_report`) van llenos.
+    El param NO está acoplado al role — si se pasa, se aplica.
     """
     if role == "hist":
         line = dict(color=color, width=2, shape="spline", smoothing=0.3)
@@ -2679,21 +2710,62 @@ def _chart_trace(x: list, y: list, name: str, color: str, role: str) -> "go.Scat
     elif role == "fc":
         line = dict(color=color, width=2, dash="dash", shape="spline", smoothing=0.3)
         marker = dict(size=6)
+    elif role == "actual":
+        line = dict(color=color, width=2, shape="spline", smoothing=0.3)
+        marker = dict(size=5)
     else:  # yoy
         line = dict(color=_washed_color(color), width=1, dash="dot",
                     shape="spline", smoothing=0.3)
         marker = dict(size=2)
+
+    if partial is not None:
+        marker["symbol"] = ["circle-open" if p is True else "circle" for p in partial]
+
     return go.Scatter(x=x, y=y, name=name, mode="lines+markers",
                       line=line, marker=marker, connectgaps=True)
 
 
-def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False) -> "go.Figure":
-    """Chart de Ads: spend + ventasPPC en la misma figura (hasta 5 traces).
+# ─────────────────────────────────────────────────────────────────────────────
+# F7-A2 — la línea `actual` en los 7 charts
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Los 4 builders (_metric_chart, _ads_chart, _acos_tacos_chart, _custom_chart)
+# suman `actual_rows=None` AL FINAL de su firma. Con None o [] la figura es
+# exactamente la de antes de F7-A2 — los tests de G2-G4 pasan sin tocarse.
+#
+# Toda la aritmética de la serie es de A1 (`_actual_series`): acá sólo se ensambla
+# el trace. Cero cálculo nuevo, igual que G3/G4.
+
+
+def _actual_trace(hist_rows: list, actual_rows: list, m: dict) -> Optional["go.Scatter"]:
+    """Trace `actual` de UNA métrica del catálogo, o None si la serie sale vacía.
+
+    Usa `m["from_hist"]` (no `from_fc`): las filas de `actual` tienen shape de
+    `historical`, así que los valores se CALCULAN igual que en el histórico. Es
+    lo que hace que el ACOS real salga de spend/ventasPPC reales y no de los
+    targets que el motor escribió en el forecast.
+    """
+    a = _actual_series(hist_rows, actual_rows, m["from_hist"])
+    if not a["x"]:
+        return None
+    return _chart_trace(a["x"], a["y"], f'{m["label"]} (real)',
+                        _CHART_ACTUAL, "actual", partial=a["partial"])
+
+
+def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False,
+               actual_rows: Optional[list] = None) -> "go.Figure":
+    """Chart de Ads: spend + ventasPPC en la misma figura (hasta 7 traces).
 
     Trazas: Spend (hist/fc) + Ventas PPC (hist/fc) + UN solo YoY (el de SPEND —
-    verbatim del HTML: con 5 líneas, un 2do YoY lo vuelve ilegible). Eje Y en $
-    con `rangemode="tozero"` — es el ÚNICO de los 7 charts con beginAtZero
-    (HTML L2653). Guard: hist vacío → figura vacía, sin excepción.
+    verbatim del HTML: con 5 líneas, un 2do YoY lo vuelve ilegible) + `actual` de
+    AMBAS métricas (F7-A2). Eje Y en $ con `rangemode="tozero"` — es el ÚNICO de
+    los 7 charts con beginAtZero (HTML L2653). Guard: hist vacío → figura vacía,
+    sin excepción.
+
+    Las dos líneas reales son verdes y sólidas (misma identidad visual en los 7
+    charts), así que entre sí se distinguen por legend + hover unificado, no por
+    color. Se dibujan las DOS —no sólo spend— por simetría con el forecast, que
+    también proyecta ambas: mostrar el real de una sola dejaría media comparación.
     """
     fig = go.Figure()
     fig.update_layout(**_PLOTLY_LAYOUT)
@@ -2717,12 +2789,19 @@ def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False) -> "go.Fi
         sp_yoy = _yoy_series(hist_rows, fc_rows, _METRICS["spend"]["from_hist"])
         fig.add_trace(_chart_trace(sp_yoy["x"], sp_yoy["y"], "Spend año previo (YoY)", sp_color, "yoy"))
 
+    if actual_rows:
+        for mid in ("spend", "ventasPPC"):
+            tr = _actual_trace(hist_rows, actual_rows, _METRICS[mid])
+            if tr is not None:
+                fig.add_trace(tr)
+
     fig.update_yaxes(tickprefix="$", tickformat=",.0f", rangemode="tozero")
     return fig
 
 
 def _acos_tacos_chart(hist_rows: list, fc_rows: list,
-                      show_yoy: bool = False) -> "go.Figure":
+                      show_yoy: bool = False,
+                      actual_rows: Optional[list] = None) -> "go.Figure":
     """Chart de ACOS/TACOS: acos + tacos en la misma figura (hasta 5 traces).
 
     DESVIACIÓN CONSCIENTE DEL HTML (decisión de Lenin): en el HTML este era el
@@ -2760,6 +2839,15 @@ def _acos_tacos_chart(hist_rows: list, fc_rows: list,
     if show_yoy:
         ac_yoy = _yoy_series(hist_rows, fc_rows, _METRICS["acos"]["from_hist"])
         fig.add_trace(_chart_trace(ac_yoy["x"], ac_yoy["y"], "ACOS año previo (YoY)", ac_color, "yoy"))
+
+    # F7-A2 — ACOS/TACOS reales. Salen de `from_hist` sobre las filas de `actual`
+    # (spend/ventasPPC/revenue REALES), NUNCA de los targets del forecast: la
+    # gracia de este chart es ver si el target se está cumpliendo o no.
+    if actual_rows:
+        for mid in ("acos", "tacos"):
+            tr = _actual_trace(hist_rows, actual_rows, _METRICS[mid])
+            if tr is not None:
+                fig.add_trace(tr)
 
     fig.update_yaxes(ticksuffix="%", tickformat=".1f")
     return fig
@@ -2814,8 +2902,9 @@ def _axis_split(metric_ids: list) -> tuple:
 
 
 def _custom_chart(metric_ids: list, hist_rows: list, fc_rows: list,
-                  show_yoy: bool = False) -> "go.Figure":
-    """Chart custom: hasta 3 traces por métrica seleccionada, con doble eje Y.
+                  show_yoy: bool = False,
+                  actual_rows: Optional[list] = None) -> "go.Figure":
+    """Chart custom: hasta 4 traces por métrica seleccionada, con doble eje Y.
 
     Guards: hist vacío → figura vacía; metric_ids vacío → figura vacía (el
     "mínimo 1 chip" se enforcea en G5); metric_id desconocido → se ignora
@@ -2850,6 +2939,11 @@ def _custom_chart(metric_ids: list, hist_rows: list, fc_rows: list,
             tr = _chart_trace(yoy["x"], yoy["y"], f'{m["label"]} YoY', color, "yoy")
             tr.yaxis = yaxis
             fig.add_trace(tr)
+        if actual_rows:
+            tr = _actual_trace(hist_rows, actual_rows, m)
+            if tr is not None:
+                tr.yaxis = yaxis     # mismo eje que su métrica, o la escala miente
+                fig.add_trace(tr)
 
     # Eje izquierdo: merge sobre el yaxis de _PLOTLY_LAYOUT (conserva grid/tickfont).
     fig.update_layout(yaxis=_AXIS_FMT.get(left_unit, {}))
