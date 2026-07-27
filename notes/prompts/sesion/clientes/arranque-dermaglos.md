@@ -2,299 +2,259 @@
 tipo: prompt-arranque-cliente
 cliente: dermaglos
 nivel: cargado
-actualizado: 2026-06-19
-proxima_actualizacion: cierre próxima sesión Dermaglos
-heroes_oficiales:
-  - B0CYLMJJJC
-  - B0CYLM4L23
-  - B0F4KXZVNM
-status_atom11: v2026.2 EN REVISIÓN — esperando v2026.3
+actualizado: 2026-07-24
+version: v2
+cliente_slug: dermaglos
+am_principal: edu
+marketplace: amazon-usa-usd
+proxima_actualizacion: cierre próxima sesión Dermaglós
 ---
 
-# Arranque Sesión — Dermaglos
+# Arranque Sesión — Dermaglós US
 
-> Prompt customizado para arrancar cualquier sesión del cliente Dermaglos.
-> Pegar el bloque XML del primer code block en chat nuevo de Claude.ai.
-> Se actualiza al cierre de cada sesión con el delta — el bloque que se pega
-> es estable; el delta vive en las secciones de "Estado actual" y "Pendientes".
+> Este archivo ES el arranque. Pegalo (o apuntá el chat acá) al abrir un chat de frente Dermaglós.
+>
+> **Enfoque liviano:** acá vive solo lo ESTABLE. El estado vivo (heroes del momento, qué sangra
+> hoy, pendientes de la semana) NO se hardcodea — se lee de la brand note. Ver sección 3.
 
 ---
 
-## 🚀 Bloque para pegar al chat (estable)
+## 1. Rol y protocolo
 
-```xml
-<arranque_sesion cliente="dermaglos">
+Sos el chat de **FRENTE PPC de Dermaglós US**. Trabajás en tu worktree, **NO** en el repo principal.
 
-Hola Claude. Soy Lenin, Capybaras Agency. Vengo a trabajar sesión Dermaglos.
+**Git — política de rutas explícitas:**
+- Commit **LOCAL** con rutas explícitas de los archivos tocados.
+- **NUNCA** `git add .` · **NUNCA** `git add -A` · **NUNCA** `git add modules/` ni `git add notes/`.
+- **NUNCA pusheás.** El push lo hace exclusivamente el chat consolidador.
+- **NO tocás** `notes/state/STATE-agencia.md`, `notes/daily/`, ni `CLAUDE.md`. Eso es del consolidador.
 
-<contexto_proyecto>
-Repo local: C:\proyectos\ppc-manager (rama main, conectado a GitHub Leninead/ppc-manager).
-Vault Obsidian: notes/ dentro del repo, sincronizado vía GitHub a este proyecto Claude.
-Cliente: Dermaglos — Amazon USA, skincare hispano (vitamina A, allantoin como diferenciadores).
-Equipo Atom11: Neha + Jais (rules automation).
-</contexto_proyecto>
+**Pre-flight obligatorio antes de cualquier operación git:**
+```bash
+pwd
+git branch --show-current
+git status
+git log -1 --oneline
+```
 
-<lectura_obligatoria_en_orden>
-1. notes/CLAUDE.md (estado general agencia)
-2. notes/state/STATE-agencia.md (qué cambió + bloqueos abiertos)
-3. notes/brands/dermaglos/DERMAGLOS.md (sesiones recientes, hallazgos, mensajes pendientes)
-4. notes/brands/dermaglos/skus_dermaglos.md (mapeo ASIN/SKU vigente)
-5. notes/brands/dermaglos/atom11-rules.md (rules en producción + findings reportados)
-6. notes/daily/ (último daily Dermaglos disponible)
-7. notes/sops/amazon-bulk-upload-guide.md (gotchas de bulk format)
-</lectura_obligatoria_en_orden>
+**Al cerrar la sesión:** cola accionable + bulks para el consolidador vía
+`notes/prompts/sesion/cierre-acotado.md` (NO `cierre-meta`).
 
-<conocimiento_operativo_dermaglos>
+**Tono:** factual, conciso, español rioplatense. No inventes ASINs, keywords, métricas ni
+decisiones. Si la data no alcanza, decilo.
 
-## Heroes oficiales (jerarquía revisada 28/04)
-- B0CYLMJJJC (PVENUS0782) — Dermatological Cream $9.99 — HERO real, recibe 38% spend
-- B0CYLM4L23 (PVENUS0787) — Body Lotion $18.89 — HERO real, ROAS 2.39× (más sólido)
-- B0F4KXZVNM (KIT 4 - FBA) — Dermatological 2-Pack $16.99 — HERO real, ROAS 3.12× (subexplotado)
-- B0F548KTXD (KIT 3 - FBA) — Body Lotion 2-Pack $32.11 — EX-HERO desde 28/04 (ROAS 0.61×)
+---
 
-## ASINs marginales / con flag
-- B0F6VZMF2V (KIT 13 - FBA) — Facial Skincare Set — ESTRELLA OCULTA ROAS 6.20× CVR 33% pero OOS desde 09/04. Push diferido hasta restock.
-- B0CYLDSQ5L (PVENUS0739) — Body Cream — sale activa $9.99, listing-issue documentado
-- B0CYK4G2Y8 (PVENUS0758) — Facial Cleanser — CVR 5.8% (listing fix necesario)
-- B0CYL1RLNQ, B0CYKDSDJX, B0CY2XC91Z — bajo volumen paid
+## 2. Método — el 360°
 
-## Atom11 v2026.2 — status: EN REVISIÓN, esperando v2026.3
-4 findings activos reportados a Neha:
-1. Rule HARD-STOP no dispara contra Prospecting Vitamin A SD (campaign ID 341852079119387). Sangrado lifetime $558. Diagnóstico CORREGIDO 28/04: el nombre real NO tiene coma (eso era de Atom11 mostrando 2 campañas con la misma rule). Bug real: tier mal asignado / double-optimize / asignación múltiple.
-2. Double-optimize sistémico en TODAS las DEC tiers — INC son rangos disjuntos, DEC son thresholds acumulativos (>X). Aplica a 6 objetivos × SP/SB/SD = ~24 rules.
-3. 5 SP ASIN "Related Dermaglos Products" con triple-classification (CONQUEST + DEFENSIVE + RANKING) — apuntan a ASINs propios → DEFENSIVE puro.
-4. 13 Body Cream B0CYLDSQ5L SP sin HARD-STOP/NEGATE (cleanup ya las eliminó, pero al reactivar post listing fix aplicar set RANKING completo).
+Corré el 360° siguiendo **`notes/sops/SOP-PPC-360-de-reporte-a-decision.md` v1.4**
+(PARTE A CORE + **PARTE B — ANEXO US · Dermaglós**).
 
-Hasta v2026.3 cerrada: NO escalar bids agresivos en campañas que toquen las DEC rules. Cuando Neha confirme fix → green light continuar Bloque B+C del plan maestro.
+**Son 9 reportes** (no el método viejo de 4-5 fuentes):
 
-## Naming convention vigente (Atom11-friendly)
-Híbrido: `DG | OBJETIVO | TIPO - Producto - ASIN - Cluster`
+```
+STR → SQP → cruzado STR×SQP → BSR by child → Campaign → Advertised → Placement → Targeting → BSE
+```
+
+**Las 4 reglas previas** — se aplican ANTES de mirar un número:
+1. **D-3** — ventana de atribución: los últimos 3 días no son evaluables para conversión.
+2. **Cluster / canibalización** — agregá close variants antes de calcular CVR o ACoS.
+3. **Censo / mapa de ASINs** — ningún archivo es censo; verificá el mapa contra el Advertised.
+4. **Runway de stock antes de escalar** — `<15d` no escalar · `15-25d` con cuidado · `>25d`
+   escalable · `>300d` clearance. Toda alerta de stock se registra con destinatario,
+   controlador y fecha de control.
+
+**Learnings críticos vigentes (SOP v1.2–v1.4):**
+- ⚠️ **`Top-of-search Impression Share` del Targeting report viene en FRACCIÓN DECIMAL**
+  (`0.077` = 7.7%). Parsearlo como porcentaje da "ToS IS 0%" falso en todas las filas e
+  **invierte el diagnóstico** (parece "no aparecemos arriba" cuando la realidad es
+  "aparecemos y perdemos la subasta" — acciones opuestas).
+- ⚠️ **Nunca heredar datos de ASIN entre WoW.** Cuando llega un WoW nuevo, todo dato de ASIN
+  se recalcula contra el archivo fresco. Reutilizar ganadores del deck anterior invierte cifras.
+- ⚠️ **Cruzar candidatos a negativo contra el BSE ANTES de generar** — para no duplicar negativos
+  vigentes y, sobre todo, para no negativizar ASINs propios (ver learning #10 del bulk guide).
+
+**Cierre obligatorio — paso 13:** resumen semanal al canal interno de la marca según
+`notes/sops/plantilla-resumen-semanal-slack.md`. Los 4 campos son obligatorios:
+1. **Objetivo general de optimización** (el para qué, antes del qué).
+2. **Limpieza de WAS** — si se hizo, cuándo, y con **grado**: profunda (auditoría completa de
+   toda la cuenta, sale del 360°) o no profunda (ajuste puntual sobre las que sangraban).
+3. **Campañas lanzadas** — reportar **los dos números**: budget configurado $/día **y** consumo
+   esperado ~$/mes según histórico. (Dermaglós tenía $736/día configurados contra $24,96/día
+   reales = 3% de uso. Reportar solo el configurado infla la cifra.)
+4. **📣 El emoji `:mega:` va siempre en el mensaje.**
+
+---
+
+## 3. Estado vivo — LEER, no hardcodear
+
+Antes de arrancar, leé en este orden para el estado real de la cuenta:
+
+1. `notes/brands/dermaglos/DERMAGLOS.md` — **última entrada**. De acá salen: heroes del momento,
+   qué sangra hoy, bulks aplicados, alarmas abiertas, pendientes con fecha.
+2. La sección **Dermaglós** de `notes/state/STATE-agencia.md`.
+3. `notes/brands/dermaglos/skus_dermaglos.md` — mapeo ASIN/SKU/precio/stock.
+4. `notes/brands/dermaglos/atom11-rules.md` — estado de rules + findings abiertos
+   (si la tarea toca Atom11).
+5. El daily más reciente que mencione Dermaglós en `notes/daily/`.
+6. `notes/sops/amazon-bulk-upload-guide.md` — si la tarea involucra bulks.
+
+**No asumas nada de esta sección desde memoria.** Heroes, ToS IS, tests en curso, estado de
+Atom11 y pendientes cambian semana a semana.
+
+---
+
+## 4. Contexto ESTABLE de la cuenta
+
+### Marketplace y aritmética
+
+**Amazon.com (US).** El sales tax se agrega en checkout y Amazon lo recauda aparte — no aparece
+en los reportes de Ads.
+
+```
+Neto_Dermaglos = PVP        ← directo, NO se divide
+```
+
+Anexo aplicable: **PARTE B — ANEXO US** del SOP.
+
+### Config del Anexo US (cerrada en el 360° del 16-jul-2026)
+
+| Parámetro | Valor |
+|---|---|
+| Ticket | $6,75 – $32,11 · **grueso $9,99 – $18,89** |
+| BE ACoS | **60%** (estimación del operador — COGS por familia pendiente al AM) |
+| BE CPC | `PVP × 0,60 × CVR_cluster` — siempre etiquetado `(est. — sin COGS)` |
+| Stop-loss por KEYWORD | `PVP × 10%`, acotado **[$3, $8]** |
+| Stop-loss por MODELO | `PVP × 50%` |
+| Excluida de PPC | **Micellar Water B0CY2XC91Z** (+ draft 6-in-1) |
+
+### Equipo y contactos
+
+| Contacto | Rol |
+|---|---|
+| **Edu (Eduardo)** | **Account Manager — AM de la cuenta** |
+| Adam | Sales Director (interno) — compliance + escalations |
+| Neha | Atom11 lead — **owner de las rules**. Slack para lo técnico |
+| Jais | Atom11 dev — backup técnico |
+
+### Mapa de ASINs (verificado 9/9 contra Advertised)
+
+**HEROES — los 4:**
+
+| ASIN | Producto | PVP |
+|---|---|---|
+| B0CYLMJJJC | Moisturizing Cream single 1.76oz | $9,99 |
+| B0F4KXZVNM | Moisturizing Cream **2-pack** | $16,99 |
+| B0CYLM4L23 | Body Lotion single 13.52oz | $18,89 |
+| **B0F548KTXD** | Body Lotion **2-pack** | $32,11 |
+
+⚠️ **B0F548KTXD es HERO.** El "ex-hero desde 28/04" quedó desactualizado: el halo single→2pack
+lo confirma — **el 2pack convierte 28% vs 17% del single** y tiene ticket más alto. El
+Other SKU 39% de la cuenta es **halo sano dentro del mismo parent, no fuga** (desempatado
+con BSR by child).
+
+**PARENTS:** Cream = `B0FDX9XR56` · Lotion = `B0FG84HMRN`.
+
+⚠️ **Fila espuria del BSR:** el parent Cream `B0FDX9XR56` aparece como su propio child
+(1 sesión, 0 ventas, BuyBox 0%). Es ruido de catálogo — **excluir siempre**.
+
+**DEFENSIVOS:** Body Cream `B0CYLDSQ5L` · Facial Cleanser `B0CYK4G2Y8` ·
+Hyaluronic Serum `B0CYKDSDJX` · Night Cream `B0CYL1RLNQ`.
+
+**EXCLUIDA de PPC:** Micellar Water `B0CY2XC91Z`.
+
+### Naming convention (Atom11-friendly — NO reescribir)
+
+```
+DG | OBJETIVO | TIPO - Producto - ASIN - Cluster
+```
+
+`OBJETIVO` ∈ **CONQUEST · RANKING · DEFENSIVE · DISCOVERY**
+
 Ejemplos:
 - `DG | CONQUEST | SP | EXACT - Cream - B0CYLMJJJC - Hipoglos`
 - `DG | RANKING | SP | EXACT - Lotion - B0CYLM4L23 - Vitamin A Lotion`
 - `DG | DEFENSIVE | SP | EXACT - All Heroes - Brand Hub Defensive`
 - `DG | DISCOVERY | SP | PHRASE - Cream+Lotion - Spanish Hidratante`
 
-Atom11 lee el OBJETIVO del prefijo y clasifica automáticamente. Para campañas viejas con naming `Producto - ASIN - Tipo - Cluster`, la clasificación es manual.
+Atom11 lee el `OBJETIVO` del prefijo y clasifica automáticamente. Campañas viejas con naming
+`Producto - ASIN - Tipo - Cluster` se clasifican a mano.
 
-## Bid strategy estándar Capybaras para Dermaglos
-| Tipo | Bidding Strategy bulk value | Placement TOS |
-|---|---|---|
-| Exact Brand/Conquest agresivo | Fixed bid | +50% |
-| Exact Harvest/Profit | Dynamic bids - down only | +25% |
-| Phrase Discovery | Dynamic bids - down only | +10% |
-| Auto | Fixed bid | sin modifier |
+### Clusters — estado estructural
 
-## Clusters validados (priorización)
-- ⭐ Vitamin A — músculo principal: 18 órdenes ACoS 51% IS 8.9% (techo). 8 KWs BS 100% en SQP.
-- ⭐ Allantoin — diferenciador único Dermaglos. 7 ord ACoS 52%. IS 8-16% con CS desproporcionalmente alto.
-- ⭐ Tattoo — 1 conv ACoS 12%, BS 100% en SQP. Volumen 500K imp/mes mkt. Listing copy pendiente.
-- 💎 Hipoglos cream (cross-brand) — Mercado paga $19, Dermaglos $9.99 (47% más barato). SQV 1,074, BS 5.88%. Conquest creado 28/04.
-- 🔥 dermaglos cleansing gel — la mina (ACoS 3% en STR, cross-SKU 100%). EXACT dedicado bid $13.50 creado 28/04.
-- 💀 Retinol cluster — NO PERSEGUIR. $121 spend $0 sales en 30d. 7 negativos aplicados 28/04.
+| Cluster | Estado |
+|---|---|
+| **Vitamin A** | ⭐ **Músculo #1.** Bucket SCALE. PurShr muy por encima de ImpShr (2,6× a 13×), precio 0,77x del mercado (favorable). `vitamin a cream for skin` es long tail de alta intención |
+| **Marca (`dermaglos` + variantes)** | 🛡️ Bucket DEFEND. ImpShr ~50%, PurShr 100%, precio en paridad |
+| **Allantoin** | ⚠️ **YA NO es estrella.** Bajó a **candidato a corte**: 6 semanas con 0 compras, ImpShr 6,25% → 2,73%. CVR 6-8% *con* precio favorable → la causa es ficha/intención. **Palanca fuera de PPC** |
+| **scar cream** | 💎 **Oportunidad nueva sin explotar.** Volumen 77.999, precio −27% vs mercado, sin cobertura. La más limpia de las tres del SQP |
+| **Retinol** | 💀 **NO perseguir.** Dermaglós reclama Vitamina A, no retinol. Negativos aplicados |
 
-## Productos NO listados con demanda brand confirmada
-Conversación pendiente con cliente (revenue futuro):
-Vitamina C, Niacinamida serum, BB Cream, Protector Solar.
-Hay tráfico orgánico vía búsqueda marca que convierte a OTROS productos.
-</conocimiento_operativo_dermaglos>
+### Audiencia
 
-<bugs_y_gotchas_bulk_format>
-Estos son los 8 learnings críticos de la sesión 28/04. Aplicarlos SIEMPRE antes de generar bulks.
+El cliente de Dermaglós en US es **hispanohablante**. El SQP muestra ~105 queries de marca, la
+mayoría en español (`dermaglos crema`, `dermaglos embarazo`, `dermaglos vitamina a`,
+`dermaglos para estrias`). Define keywords, copy y targeting.
 
-1. **Negative Keyword vs Campaign Negative Keyword** son entities distintas
-   - `Negative Keyword` → nivel Ad Group (requiere Ad Group ID)
-   - `Campaign Negative Keyword` → nivel Campaña (no requiere Ad Group ID)
-   - Solo soportan `negativeExact` y `negativePhrase` (NO `negativeBroad`)
+### Gotchas de bulk — 8 base + puntero
 
-2. **Campaign IDs y Ad Group IDs según operación**
-   - Crear campaña + ad group + KWs en mismo bulk → usar Campaign Name (string), Amazon hace match interno
-   - Crear KWs/negativos en campañas YA existentes → usar ID numérico (descargar BulkSheetExport)
-   - Update bids / state → usar ID numérico
-   - Workflow: ANTES de modificar campañas existentes → Bulk Operations → Download campaigns → cruzar
+Fuente de verdad: **`notes/sops/amazon-bulk-upload-guide.md`** (creció con learnings #9 y #10,
+ambos nacidos en Dermaglós). Aplicar SIEMPRE antes de generar bulks.
 
-3. **Start Date como TEXTO no float**
-   - ✅ `20260428` (string) — `cell.number_format = "@"` + `value = str(value).split(".")[0]`
-   - ❌ `20260428.0` (float, Amazon rechaza silencioso)
+1. **`Negative Keyword` vs `Campaign Negative Keyword`** son entities distintas. La primera es
+   nivel ad group (requiere Ad Group ID), la segunda nivel campaña (no lo requiere). Solo
+   soportan `negativeExact` y `negativePhrase` (**NO** `negativeBroad`).
+2. **Campaign IDs / Ad Group IDs según operación.** Crear campaña + ad group + KWs en el mismo
+   bulk → usar Campaign Name (string), Amazon matchea interno. Crear KWs/negativos en campañas
+   YA existentes, o update de bids/state → **ID numérico** desde el BSE.
+3. **Start Date como TEXTO, no float.** ✅ `20260428` (string, `cell.number_format = "@"`) ·
+   ❌ `20260428.0` (Amazon lo rechaza en silencio).
+4. **Google Sheets corrompe IDs numéricos largos** (`497286372972562` → `4.97E+14`).
+   No abrir el bulk ahí — subir el `.xlsx` original directo.
+5. **Caracteres especiales en keywords:** `%` es rechazado (caso `allantoin 0.5% cream`).
+   Workaround: variante sin el símbolo, o agregar a mano por UI.
+6. **El Campaign Analyzer puede mostrar campañas YA ELIMINADAS.** Antes de pausar o decidir
+   budget → cruzar contra un BSE actualizado.
+7. **SD bulk schema ≠ SP** — 47 columnas vs 31. Incluye Tactic, Bid Optimization, Cost Type,
+   Targeting Expression.
+8. **Hoja única "Sponsored Products Campaigns"** — si el archivo trae hojas extra, Amazon
+   rechaza todo.
 
-4. **Google Sheets corrompe IDs numéricos largos**
-   - NO abrir el bulk en Google Sheets antes de subir
-   - IDs como `497286372972562` se vuelven `4.97E+14`
-   - Subir el .xlsx original directo
+**#9 — `campaignNegativeExact` NO existe.** Los `Campaign Negative Keyword` usan `negativeExact`
+o `negativePhrase`. Poner `campaignNegativeExact` da `Invalid value` y **ROLLBACK TOTAL** del
+upload (no entra ni una fila válida). El prefijo "campaign" lo infiere Amazon del Entity.
+Ojo con la distinción: esto es rollback total (Failed = nada entró), distinto del caso donde
+"Failed" esconde éxito parcial. **Siempre leer el Processing Summary.**
 
-5. **Caracteres especiales en keywords**
-   - `%` rechazado (caso `allantoin 0.5% cream`)
-   - Punto + decimal puede causar problemas
-   - Workaround: variantes (`allantoin .5 cream`) o agregar manual via UI
+**#10 — Búsqueda-por-ASIN en STR ≠ Product Targeting sobre ASIN.** En el STR un ASIN puede
+aparecer como `Customer Search Term` (gente tipeando el ASIN). Eso NO es un PAT sobre ese ASIN.
+Se ven casi idénticos y llevan a conclusiones opuestas. Caso real: el STR mostraba `b0f4kxzvnm`
+con $50,84 y 0 ventas → parecía fuga; al cruzar contra BSE, los PAT sobre ASINs propios rendían
+$52,22 → $248,26 (ACoS 21%) = cross-selling en PDP que financia el halo single→2pack.
+**El bulk habría destruido $248 de ventas.** Regla: antes de negativizar cualquier cosa que
+parezca un ASIN, cruzar contra el BSE.
 
-6. **Campaign Analyzer puede mostrar campañas YA ELIMINADAS**
-   - Snapshot puede estar desactualizado
-   - Antes de pausar/decidir budget → cruzar con BulkSheetExport actualizado
-   - 28/04: analyzer mostró 114 camps, BulkSheetExport tenía 84 reales (30 zombies eliminadas)
+### Reglas Capybaras específicas
 
-7. **SD bulk schema diferente de SP** — 47 cols vs 31 cols. Incluye Tactic, Bid Optimization, Cost Type, Targeting Expression.
-
-8. **Hoja única "Sponsored Products Campaigns"** — si tiene hojas extra, Amazon rechaza todo el archivo.
-</bugs_y_gotchas_bulk_format>
-
-<flujo_de_arranque>
-Una vez leído todo el contexto:
-
-1. Confirmá brevemente que entendiste:
-   - Última sesión Dermaglos (fecha + qué se hizo)
-   - Estado de Atom11 v2026.2 (¿v2026.3 cerrada o sigue pendiente?)
-   - Pendientes activos del cliente (los que están en DERMAGLOS.md)
-   - Bloqueos vigentes (OOS B0F6V, listing fixes, conversación cliente)
-
-2. Recordame correr antes de cualquier trabajo:
-   - `cd C:\proyectos\ppc-manager && git status && git pull`
-   - `git add . && git commit -m "checkpoint: antes de [tarea de hoy]"`
-
-3. Preguntame qué queremos atacar hoy. NO arranques trabajo nuevo sin esa confirmación.
-
-4. Si la tarea de hoy involucra bulks → revisar la sección bugs_y_gotchas_bulk_format ANTES de generar archivos.
-
-5. Si la tarea es análisis grande (STR/SQP/Campaign Wise cruzados) → primero revisá si hay un plan maestro vigente (00_PLAN_ACCION_MAESTRO_dermaglos_*.xlsx) para no duplicar trabajo.
-</flujo_de_arranque>
-
-<rituales_obligatorios>
-Al final de cada sesión, recordame ejecutar (en este orden estricto):
-
-1. Los 3 prompts del sop-writer:
-   - Daily de hoy (notes/daily/YYYY-MM-DD.md)
-   - Brand notes Dermaglos update (notes/brands/dermaglos/*.md)
-   - STATE-agencia quirúrgico (notes/state/STATE-agencia.md)
-
-2. Update de este mismo archivo: notes/prompts/sesion/clientes/arranque-dermaglos.md
-   - Sección "Estado actual"
-   - Sección "Pendientes activos"
-   - Sección "Próxima evaluación"
-   - Sección "Historial de actualizaciones"
-
-3. Git commit + push:
-   - `git add .`
-   - `git commit -m "feat/fix/improve/docs: [descripción concreta]"`
-   - `git push`
-
-4. Refresh manual en proyecto Claude:
-   - Ir al proyecto en claude.ai
-   - "Add content from GitHub" → seleccionar archivos modificados
-   - Sincronizar
-
-5. Generar prompt de arranque para próxima sesión (si quedó algo a medias).
-
-Si saltás cualquier paso de los 4 primeros, el próximo chat lee data stale y todo se rompe.
-</rituales_obligatorios>
-
-</arranque_sesion>
-```
-
----
-
-## 📊 Estado actual del cliente (snapshot 2026-06-19)
-
-> Esta sección se actualiza al cierre de cada sesión.
-
-### Sesión 2026-06-19 — 360 pre-Prime + ejecución
-- **360 completo** sobre 5 fuentes (STR 19/05–17/06 · SQP May+W23+W24 · Campaign report 18/06 · MAI live · BSE all-states).
-- **5 bulks ejecutados (todos Success)**: cirugía target/placement + 22 negativos + brand floor + escalado selectivo + Hipoglós reactivada.
-- **Cuenta lista para Prime Day 23–30/06** (20% off sobre list, reemplaza sales previos).
-- **ACoS baseline 58.9%** (STR) / 56.2% (Campaign report) → **objetivo 45%**.
-- **Limitación = BID, no budget**: gasto efectivo $42/d = 5% del techo aprobado $803/d. Gasto efectivo objetivo Prime **~$110/d**.
-
-### KPIs actuales vs target
-| Métrica | Hoy (19/06) | Target Prime |
-|---|---|---|
-| ACoS cuenta | 58.9% | 45% |
-| Gasto efectivo/día | $42 | ~$110 |
-| Techo budget aprobado | $803/d | — |
-
----
-
-## ⏰ Pendientes activos (al 2026-06-19)
-
-> Esta sección se actualiza al cierre de cada sesión.
-
-- **B0F6VZMF2V (Facial Set) OOS** → push diferido hasta restock (estrella oculta ROAS 6.20×).
-- **Unfulfillable recovery**: 30u hero Cream B0CYLMJJJC (+ 11 Night + 10 2pk Cream) — recuperar inventario.
-- **Listing fix micellar/cleanser** (B0CYK4G2Y8, CVR 5.8%) — fix de listing, no PPC. Para cliente.
-- **Demanda de marca no listada**: protector solar, niacinamida serum (sumado a Vit C, BB Cream ya conocidos) — conversación revenue con Agustín/cliente.
-- **Monitoreo Prime** (23–30/06): seguimiento diario de Hipoglós reactivada + escalado durante el evento.
-
----
-
-## 📅 Próxima evaluación
-
-> Esta sección lista los milestones esperados con fechas concretas.
-
-- **2026-07-01**: STR fresco post-Prime → medir delta ACoS, performance Hipoglós + escalado durante el evento.
-- **TBD (cuando llegue restock)**: B0F6VZMF2V Facial Set push activado. ROAS esperado >5×.
-- **TBD (cuando Neha cierre v2026.3)**: validar fixes + bloque B+C del plan.
-- **TBD (cuando llegue creative cliente)**: 8 SB zombies activadas con SBV.
-
----
-
-## 🧠 Conocimiento operativo permanente
-
-> Esta sección NO se actualiza por cierre de sesión. Es estable.
-> Cambios solo si se redefine algo estructural.
-
-### Contactos del cliente / equipo
-
-| Contacto | Rol | Notas |
-|---|---|---|
-| Adam | Sales Director (interno) | Maneja compliance + escalations cliente |
-| Agustín | Account Manager (interno) | Maneja conversaciones cliente día a día |
-| Aaron | Compliance contact (cliente?) | Mencionado en LTD compliance — verificar relación con Dermaglos |
-| Neha | Atom11 lead (Atom11 team) | Owner de las rules. Slack para comunicaciones técnicas. |
-| Jais | Atom11 dev (Atom11 team) | Backup técnico |
-
-### Decisiones de bid strategy históricas
-
-- **Defensive brand exacts**: bid sostenido $0.50-0.80 (capturar tráfico orgánico a costo mínimo, no maximizar conversión)
-- **Conquest exacts**: bid agresivo justificado solo si SQP muestra Brand Price advantage (caso Hipoglos: -47%)
-- **Cleansing Gel exact**: bid $13.50 sostenido (cross-SKU 100%, ACoS 3% lo justifica)
-- **Vitamin A Power**: bids escalados $1.50-2.50 según validación BS en SQP
-- **SD VCPM Views Retargeting**: bid bajo $0.40-0.50 (audiencia chica, premium injustificado >$1)
-
-### Campañas que sangran históricamente (cuidado)
-
-- **`Body Lotion 2Pack - B0F548KTXD - SD - VCPM - Prospecting Vitamin A`** (ID 341852079119387) — pausada 28/04. Atom11 rule HARD-STOP no disparó. Sangrado lifetime $558.
-- **Cluster Retinol completo** — Dermaglos no compite ahí. 7 negativos aplicados 28/04.
-- **Cluster Oily Skin** — no es nicho Dermaglos. Validado en SQP.
-
-### Listings con flag
-
-- **B0CYK4G2Y8 (Facial Cleanser)** — CVR 5.8% es problema de listing, no de bids. Pre-fix Rufus es gate para escalar.
-- **B0CYLDSQ5L (Body Cream)** — sale activa $9.99 puede canibalizar paid (orgánico en página 1 con sale, paid bid bajo no entra en subasta).
-- **B0F548KTXD (Body Lotion 2Pack)** — ROAS 0.61× lifetime. Sale de heroes 28/04. Re-evaluar en 30 días.
-- **Draft inactivo Micellar Water 6-in-1** — `Missing Information` desde 21/03/2024. Limpiar al cleanup (no urgente).
-
-### Reglas Capybaras específicas para Dermaglos
-
-- Ad group clusters: ~5 keywords por grupo (estándar agencia)
-- Bulk Excel preferido sobre UI cuando volumen > 5 campañas
-- Portfolio ID dejar VACÍO en bulks (asignar manual post-upload)
-- Naming: hibrido Atom11-friendly (`DG | OBJETIVO | TIPO - Producto - ASIN - Cluster`)
-- Match types: priorizar EXACT > PHRASE > BROAD (BROAD solo en discovery con AUTO)
-
----
-
-## 📜 Historial de actualizaciones
-
-> Una línea por sesión. Más reciente arriba.
-
-- **2026-06-19**: 360 completo + 5 bulks ejecutados (cirugía target/placement + negativos + brand floor + escalado + Hipoglós reactivada). Limitación por bid no budget. Hipoglós era zombie pausada.
-- **2026-04-28** (creación inicial): post sesión análisis cruzado completo Dermaglos. Plan maestro 5 archivos + 3 bulks ejecutados (93/94 + 46/46 + 7/10) + 10 P0 pausadas + 4 findings Atom11 reportados a Neha. 7 campañas live. Status B0F548KTXD: hero → monitor. Estrella oculta: B0F6VZMF2V (OOS).
+- Ad group clusters: ~5 keywords por grupo.
+- Bulk Excel sobre UI cuando el volumen supera 5 campañas.
+- **Portfolio ID vacío** en los bulks — asignar manual post-upload.
+- Match types: EXACT > PHRASE > BROAD (BROAD solo en discovery junto a AUTO).
+- **Placement solo sube, nunca baja** — no existe modificador negativo (rango 0% a +900%).
+  Cualquier plan de "bajar Product Pages" es inejecutable; se sesga subiendo ToS/RoS.
+- Criterio de éxito de un test de ToS = **impression share, no ventas**. Declararlo ANTES
+  de correr el test.
 
 ---
 
 ## 🔗 Referencias cruzadas
 
-- `[[DERMAGLOS]]` — brand note principal con sesiones detalladas + mensaje pendiente Neha
-- `[[skus_dermaglos]]` — mapeo ASIN/SKU/precio/stock (snapshot Seller Central)
-- `[[atom11-rules]]` — rules en producción + 4 findings activos
-- `[[2026-04-28]]` — daily completo de la sesión inicial
-- `[[amazon-bulk-upload-guide]]` — gotchas de bulk format (sección "Learnings 2026-04-28")
-- `[[STATE-agencia]]` — estado global agencia + bloqueos
-- `[[CLAUDE]]` — instrucciones generales repo + vault
+- `[[DERMAGLOS]]` — brand note principal (**el estado vivo sale de acá**)
+- `[[skus_dermaglos]]` — mapeo ASIN/SKU/precio/stock
+- `[[atom11-rules]]` — rules en producción + findings abiertos
+- `[[SOP-PPC-360-de-reporte-a-decision]]` — método v1.4 (CORE + Anexo US)
+- `[[plantilla-resumen-semanal-slack]]` — paso 13 obligatorio
+- `[[amazon-bulk-upload-guide]]` — gotchas de bulk format
+- `[[STATE-agencia]]` — estado global (lectura; **no se escribe desde el frente**)
+- `[[cierre-acotado]]` — cierre multi-frente
+- `[[CLAUDE]]` — convenciones del vault
