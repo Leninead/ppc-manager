@@ -48,6 +48,7 @@ from modules.pages.pricing_dashboard import render as render_pricing_dashboard
 from modules.pages.proposal_studio import render as render_proposal_studio
 from modules.pages.case_study_studio import render as render_case_study_studio
 from modules.pages.revenue_forecast import render as render_revenue_forecast
+from modules.mercado_libre.main import render as render_mercado_libre
 import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="Agency OS", layout="wide")
@@ -290,6 +291,10 @@ with st.sidebar:
         st.button("💲 Pricing Dashboard", use_container_width=True, on_click=_nav,
                   args=("💲 Pricing Dashboard",), key="nav_💲 Pricing Dashboard")
 
+    with st.expander("🛒 MARKETPLACES", expanded=False):
+        st.button("🛒 Mercado Libre", use_container_width=True, on_click=_nav,
+                  args=("🛒 Mercado Libre",), key="nav_🛒 Mercado Libre")
+
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
     _pe_label = (
         f"🧬 {_n_pe_parents} parents"
@@ -410,3 +415,6 @@ if selected == "🏆 Case Study Studio":
 
 if selected == "📈 Revenue Forecast":
     render_revenue_forecast()
+
+if selected == "🛒 Mercado Libre":
+    render_mercado_libre()

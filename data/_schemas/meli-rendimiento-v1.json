@@ -1,0 +1,142 @@
+{
+  "module": "meli-rendimiento",
+  "version": 1,
+  "created": "2026-07-24",
+  "description": "Mercado Libre — snapshot de rendimiento de publicaciones (tráfico, ventas, conversión) por período + log append-only de cambios aplicados a publicaciones. Multi-cuenta. Una fila consolidada por MLA (las variantes se agregan en el parser antes de guardar).",
+  "primary_key": ["mla"],
+  "period_column": "_period",
+  "columns": {
+    "mla": {
+      "dtype": "string",
+      "required": true,
+      "description": "ID de publicación normalizado al formato MLA<digitos>. Clave primaria del snapshot. El reporte de rendimiento exporta el ID sin prefijo (869673559) mientras que Publicaciones y Ads lo traen completo; el parser unifica ambos a MLA869673559 para que el cruce entre reportes encuentre coincidencias."
+    },
+    "titulo": {
+      "dtype": "string",
+      "required": true,
+      "description": "Título de la publicación tal como figura en el reporte."
+    },
+    "estado": {
+      "dtype": "string",
+      "required": true,
+      "description": "Estado de la publicación normalizado a minúsculas sin acentos (activa, pausada, finalizada)."
+    },
+    "visitas": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Visitas únicas del período, sumadas across variantes. El parser corrige el formato numérico español del export: MELI escribe 1.564 con punto de miles y pandas lo lee como 1,564."
+    },
+    "ventas": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Cantidad de ventas del período, sumada across variantes."
+    },
+    "unidades": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Unidades vendidas del período, sumadas across variantes. Es la base del cálculo de velocidad de venta del módulo de stock."
+    },
+    "facturacion": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Ventas brutas en ARS del período. Se usa para priorizar la sugerencia de reposición."
+    },
+    "conversion": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Conversión de visitas a ventas como fracción (0.038 = 3,8%). Se recalcula POST-consolidación como ventas/visitas en vez de promediar la columna del reporte: promediar porcentajes de variantes con distinto tráfico da un número que no representa la publicación. Si visitas=0 queda nulo."
+    },
+    "variantes": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Cantidad de filas del reporte consolidadas en este MLA. Sirve para auditar la agregación."
+    },
+    "desde": {
+      "dtype": "string",
+      "required": true,
+      "description": "Fecha de inicio del período en ISO 8601. Extraída del texto del encabezado del reporte, no ingresada por el usuario."
+    },
+    "hasta": {
+      "dtype": "string",
+      "required": true,
+      "description": "Fecha de fin del período en ISO 8601. Define el nombre del snapshot."
+    },
+    "dias": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Días que cubre el período, inclusive. Necesario para normalizar la velocidad de venta cuando los reportes no cubren siempre la misma cantidad de días."
+    }
+  },
+  "entities": {
+    "snapshot": {
+      "filename_pattern": "<YYYY-MM-DD>.parquet",
+      "path": "data/marketplaces/<cuenta>/meli-rendimiento/<YYYY-MM-DD>.parquet",
+      "frequency": "quincenal (cada 14 días según acuerdo con el equipo de cuentas)",
+      "primary_key": ["mla"],
+      "period_format": "El period es la fecha de FIN del reporte (columna hasta). Se usa YYYY-MM-DD en vez de YYYY-WW porque los períodos de MELI no caen en semanas ISO: el reporte del 2 al 17 de julio cubre 16 días."
+    },
+    "cambios": {
+      "filename": "cambios.parquet",
+      "path": "data/marketplaces/<cuenta>/meli-rendimiento/cambios.parquet",
+      "frequency": "append-only",
+      "description": "Log append-only de modificaciones aplicadas a publicaciones. Cada fila es un evento inmutable. Una misma publicación con dos cambios en fechas distintas genera dos filas, según lo definido por el equipo de cuentas. Reemplaza al Google Sheet de modificaciones.",
+      "columns": {
+        "timestamp": {
+          "dtype": "string",
+          "required": true,
+          "description": "ISO 8601 de cuándo se registró el cambio en el sistema. _append_log lo agrega automáticamente si falta."
+        },
+        "mla": {
+          "dtype": "string",
+          "required": true,
+          "description": "Publicación a la que aplica el cambio, en formato MLA<digitos>."
+        },
+        "fecha_cambio": {
+          "dtype": "string",
+          "required": true,
+          "description": "Fecha en que se aplicó el cambio en Mercado Libre (ISO 8601). Es la fecha que parte las ventanas de comparación, no el timestamp de registro."
+        },
+        "tipo_cambio": {
+          "dtype": "string",
+          "required": true,
+          "description": "Categoría del cambio: titulo, precio, imagenes, ficha_tecnica, descripcion, variantes, envio, otro. Permite leer el resultado según qué se tocó: los cambios de título e imagen mueven visitas, los de precio y ficha mueven conversión."
+        },
+        "descripcion": {
+          "dtype": "string",
+          "required": false,
+          "description": "Detalle libre del cambio aplicado."
+        },
+        "aplicado_por": {
+          "dtype": "string",
+          "required": false,
+          "description": "Usuario que aplicó el cambio."
+        }
+      }
+    }
+  },
+  "consolidation_rule": {
+    "description": "El reporte de rendimiento devuelve una fila por variante. El seguimiento se definió a nivel publicación (MLA), así que el parser consolida ANTES de escribir el Parquet:",
+    "additive_columns": ["visitas", "ventas", "unidades", "facturacion"],
+    "derived_post_consolidation": {
+      "conversion": "ventas / visitas (nulo si visitas=0)"
+    },
+    "rationale": "Las chicas siguen las publicaciones por MLA, que es también la llave de cruce con el reporte de Ads y con el log de cambios. Consolidar en el parser evita que cada motor de negocio tenga que repetir la agregación y garantiza que la conversión sea siempre la de la publicación completa."
+  },
+  "evaluation_thresholds": {
+    "description": "Umbrales confirmados por el equipo de cuentas para clasificar el resultado de un cambio. Viven en config.py y son editables sin tocar la lógica.",
+    "mejoro": ">= +10% de variación",
+    "neutro": "entre -10% y +10%",
+    "empeoro": "<= -10% de variación",
+    "sin_datos": "< 30 visitas en cualquiera de las dos ventanas",
+    "ventana_dias": 14,
+    "rationale_min_visitas": "Con muy poco tráfico una sola venta mueve la conversión del 0% al 25%. En el reporte de referencia 74 de 247 publicaciones quedan bajo el umbral, así que marcarlas explícitamente evita mostrar mejoras falsas."
+  },
+  "evolution_notes": {
+    "v1_baseline": "Derivado del export 'Métricas del rendimiento de tus publicaciones' de julio 2026. Encabezados en fila 5, datos desde la fila 6, período en prosa en la fila 2.",
+    "future_v2_candidates": [
+      "calidad_publicacion y experiencia_compra (columnas del reporte que hoy se descartan)",
+      "opiniones y opiniones_malas (para correlacionar reputación con conversión)",
+      "categoria (para benchmarks cross-cuenta)"
+    ]
+  }
+}

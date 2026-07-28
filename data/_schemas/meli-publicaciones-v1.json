@@ -1,0 +1,100 @@
+{
+  "module": "meli-publicaciones",
+  "version": 1,
+  "created": "2026-07-24",
+  "description": "Mercado Libre — snapshot crudo del export 'Modifica tus publicaciones' (stock y estado por publicación). Es el DATO DE ORIGEN que se persiste: una fila consolidada por MLA (las variantes se suman en el parser). La sugerencia de reposición NO se persiste acá: se calcula en runtime a partir de este snapshot cruzado con el reporte de rendimiento y el log de tránsito (ver derived_output). Multi-cuenta.",
+  "primary_key": ["mla"],
+  "period_column": "_period",
+  "columns": {
+    "mla": {
+      "dtype": "string",
+      "required": true,
+      "description": "ID de publicación normalizado al formato MLA<digitos>. Clave primaria del snapshot. Es también la llave de cruce con el reporte de rendimiento (velocidad de venta), el reporte de ads y el log de tránsito."
+    },
+    "titulo": {
+      "dtype": "string",
+      "required": true,
+      "description": "Título de la publicación tomado del export de publicaciones. Se prefiere esta fuente y no la del reporte de rendimiento porque existe también para las publicaciones que no tuvieron visitas en el período."
+    },
+    "estado": {
+      "dtype": "string",
+      "required": true,
+      "description": "Estado de la publicación normalizado a minúsculas sin acentos. El parser ya excluye las publicaciones que no pueden vender (pausada, inactiva, finalizada, cerrada, bajo revision) antes de escribir el snapshot."
+    },
+    "stock": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Unidades disponibles en depósito, sumadas across variantes (STOCK_FLEX del export). El equipo de cuentas excluye FULL antes de exportar la planilla. Es float64 porque el parser rellena faltantes con cero sobre una columna que puede contener nulos."
+    },
+    "precio": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Precio de la publicación, mediana entre variantes (PRICE del export). Metadato de apoyo: ordena la prioridad de la sugerencia junto con la facturación. Puede quedar nulo si el export no trae la columna de precio."
+    },
+    "variantes": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Cantidad de filas del export consolidadas en este MLA. Sirve para auditar la agregación por variante."
+    }
+  },
+  "entities": {
+    "snapshot": {
+      "filename_pattern": "<YYYY-MM-DD>.parquet",
+      "path": "data/marketplaces/<cuenta>/meli-publicaciones/<YYYY-MM-DD>.parquet",
+      "frequency": "según disponibilidad del export de publicaciones",
+      "primary_key": ["mla"],
+      "period_format": "El period es la fecha del export en YYYY-MM-DD. Lo ingresa el usuario en la pestaña de importación porque el export de publicaciones no trae una fecha de corte en el archivo."
+    },
+    "transito": {
+      "filename": "transito.parquet",
+      "path": "data/marketplaces/<cuenta>/meli-publicaciones/transito.parquet",
+      "frequency": "append-only",
+      "description": "Unidades en camino al depósito. El cliente informa la fecha y el equipo de cuentas la carga manualmente.",
+      "columns": {
+        "timestamp": {"dtype": "string", "required": true, "description": "ISO 8601 de la carga."},
+        "mla": {"dtype": "string", "required": true, "description": "Publicación a la que corresponde el envío."},
+        "unidades": {"dtype": "float64", "required": true, "description": "Unidades en camino."},
+        "fecha_llegada": {
+          "dtype": "string",
+          "required": true,
+          "description": "Fecha estimada de arribo en ISO 8601. Es lo que decide si el envío cubre o no el horizonte. Si falta, se asume que llega a tiempo (criterio conservador para no sugerir un envío que ya está en camino)."
+        },
+        "nota": {"dtype": "string", "required": false, "description": "Detalle libre del envío."}
+      }
+    }
+  },
+  "derived_output": {
+    "description": "La sugerencia de reposición NO se persiste. La calcula stock_advisor.sugerir_reposicion() en runtime, cruzando este snapshot de publicaciones con el snapshot de rendimiento (unidades vendidas) y el log de tránsito. Las columnas de abajo existen sólo en el DataFrame que ve la pestaña de Stock, no en ningún Parquet, y por eso NO se validan contra este schema.",
+    "computed_columns": [
+      "unidades (vendidas en el período, del reporte de rendimiento)",
+      "velocidad_diaria (unidades / días reales del período)",
+      "en_transito (tránsito que llega dentro del horizonte de cobertura)",
+      "transito_tardio (tránsito que llega después del horizonte)",
+      "dias_cobertura (stock disponible / velocidad_diaria)",
+      "necesidad (velocidad_diaria * dias_cobertura_objetivo)",
+      "sugerido (necesidad - stock - en_transito, con piso en cero)",
+      "facturacion (ventas brutas del período, para ordenar la salida)",
+      "urgencia (critico / alto / medio / ok / sin_ventas)"
+    ],
+    "business_rules": {
+      "dias_cobertura_objetivo": 30,
+      "dias_velocidad_venta": 15,
+      "minimo_envio": 0,
+      "excluye": ["FULL (lo excluye el equipo antes de exportar)", "pausadas", "inactivas", "finalizadas", "cerradas"],
+      "rationale_urgencia": "Ordenar por cantidad sugerida pone arriba a los productos de alto volumen aunque tengan stock de sobra. Ordenar por días de cobertura pone arriba lo que está por quebrar, que es la decisión que hay que tomar esta semana.",
+      "umbrales_urgencia": "critico (<= 7 días de cobertura), alto (<= 15), medio (<= dias_cobertura_objetivo), ok (por encima), sin_ventas (velocidad_diaria = 0). Todos editables en config.py."
+    },
+    "por_que_no_se_persiste": [
+      "El sugerido depende de parámetros configurables (dias_cobertura_objetivo, dias_velocidad_venta, minimo_envio). Persistirlo congelaría la fórmula del día en que se guardó: si mañana el horizonte de cobertura pasa de 30 a 45 días, se recalcula sobre el histórico completo de snapshots de origen en vez de arrastrar un sugerido viejo con la fórmula anterior.",
+      "El dtype de 'unidades' en la salida derivada es data-dependent: sale de un left-merge (publicaciones ← rendimiento) con fillna(0). Cuando todas las publicaciones matchean el reporte de rendimiento queda int64; si hay al menos una publicación de stock sin venta en el período, el NaN del merge la vuelve float64. Validar una salida cuyo dtype cambia según los datos sería frágil — razón adicional para validar y persistir sólo el dato de origen (este schema) y dejar la salida derivada fuera del contrato de validación."
+    ]
+  },
+  "evolution_notes": {
+    "v1_baseline": "Derivado del export 'Modifica tus publicaciones' de julio 2026: hoja Publicaciones, nombres técnicos en fila 0, datos desde fila 6. Renombrado desde meli-stock-v1 el 2026-07-24: el schema viejo describía la salida del advisor y no lo que efectivamente se persiste; se separó el dato de origen (este schema) del output derivado (derived_output).",
+    "future_v2_candidates": [
+      "lead_time por proveedor (hoy el horizonte es fijo en 30 días para todos)",
+      "estacionalidad (ajustar la velocidad esperada según el mes)",
+      "costo_unitario (para priorizar por margen y no solo por facturación)"
+    ]
+  }
+}
