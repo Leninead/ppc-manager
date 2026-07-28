@@ -1,0 +1,6 @@
+# Commits de renormalizacion EOL (CRLF -> LF). No cambian contenido.
+# Local: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub lo toma automaticamente desde la raiz del repo.
+
+b92c71f1ae27b7e15a2c6ccacc0e53ed1b4b0743
+107dc3413a1078dfa1410745c53ee0f9534c7ff0
