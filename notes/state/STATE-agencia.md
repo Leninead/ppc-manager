@@ -1,11 +1,25 @@
 ---
 tipo: state
-actualizado: 2026-07-24
+actualizado: 2026-07-28
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-07-28 - Consolidador: M36 Mercado Libre + M31 F7 Fase A a produccion
+
+**Dos frentes integrados y pusheados, 12 commits.** M36 Mercado Libre (`ebcd0cb`): modulo nuevo, 3 features, 23 archivos, cero borrados. M31 F7 Fase A (`b4d080e`): capa Real vs Forecast, 5 archivos, 1656 inserciones, pedido de Eduardo del 27-jul. Suite final **823 passed / 5 skipped / 9 failed** conocidos sobre 837 colectados.
+- 🔴 **M31 F7 Fase A esta en prod SIN PERSISTIR.** Sigue faltando `AGENCY_OS_FORECAST_BACKEND="supabase"` en Secrets, deuda abierta desde el 02-jul. Si Edu carga un mes real lo pierde. **No avisarle hasta setear el flag.**
+- ✅ **Regla del 22-jul validada por segunda vez:** el gate de borrados con y sin `--ignore-cr-at-eol` se corrio en los dos merges y dio vacio. `merge-tree` limpio no alcanza.
+- 🔴 **Nota de vault corrupta cazada por el gate byte-level:** `m36-mercado-libre.md` tenia 2 bytes `0xB3` huerfanos. Sin el gate se commiteaba rota.
+- ⚠️ **`_PAGES` estaba incompleto y el badge del home contaba mal** (30 sobre 32). Faltaban Mercado Libre y Case Study Studio, este ultimo desde M32. Corregido (`2c34d1f`), pero los tests del badge **no detectan faltantes**: falta el test estructural contra los `st.button` de `app.py`.
+- ⚠️ **Renormalizacion EOL en estado mixto:** se ejecuto una rebanada de 2 archivos (`b92c71f`) para no tapar un cambio de 12 lineas con 156 de ruido. La tarea sigue siendo repo-wide y del consolidador; suma 27 archivos mas en el worktree `-realvsfc`.
+- ⚠️ M36 entro sin tests propios del modulo. Tercer frente seguido sin cobertura.
+- 🟠 Ninguno de los dos modulos se verifico en el deploy todavia.
+Detalle: [[2026-07-28]]
 
 ---
 
