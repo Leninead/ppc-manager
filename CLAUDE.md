@@ -71,6 +71,7 @@ python scripts\smoke_b6a_e2e_pipeline.py
 | 30 | 💲 Pricing Dashboard | Account Health | ✅ M30 — port HTML de Marcos (`pricing_dashboard.py`) |
 | 31 | 📈 Revenue Forecast | Account Manager | ✅ M31 Revenue Forecast — MVP F1→F5 + persistencia Supabase encendida (local). PROD pendiente de flag `AGENCY_OS_FORECAST_BACKEND` en Secrets. UI crear cliente ✅. **F6 iniciado (2026-07-09): F6.1a parser snapshot por-ASIN** (`_parse_asin_report` + `_is_asin_report`, Detail Page by Child). Deuda: RLS se reactiva sola. |
 | 32 | 📋 Case Study Studio | Sales Director | ✅ M32 v1 — 3 modos (Pegar JSON/Generar/Biblioteca) + exports. Persistencia Supabase verificada en prod ✅ |
+| 36 | 🛒 Mercado Libre | Marketplaces | M36 Mercado Libre - 3 features (Listing Change Tracker, Sugerencia de stock, Alertas de Ads). Multi-cuenta, carga manual de Excel, sin API. Persistencia via core/persistence.py con AREA=marketplaces; schemas meli-rendimiento/meli-publicaciones/meli-ads v1. Sin tests propios del modulo. |
 
 **Account Health — 3 herramientas, todas ports de HTML de Marcos vía `html-to-streamlit-porter`:**
 - M27 Flat File Migrator (`flat_file_migrator.py`)
@@ -2300,3 +2301,37 @@ Acumulación multi-mes · modelo de ASINs con historial · 3 niveles child/paren
 BOM literal (U+FEFF invisible) en L736 del parser by-date de `revenue_forecast.py` — misma fragilidad ya arreglada en `_norm_header`. Micro-frente aparte, no urgente.
 
 Detalle completo en `notes/daily/2026-07-09.md` + `notes/state/STATE-agencia.md`.
+---
+
+## 2026-07-28 - Cierre e integracion del modulo Mercado Libre (M36)
+
+### Que se hizo
+- Merge de `feat/modulo-mercado-libre` a main con `--no-ff` -> ebcd0cb. 23 archivos, 2637 inserciones, cero borrados. Pusheado: ad69409..ebcd0cb, fast-forward. Modulo en produccion.
+- Las 2 notas del vault se versionaron en la branch antes del merge: f861fd1 (SOP de usuario) y 9370763 (nota de modulo m36).
+- b92c71f: normalizacion CRLF a LF de core/constants.py y tests/test_inicio_badge.py, segun `.gitattributes` (`*.py text eol=lf`). Solo EOL, 73/73, saldo cero.
+- 2c34d1f: Mercado Libre y Case Study Studio sumados a `_PAGES`, mas 2 tests de pin. +14 / -0.
+
+### Decisiones
+- Se mergeo la branch a main en vez de re-mergear main a la branch, como habia pedido el frente: resultado equivalente, un merge menos en el historial, y el riesgo de deleciones de vault se verifico directo sobre el diff.
+- Va a produccion sin tests propios del modulo. La validacion E2E del frente fue manual. Decision tomada por el deadline del 31/08 y porque las cuentas se testean en produccion.
+- La normalizacion de EOL fue a un commit separado del cambio semantico, para no tapar 12 lineas utiles con 156 de ruido.
+
+### Verificacion
+- Gate de deleciones de vault: `git diff --diff-filter=D main...feat/modulo-mercado-libre -- notes/` vacio, y el diff total sin una sola delecion. La branch no estaba desactualizada pese a venir de un main anterior.
+- Byte-level post-merge en las 2 notas y 2 modulos: mojibake 0, sin BOM, CRLF 0.
+- Suite post-merge 742 passed / 5 skipped / 9 failed; post-fix 744 / 5 / 9. Los 9 son familias conocidas del entorno local (revenue_forecast x5, m29_ui_e2e x2, proposal_supabase_storage x1, knowledge_base x1). Ninguno en modules/mercado_libre/.
+- Baseline de tests de esta maquina actualizada a 744 / 5 / 9 sobre 758 colectados. La anterior (~722) habia quedado vieja.
+- Encoding: notes/modules/m36-mercado-libre.md tenia 2 bytes 0xB3 huerfanos (la palabra Modulo perdio el lead byte 0xC3 dos veces). Reparado a nivel bytes, 4352 -> 4354, verificado antes de commitear.
+- Schemas: meli-stock-v1.json quedo renombrado a meli-publicaciones-v1.json dentro de la branch. No quedo huerfano en main.
+
+### Hallazgos sobre _PAGES
+- `_PAGES` NO es lista muerta: `modules/pages/inicio.py:15` deriva `_TOTAL_MODULOS` de ella para el badge del home. `app.py:8` la importa pero no la usa (import muerto de cuando la nav era un `st.radio`; hoy son botones por expander).
+- Le faltaban dos entradas, Mercado Libre y Case Study Studio (ausente desde M32), asi que el badge contaba 30 sobre 32 de la nav. Corregido en 2c34d1f: `_PAGES` quedo en 33 = Inicio + 32.
+- Los 3 tests previos de `test_inicio_badge.py` no detectan faltantes: dos blindan que el conteo sea dinamico y pasan con cualquier contenido, el tercero es un pin a mano de Listing Monitor. Nada obliga a que un modulo nuevo entre a la lista. Los 2 tests nuevos son pins del mismo tipo, no la solucion estructural.
+
+### Pendientes
+- Verificar en el deploy que la seccion MARKETPLACES aparece y que la persistencia Supabase esta activa segun el flag global.
+- Test estructural que compare los labels de los `st.button` de app.py contra `_PAGES`, para que ningun modulo nuevo pueda volver a quedar afuera.
+- Sacar el import muerto de `_PAGES` en `app.py:8`.
+- El worktree `ppc-manager-meli` y su branch siguen vivos, candidatos a limpieza. Hay 15 worktrees abiertos en total.
+- La tabla de navegacion salta del 28 al 30: falta la fila de M29 Proposal Studio.
