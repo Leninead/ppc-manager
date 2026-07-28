@@ -2601,6 +2601,20 @@ def _washed_color(hex6: str, alpha_hex: str = "88") -> str:
     return f"rgba({r},{g},{b},{a:.3f})"
 
 
+# F7-A4 — verde despintado para la 2da línea `actual` en adelante de los charts
+# MULTI-MÉTRICA (Ads, ACOS/TACOS, Custom). Mismo alpha que el YoY.
+#
+# Por qué: el reporte HTML se abre y se le saca screenshot. Ahí no hay hover, y
+# dos (o más) líneas del MISMO verde son indistinguibles salvo por la legend.
+# Con la 1ra sólida y el resto washed, cuál es cuál se lee de un vistazo.
+#
+# Se aplica en los builders, así que rige TAMBIÉN en la app — a propósito: si el
+# export se viera distinto de la pantalla, el AM validaría una figura y mandaría
+# otra. Los charts de UNA métrica (`_metric_chart`) no se tocan: ahí la única
+# línea real sigue sólida.
+_CHART_ACTUAL_WASHED = _washed_color(_CHART_ACTUAL)
+
+
 def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
                   show_yoy: bool = False,
                   actual_rows: Optional[list] = None) -> "go.Figure":
@@ -2757,19 +2771,24 @@ def _chart_trace(x: list, y: list, name: str, color: str, role: str,
 # el trace. Cero cálculo nuevo, igual que G3/G4.
 
 
-def _actual_trace(hist_rows: list, actual_rows: list, m: dict) -> Optional["go.Scatter"]:
+def _actual_trace(hist_rows: list, actual_rows: list, m: dict,
+                  color: str = _CHART_ACTUAL) -> Optional["go.Scatter"]:
     """Trace `actual` de UNA métrica del catálogo, o None si la serie sale vacía.
 
     Usa `m["from_hist"]` (no `from_fc`): las filas de `actual` tienen shape de
     `historical`, así que los valores se CALCULAN igual que en el histórico. Es
     lo que hace que el ACOS real salga de spend/ventasPPC reales y no de los
     targets que el motor escribió en el forecast.
+
+    `color` (F7-A4, ADITIVO): default `_CHART_ACTUAL` → los callers viejos y los
+    charts de UNA métrica quedan exactamente igual. Los multi-métrica pasan
+    `_CHART_ACTUAL_WASHED` de la 2da línea real en adelante.
     """
     a = _actual_series(hist_rows, actual_rows, m["from_hist"])
     if not a["x"]:
         return None
     return _chart_trace(a["x"], a["y"], f'{m["label"]} (real)',
-                        _CHART_ACTUAL, "actual", partial=a["partial"])
+                        color, "actual", partial=a["partial"])
 
 
 def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False,
@@ -2782,10 +2801,13 @@ def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False,
     los 7 charts con beginAtZero (HTML L2653). Guard: hist vacío → figura vacía,
     sin excepción.
 
-    Las dos líneas reales son verdes y sólidas (misma identidad visual en los 7
-    charts), así que entre sí se distinguen por legend + hover unificado, no por
-    color. Se dibujan las DOS —no sólo spend— por simetría con el forecast, que
-    también proyecta ambas: mostrar el real de una sola dejaría media comparación.
+    Se dibujan las DOS líneas reales —no sólo spend— por simetría con el forecast,
+    que también proyecta ambas: mostrar el real de una sola dejaría media
+    comparación. Entre sí se distinguen POR COLOR (F7-A4): la 1ra va verde sólido
+    y la 2da verde washed. Antes eran las dos del mismo verde y se separaban por
+    legend + hover, lo que no sobrevive al screenshot del reporte HTML, que es
+    estático. El orden es fijo (spend → ventasPPC), así que cuál queda sólida es
+    estable entre reruns.
     """
     fig = go.Figure()
     fig.update_layout(**_PLOTLY_LAYOUT)
@@ -2809,11 +2831,20 @@ def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False,
         sp_yoy = _yoy_series(hist_rows, fc_rows, _METRICS["spend"]["from_hist"])
         fig.add_trace(_chart_trace(sp_yoy["x"], sp_yoy["y"], "Spend año previo (YoY)", sp_color, "yoy"))
 
+    # F7-A4 — `drawn` cuenta traces EFECTIVAMENTE dibujados, no posiciones del
+    # loop: si el real de spend sale vacío, la sólida pasa a ser ventasPPC. Así
+    # siempre hay exactamente UNA verde sólida cuando hay alguna línea real, en
+    # vez de quedar una washed suelta sin referencia.
     if actual_rows:
+        drawn = 0
         for mid in ("spend", "ventasPPC"):
-            tr = _actual_trace(hist_rows, actual_rows, _METRICS[mid])
+            tr = _actual_trace(
+                hist_rows, actual_rows, _METRICS[mid],
+                color=_CHART_ACTUAL if drawn == 0 else _CHART_ACTUAL_WASHED,
+            )
             if tr is not None:
                 fig.add_trace(tr)
+                drawn += 1
 
     fig.update_yaxes(tickprefix="$", tickformat=",.0f", rangemode="tozero")
     return fig
@@ -2863,11 +2894,17 @@ def _acos_tacos_chart(hist_rows: list, fc_rows: list,
     # F7-A2 — ACOS/TACOS reales. Salen de `from_hist` sobre las filas de `actual`
     # (spend/ventasPPC/revenue REALES), NUNCA de los targets del forecast: la
     # gracia de este chart es ver si el target se está cumpliendo o no.
+    # F7-A4 — 1ra sólida (ACOS), 2da washed (TACOS). Misma regla que Ads/Custom.
     if actual_rows:
+        drawn = 0
         for mid in ("acos", "tacos"):
-            tr = _actual_trace(hist_rows, actual_rows, _METRICS[mid])
+            tr = _actual_trace(
+                hist_rows, actual_rows, _METRICS[mid],
+                color=_CHART_ACTUAL if drawn == 0 else _CHART_ACTUAL_WASHED,
+            )
             if tr is not None:
                 fig.add_trace(tr)
+                drawn += 1
 
     fig.update_yaxes(ticksuffix="%", tickformat=".1f")
     return fig
@@ -2939,6 +2976,12 @@ def _custom_chart(metric_ids: list, hist_rows: list, fc_rows: list,
 
     left_unit, right_unit = _axis_split(metric_ids)
 
+    # F7-A4 — igual que Ads/ACOS: la 1ra línea real dibujada va verde sólido y el
+    # resto washed. Acá el contador vive FUERA del loop de métricas porque hay N.
+    # `metric_ids` llega en orden de catálogo (G5 lo normaliza en L4301 y el
+    # export en el wiring), así que cuál queda sólida es estable entre reruns.
+    drawn_actual = 0
+
     for mid in metric_ids:
         m = _METRICS.get(mid)
         if m is None:
@@ -2960,10 +3003,14 @@ def _custom_chart(metric_ids: list, hist_rows: list, fc_rows: list,
             tr.yaxis = yaxis
             fig.add_trace(tr)
         if actual_rows:
-            tr = _actual_trace(hist_rows, actual_rows, m)
+            tr = _actual_trace(
+                hist_rows, actual_rows, m,
+                color=_CHART_ACTUAL if drawn_actual == 0 else _CHART_ACTUAL_WASHED,
+            )
             if tr is not None:
                 tr.yaxis = yaxis     # mismo eje que su métrica, o la escala miente
                 fig.add_trace(tr)
+                drawn_actual += 1
 
     # Eje izquierdo: merge sobre el yaxis de _PLOTLY_LAYOUT (conserva grid/tickfont).
     fig.update_layout(yaxis=_AXIS_FMT.get(left_unit, {}))
@@ -4156,8 +4203,11 @@ def _render_export_section(cur: dict) -> None:
     # si la sección Gráficas llegó a renderizar.
     yoy = st.session_state.get(_K_CHARTS_YOY, True)
     custom = st.session_state.get(_K_CHARTS_CUSTOM, ["revenue"])
+    # `actual` va CRUDO: `_build_export_html` resuelve el `partial` puertas
+    # adentro (un solo punto de verdad, ver su docstring).
     html_str = _build_export_html(
         cur, note=note or "", show_yoy=yoy, custom_metrics=custom,
+        actual_rows=cur.get("actual", []),
     )
     fname_html = (
         f"forecast_{_cliente_slug(cur.get('name', ''))}_"
@@ -4493,6 +4543,7 @@ def _build_export_html(
     note: str = "",
     show_yoy: bool = True,
     custom_metrics: Optional[list] = None,
+    actual_rows: Optional[list] = None,
 ) -> str:
     """Reporte HTML self-contained del forecast: 7 charts Plotly + resumen + tabla.
 
@@ -4515,6 +4566,15 @@ def _build_export_html(
                   (`_K_CHARTS_CUSTOM`) → el Custom del reporte refleja lo que el
                   AM eligió en pantalla, en vez de ser un duplicado del chart de
                   Revenue.
+        actual_rows: capa `actual` CRUDA (F7-A4). None o `[]` → el reporte sale
+                  exactamente como antes de A4, sin línea verde: el default
+                  mantiene retrocompatible a todo caller viejo.
+                  A diferencia de `show_yoy`/`custom_metrics`, acá NO se pide el
+                  dato ya resuelto: el `partial=None` que deja
+                  `_parse_actual_report` se cierra ACÁ ADENTRO con
+                  `_resolve_partial`, un solo punto de verdad. Meterle
+                  `date.today()` a esta función no agrega una dependencia
+                  temporal nueva — ya la tiene para el `gen` del header.
 
     Returns:
         Documento HTML completo como string.
@@ -4563,16 +4623,26 @@ def _build_export_html(
             f'<div class="cards">{cards_html}</div></section>'
         )
 
+    # F7-A4 — la capa `actual` se resuelve UNA vez, acá, y de acá baja a los 7.
+    actual = _resolve_partial(actual_rows) if actual_rows else []
+
+    # Orden de catálogo, igual que G5 en L4301. El buffer de los chips guarda el
+    # orden en que el AM los fue tocando, no el del catálogo, y ese orden decide
+    # dos cosas: qué línea real va sólida (F7-A4) y cuál es el eje izquierdo
+    # (`_axis_split` mira la 1ra unidad que aparece). Sin normalizar, el Custom
+    # del reporte podía salir distinto del que el AM validó en pantalla.
+    custom_ids = [mid for mid in _METRICS if mid in (custom_metrics or ["revenue"])]
+
     # Los 7 charts — se CONSTRUYEN llamando a los charts puros de G1-G4, con el
     # mismo `show_yoy` que el AM tiene en pantalla. Orden = tabs de G5.
     figs = [
-        _metric_chart("revenue", hist, fc, show_yoy),
-        _metric_chart("sessions", hist, fc, show_yoy),
-        _metric_chart("cvr", hist, fc, show_yoy),
-        _metric_chart("units", hist, fc, show_yoy),
-        _ads_chart(hist, fc, show_yoy),
-        _acos_tacos_chart(hist, fc, show_yoy),
-        _custom_chart(custom_metrics or ["revenue"], hist, fc, show_yoy),
+        _metric_chart("revenue", hist, fc, show_yoy, actual_rows=actual),
+        _metric_chart("sessions", hist, fc, show_yoy, actual_rows=actual),
+        _metric_chart("cvr", hist, fc, show_yoy, actual_rows=actual),
+        _metric_chart("units", hist, fc, show_yoy, actual_rows=actual),
+        _ads_chart(hist, fc, show_yoy, actual_rows=actual),
+        _acos_tacos_chart(hist, fc, show_yoy, actual_rows=actual),
+        _custom_chart(custom_ids, hist, fc, show_yoy, actual_rows=actual),
     ]
     charts_html = "".join(
         f'<div class="chart"><h2>{html.escape(t)}</h2>'

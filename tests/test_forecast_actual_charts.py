@@ -59,7 +59,16 @@ def _actual():
 
 
 def _green_traces(fig):
-    return [t for t in fig.data if t.line.color == rf._CHART_ACTUAL]
+    """Los traces de la capa `actual` (las líneas verdes).
+
+    F7-A4: en los charts MULTI-MÉTRICA la 1ra va verde sólido y el resto washed,
+    para que se distingan en el screenshot del reporte HTML. Los dos tonos son
+    igual de "verdes" para lo que este helper significa, así que matchea ambos —
+    si sólo mirara `_CHART_ACTUAL` se comería la 2da línea y los tests dirían
+    "falta un trace" cuando en realidad está y sólo cambió de tono.
+    """
+    verdes = (rf._CHART_ACTUAL, rf._CHART_ACTUAL_WASHED)
+    return [t for t in fig.data if t.line.color in verdes]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -265,12 +274,15 @@ def test_ads_chart_sin_actual_no_cambia():
 
 def test_ads_chart_con_actual_dibuja_spend_y_ventas_ppc():
     """DECISIÓN: las DOS métricas llevan línea real, igual que el forecast dibuja
-    las dos. Se distinguen por legend + hover unificado.
+    las dos. F7-A4: se distinguen por COLOR (1ra sólida, 2da washed) — antes era
+    por legend + hover, que no sobrevive al screenshot del reporte.
     """
     fig = rf._ads_chart(_hist(), _fc(), True, actual_rows=_actual())
     assert len(fig.data) == 7
-    nombres = [t.name for t in _green_traces(fig)]
-    assert nombres == ["Spend (real)", "Ventas PPC (real)"]
+    verdes = _green_traces(fig)
+    assert [t.name for t in verdes] == ["Spend (real)", "Ventas PPC (real)"]
+    assert verdes[0].line.color == rf._CHART_ACTUAL
+    assert verdes[1].line.color == rf._CHART_ACTUAL_WASHED
 
 
 def test_acos_tacos_chart_sin_actual_no_cambia():
