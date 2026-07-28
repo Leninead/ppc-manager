@@ -38,4 +38,6 @@ _PAGES = [
     "💲 Pricing Dashboard",
     "📋 Proposal Studio",
     "📈 Revenue Forecast",
+    "🏆 Case Study Studio",
+    "🛒 Mercado Libre",
 ]

@@ -30,3 +30,15 @@ def test_pages_includes_listing_monitor():
     from core.constants import _PAGES
 
     assert any("Listing Monitor" in p for p in _PAGES)
+
+
+def test_pages_includes_mercado_libre():
+    """Mercado Libre debe estar en _PAGES (M36, 2026-07-28)."""
+    from core.constants import _PAGES
+    assert any("Mercado Libre" in p for p in _PAGES)
+
+
+def test_pages_includes_case_study_studio():
+    """Case Study Studio debe estar en _PAGES (faltaba desde M32)."""
+    from core.constants import _PAGES
+    assert any("Case Study Studio" in p for p in _PAGES)
