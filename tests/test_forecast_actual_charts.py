@@ -1,0 +1,351 @@
+"""M31 F7-A2 — la línea `actual` (verde) en los 7 charts.
+
+A1 dejó `_actual_series(hist, actual, accessor) -> {x, y, partial}`. A2 sólo la
+DIBUJA: cero lógica de series nueva.
+
+Decisiones visuales (Lenin):
+    - Línea `actual` = verde `#22C55E`, SÓLIDA. Más saturado que el CVR
+      `#34D399` del catálogo para no confundirse cuando el chart de CVR tenga
+      las dos.
+    - Punto de un mes PARCIAL (`partial is True`) = marcador HUECO
+      (`circle-open`). Sólo cambia el SÍMBOLO: ni dash (es del forecast) ni
+      otro color.
+
+Contrato aditivo: los 4 builders suman `actual_rows=None` al final de su firma.
+Con `None` o `[]` la figura es EXACTAMENTE la de hoy — los ~60 tests de G2-G4
+pasan sin tocarse.
+
+Nota Plotly 6.7.0 (verificado, no asumido):
+    - `marker.symbol` acepta un array y lo normaliza a TUPLA (no lista).
+    - El default de `marker.symbol` es `None` (no `"circle"`). `None` renderiza
+      el círculo lleno. Por eso los roles viejos y el `actual` sin `partial`
+      dejan el símbolo SIN setear: es lo que garantiza cero cambio.
+"""
+
+from __future__ import annotations
+
+from modules.pages import revenue_forecast as rf
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Datos mínimos
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _hist():
+    return [
+        {"date": "2026-05-01", "revenue": 100.0, "units": 10, "sessions": 100,
+         "cvr": 10.0, "spend": 30.0, "ventasPPC": 60.0},
+        {"date": "2026-06-01", "revenue": 200.0, "units": 20, "sessions": 200,
+         "cvr": 10.0, "spend": 40.0, "ventasPPC": 80.0},
+    ]
+
+
+def _fc():
+    return [
+        {"date": "2026-07-01", "revenue": 250.0, "units": 25, "sessions": 250,
+         "cvr": 10.0, "spend": 50.0, "ventasPPC": 100.0, "aov": 10.0,
+         "acos": 50.0, "tacos": 20.0, "salesVelocity": 0.8},
+    ]
+
+
+def _actual():
+    """Julio cerrado + agosto corriendo (parcial)."""
+    return [
+        {"date": "2026-07-01", "revenue": 230.0, "units": 23, "sessions": 240,
+         "cvr": 9.6, "spend": 55.0, "ventasPPC": 90.0, "partial": False},
+        {"date": "2026-08-01", "revenue": 80.0, "units": 8, "sessions": 90,
+         "cvr": 8.9, "spend": 20.0, "ventasPPC": 30.0, "partial": True},
+    ]
+
+
+def _green_traces(fig):
+    """Los traces de la capa `actual` (las líneas verdes).
+
+    F7-A4: en los charts MULTI-MÉTRICA la 1ra va verde sólido y el resto washed,
+    para que se distingan en el screenshot del reporte HTML. Los dos tonos son
+    igual de "verdes" para lo que este helper significa, así que matchea ambos —
+    si sólo mirara `_CHART_ACTUAL` se comería la 2da línea y los tests dirían
+    "falta un trace" cuando en realidad está y sólo cambió de tono.
+    """
+    verdes = (rf._CHART_ACTUAL, rf._CHART_ACTUAL_WASHED)
+    return [t for t in fig.data if t.line.color in verdes]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _chart_trace — role "actual" + param aditivo `partial`
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_chart_trace_role_actual_es_solido_y_del_color_pasado():
+    """Dato real cerrado → mismo peso visual que la línea histórica: sólida,
+    width 2. El dash queda reservado al forecast.
+    """
+    tr = rf._chart_trace([1, 2], [3, 4], "Revenue (real)", rf._CHART_ACTUAL, "actual")
+    assert tr.line.color == rf._CHART_ACTUAL
+    assert tr.line.dash is None          # SÓLIDA
+    assert tr.line.width == 2
+    assert tr.line.shape == "spline"
+    assert tr.connectgaps is True
+
+
+def test_chart_trace_actual_sin_partial_no_setea_symbol():
+    """Sin `partial`, el símbolo queda en el default de Plotly (None = círculo
+    lleno). NO un array. Es lo que garantiza que los roles viejos no cambien.
+    """
+    tr = rf._chart_trace([1, 2], [3, 4], "x", rf._CHART_ACTUAL, "actual")
+    assert tr.marker.symbol is None
+    assert not isinstance(tr.marker.symbol, (list, tuple))
+
+
+def test_chart_trace_partial_produce_array_de_simbolos():
+    """`partial=[False, True]` → hueco SÓLO en el punto parcial.
+
+    Plotly 6.7.0 normaliza el array a TUPLA (verificado contra la lib, no asumido).
+    """
+    tr = rf._chart_trace([1, 2], [3, 4], "x", rf._CHART_ACTUAL, "actual",
+                         partial=[False, True])
+    assert tuple(tr.marker.symbol) == ("circle", "circle-open")
+
+
+def test_chart_trace_partial_none_cuenta_como_lleno():
+    """`partial=None` en un punto = cobertura DESCONOCIDA (BR mensual, ver A1).
+    No se pinta como parcial: sólo `True` abre el marcador.
+    """
+    tr = rf._chart_trace([1, 2, 3], [1, 2, 3], "x", rf._CHART_ACTUAL, "actual",
+                         partial=[None, False, True])
+    assert tuple(tr.marker.symbol) == ("circle", "circle", "circle-open")
+
+
+def test_chart_trace_roles_viejos_no_cambian():
+    """🔴 Guard: `partial` es ADITIVO. hist/fc/yoy no lo pasan y su símbolo sigue
+    sin setear (los tests de G3 pasan sin tocarse).
+    """
+    for role, dash in (("hist", None), ("fc", "dash"), ("yoy", "dot")):
+        tr = rf._chart_trace([1, 2], [3, 4], "x", "#FF3300", role)
+        assert tr.marker.symbol is None, f"role {role}"
+        assert tr.line.dash == dash, f"role {role}"
+
+
+def test_chart_trace_partial_aplica_a_cualquier_role():
+    """El param no está acoplado al role: si se pasa, se aplica. Mantiene
+    `_chart_trace` como una sola función de estilo, sin ramas especiales.
+    """
+    tr = rf._chart_trace([1, 2], [3, 4], "x", "#FF3300", "hist", partial=[True, False])
+    assert tuple(tr.marker.symbol) == ("circle-open", "circle")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LEGIBILIDAD del punto parcial
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El smoke visual de A3 encontró el hueco de cobertura de A2: los tests asertaban
+# que el SÍMBOLO fuera 'circle-open', y lo era — pero no se veía. Verificado
+# contra el bundle plotly.min.js:
+#
+#     e.om = u % 200 >= 100;                              // "open marker"
+#     m = (e.mlw+1 || b+1 || marker.line.width+1) - 1 || 0;
+#     if (e.om) t.style({"stroke-width": (m||1)+"px", fill:"none"});
+#
+# Con `marker.line.width` sin setear (default 0 del schema de scatter), `m` cae al
+# fallback de 1px. Un anillo de 1px sobre un marcador de 5px, atravesado por la
+# línea de 2px del mismo color, deja ~0.5px de hueco a cada lado: invisible.
+#
+# Estos tests afirman LEGIBILIDAD (tamaño + grosor del anillo), no sólo que el
+# símbolo exista.
+
+
+def test_punto_parcial_es_mas_grande_que_los_llenos():
+    """`size` pasa a ARRAY: 12 el parcial, 5 el resto.
+
+    El 12 está calibrado MIRANDO el chart, no deduciendo la geometría: con 8 la
+    cuenta daba 6px de hueco y el aro igual no se leía contra la línea de 2px del
+    mismo color. Literal y no `rf._MARKER_SIZE_PARTIAL` a propósito — un test que
+    lee la constante no puede cazar que la constante esté mal.
+    """
+    tr = rf._chart_trace([1, 2], [3, 4], "x", rf._CHART_ACTUAL, "actual",
+                         partial=[False, True])
+    assert tuple(tr.marker.size) == (5, 12)
+
+
+def test_punto_parcial_tiene_anillo_grueso_y_los_llenos_no():
+    """El anillo del hueco necesita 2px para leerse contra la línea de 2px.
+
+    `line.width=0` en los NO parciales es deliberado: deja los puntos llenos
+    exactamente como estaban, sin agregarles un contorno.
+    """
+    tr = rf._chart_trace([1, 2], [3, 4], "x", rf._CHART_ACTUAL, "actual",
+                         partial=[False, True])
+    assert tuple(tr.marker.line.width) == (0, 2)
+    assert tr.marker.line.color == rf._CHART_ACTUAL   # anillo del color de la serie
+
+
+def test_los_tres_arrays_van_alineados():
+    """symbol / size / line.width describen el MISMO punto en cada índice."""
+    partial = [False, True, None, True]
+    tr = rf._chart_trace([1, 2, 3, 4], [1, 2, 3, 4], "x", rf._CHART_ACTUAL,
+                         "actual", partial=partial)
+    assert tuple(tr.marker.symbol) == ("circle", "circle-open", "circle", "circle-open")
+    assert tuple(tr.marker.size) == (5, 12, 5, 12)
+    assert tuple(tr.marker.line.width) == (0, 2, 0, 2)
+
+
+def test_sin_partial_el_marker_queda_escalar_y_sin_anillo():
+    """🔴 No-regresión: sin `partial`, NADA de los arrays se arma. Los roles
+    viejos conservan su marker de siempre (size escalar, sin symbol, sin line).
+    """
+    for role, size in (("hist", 4), ("fc", 6), ("yoy", 2), ("actual", 5)):
+        tr = rf._chart_trace([1, 2], [3, 4], "x", "#FF3300", role)
+        assert tr.marker.size == size, f"role {role}"
+        assert tr.marker.symbol is None, f"role {role}"
+        assert tr.marker.line.width is None, f"role {role}"
+        assert tr.marker.line.color is None, f"role {role}"
+
+
+def test_legibilidad_llega_hasta_la_figura():
+    """End-to-end del fix: el chart real termina con los 3 arrays, no sólo el
+    trace suelto. Es lo que se vio roto en el smoke visual.
+    """
+    fig = rf._metric_chart("revenue", _hist(), _fc(), False, actual_rows=_actual())
+    verde = _green_traces(fig)[0]
+    # bridge (hist) · julio cerrado · agosto en curso
+    assert tuple(verde.marker.symbol) == ("circle", "circle", "circle-open")
+    assert tuple(verde.marker.size) == (5, 5, 12)
+    assert tuple(verde.marker.line.width) == (0, 0, 2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _metric_chart
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_metric_chart_sin_actual_no_dibuja_verde():
+    """🔴 No-regresión: hist + fc + yoy = 3 traces, ninguno verde."""
+    fig = rf._metric_chart("revenue", _hist(), _fc(), True)
+    assert len(fig.data) == 3
+    assert _green_traces(fig) == []
+
+
+def test_metric_chart_actual_none_y_lista_vacia_son_equivalentes():
+    """`None` y `[]` dan la MISMA figura que el llamado sin el param."""
+    base = rf._metric_chart("revenue", _hist(), _fc(), True)
+    con_none = rf._metric_chart("revenue", _hist(), _fc(), True, actual_rows=None)
+    con_vacia = rf._metric_chart("revenue", _hist(), _fc(), True, actual_rows=[])
+    assert len(con_none.data) == len(base.data) == len(con_vacia.data)
+    assert _green_traces(con_none) == [] and _green_traces(con_vacia) == []
+
+
+def test_metric_chart_con_actual_suma_un_trace():
+    fig = rf._metric_chart("revenue", _hist(), _fc(), True, actual_rows=_actual())
+    assert len(fig.data) == 4
+    verdes = _green_traces(fig)
+    assert len(verdes) == 1
+    assert verdes[0].name == "Revenue (real)"
+
+
+def test_metric_chart_actual_arranca_en_el_bridge():
+    """La línea real sale del MISMO punto que la de forecast: el último
+    histórico. Así se ve dónde divergen real y proyectado.
+    """
+    hist = _hist()
+    fig = rf._metric_chart("revenue", hist, _fc(), False, actual_rows=_actual())
+    verde = _green_traces(fig)[0]
+    assert verde.x[0] == hist[-1]["date"]          # "2026-06-01"
+    assert verde.y[0] == hist[-1]["revenue"]       # 200.0
+    assert list(verde.x) == ["2026-06-01", "2026-07-01", "2026-08-01"]
+
+
+def test_metric_chart_marca_hueco_solo_el_mes_parcial():
+    """Bridge (histórico) y julio (cerrado) llenos; agosto (corriendo) hueco."""
+    fig = rf._metric_chart("revenue", _hist(), _fc(), False, actual_rows=_actual())
+    verde = _green_traces(fig)[0]
+    assert tuple(verde.marker.symbol) == ("circle", "circle", "circle-open")
+
+
+def test_metric_chart_sin_historico_sigue_devolviendo_figura_vacia():
+    """El guard de hist vacío manda sobre `actual` (fiel al HTML)."""
+    fig = rf._metric_chart("revenue", [], _fc(), True, actual_rows=_actual())
+    assert len(fig.data) == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _ads_chart / _acos_tacos_chart
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_ads_chart_sin_actual_no_cambia():
+    """🔴 No-regresión: spend hist/fc + vppc hist/fc + 1 YoY = 5 traces."""
+    fig = rf._ads_chart(_hist(), _fc(), True)
+    assert len(fig.data) == 5
+    assert _green_traces(fig) == []
+
+
+def test_ads_chart_con_actual_dibuja_spend_y_ventas_ppc():
+    """DECISIÓN: las DOS métricas llevan línea real, igual que el forecast dibuja
+    las dos. F7-A4: se distinguen por COLOR (1ra sólida, 2da washed) — antes era
+    por legend + hover, que no sobrevive al screenshot del reporte.
+    """
+    fig = rf._ads_chart(_hist(), _fc(), True, actual_rows=_actual())
+    assert len(fig.data) == 7
+    verdes = _green_traces(fig)
+    assert [t.name for t in verdes] == ["Spend (real)", "Ventas PPC (real)"]
+    assert verdes[0].line.color == rf._CHART_ACTUAL
+    assert verdes[1].line.color == rf._CHART_ACTUAL_WASHED
+
+
+def test_acos_tacos_chart_sin_actual_no_cambia():
+    fig = rf._acos_tacos_chart(_hist(), _fc(), True)
+    assert len(fig.data) == 5
+    assert _green_traces(fig) == []
+
+
+def test_acos_tacos_chart_con_actual_dibuja_ambas():
+    fig = rf._acos_tacos_chart(_hist(), _fc(), True, actual_rows=_actual())
+    assert len(fig.data) == 7
+    nombres = [t.name for t in _green_traces(fig)]
+    assert nombres == ["ACOS % (real)", "TACOS % (real)"]
+
+
+def test_acos_actual_se_calcula_desde_el_real_no_desde_el_forecast():
+    """ACOS real = spend/ventasPPC*100 de las filas de `actual` (accessor
+    `from_hist`), NUNCA los targets que el motor escribió en el forecast.
+    """
+    fig = rf._acos_tacos_chart(_hist(), _fc(), False, actual_rows=_actual())
+    verde = _green_traces(fig)[0]
+    assert verde.name == "ACOS % (real)"
+    # julio real: 55/90*100 ; agosto real: 20/30*100
+    assert verde.y[1] == 55.0 / 90.0 * 100.0
+    assert verde.y[2] == 20.0 / 30.0 * 100.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _custom_chart
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_custom_chart_sin_actual_no_cambia():
+    """🔴 No-regresión: 2 métricas × (hist + fc + yoy) = 6 traces."""
+    fig = rf._custom_chart(["revenue", "cvr"], _hist(), _fc(), True)
+    assert len(fig.data) == 6
+    assert _green_traces(fig) == []
+
+
+def test_custom_chart_con_actual_suma_uno_por_metrica():
+    fig = rf._custom_chart(["revenue", "cvr"], _hist(), _fc(), True,
+                           actual_rows=_actual())
+    assert len(fig.data) == 8
+    nombres = [t.name for t in _green_traces(fig)]
+    assert nombres == ["Revenue (real)", "CVR % (real)"]
+
+
+def test_custom_chart_actual_va_al_eje_de_su_metrica():
+    """revenue (currency) → eje izquierdo; cvr (percent) → eje derecho. La línea
+    real tiene que ir al MISMO eje que su métrica, o la escala miente.
+    """
+    fig = rf._custom_chart(["revenue", "cvr"], _hist(), _fc(), False,
+                           actual_rows=_actual())
+    por_nombre = {t.name: t for t in fig.data}
+    assert por_nombre["Revenue (real)"].yaxis == por_nombre["Revenue"].yaxis == "y"
+    assert por_nombre["CVR % (real)"].yaxis == por_nombre["CVR %"].yaxis == "y2"
+
+
+def test_custom_chart_metric_id_desconocido_se_sigue_ignorando():
+    """Guard existente intacto con `actual_rows` presente."""
+    fig = rf._custom_chart(["revenue", "no-existe"], _hist(), _fc(), False,
+                           actual_rows=_actual())
+    assert len(_green_traces(fig)) == 1

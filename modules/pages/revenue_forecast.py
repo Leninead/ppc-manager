@@ -214,6 +214,8 @@ def _new_client(
         "yoy_mode": yoy_mode,
         "historical": [],          # lista de dicts {date, revenue, units, …}
         "forecast": [],            # lista de dicts {date, projected_revenue, …}
+        "actual": [],              # F7-A: real mes a mes contra el forecast
+                                   # (mismo shape que historical + partial/days_covered)
         "snapshots": [],           # lista de snapshots versionados del forecast
         "seasonality": {
             "enabled": False,
@@ -358,6 +360,16 @@ def _get_forecast(state: Optional[Any] = None) -> list:
     """Forecast del cliente activo. Lista vacía si no hay activo."""
     c = _cur_client(state)
     return c["forecast"] if c else []
+
+
+def _get_actual(state: Optional[Any] = None) -> list:
+    """Capa `actual` del cliente activo (F7-A). Lista vacía si no hay activo.
+
+    Usa `.get` (no `[...]`) a propósito: los clientes persistidos ANTES de F7-A
+    se hidratan sin la key `actual`, y el getter no debe romper con ellos.
+    """
+    c = _cur_client(state)
+    return c.get("actual", []) if c else []
 
 
 def _get_seasonality(state: Optional[Any] = None) -> dict:
@@ -970,6 +982,73 @@ def _has_sessions_column(df: pd.DataFrame) -> bool:
     return False
 
 
+def _read_br_rows(data: bytes, filename: str) -> list[dict]:
+    """Lee el BR (CSV/XLSX) y devuelve las filas EN SU GRANULARIDAD ORIGINAL.
+
+    Extracción (F7-A1) de la primera mitad de `_parse_business_report`: leer el
+    archivo, rechazar el reporte sin tráfico, mapear con `_map_row_by_date` y
+    ordenar por fecha. NO agrega día→mes.
+
+    Existe porque la capa `actual` necesita CONTAR DÍAS para saber si un mes está
+    parcial, y la agregación los colapsa a 1 fila mensual. Sin este extract habría
+    que duplicar la lectura de archivo en el camino de `actual`.
+
+    Sin `@st.cache_data`: el cache vive en `_parse_business_report` /
+    `_parse_actual_report`, que son los puntos de entrada públicos.
+
+    Raises:
+        ReportLacksSessionsError: si el archivo no incluye Sessions.
+    """
+    lower = filename.lower()
+    if lower.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(BytesIO(data))
+    else:
+        # CSV. Autodetección de separador como en el resto del repo.
+        sample = data[:4096].decode("utf-8-sig", errors="ignore")
+        first_line = sample.split("\n", 1)[0] if sample else ""
+        sep = ";" if first_line.count(";") > first_line.count(",") else ","
+        df = pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=sep)
+
+    # Rechazo temprano si NO hay sessions (reporte equivocado).
+    # Hacemos esto ANTES del mapeo fila por fila porque queremos un error claro
+    # al AM, no ingerir "a medias" con sessions=0 que rompe el motor F3.
+    if not _has_sessions_column(df):
+        raise ReportLacksSessionsError(_SESSIONLESS_HINT)
+
+    # Iteramos dict por fila para reusar el mapeo verbatim.
+    rows: list[dict] = []
+    for raw in df.to_dict("records"):
+        mapped = _map_row_by_date(raw)
+        if mapped is not None:
+            rows.append(mapped)
+    rows.sort(key=lambda r: r["date"])
+    return rows
+
+
+def _to_monthly_rows(rows: list[dict]) -> list[dict]:
+    """Normaliza filas del BR a mensuales (1 fila por mes, fecha YYYY-MM-01).
+
+    Segunda mitad extraída de `_parse_business_report` (F7-A1), compartida con
+    `_parse_actual_report` para no duplicar la rama de granularidad.
+
+    El HTML original asume mensual (su demo es mensual ISO); los BRs reales
+    by-date de Amazon vienen diarios. Si `_detect_granularity` dice "daily" se
+    agrega; si dice "monthly" sólo se normaliza la fecha al día 01.
+    """
+    if _detect_granularity(rows) == "daily":
+        return _aggregate_daily_to_monthly(rows)
+    out: list[dict] = []
+    for r in rows:
+        row = dict(r)
+        try:
+            y, m, _d = row["date"].split("-")
+            row["date"] = f"{int(y):04d}-{int(m):02d}-01"
+        except (ValueError, AttributeError):
+            pass
+        out.append(row)
+    return out
+
+
 @st.cache_data(show_spinner=False)
 def _parse_business_report(data: bytes, filename: str) -> list[dict]:
     """Parsea CSV o XLSX del BR by-date. Recibe bytes (no UploadedFile) para
@@ -997,45 +1076,91 @@ def _parse_business_report(data: bytes, filename: str) -> list[dict]:
             reporte equivocado — Sales and Orders by Month en vez de Sales
             and Traffic by Date).
     """
-    lower = filename.lower()
-    if lower.endswith((".xlsx", ".xls")):
-        df = pd.read_excel(BytesIO(data))
-    else:
-        # CSV. Autodetección de separador como en el resto del repo.
-        sample = data[:4096].decode("utf-8-sig", errors="ignore")
-        first_line = sample.split("\n", 1)[0] if sample else ""
-        sep = ";" if first_line.count(";") > first_line.count(",") else ","
-        df = pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=sep)
+    return _to_monthly_rows(_read_br_rows(data, filename))
 
-    # Rechazo temprano si NO hay sessions (reporte equivocado).
-    # Hacemos esto ANTES del mapeo fila por fila porque queremos un error claro
-    # al AM, no ingerir "a medias" con sessions=0 que rompe el motor F3.
-    if not _has_sessions_column(df):
-        raise ReportLacksSessionsError(_SESSIONLESS_HINT)
 
-    # Iteramos dict por fila para reusar el mapeo verbatim.
-    rows: list[dict] = []
-    for raw in df.to_dict("records"):
-        mapped = _map_row_by_date(raw)
-        if mapped is not None:
-            rows.append(mapped)
-    rows.sort(key=lambda r: r["date"])
+# ─────────────────────────────────────────────────────────────────────────────
+# F7-A1 — Capa `actual`: el REAL mes a mes, para comparar contra el forecast
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# `actual` es una TERCERA serie que CONVIVE con `historical` y `forecast` — no
+# pisa ninguna. Sale del MISMO Business Report que `historical`, así que tiene el
+# MISMO shape: los accessors `from_hist` de las 10 métricas de `_METRICS`
+# funcionan tal cual sobre estas filas (cero accessors nuevos).
+#
+# Lo único que agrega son 2 keys de cobertura, para poder marcar visualmente el
+# mes que todavía está corriendo.
 
-    # Detección de granularidad + agregación día→mes.
-    # El HTML original asume mensual (su demo es mensual ISO); BRs reales by-date
-    # de Amazon vienen diarios. Agregamos acá para mantener el contrato del
-    # historical: 1 fila por mes, fecha YYYY-MM-01.
-    if _detect_granularity(rows) == "daily":
-        rows = _aggregate_daily_to_monthly(rows)
-    else:
-        # Mensual: normalizar fechas a YYYY-MM-01 por consistencia.
-        for r in rows:
-            try:
-                y, m, _d = r["date"].split("-")
-                r["date"] = f"{int(y):04d}-{int(m):02d}-01"
-            except (ValueError, AttributeError):
-                pass
-    return rows
+
+def _count_days_by_month(rows: list[dict]) -> dict[str, int]:
+    """Días DISTINTOS presentes por mes. Clave: fecha del mes en ISO (YYYY-MM-01).
+
+    Cuenta días únicos (dos filas del mismo día no inflan la cobertura). Filas con
+    `date` ausente o malformado se saltean — mismo guard defensivo que
+    `_detect_granularity`.
+    """
+    seen: dict[str, set] = {}
+    for r in rows:
+        try:
+            y, m, d = r["date"].split("-")
+            key = f"{int(y):04d}-{int(m):02d}-01"
+        except (ValueError, AttributeError, KeyError, TypeError):
+            continue
+        seen.setdefault(key, set()).add(d)
+    return {k: len(v) for k, v in seen.items()}
+
+
+def _parse_actual_report(data: bytes, filename: str) -> list[dict]:
+    """Parsea un BR y devuelve filas mensuales de la capa `actual`.
+
+    Shape = el mismo de `_parse_business_report` (lo que alimenta `historical`)
+    más 2 keys de cobertura:
+
+        days_covered: Optional[int]   días con dato dentro de ese mes
+        partial:      Optional[bool]  TRI-ESTADO
+
+    Los tres estados de `partial`:
+        True  → cobertura conocida e INCOMPLETA (BR diario, faltan días del mes)
+        False → cobertura conocida y COMPLETA   (BR diario, mes cerrado)
+        None  → cobertura DESCONOCIDA           (BR mensual: Amazon ya agregó)
+
+    El caso `None` NO se resuelve acá: esta función es PURA (no llama a
+    `date.today()`). Lo desambigua la UI comparando el mes de la fila contra hoy
+    — mes en curso → parcial, mes pasado → cerrado. Asumir `True` a ciegas
+    pintaría un mes CERRADO bajado en By Month como parcial en el evolutivo, que
+    es un dato engañoso hacia el cliente.
+
+    Multi-mes: cada mes se resuelve por separado (un BR diario de junio+julio da
+    junio `partial=False` y julio `partial=True`). Eso es lo que hace evolutiva a
+    la capa, en vez de "sólo el mes en curso".
+
+    Borde conocido: un BR diario con UNA sola fila es indistinguible de un BR
+    mensual (`_detect_granularity` lo llama "monthly") → `partial=None`. Sólo
+    ocurre el día 1 del mes, y la UI lo resuelve igual que al resto de los `None`.
+
+    Raises:
+        ReportLacksSessionsError: si el archivo no incluye Sessions (heredado de
+            `_read_br_rows`).
+    """
+    raw_rows = _read_br_rows(data, filename)
+    # La cobertura sólo es medible si el BR vino diario: si Amazon ya agregó,
+    # 1 fila por mes no dice cuántos días cubre.
+    days_by_month = (
+        _count_days_by_month(raw_rows)
+        if _detect_granularity(raw_rows) == "daily"
+        else {}
+    )
+
+    out: list[dict] = []
+    for r in _to_monthly_rows(raw_rows):
+        row = dict(r)
+        covered = days_by_month.get(row["date"])
+        row["days_covered"] = covered
+        row["partial"] = (
+            None if covered is None else covered < _days_in_month(row["date"])
+        )
+        out.append(row)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2368,6 +2493,43 @@ def _bridge(hist_rows: list, fc_rows: list, from_hist, from_fc) -> tuple:
     return serie_hist, {"x": fc_x, "y": fc_y}
 
 
+def _actual_series(hist_rows: list, actual_rows: list, accessor) -> dict:
+    """Serie de la capa `actual` (F7-A): {x, y, partial}, con bridge al histórico.
+
+    La serie `actual` arranca repitiendo el último punto histórico — igual que la
+    de forecast — para que ambas líneas salgan del MISMO lugar y se vea dónde
+    divergen. Eso es exactamente la lectura que el AM necesita: real vs proyectado.
+
+    Reusa `_bridge` sin tocarlo: como las filas de `actual` tienen shape de
+    `historical`, `from_hist` y `from_fc` son el MISMO accessor, y el segundo
+    elemento que devuelve `_bridge` ya es la serie puenteada que hace falta.
+
+    El ancla es el último histórico ESTRICTAMENTE ANTERIOR al primer `actual`, no
+    `hist_rows[-1]`: cuando un mes de `actual` cierra entra también a `historical`,
+    y anclar al último a secas haría que la línea vuelva para atrás.
+
+    `partial` viene alineado con x/y. El punto de bridge es un punto histórico
+    (mes cerrado) → `False`. El resto copia el flag de cada fila, incluido `None`
+    (cobertura desconocida — ver `_parse_actual_report`).
+
+    Contratos:
+      - actual vacío → {"x": [], "y": [], "partial": []}
+      - sin histórico anterior al primer actual → SIN bridge
+      - valor None en el punto de ancla → el bridge copia None (no inventa 0)
+    """
+    if not actual_rows:
+        return {"x": [], "y": [], "partial": []}
+
+    first_date = actual_rows[0]["date"]
+    anchor_rows = [r for r in hist_rows if r["date"] < first_date]
+    _hist_serie, serie = _bridge(anchor_rows, actual_rows, accessor, accessor)
+
+    partial = [r.get("partial") for r in actual_rows]
+    if len(serie["x"]) == len(actual_rows) + 1:      # hubo bridge
+        partial = [False] + partial
+    return {"x": serie["x"], "y": serie["y"], "partial": partial}
+
+
 def _yoy_series(hist_rows: list, fc_rows: list, from_hist) -> dict:
     """Serie del mismo mes del año previo, sobre el eje COMPLETO (hist+fc), SIN
     bridge. La fuente es SIEMPRE `hist_rows` + `from_hist` (nunca fc: proyectar
@@ -2395,6 +2557,24 @@ def _yoy_series(hist_rows: list, fc_rows: list, from_hist) -> dict:
 _CHART_GRID = "#1d1d1d"       # --line-2 (tema oscuro, default del OS)
 _CHART_TICK = "#a8a8a8"       # --text-mute
 _CHART_FONT = "JetBrains Mono, monospace"
+
+# F7-A2 — color único de la línea `actual` (el REAL contra el forecast). Verde
+# más saturado que el CVR del catálogo (#34D399) para que no se confundan cuando
+# el chart de CVR muestre las dos.
+_CHART_ACTUAL = "#22C55E"
+
+# Tamaño y grosor de anillo del punto de un mes PARCIAL (mes en curso). Ver el
+# docstring de `_chart_trace`: con los defaults el `circle-open` se dibuja pero
+# no se ve.
+#
+# 🔴 CALIBRADO A OJO, NO DEDUCIDO. Este valor pasó por 11 → 8 → 12: el 8 salió de
+# razonar la geometría sobre el papel (hueco = size - ring) y NO sobrevivió al
+# chart renderizado. La aritmética da un hueco de 6px, pero contra una línea de
+# 2px del mismo color el aro queda ilegible al tamaño real del punto. A 12 el
+# hueco es de 10px → ~4px visibles a cada lado.
+# Si hay que volver a tocarlo: mirando el chart, no la cuenta.
+_MARKER_SIZE_PARTIAL = 12
+_MARKER_RING_PARTIAL = 2
 
 # Layout base VERIFICADO contra el HTML de Edu. Fondo transparente → hereda el
 # tema de Streamlit; valores del tema OSCURO fijos (Streamlit no expone
@@ -2428,14 +2608,32 @@ def _washed_color(hex6: str, alpha_hex: str = "88") -> str:
     return f"rgba({r},{g},{b},{a:.3f})"
 
 
+# F7-A4 — verde despintado para la 2da línea `actual` en adelante de los charts
+# MULTI-MÉTRICA (Ads, ACOS/TACOS, Custom). Mismo alpha que el YoY.
+#
+# Por qué: el reporte HTML se abre y se le saca screenshot. Ahí no hay hover, y
+# dos (o más) líneas del MISMO verde son indistinguibles salvo por la legend.
+# Con la 1ra sólida y el resto washed, cuál es cuál se lee de un vistazo.
+#
+# Se aplica en los builders, así que rige TAMBIÉN en la app — a propósito: si el
+# export se viera distinto de la pantalla, el AM validaría una figura y mandaría
+# otra. Los charts de UNA métrica (`_metric_chart`) no se tocan: ahí la única
+# línea real sigue sólida.
+_CHART_ACTUAL_WASHED = _washed_color(_CHART_ACTUAL)
+
+
 def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
-                  show_yoy: bool = False) -> "go.Figure":
+                  show_yoy: bool = False,
+                  actual_rows: Optional[list] = None) -> "go.Figure":
     """Construye la figura de UNA métrica del catálogo `_METRICS`.
 
-    Hasta 3 traces: histórico (spline sólido), forecast (dashed, mismo color) y
-    YoY opcional (dotted, color washed-out `+"88"`). Todos los valores salen de
-    `_bridge`/`_yoy_series` con los accessors del catálogo — NO se recalcula nada.
+    Hasta 4 traces: histórico (spline sólido), forecast (dashed, mismo color),
+    YoY opcional (dotted, color washed-out `+"88"`) y `actual` opcional (sólido
+    verde, F7-A2). Todos los valores salen de `_bridge`/`_yoy_series`/
+    `_actual_series` con los accessors del catálogo — NO se recalcula nada.
     Eje Y formateado según `unit` (currency/count/percent).
+
+    `actual_rows` None o [] → figura idéntica a la de antes de F7-A2.
 
     Guard: `hist_rows` vacío → figura VACÍA (con layout), NO excepción (fiel al
     HTML `if (state.historical.length === 0) return;`).
@@ -2481,6 +2679,12 @@ def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
             connectgaps=True,
         ))
 
+    # Trace 4 — actual (F7-A2, sólo si el AM cargó el real).
+    if actual_rows:
+        tr = _actual_trace(hist_rows, actual_rows, m)
+        if tr is not None:
+            fig.add_trace(tr)
+
     # Eje Y según unidad.
     unit = m["unit"]
     if unit == "currency":
@@ -2504,12 +2708,37 @@ def _metric_chart(metric_id: str, hist_rows: list, fc_rows: list,
 # que G2) para que el lenguaje visual sea idéntico en los 7 charts.
 
 
-def _chart_trace(x: list, y: list, name: str, color: str, role: str) -> "go.Scatter":
+def _chart_trace(x: list, y: list, name: str, color: str, role: str,
+                 partial: Optional[list] = None) -> "go.Scatter":
     """Arma un go.Scatter con el estilo del módulo según `role`:
-        'hist' → sólido, width 2, marker 4
-        'fc'   → dashed, width 2, marker 6   (dashed = forecast, en los 7 charts)
-        'yoy'  → dotted, width 1, marker 2, color washed-out (_washed_color)
+        'hist'   → sólido, width 2, marker 4
+        'fc'     → dashed, width 2, marker 6   (dashed = forecast, en los 7 charts)
+        'yoy'    → dotted, width 1, marker 2, color washed-out (_washed_color)
+        'actual' → sólido, width 2, marker 5   (F7-A2: el REAL vs el forecast)
     Mismos tokens que _metric_chart (G2). Todos con spline 0.3 + connectgaps.
+
+    `actual` va SÓLIDA a propósito: es dato real cerrado, con el mismo peso visual
+    que la línea histórica. El dash queda reservado al forecast en los 7 charts.
+
+    `partial` (F7-A2, ADITIVO): lista de `Optional[bool]` alineada con x/y que
+    marca qué puntos son de un mes todavía en curso.
+        None (default) → NADA se arma; el marker queda como siempre (size
+                         escalar, sin symbol, sin line). Es lo que mantiene
+                         intactos los roles viejos, que no lo pasan.
+        lista          → se arman TRES arrays paralelos. Sólo `True` marca el
+                         punto: `False` y `None` (cobertura desconocida, ver
+                         `_parse_actual_report`) van llenos y del tamaño normal.
+
+    Por qué tres arrays y no sólo `symbol` (hallazgo del smoke visual de A3):
+    plotly.js estroquea los símbolos `-open` con `marker.line.width`, cuyo default
+    de schema en scatter es 0 → cae a un fallback de 1px. Un anillo de 1px sobre
+    un marcador de 5px, atravesado por la línea de 2px del MISMO color, deja medio
+    píxel de hueco a cada lado: el `circle-open` se dibujaba, pero era ilegible.
+    El tamaño salió de mirar el chart, no de la cuenta: con size 8 la aritmética
+    daba 6px de hueco y ~2px visibles a cada lado, y aun así el aro no se leía al
+    tamaño real del punto. `_MARKER_SIZE_PARTIAL` está en 12 (ver su comentario) →
+    hueco de 10px, ~4px por lado. `line.width=0` en los no-parciales deja esos
+    puntos exactos. El param NO está acoplado al role — si se pasa, se aplica.
     """
     if role == "hist":
         line = dict(color=color, width=2, shape="spline", smoothing=0.3)
@@ -2517,21 +2746,76 @@ def _chart_trace(x: list, y: list, name: str, color: str, role: str) -> "go.Scat
     elif role == "fc":
         line = dict(color=color, width=2, dash="dash", shape="spline", smoothing=0.3)
         marker = dict(size=6)
+    elif role == "actual":
+        line = dict(color=color, width=2, shape="spline", smoothing=0.3)
+        marker = dict(size=5)
     else:  # yoy
         line = dict(color=_washed_color(color), width=1, dash="dot",
                     shape="spline", smoothing=0.3)
         marker = dict(size=2)
+
+    if partial is not None:
+        base = marker["size"]
+        marker["symbol"] = ["circle-open" if p is True else "circle" for p in partial]
+        marker["size"] = [_MARKER_SIZE_PARTIAL if p is True else base for p in partial]
+        marker["line"] = dict(
+            color=line["color"],
+            width=[_MARKER_RING_PARTIAL if p is True else 0 for p in partial],
+        )
+
     return go.Scatter(x=x, y=y, name=name, mode="lines+markers",
                       line=line, marker=marker, connectgaps=True)
 
 
-def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False) -> "go.Figure":
-    """Chart de Ads: spend + ventasPPC en la misma figura (hasta 5 traces).
+# ─────────────────────────────────────────────────────────────────────────────
+# F7-A2 — la línea `actual` en los 7 charts
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Los 4 builders (_metric_chart, _ads_chart, _acos_tacos_chart, _custom_chart)
+# suman `actual_rows=None` AL FINAL de su firma. Con None o [] la figura es
+# exactamente la de antes de F7-A2 — los tests de G2-G4 pasan sin tocarse.
+#
+# Toda la aritmética de la serie es de A1 (`_actual_series`): acá sólo se ensambla
+# el trace. Cero cálculo nuevo, igual que G3/G4.
+
+
+def _actual_trace(hist_rows: list, actual_rows: list, m: dict,
+                  color: str = _CHART_ACTUAL) -> Optional["go.Scatter"]:
+    """Trace `actual` de UNA métrica del catálogo, o None si la serie sale vacía.
+
+    Usa `m["from_hist"]` (no `from_fc`): las filas de `actual` tienen shape de
+    `historical`, así que los valores se CALCULAN igual que en el histórico. Es
+    lo que hace que el ACOS real salga de spend/ventasPPC reales y no de los
+    targets que el motor escribió en el forecast.
+
+    `color` (F7-A4, ADITIVO): default `_CHART_ACTUAL` → los callers viejos y los
+    charts de UNA métrica quedan exactamente igual. Los multi-métrica pasan
+    `_CHART_ACTUAL_WASHED` de la 2da línea real en adelante.
+    """
+    a = _actual_series(hist_rows, actual_rows, m["from_hist"])
+    if not a["x"]:
+        return None
+    return _chart_trace(a["x"], a["y"], f'{m["label"]} (real)',
+                        color, "actual", partial=a["partial"])
+
+
+def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False,
+               actual_rows: Optional[list] = None) -> "go.Figure":
+    """Chart de Ads: spend + ventasPPC en la misma figura (hasta 7 traces).
 
     Trazas: Spend (hist/fc) + Ventas PPC (hist/fc) + UN solo YoY (el de SPEND —
-    verbatim del HTML: con 5 líneas, un 2do YoY lo vuelve ilegible). Eje Y en $
-    con `rangemode="tozero"` — es el ÚNICO de los 7 charts con beginAtZero
-    (HTML L2653). Guard: hist vacío → figura vacía, sin excepción.
+    verbatim del HTML: con 5 líneas, un 2do YoY lo vuelve ilegible) + `actual` de
+    AMBAS métricas (F7-A2). Eje Y en $ con `rangemode="tozero"` — es el ÚNICO de
+    los 7 charts con beginAtZero (HTML L2653). Guard: hist vacío → figura vacía,
+    sin excepción.
+
+    Se dibujan las DOS líneas reales —no sólo spend— por simetría con el forecast,
+    que también proyecta ambas: mostrar el real de una sola dejaría media
+    comparación. Entre sí se distinguen POR COLOR (F7-A4): la 1ra va verde sólido
+    y la 2da verde washed. Antes eran las dos del mismo verde y se separaban por
+    legend + hover, lo que no sobrevive al screenshot del reporte HTML, que es
+    estático. El orden es fijo (spend → ventasPPC), así que cuál queda sólida es
+    estable entre reruns.
     """
     fig = go.Figure()
     fig.update_layout(**_PLOTLY_LAYOUT)
@@ -2555,12 +2839,28 @@ def _ads_chart(hist_rows: list, fc_rows: list, show_yoy: bool = False) -> "go.Fi
         sp_yoy = _yoy_series(hist_rows, fc_rows, _METRICS["spend"]["from_hist"])
         fig.add_trace(_chart_trace(sp_yoy["x"], sp_yoy["y"], "Spend año previo (YoY)", sp_color, "yoy"))
 
+    # F7-A4 — `drawn` cuenta traces EFECTIVAMENTE dibujados, no posiciones del
+    # loop: si el real de spend sale vacío, la sólida pasa a ser ventasPPC. Así
+    # siempre hay exactamente UNA verde sólida cuando hay alguna línea real, en
+    # vez de quedar una washed suelta sin referencia.
+    if actual_rows:
+        drawn = 0
+        for mid in ("spend", "ventasPPC"):
+            tr = _actual_trace(
+                hist_rows, actual_rows, _METRICS[mid],
+                color=_CHART_ACTUAL if drawn == 0 else _CHART_ACTUAL_WASHED,
+            )
+            if tr is not None:
+                fig.add_trace(tr)
+                drawn += 1
+
     fig.update_yaxes(tickprefix="$", tickformat=",.0f", rangemode="tozero")
     return fig
 
 
 def _acos_tacos_chart(hist_rows: list, fc_rows: list,
-                      show_yoy: bool = False) -> "go.Figure":
+                      show_yoy: bool = False,
+                      actual_rows: Optional[list] = None) -> "go.Figure":
     """Chart de ACOS/TACOS: acos + tacos en la misma figura (hasta 5 traces).
 
     DESVIACIÓN CONSCIENTE DEL HTML (decisión de Lenin): en el HTML este era el
@@ -2598,6 +2898,21 @@ def _acos_tacos_chart(hist_rows: list, fc_rows: list,
     if show_yoy:
         ac_yoy = _yoy_series(hist_rows, fc_rows, _METRICS["acos"]["from_hist"])
         fig.add_trace(_chart_trace(ac_yoy["x"], ac_yoy["y"], "ACOS año previo (YoY)", ac_color, "yoy"))
+
+    # F7-A2 — ACOS/TACOS reales. Salen de `from_hist` sobre las filas de `actual`
+    # (spend/ventasPPC/revenue REALES), NUNCA de los targets del forecast: la
+    # gracia de este chart es ver si el target se está cumpliendo o no.
+    # F7-A4 — 1ra sólida (ACOS), 2da washed (TACOS). Misma regla que Ads/Custom.
+    if actual_rows:
+        drawn = 0
+        for mid in ("acos", "tacos"):
+            tr = _actual_trace(
+                hist_rows, actual_rows, _METRICS[mid],
+                color=_CHART_ACTUAL if drawn == 0 else _CHART_ACTUAL_WASHED,
+            )
+            if tr is not None:
+                fig.add_trace(tr)
+                drawn += 1
 
     fig.update_yaxes(ticksuffix="%", tickformat=".1f")
     return fig
@@ -2652,8 +2967,9 @@ def _axis_split(metric_ids: list) -> tuple:
 
 
 def _custom_chart(metric_ids: list, hist_rows: list, fc_rows: list,
-                  show_yoy: bool = False) -> "go.Figure":
-    """Chart custom: hasta 3 traces por métrica seleccionada, con doble eje Y.
+                  show_yoy: bool = False,
+                  actual_rows: Optional[list] = None) -> "go.Figure":
+    """Chart custom: hasta 4 traces por métrica seleccionada, con doble eje Y.
 
     Guards: hist vacío → figura vacía; metric_ids vacío → figura vacía (el
     "mínimo 1 chip" se enforcea en G5); metric_id desconocido → se ignora
@@ -2667,6 +2983,12 @@ def _custom_chart(metric_ids: list, hist_rows: list, fc_rows: list,
         return fig
 
     left_unit, right_unit = _axis_split(metric_ids)
+
+    # F7-A4 — igual que Ads/ACOS: la 1ra línea real dibujada va verde sólido y el
+    # resto washed. Acá el contador vive FUERA del loop de métricas porque hay N.
+    # `metric_ids` llega en orden de catálogo (G5 lo normaliza en L4301 y el
+    # export en el wiring), así que cuál queda sólida es estable entre reruns.
+    drawn_actual = 0
 
     for mid in metric_ids:
         m = _METRICS.get(mid)
@@ -2688,6 +3010,15 @@ def _custom_chart(metric_ids: list, hist_rows: list, fc_rows: list,
             tr = _chart_trace(yoy["x"], yoy["y"], f'{m["label"]} YoY', color, "yoy")
             tr.yaxis = yaxis
             fig.add_trace(tr)
+        if actual_rows:
+            tr = _actual_trace(
+                hist_rows, actual_rows, m,
+                color=_CHART_ACTUAL if drawn_actual == 0 else _CHART_ACTUAL_WASHED,
+            )
+            if tr is not None:
+                tr.yaxis = yaxis     # mismo eje que su métrica, o la escala miente
+                fig.add_trace(tr)
+                drawn_actual += 1
 
     # Eje izquierdo: merge sobre el yaxis de _PLOTLY_LAYOUT (conserva grid/tickfont).
     fig.update_layout(yaxis=_AXIS_FMT.get(left_unit, {}))
@@ -2875,6 +3206,128 @@ def _render_upload_and_demo(cur: dict) -> None:
         if updated:
             parts.append(f"{updated} mes{'es' if updated != 1 else ''} actualizado{'s' if updated != 1 else ''}")
         st.success(f"✓ {' · '.join(parts)} (Spend y Ventas PPC manuales se conservaron).")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F7-A3 — wiring de la capa `actual`
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# A1 dejó los helpers puros, A2 los charts listos para recibir `actual_rows`.
+# Acá se conecta: uploader del mes real + la única pieza que necesita saber qué
+# día es hoy.
+
+
+def _resolve_partial(actual_rows: list, today: Optional[date] = None) -> list:
+    """Cierra el `partial=None` que deja `_parse_actual_report` para el BR mensual.
+
+    A1 es PURO: cuando Amazon ya agregó el mes (1 fila, sin días), no hay forma de
+    medir la cobertura y deja `None` en vez de adivinar. Acá sí sabemos la fecha,
+    así que se resuelve por comparación: el mes EN CURSO está corriendo (parcial),
+    cualquier otro está cerrado.
+
+    Lo que A1 SÍ midió (BR diario → `True`/`False`) NO se pisa: es la verdad del
+    dato. Un julio subido a los 20 días sigue siendo parcial aunque julio ya haya
+    cerrado.
+
+    Devuelve COPIAS. `cur["actual"]` es el dato persistido del cliente y no debe
+    quedar contaminado con un flag derivado de HOY — mañana la respuesta cambia.
+
+    Args:
+        actual_rows: filas de la capa `actual`.
+        today: inyectable para tests; default `date.today()`.
+    """
+    if today is None:
+        today = date.today()
+    mes_en_curso = f"{today.year:04d}-{today.month:02d}-01"
+
+    out: list[dict] = []
+    for r in actual_rows:
+        row = dict(r)
+        if row.get("partial") is None:
+            row["partial"] = (row.get("date") == mes_en_curso)
+        out.append(row)
+    return out
+
+
+def _render_actual_upload(cur: dict) -> None:
+    """Uploader del mes real: el BR del mes en curso, para comparar REAL vs forecast.
+
+    Vive en su propia función y NO al final de `_render_upload_and_demo` a
+    propósito: esa función corta con `return` cuando el BR del histórico falla al
+    parsear, y un bloque agregado abajo quedaría invisible justo en ese caso.
+
+    Mergea sobre `cur["actual"]` con `_merge_historical` — su contrato ya sirve
+    tal cual (match por mes, preserva Spend/Ventas PPC manuales, ordena asc) y no
+    toca `cur["historical"]`: las dos capas conviven.
+
+    NO llama `_try_persist()`, igual que el uploader del histórico: el AM guarda
+    las dos capas de una con el botón 💾.
+
+    F7 · UX — el bloque va en `st.container(border=True)` con el título en el
+    MISMO verde de la línea real. Los dos uploaders piden el mismo reporte y
+    tenían la misma pinta (`#####` + caption + uploader collapsed): en el smoke el
+    archivo se cargó 4 veces en el del histórico. El modo de falla es silencioso
+    —`cur["actual"]` queda vacío y la línea verde simplemente no se dibuja, sin
+    aviso— así que la separación tiene que verse ANTES de soltar el archivo. El
+    verde es el mismo token del chart a propósito: el color del título es el color
+    de la línea que el AM va a buscar.
+    """
+    with st.container(border=True):
+        st.markdown(
+            f"##### <span style='color:{_CHART_ACTUAL}'>●</span> Cargar mes real",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "El mismo reporte \"By Date · Sales and Traffic\", pero del mes que "
+            "está corriendo. Se dibuja como línea verde en los gráficos, contra "
+            "el forecast — no toca el histórico. Si lo que querés es cargar meses "
+            "cerrados, va arriba, en \"Cargar Business Report\"."
+        )
+
+        uploaded = st.file_uploader(
+            "Mes real (CSV o XLSX)",
+            type=["csv", "xlsx", "xls"],
+            key=f"rf_actual_uploader_{cur['id']}",
+            label_visibility="collapsed",
+        )
+        if uploaded is None:
+            return
+
+        data = uploaded.getvalue()
+        try:
+            rows = _parse_actual_report(data, uploaded.name)
+        except ReportLacksSessionsError as e:
+            st.error(str(e))
+            return
+        except Exception as e:  # noqa: BLE001 — fail-soft al AM
+            st.error(f"No se pudo parsear el archivo: {e}")
+            return
+
+        if not rows:
+            st.warning(
+                "No se reconocieron filas con formato by-date en este archivo. "
+                "Verificá que tenga columnas 'Date' y 'Ordered Product Sales'."
+            )
+            return
+
+        merged, _added, _updated = _merge_historical(cur.get("actual", []), rows)
+        cur["actual"] = merged
+
+        resueltas = _resolve_partial(merged)
+        n = len(resueltas)
+        msg = (
+            f"✓ {n} mes{'es' if n != 1 else ''} con datos reales "
+            f"cargado{'s' if n != 1 else ''}."
+        )
+        en_curso = [r["date"] for r in resueltas if r["partial"] is True]
+        if en_curso:
+            ultimo = en_curso[-1]
+            nombre = f"{_MONTHS_FULL[int(ultimo[5:7]) - 1]} {ultimo[:4]}"
+            msg += (
+                f" {nombre} todavía está en curso: es un mes incompleto y se marca "
+                f"con punto hueco en los gráficos."
+            )
+        st.success(msg)
 
 
 def _render_quick_stats(cur: dict) -> None:
@@ -3772,8 +4225,11 @@ def _render_export_section(cur: dict) -> None:
     # si la sección Gráficas llegó a renderizar.
     yoy = st.session_state.get(_K_CHARTS_YOY, True)
     custom = st.session_state.get(_K_CHARTS_CUSTOM, ["revenue"])
+    # `actual` va CRUDO: `_build_export_html` resuelve el `partial` puertas
+    # adentro (un solo punto de verdad, ver su docstring).
     html_str = _build_export_html(
         cur, note=note or "", show_yoy=yoy, custom_metrics=custom,
+        actual_rows=cur.get("actual", []),
     )
     fname_html = (
         f"forecast_{_cliente_slug(cur.get('name', ''))}_"
@@ -3847,7 +4303,12 @@ _K_CHARTS_CUSTOM = f"{_STATE_PREFIX}charts_custom"
 
 
 def _render_charts_section(cur: dict) -> None:
-    """Sección GRÁFICAS (G5): 7 charts en tabs + toggle YoY global. Sólo wiring."""
+    """Sección GRÁFICAS (G5 + F7-A2): 7 charts en tabs + toggle YoY global.
+
+    Sólo wiring. La 3ª serie (`actual`) se resuelve contra hoy y se pasa a los 7;
+    si el AM no cargó el mes real, `actual_rows=[]` y los charts se ven igual que
+    antes de F7 (garantizado por A2, sin guards extra acá).
+    """
     st.divider()
     st.markdown("### 📊 Gráficas")
 
@@ -3856,6 +4317,7 @@ def _render_charts_section(cur: dict) -> None:
         st.info("Cargá el histórico para ver los gráficos.")
         return
     fc_rows = cur.get("forecast", [])
+    actual_rows = _resolve_partial(cur.get("actual", []))
 
     # Buffers (una sola vez, defaults del HTML).
     if _K_CHARTS_CUSTOM not in st.session_state:
@@ -3868,26 +4330,42 @@ def _render_charts_section(cur: dict) -> None:
                     help="Compara contra el mismo mes del año previo (línea punteada).")
     st.session_state[_K_CHARTS_YOY] = yoy
 
+    # F7 · UX — hay histórico pero no mes real: la línea verde no existe y nada
+    # lo dice. Es el mismo síntoma de haber cargado el BR en el uploader
+    # equivocado, así que el hint nombra el bloque exacto al que hay que ir. Va
+    # como caption y no como warning: no falta nada, es una función sin estrenar.
+    if not actual_rows:
+        st.caption(
+            "Cargá el mes en curso en \"● Cargar mes real\" para ver la línea "
+            "real contra el forecast."
+        )
+
     tabs = st.tabs(["Revenue", "Sessions", "CVR", "Units", "Ads",
                     "ACOS/TACOS", "Custom"])
 
     with tabs[0]:
-        st.plotly_chart(_metric_chart("revenue", hist_rows, fc_rows, yoy),
+        st.plotly_chart(_metric_chart("revenue", hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[1]:
-        st.plotly_chart(_metric_chart("sessions", hist_rows, fc_rows, yoy),
+        st.plotly_chart(_metric_chart("sessions", hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[2]:
-        st.plotly_chart(_metric_chart("cvr", hist_rows, fc_rows, yoy),
+        st.plotly_chart(_metric_chart("cvr", hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[3]:
-        st.plotly_chart(_metric_chart("units", hist_rows, fc_rows, yoy),
+        st.plotly_chart(_metric_chart("units", hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[4]:
-        st.plotly_chart(_ads_chart(hist_rows, fc_rows, yoy),
+        st.plotly_chart(_ads_chart(hist_rows, fc_rows, yoy,
+                                   actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[5]:
-        st.plotly_chart(_acos_tacos_chart(hist_rows, fc_rows, yoy),
+        st.plotly_chart(_acos_tacos_chart(hist_rows, fc_rows, yoy,
+                                          actual_rows=actual_rows),
                         use_container_width=True)
     with tabs[6]:
         sel = st.pills(
@@ -3904,7 +4382,8 @@ def _render_charts_section(cur: dict) -> None:
         # se dibuja con el BUFFER, nunca con `sel`.
         selected = [mid for mid in _METRICS
                     if mid in st.session_state[_K_CHARTS_CUSTOM]]
-        st.plotly_chart(_custom_chart(selected, hist_rows, fc_rows, yoy),
+        st.plotly_chart(_custom_chart(selected, hist_rows, fc_rows, yoy,
+                                      actual_rows=actual_rows),
                         use_container_width=True)
 
 
@@ -4096,6 +4575,7 @@ def _build_export_html(
     note: str = "",
     show_yoy: bool = True,
     custom_metrics: Optional[list] = None,
+    actual_rows: Optional[list] = None,
 ) -> str:
     """Reporte HTML self-contained del forecast: 7 charts Plotly + resumen + tabla.
 
@@ -4118,6 +4598,15 @@ def _build_export_html(
                   (`_K_CHARTS_CUSTOM`) → el Custom del reporte refleja lo que el
                   AM eligió en pantalla, en vez de ser un duplicado del chart de
                   Revenue.
+        actual_rows: capa `actual` CRUDA (F7-A4). None o `[]` → el reporte sale
+                  exactamente como antes de A4, sin línea verde: el default
+                  mantiene retrocompatible a todo caller viejo.
+                  A diferencia de `show_yoy`/`custom_metrics`, acá NO se pide el
+                  dato ya resuelto: el `partial=None` que deja
+                  `_parse_actual_report` se cierra ACÁ ADENTRO con
+                  `_resolve_partial`, un solo punto de verdad. Meterle
+                  `date.today()` a esta función no agrega una dependencia
+                  temporal nueva — ya la tiene para el `gen` del header.
 
     Returns:
         Documento HTML completo como string.
@@ -4166,16 +4655,26 @@ def _build_export_html(
             f'<div class="cards">{cards_html}</div></section>'
         )
 
+    # F7-A4 — la capa `actual` se resuelve UNA vez, acá, y de acá baja a los 7.
+    actual = _resolve_partial(actual_rows) if actual_rows else []
+
+    # Orden de catálogo, igual que G5 en L4301. El buffer de los chips guarda el
+    # orden en que el AM los fue tocando, no el del catálogo, y ese orden decide
+    # dos cosas: qué línea real va sólida (F7-A4) y cuál es el eje izquierdo
+    # (`_axis_split` mira la 1ra unidad que aparece). Sin normalizar, el Custom
+    # del reporte podía salir distinto del que el AM validó en pantalla.
+    custom_ids = [mid for mid in _METRICS if mid in (custom_metrics or ["revenue"])]
+
     # Los 7 charts — se CONSTRUYEN llamando a los charts puros de G1-G4, con el
     # mismo `show_yoy` que el AM tiene en pantalla. Orden = tabs de G5.
     figs = [
-        _metric_chart("revenue", hist, fc, show_yoy),
-        _metric_chart("sessions", hist, fc, show_yoy),
-        _metric_chart("cvr", hist, fc, show_yoy),
-        _metric_chart("units", hist, fc, show_yoy),
-        _ads_chart(hist, fc, show_yoy),
-        _acos_tacos_chart(hist, fc, show_yoy),
-        _custom_chart(custom_metrics or ["revenue"], hist, fc, show_yoy),
+        _metric_chart("revenue", hist, fc, show_yoy, actual_rows=actual),
+        _metric_chart("sessions", hist, fc, show_yoy, actual_rows=actual),
+        _metric_chart("cvr", hist, fc, show_yoy, actual_rows=actual),
+        _metric_chart("units", hist, fc, show_yoy, actual_rows=actual),
+        _ads_chart(hist, fc, show_yoy, actual_rows=actual),
+        _acos_tacos_chart(hist, fc, show_yoy, actual_rows=actual),
+        _custom_chart(custom_ids, hist, fc, show_yoy, actual_rows=actual),
     ]
     charts_html = "".join(
         f'<div class="chart"><h2>{html.escape(t)}</h2>'
@@ -4489,6 +4988,8 @@ def render() -> None:
     _render_account_config(cur)
     st.markdown("")
     _render_upload_and_demo(cur)
+    st.markdown("")
+    _render_actual_upload(cur)
     st.markdown("")
     _render_quick_stats(cur)
     st.markdown("")
