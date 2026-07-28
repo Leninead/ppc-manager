@@ -2565,8 +2565,15 @@ _CHART_ACTUAL = "#22C55E"
 
 # Tamaño y grosor de anillo del punto de un mes PARCIAL (mes en curso). Ver el
 # docstring de `_chart_trace`: con los defaults el `circle-open` se dibuja pero
-# no se ve. 8 (no más) para que lea "incompleto" y no "destacado".
-_MARKER_SIZE_PARTIAL = 8
+# no se ve.
+#
+# 🔴 CALIBRADO A OJO, NO DEDUCIDO. Este valor pasó por 11 → 8 → 12: el 8 salió de
+# razonar la geometría sobre el papel (hueco = size - ring) y NO sobrevivió al
+# chart renderizado. La aritmética da un hueco de 6px, pero contra una línea de
+# 2px del mismo color el aro queda ilegible al tamaño real del punto. A 12 el
+# hueco es de 10px → ~4px visibles a cada lado.
+# Si hay que volver a tocarlo: mirando el chart, no la cuenta.
+_MARKER_SIZE_PARTIAL = 12
 _MARKER_RING_PARTIAL = 2
 
 # Layout base VERIFICADO contra el HTML de Edu. Fondo transparente → hereda el
@@ -2727,10 +2734,11 @@ def _chart_trace(x: list, y: list, name: str, color: str, role: str,
     de schema en scatter es 0 → cae a un fallback de 1px. Un anillo de 1px sobre
     un marcador de 5px, atravesado por la línea de 2px del MISMO color, deja medio
     píxel de hueco a cada lado: el `circle-open` se dibujaba, pero era ilegible.
-    Con size 8 + anillo de 2px el hueco interior queda en ~6px → ~2px visibles a
-    cada lado de la línea. Size 8 y no más: el mensaje es "mes incompleto", no
-    "mes destacado". `line.width=0` en los no-parciales deja esos puntos exactos.
-    El param NO está acoplado al role — si se pasa, se aplica.
+    El tamaño salió de mirar el chart, no de la cuenta: con size 8 la aritmética
+    daba 6px de hueco y ~2px visibles a cada lado, y aun así el aro no se leía al
+    tamaño real del punto. `_MARKER_SIZE_PARTIAL` está en 12 (ver su comentario) →
+    hueco de 10px, ~4px por lado. `line.width=0` en los no-parciales deja esos
+    puntos exactos. El param NO está acoplado al role — si se pasa, se aplica.
     """
     if role == "hist":
         line = dict(color=color, width=2, shape="spline", smoothing=0.3)

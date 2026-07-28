@@ -154,12 +154,16 @@ def test_chart_trace_partial_aplica_a_cualquier_role():
 
 
 def test_punto_parcial_es_mas_grande_que_los_llenos():
-    """`size` pasa a ARRAY: 8 el parcial, 5 el resto. 8 y no más — el mensaje es
-    'mes incompleto', no 'mes destacado'.
+    """`size` pasa a ARRAY: 12 el parcial, 5 el resto.
+
+    El 12 está calibrado MIRANDO el chart, no deduciendo la geometría: con 8 la
+    cuenta daba 6px de hueco y el aro igual no se leía contra la línea de 2px del
+    mismo color. Literal y no `rf._MARKER_SIZE_PARTIAL` a propósito — un test que
+    lee la constante no puede cazar que la constante esté mal.
     """
     tr = rf._chart_trace([1, 2], [3, 4], "x", rf._CHART_ACTUAL, "actual",
                          partial=[False, True])
-    assert tuple(tr.marker.size) == (5, 8)
+    assert tuple(tr.marker.size) == (5, 12)
 
 
 def test_punto_parcial_tiene_anillo_grueso_y_los_llenos_no():
@@ -180,7 +184,7 @@ def test_los_tres_arrays_van_alineados():
     tr = rf._chart_trace([1, 2, 3, 4], [1, 2, 3, 4], "x", rf._CHART_ACTUAL,
                          "actual", partial=partial)
     assert tuple(tr.marker.symbol) == ("circle", "circle-open", "circle", "circle-open")
-    assert tuple(tr.marker.size) == (5, 8, 5, 8)
+    assert tuple(tr.marker.size) == (5, 12, 5, 12)
     assert tuple(tr.marker.line.width) == (0, 2, 0, 2)
 
 
@@ -204,7 +208,7 @@ def test_legibilidad_llega_hasta_la_figura():
     verde = _green_traces(fig)[0]
     # bridge (hist) · julio cerrado · agosto en curso
     assert tuple(verde.marker.symbol) == ("circle", "circle", "circle-open")
-    assert tuple(verde.marker.size) == (5, 5, 8)
+    assert tuple(verde.marker.size) == (5, 5, 12)
     assert tuple(verde.marker.line.width) == (0, 0, 2)
 
 
