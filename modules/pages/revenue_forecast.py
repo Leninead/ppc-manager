@@ -3254,58 +3254,72 @@ def _render_actual_upload(cur: dict) -> None:
 
     NO llama `_try_persist()`, igual que el uploader del histórico: el AM guarda
     las dos capas de una con el botón 💾.
+
+    F7 · UX — el bloque va en `st.container(border=True)` con el título en el
+    MISMO verde de la línea real. Los dos uploaders piden el mismo reporte y
+    tenían la misma pinta (`#####` + caption + uploader collapsed): en el smoke el
+    archivo se cargó 4 veces en el del histórico. El modo de falla es silencioso
+    —`cur["actual"]` queda vacío y la línea verde simplemente no se dibuja, sin
+    aviso— así que la separación tiene que verse ANTES de soltar el archivo. El
+    verde es el mismo token del chart a propósito: el color del título es el color
+    de la línea que el AM va a buscar.
     """
-    st.markdown("##### Cargar mes real")
-    st.caption(
-        "El mismo reporte \"By Date · Sales and Traffic\", pero del mes que está "
-        "corriendo. Se dibuja como línea verde en los gráficos, contra el "
-        "forecast — no toca el histórico."
-    )
-
-    uploaded = st.file_uploader(
-        "Mes real (CSV o XLSX)",
-        type=["csv", "xlsx", "xls"],
-        key=f"rf_actual_uploader_{cur['id']}",
-        label_visibility="collapsed",
-    )
-    if uploaded is None:
-        return
-
-    data = uploaded.getvalue()
-    try:
-        rows = _parse_actual_report(data, uploaded.name)
-    except ReportLacksSessionsError as e:
-        st.error(str(e))
-        return
-    except Exception as e:  # noqa: BLE001 — fail-soft al AM
-        st.error(f"No se pudo parsear el archivo: {e}")
-        return
-
-    if not rows:
-        st.warning(
-            "No se reconocieron filas con formato by-date en este archivo. "
-            "Verificá que tenga columnas 'Date' y 'Ordered Product Sales'."
+    with st.container(border=True):
+        st.markdown(
+            f"##### <span style='color:{_CHART_ACTUAL}'>●</span> Cargar mes real",
+            unsafe_allow_html=True,
         )
-        return
-
-    merged, _added, _updated = _merge_historical(cur.get("actual", []), rows)
-    cur["actual"] = merged
-
-    resueltas = _resolve_partial(merged)
-    n = len(resueltas)
-    msg = (
-        f"✓ {n} mes{'es' if n != 1 else ''} con datos reales "
-        f"cargado{'s' if n != 1 else ''}."
-    )
-    en_curso = [r["date"] for r in resueltas if r["partial"] is True]
-    if en_curso:
-        ultimo = en_curso[-1]
-        nombre = f"{_MONTHS_FULL[int(ultimo[5:7]) - 1]} {ultimo[:4]}"
-        msg += (
-            f" {nombre} todavía está en curso: es un mes incompleto y se marca "
-            f"con punto hueco en los gráficos."
+        st.caption(
+            "El mismo reporte \"By Date · Sales and Traffic\", pero del mes que "
+            "está corriendo. Se dibuja como línea verde en los gráficos, contra "
+            "el forecast — no toca el histórico. Si lo que querés es cargar meses "
+            "cerrados, va arriba, en \"Cargar Business Report\"."
         )
-    st.success(msg)
+
+        uploaded = st.file_uploader(
+            "Mes real (CSV o XLSX)",
+            type=["csv", "xlsx", "xls"],
+            key=f"rf_actual_uploader_{cur['id']}",
+            label_visibility="collapsed",
+        )
+        if uploaded is None:
+            return
+
+        data = uploaded.getvalue()
+        try:
+            rows = _parse_actual_report(data, uploaded.name)
+        except ReportLacksSessionsError as e:
+            st.error(str(e))
+            return
+        except Exception as e:  # noqa: BLE001 — fail-soft al AM
+            st.error(f"No se pudo parsear el archivo: {e}")
+            return
+
+        if not rows:
+            st.warning(
+                "No se reconocieron filas con formato by-date en este archivo. "
+                "Verificá que tenga columnas 'Date' y 'Ordered Product Sales'."
+            )
+            return
+
+        merged, _added, _updated = _merge_historical(cur.get("actual", []), rows)
+        cur["actual"] = merged
+
+        resueltas = _resolve_partial(merged)
+        n = len(resueltas)
+        msg = (
+            f"✓ {n} mes{'es' if n != 1 else ''} con datos reales "
+            f"cargado{'s' if n != 1 else ''}."
+        )
+        en_curso = [r["date"] for r in resueltas if r["partial"] is True]
+        if en_curso:
+            ultimo = en_curso[-1]
+            nombre = f"{_MONTHS_FULL[int(ultimo[5:7]) - 1]} {ultimo[:4]}"
+            msg += (
+                f" {nombre} todavía está en curso: es un mes incompleto y se marca "
+                f"con punto hueco en los gráficos."
+            )
+        st.success(msg)
 
 
 def _render_quick_stats(cur: dict) -> None:
@@ -4307,6 +4321,16 @@ def _render_charts_section(cur: dict) -> None:
     yoy = st.toggle("Mostrar YoY", value=st.session_state[_K_CHARTS_YOY],
                     help="Compara contra el mismo mes del año previo (línea punteada).")
     st.session_state[_K_CHARTS_YOY] = yoy
+
+    # F7 · UX — hay histórico pero no mes real: la línea verde no existe y nada
+    # lo dice. Es el mismo síntoma de haber cargado el BR en el uploader
+    # equivocado, así que el hint nombra el bloque exacto al que hay que ir. Va
+    # como caption y no como warning: no falta nada, es una función sin estrenar.
+    if not actual_rows:
+        st.caption(
+            "Cargá el mes en curso en \"● Cargar mes real\" para ver la línea "
+            "real contra el forecast."
+        )
 
     tabs = st.tabs(["Revenue", "Sessions", "CVR", "Units", "Ads",
                     "ACOS/TACOS", "Custom"])
