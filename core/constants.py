@@ -37,7 +37,7 @@ _PAGES = [
     "🏥 SKU Progress Report",
     "💲 Pricing Dashboard",
     "📋 Proposal Studio",
-    "📈 Revenue Forecast",
+    "📈 Monthly Forecast",
     "🏆 Case Study Studio",
     "🛒 Mercado Libre",
 ]

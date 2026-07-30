@@ -268,7 +268,7 @@ with st.sidebar:
             "🛡️ Listing Compliance",
             "📊 Gamboa Generator",
             "🧬 Variation Builder",
-            "📈 Revenue Forecast",
+            "📈 Monthly Forecast",
         ]:
             st.button(_pg, use_container_width=True, on_click=_nav,
                       args=(_pg,), key=f"nav_{_pg}")
@@ -413,7 +413,7 @@ if selected == "📋 Proposal Studio":
 if selected == "🏆 Case Study Studio":
     render_case_study_studio()
 
-if selected == "📈 Revenue Forecast":
+if selected == "📈 Monthly Forecast":
     render_revenue_forecast()
 
 if selected == "🛒 Mercado Libre":

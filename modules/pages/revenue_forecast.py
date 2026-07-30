@@ -1,7 +1,13 @@
-"""M31 — Revenue Forecast (port del HTML standalone a módulo Streamlit).
+"""M31 — Monthly Forecast (port del HTML standalone a módulo Streamlit).
+
+El módulo se llamó "Revenue Forecast" hasta 2026-07-30. Se renombró SÓLO el
+nombre visible: el archivo, el import y `MODULE_SLUG = "revenue-forecast"` siguen
+con el nombre viejo a propósito — el slug es key de persistencia (ver su
+comentario en L108). Si el código dice "revenue" y la UI dice "Monthly", es
+deliberado.
 
 Sección: Account Manager
-Página: 📈 Revenue Forecast
+Página: 📈 Monthly Forecast
 Fase: 5 (MVP CERRADO — Estacionalidad UI + Export CSV). Consume el motor
 puro F3 (`auto_detect_seasonality`, `generate_forecast`) sin modificarlo.
 Cambiar la seasonality NO regenera el forecast automático (pisaría los
@@ -105,6 +111,15 @@ from core.forecast_persistence import (
 # ─────────────────────────────────────────────────────────────────────────────
 
 AREA = "account-manager"
+
+# 🔴 KEY DE PERSISTENCIA — NO CAMBIAR AL RENOMBRAR EL MÓDULO.
+# Es la 3ra parte de la PK de Supabase `(area, cliente, modulo, name)` en la
+# tabla `forecast_clients`, y el nombre de la carpeta en disco:
+#     data/account-manager/<cliente>/revenue-forecast/<name>.json
+# Cambiarlo deja HUÉRFANOS todos los clientes ya guardados — el módulo arranca
+# vacío y los datos viejos quedan inalcanzables por PK, sin ningún error.
+# El módulo se renombró a "Monthly Forecast" el 2026-07-30 y este slug quedó
+# intacto justamente por eso. Blindado en test_revenue_forecast_persistence.py.
 MODULE_SLUG = "revenue-forecast"
 SCHEMA_VERSION = 1
 
@@ -123,7 +138,7 @@ _PERSISTENCE_ENABLED = True
 
 # SOP in-app — Fase 4.
 _SOP_MD = """
-### Revenue Forecast — cómo usarlo (Fase 4)
+### Monthly Forecast — cómo usarlo (Fase 4)
 
 Módulo de **forecast editable por-cuenta**. El AM carga histórico, lo
 visualiza, y proyecta N meses al futuro ajustando overrides manualmente.
@@ -3044,7 +3059,7 @@ def _header() -> None:
     st.markdown(
         "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
         "<span style='font-size:2rem;'>📈</span>"
-        "<div><div style='font-size:1.3rem;font-weight:700;'>Revenue Forecast</div>"
+        "<div><div style='font-size:1.3rem;font-weight:700;'>Monthly Forecast</div>"
         "<div style='font-size:0.82rem;color:#888;'>"
         "Account Manager · proyección de revenue cliente-céntrica (Fase 2: ingesta + visualización)"
         "</div></div></div>",
@@ -4204,7 +4219,7 @@ def _render_export_section(cur: dict) -> None:
 
     # ── Reporte HTML (G6) — deliverable cliente-facing con los 7 charts ──
     # Corre DENTRO del guard `if not forecast: return` de arriba → acá el
-    # forecast está garantizado. No se toca ese guard: un "Revenue Forecast
+    # forecast está garantizado. No se toca ese guard: un "Monthly Forecast
     # report" sin forecast no es un deliverable.
     st.markdown("#### Reporte HTML")
     st.caption(
@@ -4625,7 +4640,7 @@ def _build_export_html(
         "<header>\n"
         '<div class="brand">Capybaras</div>\n'
         f"<h1>{html.escape(name)}</h1>\n"
-        f'<div class="meta">Revenue Forecast · generado el {gen}</div>\n'
+        f'<div class="meta">Monthly Forecast · generado el {gen}</div>\n'
         "</header>"
     )
 
@@ -4889,7 +4904,7 @@ def _render_asin_section(cur: dict) -> None:
 
 
 def render() -> None:
-    """Entry point del Revenue Forecast (M31) — sección Account Manager.
+    """Entry point del Monthly Forecast (M31) — sección Account Manager.
 
     Fase 2: header + ayuda + selector de cliente + 4 secciones de la pestaña
     Datos (config de cuenta, upload BR + demo, quick stats, history table).

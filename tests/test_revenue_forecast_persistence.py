@@ -1,4 +1,4 @@
-"""Tests Fase 2 de M31 Revenue Forecast — persistencia encendida + resiliencia.
+"""Tests Fase 2 de M31 Monthly Forecast — persistencia encendida + resiliencia.
 
 Cubre lo que es verificable SIN red y SIN disco real:
 
@@ -55,6 +55,35 @@ def _fresh_state() -> dict:
         rf._K_ACCOUNT_MANAGERS: [],
         rf._K_ACTIVE_CLIENT_ID: None,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 0. CONTRATO DEL SLUG — blindaje contra rename accidental
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_module_slug_es_exactamente_revenue_forecast():
+    """🔴 `MODULE_SLUG` es KEY DE PERSISTENCIA, no un nombre cosmético.
+
+    Viaja en la PK de Supabase `(area, cliente, modulo, name)` de la tabla
+    `forecast_clients`, y es el nombre de la carpeta en disco:
+
+        data/account-manager/<cliente>/revenue-forecast/<name>.json
+
+    Cambiarlo deja HUÉRFANOS los clientes ya guardados: el módulo arranca vacío
+    y los datos viejos quedan inalcanzables por PK, sin lanzar ningún error.
+
+    Este test usa el LITERAL a propósito. El resto del archivo asserta
+    `modulo == rf.MODULE_SLUG`, que es relativo: si alguien cambia la constante,
+    esos asserts siguen verdes mientras los datos se orfanan. El literal es lo
+    único que caza ese cambio.
+
+    El módulo se renombró a "Monthly Forecast" el 2026-07-30 y este slug quedó
+    intacto justamente por esto — el desfasaje nombre-visible ↔ slug es
+    deliberado. Si algún día HAY que cambiarlo, hace falta una migración de los
+    datos guardados (disco + Supabase), no editar este test.
+    """
+    assert rf.MODULE_SLUG == "revenue-forecast"
+    assert rf.AREA == "account-manager"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
