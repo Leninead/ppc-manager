@@ -1,4 +1,10 @@
-"""Capa de persistencia DEDICADA a M31 Revenue Forecast.
+"""Capa de persistencia DEDICADA a M31 Monthly Forecast.
+
+⚠️ El módulo se llamaba "Revenue Forecast" hasta 2026-07-30. Se renombró SÓLO el
+nombre visible: el `modulo` que viaja en la PK y en los paths sigue siendo
+`revenue-forecast` (ver `MODULE_SLUG` en modules/pages/revenue_forecast.py).
+El desfasaje nombre-visible ↔ slug es deliberado — cambiar el slug dejaría
+huérfanos los clientes ya guardados.
 
 Separada de `core/persistence.py` (Account Health) por decisión D3 del
 discovery: los clientes de M31 CONVIVEN con los de Account Health pero NO se
@@ -331,7 +337,7 @@ def _storage_config() -> tuple[str, str] | None:
 
 
 def _backend_flag() -> str:
-    """Flag de selección de backend M31 Revenue Forecast (normalizado).
+    """Flag de selección de backend M31 Monthly Forecast (normalizado).
 
     Precedencia: env `AGENCY_OS_FORECAST_BACKEND` GANA sobre secrets (permite
     forzar local por env aunque secrets diga supabase). Si la env no está
