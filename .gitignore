@@ -66,6 +66,9 @@ notes/sales/*
 !notes/api-integration/
 !notes/api-integration/**
 !notes/Biblioteca.md
+!notes/README.md
+!notes/_archive/
+!notes/_archive/**
 !notes/CLAUDE.md
 !notes/_cheat-sheet-diario.md
 !notes/arranque-*.md
