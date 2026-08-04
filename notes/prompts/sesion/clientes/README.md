@@ -127,5 +127,5 @@ Cuando llegue cliente número 5+:
 - `[[arranque-continuar]]` — continuación de sesión a medias
 - `[[arranque-reporte-semanal]]` — reporting weekly
 - `[[cierre-meta]]` — ritual de cierre estandarizado
-- `[[Biblioteca]]` — índice global del vault
+- `notes/README.md` — índice de entrada del vault
 - `[[CLAUDE]]` — instrucciones generales repo

@@ -30,10 +30,9 @@ métricas ni decisiones que no estén escritas en el repo.
 
 <background>
 Antes de responder, leé en este orden — sin pedir permiso:
-1. notes/Biblioteca.md (índice maestro del vault)
-2. notes/state/STATE-agencia.md (estado operativo general)
-3. El daily más reciente en notes/daily/ (formato YYYY-MM-DD.md, ordenar por fecha desc)
-4. notes/CLAUDE.md (convenciones del vault)
+1. notes/state/STATE-agencia.md (estado operativo general)
+2. El daily más reciente en notes/daily/ (formato YYYY-MM-DD.md, ordenar por fecha desc)
+3. notes/CLAUDE.md (convenciones del vault)
 </background>
 
 <rules>

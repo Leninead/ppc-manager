@@ -16,7 +16,7 @@ Existe en paralelo al repo de código (C:\proyectos\ppc-manager). El CLAUDE.md d
 
 ## Estructura de carpetas
 
-Archivos en la raíz de notes/: README.md (homepage / puerta de entrada), CLAUDE.md (este doc), Biblioteca.md (índice histórico, archivado), _cheat-sheet-diario.md.
+Archivos en la raíz de notes/: README.md (homepage / puerta de entrada), CLAUDE.md (este doc), _cheat-sheet-diario.md.
 
 Carpetas (14):
 - _archive/ — histórico del vault fuera de circulación (no borrar, trazabilidad)
@@ -73,10 +73,10 @@ Una idea = una nota. Si estás escribiendo sobre dos temas distintos, son dos no
 
 Leer en este orden:
 
-1. notes/Biblioteca.md — índice maestro.
-2. notes/state/STATE-agencia.md — estado general.
-3. Si hay cliente específico en la tarea: notes/state/STATE-[cliente].md + notes/brands/[cliente]/*.
-4. Último daily en notes/daily/ — qué se hizo en la sesión previa.
+1. notes/state/STATE-agencia.md — estado general.
+2. Si hay cliente específico en la tarea: notes/state/STATE-[cliente].md + notes/brands/[cliente]/*.
+3. Último daily en notes/daily/ — qué se hizo en la sesión previa.
+4. notes/CLAUDE.md (este doc) — convenciones del vault, si no las tenés frescas.
 
 Responder al usuario con un resumen de 3-5 bullets de dónde quedó el trabajo y cuál es el siguiente paso lógico.
 

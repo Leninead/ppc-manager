@@ -263,9 +263,8 @@ Genera múltiples outputs por tipo (cambio importante desde enero 2026: ya no es
 1. Crear notebook `intel-agencia-q{n}-{aaaa}` (ejemplo: `intel-agencia-q2-2026`)
 2. Subir como fuentes:
    - Todo el contenido de `notes/sops/` (zippearlo y subir como folder en Drive, después linkear)
-   - `notes/Biblioteca.md`
+   - `notes/sops/agencia/biblioteca-knowledge-workflow.md`
    - `notes/state/STATE-agencia.md`
-   - `INTELLIGENCE-INDEX.md`
    - Las últimas 50 daily notes (priorizar daily de incidentes y decisiones, no las de checkpoint rutinario)
    - `CLAUDE.md` del repo
    - Notas de inteligencia relevantes de `notes/knowledge/`
@@ -586,9 +585,8 @@ Por defecto **el cliente NO accede a notebooks de Capybaras**. Excepciones requi
 ### C.3 Knowledge base agencia — fuentes obligatorias
 
 - [ ] `notes/sops/` completo (zip)
-- [ ] `notes/Biblioteca.md`
+- [ ] `notes/sops/agencia/biblioteca-knowledge-workflow.md`
 - [ ] `notes/state/STATE-agencia.md`
-- [ ] `INTELLIGENCE-INDEX.md`
 - [ ] Daily notes con incidentes (últimas 50)
 - [ ] `CLAUDE.md` del repo
 - [ ] Notas críticas de `notes/knowledge/`

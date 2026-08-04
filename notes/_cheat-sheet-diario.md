@@ -510,4 +510,4 @@ generan deudas.
 - [[cierre-acotado]] — cierre de un frente terminado
 - [[cierre-meta]] — cierre meta de día único
 - [[CLAUDE]] (vault) — convenciones del vault
-- [[Biblioteca]] — índice maestro del vault
+- `notes/README.md` — índice de entrada del vault
