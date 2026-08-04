@@ -16,14 +16,23 @@ Existe en paralelo al repo de código (C:\proyectos\ppc-manager). El CLAUDE.md d
 
 ## Estructura de carpetas
 
-- Biblioteca.md — índice maestro del vault (homepage)
+Archivos en la raíz de notes/: README.md (homepage / puerta de entrada), CLAUDE.md (este doc), Biblioteca.md (índice histórico, archivado), _cheat-sheet-diario.md.
+
+Carpetas (14):
+- _archive/ — histórico del vault fuera de circulación (no borrar, trazabilidad)
+- api-integration/ — casos de integración con APIs (ej. SPP)
 - brands/ — una carpeta por cliente activo
 - daily/ — resúmenes por sesión, nombre YYYY-MM-DD.md
+- decisiones/ — ADRs (decisiones de arquitectura)
 - knowledge/ — research, tendencias, hallazgos
+- meetings/ — notas de reunión
+- modules/ — planes de implementación por módulo (M27–M36)
 - personal/ — contenido personal de Lenin (LinkedIn, etc.)
-- prompts/ — prompts maestros reutilizables
-- sops/ — procesos operativos de agencia
+- prompts/ — prompts maestros reutilizables (arranques en prompts/sesion/)
+- sales/ — contratos y specs del área Sales
+- sops/ — procesos operativos, separados en dev/ · usuario/ · agencia/
 - state/ — estado actual (STATE-agencia + STATE por cliente)
+- walmart/ — research de expansión a Walmart Connect
 
 ## Reglas de escritura
 
@@ -116,7 +125,7 @@ Crear en notes/sops/slug.md. Estructura mínima: propósito, cuándo aplica, pas
 - Untitled.md — si Obsidian crea uno, eliminarlo inmediatamente, son basura.
 - .env y .gitignore dentro de notes/ — no tocar, son config del vault.
 - .obsidian/ — no tocar, es config de Obsidian.
-- Archivos fuera de las 8 carpetas definidas — reportar antes de crear nada nuevo en raíz. La raíz solo tiene Biblioteca.md + archivos de sistema.
+- Archivos fuera de las 14 carpetas definidas en "Estructura de carpetas" — reportar antes de crear nada nuevo en raíz. La raíz de notes/ solo tiene los .md listados en esa sección + archivos de sistema.
 
 ## Reglas LTD MX (actualizado 02/06)
 
@@ -133,9 +142,11 @@ Crear en notes/sops/slug.md. Estructura mínima: propósito, cuándo aplica, pas
 
 ## Protocolo de cierre — arranque-{slug}.md (institucionalizado 02/06)
 
-Cada cierre de sesión de marca/cliente genera automáticamente `notes/arranque-{slug}.md` (slug = nombre kebab-case de la marca: `ltd`, `setex`, `dermaglos`, etc.).
+Cada cierre de sesión de marca/cliente o feature genera un arranque `arranque-{slug}.md` (slug = nombre kebab-case: `ltd`, `setex`, `dermaglos`, `m29`, etc.). Ubicación según tipo:
+- **Marcas/clientes** → `notes/prompts/sesion/clientes/arranque-{slug}.md`
+- **Features/módulos** → `notes/prompts/sesion/features/arranque-{slug}.md`
 
-**Archivos whitelisted:** `!notes/arranque-*.md` en `.gitignore` (línea ~69) — versionables sin tocar gitignore por marca nueva.
+Ambas carpetas están versionadas por la whitelist `!notes/prompts/**` del `.gitignore` — no hace falta tocar gitignore por marca/feature nueva. NO crear arranques sueltos en la raíz de `notes/`: quedarían gitignoreados en silencio (la regla `notes/*` ignora todo lo no whitelisteado).
 
 **Estructura mínima del arranque:**
 
