@@ -1826,6 +1826,19 @@ El watcher de Streamlit respawnea sobre el .venv compartido (C:\proyectos\ppc-ma
 ### 18. _PAGES en core/constants.py stale — emojis desincronizados del router real (🟢 MENOR)
 _PAGES en core/constants.py tiene emojis desincronizados del router real en 4 módulos (PPC Insights, Forecast, Audit, DataDive). NO load-bearing: la navegación real son los hooks hardcodeados en app.py, no _PAGES. Decidir si se elimina _PAGES o se re-sincroniza. No urgente. (Relacionado con deuda residual #7 _PAGES/inicio.py.)
 
+### 19. Supabase RLS off + anon key expuesta en prod — hardening pendiente (🔴 SEGURIDAD)
+
+Índice consolidado de una deuda que hoy está fragmentada en 4 sesiones distintas del log de arriba. Afecta a los 3 módulos con backend Supabase en producción, todos sobre el mismo proyecto `capybaras-os-prod`:
+- **M29** (tablas `proposals` + `proposal_votes`) — ver sesión 2026-06-16.
+- **M28 / Account Health** (4 tablas `ah_*`) — ver sesión 2026-06-21.
+- **M31 / Forecast** — ver sesiones 2026-07-02 ("DEUDA CRÍTICA — leer antes de tocar M31") y 2026-07-07 ("Pendiente M31"), ambas con el mismo síntoma: RLS se reactiva sola y el guardado salta 401.
+
+**Qué está mal:** RLS deshabilitado en todas las tablas + la anon key tiene acceso full de escritura y fue compartida en un chat de trabajo durante el wiring. Tolerable HOY porque la app es single-tenant interna. Se vuelve riesgo real antes de cualquier exposición pública o multi-tenant.
+
+**Gotcha operativo (documentado 2× en M28):** el `alter table ... disable row level security` vía DDL NO toma de forma confiable — el DDL reporta "Success" pero RLS sigue activo, y el primer write salta un **401 engañoso** (parece auth, es RLS). Fix reproducible: tras crear tablas, correr `select relname, relrowsecurity from pg_class where relname in (...)` y confirmar `relrowsecurity=false`; re-correr el disable si hace falta. NO agregar policies — no es el problema.
+
+**Remediación (antes de exposición pública/multi-tenant):** rotar la anon key → `service_role` server-side + activar RLS con políticas por `client_name`. Detalle técnico completo en [[m29-proposal-studio]] (sección Paso 1.5 RLS + Deudas registradas). Candidata natural para primera tarea de onboarding sobre proyecto dev/staging (nunca sobre prod directo).
+
 ---
 
 ## Próximos pasos inmediatos
