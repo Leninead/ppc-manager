@@ -145,7 +145,7 @@ visualiza, y proyecta N meses al futuro ajustando overrides manualmente.
 
 **Flujo del AM:**
 1. **Cliente activo:** elegí (o creá vía demo) el cliente con el selector.
-2. **Config de cuenta:** marketplace, moneda, margen, modo YoY — quedan en el cliente.
+2. **Config de cuenta:** marketplace, moneda, modo YoY — quedan en el cliente.
 3. **Cargar Business Report:** exportá de Amazon → Seller Central → Business Reports
    → "By Date · Sales and Traffic" (mensual). Subí el CSV o XLSX. La carga **se
    mergea** con el histórico: meses nuevos se agregan, los existentes se
@@ -3071,15 +3071,19 @@ def _header() -> None:
 def _render_account_config(cur: dict) -> None:
     """Render del bloque "Configuración de la cuenta" (port del HTML L724-749).
 
-    4 campos editables (marketplace, currency, margin, yoy_mode). Cada cambio
-    se escribe al cliente activo vía `_update_account_config`. Los inputs
+    3 campos editables (marketplace, currency, yoy_mode). Cada cambio se
+    escribe al cliente activo vía `_update_account_config`. Los inputs
     usan `key=` con el id del cliente para que cambiar de cliente NO les
     arrastre estado viejo.
+
+    `margin` NO se expone: ningún cálculo del motor lo consume (el `ctx.marginPct`
+    del HTML original nunca se portó). El campo sigue viviendo en el dict del
+    cliente con su default para no romper lo ya persistido en Supabase.
     """
     st.markdown("##### Configuración de la cuenta")
     st.caption("Define el contexto base. Estos parámetros afectan el cálculo del forecast (F3).")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         try:
@@ -3107,17 +3111,6 @@ def _render_account_config(cur: dict) -> None:
             _update_account_config("currency", new_cur)
 
     with col3:
-        new_margin_pct = st.number_input(
-            "Margen (%)", min_value=0.0, max_value=100.0,
-            value=float(cur.get("margin", 0.30)) * 100,
-            step=1.0,
-            help="Margen bruto operativo. 30% = 0.30.",
-        )
-        new_margin = round(new_margin_pct / 100.0, 4)
-        if new_margin != cur.get("margin"):
-            _update_account_config("margin", new_margin)
-
-    with col4:
         try:
             yoy_idx = _YOY_MODES.index(cur.get("yoy_mode", "auto"))
         except ValueError:
@@ -3264,6 +3257,14 @@ def _resolve_partial(actual_rows: list, today: Optional[date] = None) -> list:
     return out
 
 
+def _k_actual_sig(cur: dict) -> str:
+    """Key de session_state donde se firma el último archivo real ya procesado.
+
+    Namespaced por cliente: cambiar de cliente NO arrastra la firma del anterior.
+    """
+    return f"{_STATE_PREFIX}actual_sig_{cur['id']}"
+
+
 def _render_actual_upload(cur: dict) -> None:
     """Uploader del mes real: el BR del mes en curso, para comparar REAL vs forecast.
 
@@ -3299,12 +3300,40 @@ def _render_actual_upload(cur: dict) -> None:
             "cerrados, va arriba, en \"Cargar Business Report\"."
         )
 
-        uploaded = st.file_uploader(
-            "Mes real (CSV o XLSX)",
-            type=["csv", "xlsx", "xls"],
-            key=f"rf_actual_uploader_{cur['id']}",
-            label_visibility="collapsed",
-        )
+        col_up, col_clear = st.columns([3, 1])
+        with col_up:
+            uploaded = st.file_uploader(
+                "Mes real (CSV o XLSX)",
+                type=["csv", "xlsx", "xls"],
+                key=f"rf_actual_uploader_{cur['id']}",
+                label_visibility="collapsed",
+            )
+        with col_clear:
+            # El popover va ANTES del early return de abajo a propósito: sin
+            # archivo cargado es justo cuando el AM quiere vaciar la capa.
+            n_actual = len(cur.get("actual", []))
+            with st.popover(
+                "🗑️ Limpiar mes real",
+                disabled=(n_actual == 0),
+                help="Vacía SÓLO la capa del mes real. El histórico no se toca.",
+            ):
+                st.markdown(
+                    f"**¿Vaciar el mes real de _{cur['name']}_?**  \n"
+                    f"Se van a borrar **{n_actual} mes{'es' if n_actual != 1 else ''}** "
+                    f"de la capa real (la línea verde de los gráficos). El "
+                    f"histórico queda intacto. Esta acción no se puede deshacer."
+                )
+                if st.button(
+                    "Sí, vaciar mes real",
+                    key=f"rf_clear_actual_confirm_{cur['id']}",
+                    type="primary",
+                ):
+                    cur["actual"] = []
+                    st.session_state.pop(_k_actual_sig(cur), None)
+                    _try_persist()
+                    st.success("Mes real vaciado. Re-subí el reporte cuando quieras.")
+                    st.rerun()
+
         if uploaded is None:
             return
 
@@ -3343,6 +3372,19 @@ def _render_actual_upload(cur: dict) -> None:
                 f"con punto hueco en los gráficos."
             )
         st.success(msg)
+
+        # Refresco tras el merge — UNA sola vez por archivo, nunca en loop.
+        #
+        # El `file_uploader` RETIENE el archivo entre reruns: un `st.rerun()`
+        # desnudo acá vuelve a entrar por este mismo camino (parsea, mergea,
+        # success) y dispara otro rerun — loop infinito. Por eso el guard: se
+        # firma el archivo ya procesado en session_state y el rerun sale sólo
+        # cuando la firma cambia (archivo nuevo o corregido).
+        sig = (uploaded.name, len(data))
+        k_sig = _k_actual_sig(cur)
+        if st.session_state.get(k_sig) != sig:
+            st.session_state[k_sig] = sig
+            st.rerun()
 
 
 def _render_quick_stats(cur: dict) -> None:
@@ -4980,7 +5022,7 @@ def render() -> None:
 
     st.caption(
         f"Cliente activo: **{cur['name']}** (`{cur['id']}`) · "
-        f"marketplace {cur['marketplace']} · margin {int(cur['margin'] * 100)}%"
+        f"marketplace {cur['marketplace']}"
     )
 
     if st.button(
