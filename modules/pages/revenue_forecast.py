@@ -1244,6 +1244,57 @@ def _is_asin_report(header: Any) -> bool:
     return any(_norm_header(c) == "(child) asin" for c in cols)
 
 
+# Nombre ISO: YYYY-MM en cualquier parte (ej. `dermaglos_2026-07.csv`).
+_ASIN_PERIOD_ISO_RE = re.compile(r"(20\d{2})[-_]?(0[1-9]|1[0-2])")
+# Naming REAL de Amazon: `BusinessReport-M-DD-YY.csv` (mes sin cero a la
+# izquierda, año de 2 dígitos). El `(?!\d)` evita que un año de 4 dígitos
+# (`...-2026`) se lea como `20`.
+_ASIN_PERIOD_AMZ_RE = re.compile(
+    r"businessreport-(\d{1,2})-(\d{1,2})-(\d{2})(?!\d)", re.IGNORECASE
+)
+
+
+def _infer_asin_period(filename: str) -> Optional[str]:
+    """Infiere el período `YYYY-MM` del nombre del archivo By Child Item.
+
+    Dos formatos, en este orden:
+
+        1. ISO — `YYYY-MM` en cualquier parte del nombre (lo que ya soportaba
+           el importer: archivos renombrados a mano por el AM).
+        2. Amazon — `BusinessReport-M-DD-YY`, el naming REAL del export de
+           Seller Central. Se ignora el día: el reporte es del MES.
+
+    Por qué existe: el export de Amazon se llama `BusinessReport-8-04-26.csv`,
+    que NO contiene `20\\d\\d` y por lo tanto NUNCA matcheaba el regex ISO. El
+    importer caía siempre al `text_input` manual y, sin completarlo con el
+    formato exacto, cortaba con un warning — se leía como "el importer no carga
+    nada".
+
+    Args:
+        filename: nombre del archivo tal cual lo sube el AM.
+
+    Returns:
+        `"YYYY-MM"`, o None si ningún formato matcheó (el caller cae al input
+        manual, que sigue siendo el fallback válido).
+    """
+    if not filename:
+        return None
+
+    m = _ASIN_PERIOD_ISO_RE.search(filename)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}"
+
+    m = _ASIN_PERIOD_AMZ_RE.search(filename)
+    if m:
+        month = int(m.group(1))
+        if not 1 <= month <= 12:
+            return None
+        year = 2000 + int(m.group(3))
+        return f"{year:04d}-{month:02d}"
+
+    return None
+
+
 def _parse_asin_report(file_or_bytes: Any, period: str) -> list[dict]:
     """Parsea UN snapshot por-ASIN a lista de dicts (1 por child ASIN).
 
@@ -1428,6 +1479,110 @@ def _forecast_single_asin(history: list[dict], opts: dict,
 # ─────────────────────────────────────────────────────────────────────────────
 # F6.2 — Helpers de tabla/totales por-ASIN (funciones puras, None/NaN→'' pre-Arrow)
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ── Real vs forecast por ASIN ────────────────────────────────────────────────
+#
+# RESTRICCIÓN DURA: el reporte "Detail Page Sales and Traffic By Child Item" NO
+# trae spend ni ventasPPC — Amazon no reporta inversión de Ads a nivel ASIN en
+# ese export. Por eso el real-vs-forecast por ASIN sólo puede graficar las 4
+# métricas que el reporte SÍ tiene. ACOS / TACOS / Spend / Ventas PPC por ASIN
+# no existen y NO se inventan: quedan fuera del selector, a nivel cuenta.
+#
+# El "real" de un ASIN es su propio history acumulado (el último mes cargado,
+# parcial incluido); el forecast arranca en el mes siguiente (F6.3c). O sea: la
+# comparación es graficar ambas series en el mismo eje, no cruzar dos capas.
+
+_ASIN_CHART_METRICS: tuple = ("revenue", "sessions", "units", "cvr")
+
+
+def _asin_realvs_forecast_series(history: list, fc: list,
+                                 metric_id: str) -> dict:
+    """Series real + forecast de UN ASIN para una de las 4 métricas permitidas.
+
+    Reusa `_asin_history_to_engine_rows` para el mapeo de nombres del history
+    (`unit_session_pct` → `cvr`), así el eje del real y el del forecast hablan
+    el mismo idioma.
+
+    El forecast arranca REPITIENDO el último punto real (bridge), igual que
+    `_bridge` en los charts de cuenta: así las dos líneas se tocan.
+
+    Args:
+        history: `model[asin]["history"]` de `_accumulate_asin_snapshots`.
+        fc: salida de `_forecast_single_asin` (puede ser []).
+        metric_id: uno de `_ASIN_CHART_METRICS`.
+
+    Returns:
+        {"real": {"x", "y", "partial"}, "forecast": {"x", "y"}} — `x` en fecha
+        ISO completa (`YYYY-MM-01`), `partial` alineado con el real.
+
+    Raises:
+        ValueError: si `metric_id` no está entre las 4 permitidas. Explícito a
+            propósito: un chart vacío escondería que la métrica no existe a
+            nivel ASIN.
+    """
+    if metric_id not in _ASIN_CHART_METRICS:
+        raise ValueError(
+            f"'{metric_id}' no está disponible por ASIN — el reporte By Child "
+            f"Item no trae spend ni ventas PPC. Permitidas: "
+            f"{', '.join(_ASIN_CHART_METRICS)}."
+        )
+
+    history = history or []
+    rows = _asin_history_to_engine_rows(history)
+    partial_by_period = {h["period"]: bool(h.get("partial")) for h in history}
+
+    real_x = [r["date"] for r in rows]
+    real_y = [_safe_num(r.get(metric_id)) for r in rows]
+    partial = [partial_by_period.get(x[:7], False) for x in real_x]
+
+    fc_x = [f["date"] for f in (fc or [])]
+    fc_y = [_safe_num(f.get(metric_id)) for f in (fc or [])]
+    if real_x and fc_x:
+        fc_x = [real_x[-1]] + fc_x
+        fc_y = [real_y[-1]] + fc_y
+
+    return {
+        "real": {"x": real_x, "y": real_y, "partial": partial},
+        "forecast": {"x": fc_x, "y": fc_y},
+    }
+
+
+def _asin_realvs_forecast_chart(history: list, fc: list,
+                                metric_id: str) -> "go.Figure":
+    """Figura real (sólida) vs forecast (dashed) de UN ASIN.
+
+    Cero estilo nuevo: los tokens salen de `_chart_trace` y `_METRICS`, los
+    mismos de los 7 charts de cuenta. El mes parcial se marca con el punto hueco
+    de siempre (`_MARKER_SIZE_PARTIAL`) sólo si el ASIN tiene alguno.
+    """
+    m = _METRICS[metric_id]
+    fig = go.Figure()
+    fig.update_layout(**_PLOTLY_LAYOUT)
+
+    s = _asin_realvs_forecast_series(history, fc, metric_id)
+    if not s["real"]["x"]:
+        return fig
+
+    partial = s["real"]["partial"] if any(s["real"]["partial"]) else None
+    fig.add_trace(_chart_trace(
+        s["real"]["x"], s["real"]["y"], f'{m["label"]} (real)',
+        m["color"], "hist", partial=partial,
+    ))
+    if s["forecast"]["x"]:
+        fig.add_trace(_chart_trace(
+            s["forecast"]["x"], s["forecast"]["y"], f'{m["label"]} (forecast)',
+            m["color"], "fc",
+        ))
+
+    unit = m["unit"]
+    if unit == "currency":
+        fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    elif unit == "percent":
+        fig.update_yaxes(ticksuffix="%", tickformat=".1f")
+    else:
+        fig.update_yaxes(tickformat=",.0f")
+    return fig
+
 
 def _build_asin_child_df(model: dict) -> pd.DataFrame:
     """Una fila por child_asin: columnas child_asin, title, parent_asin, y una
@@ -5006,15 +5161,14 @@ def _render_asin_section(cur: dict) -> None:
         return
 
     currency = cur.get("currency", "USD")
-    _period_re = re.compile(r"(20\d{2})[-_]?(0[1-9]|1[0-2])")
     _period_valid = re.compile(r"^20\d{2}-(0[1-9]|1[0-2])$")
 
-    # 1) Derivar period por archivo (regex del nombre; fallback text_input).
+    # 1) Derivar period por archivo (del nombre; fallback text_input).
     periods: list[str] = []
     for f in files:
-        m = _period_re.search(f.name)
-        if m:
-            periods.append(f"{m.group(1)}-{m.group(2)}")
+        inferred = _infer_asin_period(f.name)
+        if inferred:
+            periods.append(inferred)
         else:
             pin = st.text_input(
                 f"Período de {f.name} (formato YYYY-MM)",
@@ -5154,6 +5308,24 @@ def _render_asin_section(cur: dict) -> None:
     if not fc:
         st.info("Se necesitan 2+ meses COMPLETOS para proyectar este ASIN (los meses parciales se excluyen del cálculo).")
     else:
+        # Real vs forecast del ASIN. Sólo 4 métricas: el reporte By Child Item
+        # no trae spend ni ventas PPC, así que ACOS/TACOS/Spend viven a nivel
+        # cuenta y no se ofrecen acá.
+        metric_id = st.radio(
+            "Métrica",
+            list(_ASIN_CHART_METRICS),
+            format_func=lambda mid: _METRICS[mid]["label"],
+            horizontal=True,
+            key=f"rf_asin_fc_metric_{cur['id']}",
+            help="El reporte By Child Item no reporta inversión de Ads por ASIN "
+                 "— ACOS, TACOS y Spend sólo existen a nivel cuenta.",
+        )
+        st.plotly_chart(
+            _asin_realvs_forecast_chart(model[sel]["history"], fc, metric_id),
+            use_container_width=True,
+        )
+
+
         fdf = pd.DataFrame([{
             "Período": r["date"][:7],
             "Revenue": r.get("revenue", 0.0),
