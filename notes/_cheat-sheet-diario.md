@@ -1,7 +1,7 @@
 ---
 tipo: cheat-sheet
-actualizado: 2026-05-27
-version: v1.0
+actualizado: 2026-08-03
+version: v1.1
 tags: [workflow, multi-frente, diario, rutina]
 ---
 
@@ -48,11 +48,7 @@ arranques le dicen AL CHAT el contexto del cliente. Son complementarios.
 
 ### Features de código activas
 
-| Feature | Slug | Worktree path | Branch pattern | Arranque |
-|---|---|---|---|---|
-| **M27 Flat File Migrator** | `m27` | `C:\proyectos\ppc-manager-m27` | `feature/m27-{bloque}` | [[arranque-m27]] |
-| **M29 Proposal Studio** | `m29` | `C:\proyectos\ppc-manager-m29` | `feature/m29-{bloque}` | [[arranque-m29]] |
-| **M29 DataDive Mapper** | `m29-mapper` | `C:\proyectos\ppc-manager-m29-mapper` | `feature/m29-datadive-mapper` | (incluido en arranque-m29) |
+Los frentes/worktrees vivos NO se listan acá — se desactualizan solos. Corré `git worktree list` para ver los activos hoy. Los arranques de feature viven en `notes/prompts/sesion/features/`. Para crear un frente nuevo: `git worktree add C:\proyectos\ppc-manager-m{##} -b feature/m{##}-{bloque} main`.
 
 ### Contactos críticos por cliente
 
@@ -293,7 +289,7 @@ git commit -m "docs({slug}): cierre {frente} YYYY-MM-DD"
 ```
 Sesión incompleta. WIP handoff.
 
-Leé notes/sops/wip-handoff.md y generá los 4 bloques del WIP-handoff
+Leé notes/sops/dev/wip-handoff.md y generá los 4 bloques del WIP-handoff
 para retomar mañana.
 
 Confirmá que trabajaste en C:\proyectos\ppc-manager-{slug} antes de generar.
@@ -363,7 +359,7 @@ Soy Lenin. Cierre del día YYYY-MM-DD multi-frente.
 Frentes cerrados acotado hoy: [lista, ej: Dermaglos, LTD]
 Frentes en WIP (no cierran hoy): [lista, ej: M29 DataDive]
 
-Leé notes/sops/consolidador-fin-dia.md y ejecutá el flujo completo.
+Leé notes/sops/dev/consolidador-fin-dia.md y ejecutá el flujo completo.
 
 Pre-flight ya verificado:
 - Principal limpio (o foldeo: {detalle})
