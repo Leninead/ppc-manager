@@ -79,6 +79,7 @@ Decisiones de diseño F1 (documentadas in-line)
 from __future__ import annotations
 
 import calendar
+import copy
 import html
 import json
 import math
@@ -3741,6 +3742,132 @@ def _reset_forecast_overrides(cur: dict) -> int:
     return len(forecast)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Snapshots de forecast nombrados — funciones PURAS
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El AM genera un forecast, lo guarda con un nombre de estrategia ("Agresivo",
+# "Conservador"…) y puede tener VARIOS por cliente sin que uno pise al otro.
+# Viven en `cur["snapshots"]`, o sea DENTRO del dict del cliente: la tabla
+# `forecast_clients` guarda el cliente entero como JSON, así que persisten solos
+# con `_try_persist()` — cero DDL, cero tabla nueva.
+#
+# Todo lo que se guarda pasa por `copy.deepcopy`: si se guardara la referencia
+# viva, editar un override en la tabla del forecast le cambiaría los números al
+# snapshot ya guardado, que es exactamente lo que el AM quiere evitar.
+
+
+def _save_forecast_snapshot(cur: dict, name: str, opts: dict) -> Optional[dict]:
+    """Guarda el forecast actual del cliente como snapshot nombrado.
+
+    Args:
+        cur: dict del cliente activo (será mutado — se appendea a `snapshots`).
+        name: nombre libre del AM (ej. "Agresivo"). Vacío → None.
+        opts: los opts con que se generó el forecast (horizon/momWindow/blend/
+            useSeasonality). Se deep-copea para que el buffer vivo no lo mute.
+
+    Returns:
+        El snapshot creado, o None si el nombre está vacío o no hay forecast
+        que guardar (un snapshot vacío no le sirve a nadie).
+    """
+    clean_name = (name or "").strip()
+    if not clean_name:
+        return None
+    forecast = cur.get("forecast") or []
+    if not forecast:
+        return None
+
+    created_at = date.today().isoformat()
+    base_id = f"{_cliente_slug(clean_name)}-{created_at}"
+    existing = {s.get("id") for s in cur.get("snapshots", [])}
+    snap_id = base_id
+    n = 2
+    while snap_id in existing:
+        snap_id = f"{base_id}-{n}"
+        n += 1
+
+    snap = {
+        "id": snap_id,
+        "name": clean_name,
+        "created_at": created_at,
+        "opts": copy.deepcopy(opts or {}),
+        "forecast": copy.deepcopy(forecast),
+        "seasonality": copy.deepcopy(
+            cur.get("seasonality") or {"enabled": False, "indices": [1.0] * 12}
+        ),
+    }
+    cur.setdefault("snapshots", []).append(snap)
+    return snap
+
+
+def _list_forecast_snapshots(cur: dict) -> list[dict]:
+    """Snapshots del cliente, en orden de creación (el más viejo primero)."""
+    return cur.get("snapshots", [])
+
+
+def _load_forecast_snapshot(cur: dict, snapshot_id: str) -> bool:
+    """Restaura un snapshot al forecast ACTIVO del cliente.
+
+    Pisa `cur["forecast"]` y `cur["seasonality"]` con copias del snapshot — el
+    snapshot queda intacto y se puede volver a cargar las veces que haga falta.
+
+    Returns:
+        True si el id existía y se restauró; False si no se encontró.
+    """
+    for s in cur.get("snapshots", []):
+        if s.get("id") == snapshot_id:
+            cur["forecast"] = copy.deepcopy(s.get("forecast") or [])
+            cur["seasonality"] = copy.deepcopy(
+                s.get("seasonality") or {"enabled": False, "indices": [1.0] * 12}
+            )
+            return True
+    return False
+
+
+def _delete_forecast_snapshot(cur: dict, snapshot_id: str) -> bool:
+    """Borra un snapshot por id. Returns True si borró algo."""
+    snaps = cur.get("snapshots", [])
+    keep = [s for s in snaps if s.get("id") != snapshot_id]
+    if len(keep) == len(snaps):
+        return False
+    cur["snapshots"] = keep
+    return True
+
+
+def _build_snapshot_comparison_df(cur: dict, snapshot_ids: list) -> pd.DataFrame:
+    """Tabla comparativa: una fila por snapshot, los 8 totales como columnas.
+
+    Reusa `_build_forecast_summary_cards` — los mismos números que el AM ve en
+    "Resumen de la proyección", sin recalcular nada. Los valores vienen ya
+    formateados como string (Arrow-safe por construcción).
+
+    Args:
+        cur: dict del cliente activo.
+        snapshot_ids: ids a comparar; los que no existan se ignoran.
+
+    Returns:
+        DataFrame con columna "Snapshot" + las 8 de totales. Vacío si ningún id
+        matcheó.
+    """
+    currency = cur.get("currency", "USD")
+    by_id = {s.get("id"): s for s in cur.get("snapshots", [])}
+
+    rows: list[dict] = []
+    for sid in snapshot_ids:
+        snap = by_id.get(sid)
+        if snap is None:
+            continue
+        row = {"Snapshot": snap.get("name", "")}
+        for card in _build_forecast_summary_cards(snap.get("forecast") or [], currency):
+            row[card["label"]] = card["value"]
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame(columns=["Snapshot"])
+    df = pd.DataFrame(rows)
+    return df.where(pd.notna(df), "")
+
+
 def _ensure_fc_buf(state: Optional[Any] = None) -> dict:
     """Devuelve el buffer de los controles de generación, inicializándolo si no existe.
 
@@ -4343,6 +4470,106 @@ def _render_forecast_section(cur: dict) -> None:
                     st.rerun()
         st.markdown("")
         _render_forecast_summary(cur)
+        _render_snapshots_section(cur)
+
+
+def _render_snapshots_section(cur: dict) -> None:
+    """Snapshots nombrados del forecast: guardar / cargar / borrar / comparar.
+
+    Se llama al final de `_render_forecast_section`, sólo cuando hay forecast.
+    Todo lo que muta se persiste con `_try_persist()` porque `cur["snapshots"]`
+    viaja dentro del JSON del cliente.
+    """
+    st.divider()
+    st.markdown("#### 📸 Snapshots de forecast")
+    st.caption(
+        "Guardá esta proyección con un nombre (ej. estrategia 'Agresivo' / "
+        "'Normal') para comparar enfoques sin pisar el actual."
+    )
+
+    # ── a) Guardar ───────────────────────────────────────────────────────────
+    name_key = f"rf_snap_name_{cur['id']}"
+    col_name, col_save = st.columns([3, 1])
+    with col_name:
+        # Sin `value=` — key= + value= juntos es anti-patrón en 1.43.2.
+        st.text_input(
+            "Nombre / estrategia",
+            key=name_key,
+            placeholder="Agresivo · Normal · Conservador…",
+        )
+    with col_save:
+        st.markdown("<div style='height:1.7rem'></div>", unsafe_allow_html=True)
+        if st.button(
+            "💾 Guardar snapshot",
+            key=f"rf_snap_save_btn_{cur['id']}",
+            use_container_width=True,
+        ):
+            raw_name = (st.session_state.get(name_key) or "").strip()
+            if not raw_name:
+                st.warning("Poné un nombre para el snapshot.")
+            else:
+                snap = _save_forecast_snapshot(cur, raw_name, dict(_ensure_fc_buf()))
+                if snap is None:
+                    st.warning("Generá un forecast antes de guardar snapshot.")
+                else:
+                    _try_persist()
+                    st.success(f"Snapshot «{snap['name']}» guardado.")
+                    st.rerun()
+
+    # ── b) Lista ─────────────────────────────────────────────────────────────
+    snaps = _list_forecast_snapshots(cur)
+    if not snaps:
+        st.caption("Todavía no hay snapshots guardados para este cliente.")
+        return
+
+    st.markdown("")
+    for s in snaps:
+        c_name, c_date, c_load, c_del = st.columns([3, 2, 1, 1])
+        with c_name:
+            st.markdown(f"**{s.get('name', '')}**")
+        with c_date:
+            st.caption(f"{s.get('created_at', '')} · {len(s.get('forecast', []))} meses")
+        with c_load:
+            if st.button(
+                "Cargar",
+                key=f"rf_snap_load_{cur['id']}_{s['id']}",
+                use_container_width=True,
+                help="Pisa el forecast y la estacionalidad actuales con los del snapshot.",
+            ):
+                if _load_forecast_snapshot(cur, s["id"]):
+                    _try_persist()
+                    st.success(f"Snapshot «{s.get('name', '')}» cargado.")
+                    st.rerun()
+        with c_del:
+            if st.button(
+                "🗑️",
+                key=f"rf_snap_del_{cur['id']}_{s['id']}",
+                use_container_width=True,
+                help="Borra este snapshot. No toca el forecast activo.",
+            ):
+                if _delete_forecast_snapshot(cur, s["id"]):
+                    _try_persist()
+                    st.rerun()
+
+    # ── c) Comparar ──────────────────────────────────────────────────────────
+    if len(snaps) < 2:
+        return
+
+    st.markdown("")
+    labels = {s["id"]: s.get("name", "") for s in snaps}
+    sel_ids = st.multiselect(
+        "Comparar snapshots",
+        [s["id"] for s in snaps],
+        format_func=lambda sid: labels.get(sid, sid),
+        key=f"rf_snap_cmp_{cur['id']}",
+        help="Elegí 2 o más para ver sus totales lado a lado.",
+    )
+    if len(sel_ids) >= 2:
+        st.dataframe(
+            _build_snapshot_comparison_df(cur, sel_ids),
+            hide_index=True,
+            use_container_width=True,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
