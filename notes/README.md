@@ -14,15 +14,9 @@ Este es el cerebro operativo de la agencia. Si sos dev nuevo, leé en este orden
 
 ## Mapa de carpetas
 
-- state/ — estado actual (agencia + por cliente). El doc más actualizado.
-- brands/ — una carpeta por cliente activo.
-- daily/ — diario de sesiones (YYYY-MM-DD.md).
-- sops/ — procesos, separados en dev/ · usuario/ · agencia/.
-- modules/ — planes de implementación por módulo (M27–M36).
-- knowledge/ — research y tendencias.
-- decisiones/ — ADRs (decisiones de arquitectura).
-- prompts/ — prompts reutilizables de arranque y cierre.
-- meetings/ · walmart/ · api-integration/ · sales/ · personal/
+Las carpetas más usadas: state/ (estado actual, el doc más vivo), brands/ (una por cliente), daily/ (sesiones), sops/ (procesos: dev/ · usuario/ · agencia/), modules/ (planes por módulo).
+
+El mapa completo y actualizado de las 14 carpetas vive en notes/CLAUDE.md (sección "Estructura de carpetas"), que es la fuente canónica — para no mantener dos listas que divergen.
 
 NOTA: este README convive con Biblioteca.md (homepage histórico) hasta que se
 consolide el refresh de docs. Ver daily del 2026-08-03.
