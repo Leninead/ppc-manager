@@ -5142,21 +5142,21 @@ def _render_asin_section(cur: dict) -> None:
     st.divider()
     st.markdown("### 🧩 Por ASIN")
     st.caption(
-        "Subí los reportes mensuales \"Detail Page Sales and Traffic By Child "
-        "Item\" (Seller Central → Business Reports → By ASIN). Se acumulan al vuelo "
+        "Subí los reportes mensuales \"Detail Page Sales and Traffic\" "
+        "(Seller Central → Business Reports → By ASIN). Se acumulan al vuelo "
         "para ver historial y forecast por ASIN (no se guardan todavía)."
     )
 
     files = st.file_uploader(
-        "Detail Page Sales and Traffic By Child Item — un CSV por mes",
+        "Detail Page Sales and Traffic (By ASIN) — un CSV por mes",
         type=["csv"],
         accept_multiple_files=True,
         key=f"rf_asin_uploader_{cur['id']}",
     )
     if not files:
         st.info(
-            "Subí 2+ meses del reporte By Child Item para ver historial y "
-            "forecast por ASIN."
+            "Subí 2+ meses del reporte Detail Page Sales and Traffic (By ASIN) "
+            "para ver historial y forecast por ASIN."
         )
         return
 
@@ -5189,7 +5189,7 @@ def _render_asin_section(cur: dict) -> None:
         raw = f.getvalue()
         header = raw.split(b"\n", 1)[0].decode("utf-8-sig", errors="replace")
         if not _is_asin_report(header):
-            st.error(f"{f.name} no parece un reporte By Child Item.")
+            st.error(f"{f.name} no parece un reporte Detail Page Sales and Traffic (By ASIN).")
             return
         try:
             snapshots.append(_parse_asin_report(raw, period))
