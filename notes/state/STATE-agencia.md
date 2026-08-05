@@ -1,11 +1,17 @@
 ---
 tipo: state
-actualizado: 2026-07-28
+actualizado: 2026-08-04
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-08-04 — Consolidador: M31 fc-multi (snapshots + importer By ASIN) a prod
+
+Frente `feature/m31-fc-multi` mergeado por fast-forward (`cca5175..83f89e1`) y pusheado. 3 commits, solo `modules/pages/revenue_forecast.py` + 2 tests nuevos (973 inserciones). Snapshots de forecast nombrados (persistidos vía `_try_persist`, cero DDL) + importer By ASIN con inferencia de período para naming Amazon. Suite tests nuevos 42 passed. Flag `forecast_backend="supabase"` ya estaba en Secrets — deuda del flag SALDADA (ver ítem "Pendiente M31" del 2026-07-07, cubierta). Detalle en `notes/daily/2026-08-04.md`.
 
 ---
 
@@ -240,7 +246,7 @@ Detalle: [[2026-07-10]]
 **M32 PDF step-fix:** pusheado a prod (`7d1ef7e`). Steps del PDF ahora número naranja plano (arreglado círculo roto en xhtml2pdf).
 
 **Pendiente M31:**
-- Verificar que `forecast_backend = "supabase"` quedó guardado en Secrets de Streamlit Cloud. Sin el flag, persiste en local pero NO en prod.
+- ~~Verificar que `forecast_backend = "supabase"` quedó guardado en Secrets de Streamlit Cloud.~~ ✅ RESUELTO 2026-08-04: el flag YA estaba en Secrets, confirmado con persistencia de snapshots en el frente fc-multi.
 - RLS se reactiva sola (deuda de hardening).
 
 **M28 SKU Progress — categorización:** integrado a main (merge `b01df9d` / 4 commits). Campo category en eventos, selector en modal, color por categoría en chips + vlines de los 5 charts. Helper `_coalesce_category` (filas viejas → "Sin categoría"). 7 categorías cerradas. 3 tests verde, smoke visual OK. category en ah_logs.data jsonb sin migración.
@@ -1838,6 +1844,12 @@ _PAGES en core/constants.py tiene emojis desincronizados del router real en 4 m�
 **Gotcha operativo (documentado 2× en M28):** el `alter table ... disable row level security` vía DDL NO toma de forma confiable — el DDL reporta "Success" pero RLS sigue activo, y el primer write salta un **401 engañoso** (parece auth, es RLS). Fix reproducible: tras crear tablas, correr `select relname, relrowsecurity from pg_class where relname in (...)` y confirmar `relrowsecurity=false`; re-correr el disable si hace falta. NO agregar policies — no es el problema.
 
 **Remediación (antes de exposición pública/multi-tenant):** rotar la anon key → `service_role` server-side + activar RLS con políticas por `client_name`. Detalle técnico completo en [[m29-proposal-studio]] (sección Paso 1.5 RLS + Deudas registradas). Candidata natural para primera tarea de onboarding sobre proyecto dev/staging (nunca sobre prod directo).
+
+### 20. M31 uploader mes real no actualiza Spend ni Ventas PPC al re-subir (prioridad MEDIA — decisión abierta)
+
+Descubierto 2026-08-04 (frente fc-multi). Re-subir el MISMO mes con Spend/Ventas PPC corregidos en el CSV NO los actualiza: `_merge_historical` preserva esos 2 campos por diseño (son inputs manuales del AM, no vienen del Business Report). Si el AM corrige esos campos en el CSV del mes real, el merge los ignora silenciosamente.
+
+**Decisión pendiente:** (a) documentarlo como comportamiento esperado y que el AM edite esos campos en la UI, o (b) dar al uploader del mes real un merge propio que NO preserve Spend/VentasPPC. No bloqueante hoy.
 
 ---
 
