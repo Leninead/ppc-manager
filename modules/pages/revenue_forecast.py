@@ -5317,7 +5317,7 @@ def _render_asin_section(cur: dict) -> None:
             format_func=lambda mid: _METRICS[mid]["label"],
             horizontal=True,
             key=f"rf_asin_fc_metric_{cur['id']}",
-            help="El reporte By Child Item no reporta inversión de Ads por ASIN "
+            help="El reporte Detail Page Sales and Traffic no reporta inversión de Ads por ASIN "
                  "— ACOS, TACOS y Spend sólo existen a nivel cuenta.",
         )
         st.plotly_chart(
