@@ -51,21 +51,21 @@ capricho. **No las subas sin entender por qué:**
 `pytest` no está en `requirements.txt` (es dep de desarrollo) — instalalo aparte
 con `pip install pytest`.
 
-## Secrets — el camino seguro (y la trampa)
+## Secrets — el camino seguro
 
 Para desarrollar NO necesitás secrets: corré en modo local con
 `$env:AGENCY_OS_LOCAL_MODE = "1"`, que bypassea el login.
 
 Si necesitás secrets reales (para probar auth o Supabase):
 
-**⚠️ NO corras `gen_secrets.py`.** Dos razones:
-1. **Pisa el archivo entero.** Sobrescribe `secrets.toml` con un solo usuario —
-   si el archivo tenía los usuarios del equipo, los borra todos.
-2. **Genera un `[cookie]` sin `name`**, y la app hace `_cookie["name"]` en el
-   arranque → revienta con `KeyError` crudo (no el mensaje amable). App que no
-   levanta.
+**Sobre `gen_secrets.py`:** podés correrlo. Desde el commit `18ecf52` tiene un
+guard que aborta si `.streamlit/secrets.toml` ya existe — no pisa nada — y emite
+el `[cookie]` completo (antes le faltaba `name` y la app moría con `KeyError` en
+el arranque).
 
-**El camino correcto:** copiá la plantilla y editala a mano.
+Pero genera **un solo usuario** y escribe el archivo desde cero. Para el
+`secrets.toml` del equipo (con varios usuarios cargados), usá la plantilla:
+
 ```powershell
 copy .streamlit\secrets.toml.example .streamlit\secrets.toml
 # editá secrets.toml: cambiá el hash de password y el cookie.key

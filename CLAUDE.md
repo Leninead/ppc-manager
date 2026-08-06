@@ -12,7 +12,7 @@
 python -m streamlit run app.py
 pip install streamlit pandas openpyxl pdfplumber
 ```
-No hay build step, test suite ni linter configurado.
+No hay build step ni linter configurado. La suite corre con pytest (`pytest.ini` → `testpaths = tests`); baseline en "Setup local" abajo.
 
 ## Setup local (Python 3.12 obligatorio)
 
@@ -33,6 +33,20 @@ Para correr smoke tests M27:
 .\.venv\Scripts\Activate.ps1
 python scripts\smoke_b6a_e2e_pipeline.py
 ```
+
+Para correr la suite completa:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pytest -q
+```
+
+**Baseline de esta máquina (2026-08-06): `866 passed, 5 skipped, 9 failed` sobre
+880 colectados.** Los 9 fallos son esperados en local (dependen de config
+Supabase/env): `test_revenue_forecast_state.py` (4) · `test_revenue_forecast_ingest.py`
+(1) · `test_m29_ui_e2e.py` (2) · `test_proposal_supabase_storage.py` (1) ·
+`test_knowledge_base_smoke.py` (1). Si el número difiere, o falla otro archivo,
+ahí sí revisar.
 
 ---
 
@@ -2320,7 +2334,7 @@ Detalle completo en `notes/daily/2026-07-09.md` + `notes/state/STATE-agencia.md`
 - Gate de deleciones de vault: `git diff --diff-filter=D main...feat/modulo-mercado-libre -- notes/` vacio, y el diff total sin una sola delecion. La branch no estaba desactualizada pese a venir de un main anterior.
 - Byte-level post-merge en las 2 notas y 2 modulos: mojibake 0, sin BOM, CRLF 0.
 - Suite post-merge 742 passed / 5 skipped / 9 failed; post-fix 744 / 5 / 9. Los 9 son familias conocidas del entorno local (revenue_forecast x5, m29_ui_e2e x2, proposal_supabase_storage x1, knowledge_base x1). Ninguno en modules/mercado_libre/.
-- Baseline de tests de esta maquina actualizada a 744 / 5 / 9 sobre 758 colectados. La anterior (~722) habia quedado vieja.
+- Baseline de tests de esta maquina actualizada a 744 / 5 / 9 sobre 758 colectados. La anterior (~722) habia quedado vieja. *(Superada el 2026-08-06: 866 / 5 / 9 sobre 880 — ver "Setup local" al inicio de este archivo.)*
 - Encoding: notes/modules/m36-mercado-libre.md tenia 2 bytes 0xB3 huerfanos (la palabra Modulo perdio el lead byte 0xC3 dos veces). Reparado a nivel bytes, 4352 -> 4354, verificado antes de commitear.
 - Schemas: meli-stock-v1.json quedo renombrado a meli-publicaciones-v1.json dentro de la branch. No quedo huerfano en main.
 
