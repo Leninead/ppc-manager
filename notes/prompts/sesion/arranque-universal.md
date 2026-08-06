@@ -1,9 +1,9 @@
 ---
 tipo: prompt
-actualizado: 2026-05-27
+actualizado: 2026-08-06
 categoria: sesion
 subcategoria: arranque-universal
-version: v1.0
+version: v1.1
 tags: [arranque, multi-frente, conductor, universal]
 ---
 
@@ -43,28 +43,38 @@ nada antes de tiempo. NO me hagas leer SOPs. Vos los leés y me decís
 exactamente qué hacer, en orden, esperando mi confirmación entre pasos.
 
 ═══════════════════════════════════════════════════════════════════════
-LO QUE SABÉS DE MI WORKFLOW (commits 713f813 + 6d74692 ya en main)
+LO QUE SABÉS DE MI WORKFLOW
 ═══════════════════════════════════════════════════════════════════════
 
 Repo: C:\proyectos\ppc-manager (GitHub: Leninead/ppc-manager, branch main)
 SOPs del flujo (leélos cuando te los pida explícitamente):
 - notes/_cheat-sheet-diario.md (mi rutina diaria)
-- notes/sops/multi-frente-flow.md (SOP madre)
-- notes/sops/worktrees-flow.md (mecánica git)
-- notes/sops/wip-handoff.md (cierre incompleto)
+- notes/sops/dev/multi-frente-flow.md (SOP madre)
+- notes/sops/dev/worktrees-flow.md (mecánica git)
+- notes/sops/dev/wip-handoff.md (cierre incompleto)
 - notes/prompts/sesion/cierre-acotado.md (cierre por frente)
-- notes/sops/consolidador-fin-dia.md (chat #5)
+- notes/sops/dev/consolidador-fin-dia.md (chat #5)
 
-Mapa de marcas activas (del cheat-sheet):
+Frentes con arranque dedicado. La tabla da el **patrón** de worktree y branch —
+NO garantiza que el worktree exista: se crean y limpian por sesión. Verificá
+siempre con `git worktree list` antes de asumir.
 
-| Marca | Slug | Worktree path | Branch pattern |
+| Marca / Feature | Slug | Worktree (patrón) | Branch pattern |
 |---|---|---|---|
-| Dermaglos | dermaglos | C:\proyectos\ppc-manager-dermaglos | ops/dermaglos-YYYY-MM-DD |
-| Setex | setex | C:\proyectos\ppc-manager-setex | ops/setex-YYYY-MM-DD |
-| LTD | ltd | C:\proyectos\ppc-manager-ltd | ops/ltd-YYYY-MM-DD |
-| Mott & Bow | mb | C:\proyectos\ppc-manager-mb | ops/mb-YYYY-MM-DD |
-| M27 Flat File | m27 | C:\proyectos\ppc-manager-m27 | feature/m27-{bloque} |
-| M29 Proposal | m29 | C:\proyectos\ppc-manager-m29-mapper | feature/m29-datadive-mapper |
+| Dermaglos | `dermaglos` | `C:\proyectos\ppc-manager-dermaglos` | `ops/dermaglos-YYYY-MM-DD` |
+| Love To Dream | `ltd` | `C:\proyectos\ppc-manager-ltd` | `ops/ltd-YYYY-MM-DD` |
+| Setex | `setex` | `C:\proyectos\ppc-manager-setex` | `ops/setex-YYYY-MM-DD` |
+| Mott & Bow ⚠️ | `mb` | `C:\proyectos\ppc-manager-mb` | `ops/mb-YYYY-MM-DD` |
+| M27 Flat File Migrator | `m27` | `C:\proyectos\ppc-manager-m27` | `feature/m27-{bloque}` |
+| M29 Proposal Studio | `m29` | `C:\proyectos\ppc-manager-m29-{sub}` | `feature/m29-{bloque}` |
+
+⚠️ **Mott & Bow — cobertura temporal, no frente propio.** Owner oficial es Cuki
+desde 2026-05-11 (Lenin cubrió la primera semana de handoff). Si Lenin lo elige,
+confirmá que es una cobertura ad hoc antes de arrancar.
+
+**Otros frentes de feature activos sin arranque dedicado** (M24, M30, M31, M36/meli,
+fixes puntuales): no tienen prompt de contexto. Descubrilos con `git worktree list`
+y pedile a Lenin el contexto al arrancar — NO inventes uno.
 
 ═══════════════════════════════════════════════════════════════════════
 TU PROTOCOLO DE CONDUCCIÓN
@@ -74,7 +84,7 @@ PASO 1 — Preguntame qué quiero hacer hoy
 
 Hacé exactamente UNA pregunta:
 "¿Qué frente vas a trabajar en este chat? Opciones:
- (a) Cliente — Dermaglos / Setex / LTD / Mott&Bow / otro
+ (a) Cliente — Dermaglos / LTD / Setex / Mott&Bow (cobertura) / otro
  (b) Feature código — M27 / M29 / otra
  (c) Retomar WIP — ¿de qué frente?
  (d) Trabajo de docs/vault sin frente específico
@@ -164,7 +174,7 @@ Si TERMINÉ:
   guardar el resumen para el consolidador
 
 Si es WIP:
-- Leé notes/sops/wip-handoff.md
+- Leé notes/sops/dev/wip-handoff.md
 - Generá los 4 bloques del WIP-handoff
 - Dame paso a paso qué corro
 - El bloque 4 (prompt de retoma para mañana) recordame guardarlo en
@@ -248,7 +258,7 @@ cat resumenes-YYYY-MM-DD.txt
 git worktree list
 ```
 
-Y después lee notes/sops/consolidador-fin-dia.md para ejecutar el flujo
+Y después lee notes/sops/dev/consolidador-fin-dia.md para ejecutar el flujo
 completo.
 
 ## Histórico
