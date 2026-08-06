@@ -1,9 +1,10 @@
 streamlit==1.43.2
 pandas==2.2.3
-numpy>=1.26,<2.2
-pyarrow>=14,<19
-# numpy/pyarrow pineados: streamlit 1.43.2 segfaultea en serialización
-# Arrow con numpy>=2.2 / pyarrow>=19 (Streamlit Cloud, 12/07/2026)
+# numpy/pyarrow pineados a versión exacta (no rango): streamlit 1.43.2 segfaultea
+# en serialización Arrow con numpy>=2.2 / pyarrow>=19 (Streamlit Cloud). Versiones
+# confirmadas OK en build 2026-08-06.
+numpy==2.1.3
+pyarrow==18.1.0
 openpyxl==3.1.5
 pdfplumber==0.11.4
 streamlit-authenticator==0.3.3
@@ -12,9 +13,9 @@ Jinja2==3.1.6
 xhtml2pdf==0.2.17
 # svglib 1.5.0 = última pre-rlpycairo; evita pycairo/libcairo (no compila en Streamlit Cloud)
 svglib==1.5.0
-anthropic
-python-dotenv
-
-plotly
-requests
-beautifulsoup4
+# pins agregados 2026-08-06 (antes sin versión → build no determinista al sumar módulos):
+anthropic==0.120.2
+python-dotenv==1.2.2
+plotly==6.9.0
+requests==2.34.2
+beautifulsoup4==4.15.0
