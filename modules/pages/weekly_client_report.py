@@ -155,7 +155,7 @@ def _validar_cols_core_br(detect, tipo):
     return faltantes
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_br_daily_wow(file):
     fname = file.name if hasattr(file, "name") else ""
     df = pd.read_excel(file) if fname.endswith(".xlsx") else pd.read_csv(file)
@@ -213,7 +213,7 @@ def _parse_br_daily_wow(file):
     }
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_br_wow(file):
     fname = file.name if hasattr(file, "name") else ""
     df = pd.read_excel(file) if fname.endswith(".xlsx") else pd.read_csv(file)

@@ -47,7 +47,7 @@ def _numericize(df):
     return df
 
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_bulk(data, name):
     """Parse Bulk File XLSX multi-sheet. Returns dict of DataFrames."""
     buf = io.BytesIO(data)

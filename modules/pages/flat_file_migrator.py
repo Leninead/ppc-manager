@@ -1643,7 +1643,7 @@ def _match_columns(
 
 # ── Workbook parser (cached) ────────────────────────────────────────────
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_workbook(file_bytes: bytes, file_name: str, sheet_names: tuple[str, ...]) -> dict:
     """
     Parsea un workbook (xlsx/xls/xlsm). Busca el sheet correcto y devuelve

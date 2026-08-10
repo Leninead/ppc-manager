@@ -13,17 +13,17 @@ from modules.parsers import datadive as _dd
 # Cached parsers
 # ═══════════════════════════════════════════════════════════════════════
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_mkl(data, name):
     return _dd.parse_mkl(data, name)
 
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_competitors(data, name):
     return _dd.parse_competitors(data, name)
 
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_rank_radar(data, name):
     return _dd.parse_rank_radar(data, name)
 

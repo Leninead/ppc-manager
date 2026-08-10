@@ -1065,7 +1065,7 @@ def _to_monthly_rows(rows: list[dict]) -> list[dict]:
     return out
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_business_report(data: bytes, filename: str) -> list[dict]:
     """Parsea CSV o XLSX del BR by-date. Recibe bytes (no UploadedFile) para
     que el cache de Streamlit funcione (patrón M30).

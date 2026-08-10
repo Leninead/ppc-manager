@@ -316,7 +316,7 @@ def _detect_week_from_filename(filename: str) -> int | None:
 
 # ── Parser CSV (replica parseCSV + buildPreview consolidacion del HTML) ─
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_csv_bytes(raw: bytes, filename: str) -> dict:
     """Parsea CSV/TSV de 'Detail Page Sales and Traffic By Child Item'.
 

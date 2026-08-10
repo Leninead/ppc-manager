@@ -98,7 +98,7 @@ _ATTR_LABELS = {
 
 
 # ── Parsers (cached) ────────────────────────────────────────────────────
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_template(file_bytes: bytes) -> dict:
     """
     Parsea el .xlsm: mapea field_name → col_idx, extrae metadata.
@@ -153,7 +153,7 @@ def _parse_template(file_bytes: bytes) -> dict:
     }
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _extract_valid_values(file_bytes: bytes) -> dict:
     """
     Lee 'Valores válidos': cada fila es 'Nombre del campo - [ producto ]' en col 2,

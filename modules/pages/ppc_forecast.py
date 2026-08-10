@@ -24,7 +24,7 @@ def _clean_num(series):
 
 # ── Parsers ──────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_br_daily(file_bytes, fname):
     """Parsea BR diario. Retorna DataFrame con columnas _date, _sales, _units, _sess."""
     df = pd.read_excel(io.BytesIO(file_bytes)) if fname.endswith(".xlsx") else pd.read_csv(io.BytesIO(file_bytes))
@@ -59,7 +59,7 @@ def _parse_br_daily(file_bytes, fname):
     return df
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_campaigns(file_bytes, fname):
     """Parsea Campaign CSV. Retorna (df, spend_col, sales_col)."""
     df = pd.read_csv(io.BytesIO(file_bytes))

@@ -7,7 +7,7 @@ import plotly.express as px
 from core.helpers import kpi_card
 
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _load_str(data, name):
     """Cached reader for STR files."""
     buf = io.BytesIO(data)

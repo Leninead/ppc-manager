@@ -198,7 +198,7 @@ def _detect_sep(data: bytes) -> str:
 # =====================================================================
 # B3 — 6 parsers cacheados (funciones puras, sin st.* adentro)
 # =====================================================================
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_fba(data: bytes) -> pd.DataFrame:
     """CSV FBA (Amazon FBA Inventory). Lectura cruda con pd.read_csv.
 
@@ -210,7 +210,7 @@ def _parse_fba(data: bytes) -> pd.DataFrame:
     return pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=_detect_sep(data))
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_fee(data: bytes) -> pd.DataFrame:
     """CSV Fee (Amazon fee preview / settlement). Lectura cruda con pd.read_csv.
 
@@ -220,7 +220,7 @@ def _parse_fee(data: bytes) -> pd.DataFrame:
     return pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=_detect_sep(data))
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_awd(data: bytes) -> pd.DataFrame:
     """CSV AWD (Amazon Warehousing & Distribution). Lectura cruda con pd.read_csv.
 
@@ -233,19 +233,19 @@ def _parse_awd(data: bytes) -> pd.DataFrame:
     return pd.read_csv(BytesIO(data), encoding="utf-8-sig", sep=_detect_sep(data))
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_pl(data: bytes) -> pd.DataFrame:
     """XLSX P&L / COGS (primera hoja). Lectura cruda, columnas verbatim."""
     return pd.read_excel(BytesIO(data))
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_maestro(data: bytes) -> pd.DataFrame:
     """XLSX Maestro de productos (primera hoja). Lectura cruda."""
     return pd.read_excel(BytesIO(data))
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_izzi(data: bytes) -> pd.DataFrame:
     """XLSX IZZI (inventario de tercero). Port de la SELECCIÓN del HTML (L616-619).
 

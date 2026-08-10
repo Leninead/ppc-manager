@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _load_bulk(data, name):
     """Cached reader for Bulk/Campaign CSV files."""
     buf = io.BytesIO(data)

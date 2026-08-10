@@ -150,7 +150,7 @@ def _detect_listing_fields(df):
 
 # ── Parser ────────────────────────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_listings(data_bytes, filename):
     """Parse listing export file to DataFrame."""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""

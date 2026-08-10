@@ -7,11 +7,13 @@ from openpyxl.utils import get_column_letter
 
 from core.helpers import read_sqp, kpi_card
 
-try:
-    from core.ai_analyze import _claude_analyze
-    _HAS_AI = True
-except ImportError:
-    _HAS_AI = False
+# Deteccion SIN importar: `core.ai_analyze` arrastra anthropic (~22 MB de RSS) y este
+# modulo lo carga app.py en el boot. find_spec resuelve el modulo pero no lo ejecuta,
+# asi que _HAS_AI conserva la misma semantica sin pagar el import. El import real va
+# lazy en el handler del boton (mas abajo, "Generar Insights con IA").
+from importlib.util import find_spec
+
+_HAS_AI = find_spec("core.ai_analyze") is not None
 
 # ── Paleta Capybaras ──────────────────────────────────────────────────────────
 _ORG   = "E84000"; _ORG_P = "FFF3E0"
@@ -109,7 +111,7 @@ def _clean_num(series):
 
 
 # ── Parsers ───────────────────────────────────────────────────────────────────
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_str(file_bytes, fname):
     try:
         buf = io.BytesIO(file_bytes)
@@ -129,7 +131,7 @@ def _parse_str(file_bytes, fname):
         return None, str(e)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_sqp_cached(file_bytes, fname):
     try:
         buf = io.BytesIO(file_bytes)
@@ -141,7 +143,7 @@ def _parse_sqp_cached(file_bytes, fname):
         return None, str(e)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_br(file_bytes, fname):
     try:
         buf = io.BytesIO(file_bytes)
@@ -152,7 +154,7 @@ def _parse_br(file_bytes, fname):
         return None, str(e)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_campaigns(file_bytes):
     try:
         buf = io.BytesIO(file_bytes)
@@ -840,6 +842,7 @@ def render():
             )
 
             with st.spinner("Analizando con IA..."):
+                from core.ai_analyze import _claude_analyze  # lazy: anthropic ~22 MB
                 result = _claude_analyze(prompt, max_tokens=1000)
             st.markdown(result)
 

@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _load_br(data, name):
     """Cached reader for Business Report files."""
     buf = io.BytesIO(data)

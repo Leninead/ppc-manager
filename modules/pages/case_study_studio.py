@@ -17,9 +17,12 @@ import re
 
 import streamlit as st
 
-from core.ai_analyze import _claude_analyze
+# NOTA: `core.ai_analyze` (anthropic, ~22 MB) y `core.case_study_pdf`
+# (xhtml2pdf + reportlab + svglib + PIL, ~42 MB) se importan LAZY dentro de
+# _generate_case_study() y _render_result() respectivamente. Este modulo lo importa
+# app.py al boot, asi que un import top-level cargaba ~65 MB en cada arranque aunque
+# nadie generase un caso. Ver core/__init__.py para el contexto de memoria.
 from core.case_study_html import render_case_study_html
-from core.case_study_pdf import render_case_study_pdf
 from core.persistence import (
     _list_client_configs,
     _list_clientes as _persist_list_clientes,
@@ -201,6 +204,8 @@ def _parse_json(raw: str) -> dict:
 def _generate_case_study(brand: str, can_mention: bool, market: str,
                         t1: str, t2: str, t3: str) -> dict | None:
     """Doble llamada Claude: EN (3 actos) → ES (localización). Devuelve dict o None."""
+    from core.ai_analyze import _claude_analyze  # lazy: anthropic ~22 MB
+
     prompt_en = _build_prompt_en(brand, can_mention, market, t1, t2, t3)
     raw_en = _claude_analyze(prompt_en, max_tokens=1500)
     if raw_en.startswith("⚠️"):
@@ -543,6 +548,9 @@ def _render_result(result: dict) -> None:
 
     # 3) PDF (patrón M29: try/except con fallback si el motor falla).
     try:
+        # Lazy: xhtml2pdf + reportlab + svglib + PIL (~42 MB). El try/except
+        # ya existente cubre tambien un fallo de import del motor de PDF.
+        from core.case_study_pdf import render_case_study_pdf
         pdf_bytes = render_case_study_pdf(result, lang_code)
     except Exception as e:
         st.warning(f"PDF no disponible: {type(e).__name__}: {e}")

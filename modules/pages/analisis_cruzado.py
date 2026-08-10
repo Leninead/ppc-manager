@@ -33,7 +33,7 @@ def _br_num(raw, present) -> float:
     return 0 if pd.isna(v) else v
 
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _load_str_file(data, name):
     """Cached reader for STR files."""
     buf = io.BytesIO(data)

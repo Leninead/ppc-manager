@@ -13,7 +13,7 @@ from modules.pages.datadive_analyzer import _parse_mkl
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _load_campaign_csv(data, name):
     buf = io.BytesIO(data)
     return pd.read_excel(buf) if name.endswith(".xlsx") else pd.read_csv(buf)

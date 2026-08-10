@@ -31,7 +31,9 @@ import streamlit as st
 from datetime import datetime, timezone
 import core.proposal_persistence as pp
 from core.proposal_renderer import render_proposal_html
-from core.proposal_pdf import render_proposal_pdf
+# NOTA: `core.proposal_pdf` se importa LAZY dentro de _render_detail_screen().
+# Arrastra xhtml2pdf + reportlab + svglib + PIL (~42 MB de RSS) y solo hace falta
+# cuando el usuario baja el PDF. Ver core/__init__.py para el contexto de memoria.
 from modules.sales.b7_importer import extract_blocks, merge_blocks
 from modules.parsers.datadive import parse_mkl as _dd_parse_mkl
 from modules.sales.mappers.datadive_to_v3 import datadive_to_v3_block
@@ -2668,6 +2670,9 @@ def _render_detail_screen() -> None:
             key="detail_download_html",
         )
         try:
+            # Lazy: xhtml2pdf + reportlab + svglib + PIL (~42 MB). El try/except
+            # ya existente cubre tambien un fallo de import del motor de PDF.
+            from core.proposal_pdf import render_proposal_pdf
             _proposal_pdf = render_proposal_pdf(proposal, _render_lang)
         except Exception as e:
             st.warning(f"PDF no disponible: {type(e).__name__}: {e}")
@@ -3020,7 +3025,7 @@ def _execute_b7_merge_and_save(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@st.cache_data
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _dd_parse_mkl_cached(data: bytes, name: str):
     """Wrapper cacheado del parser puro (evita re-parsear en cada rerun)."""
     return _dd_parse_mkl(data, name)

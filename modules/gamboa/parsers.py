@@ -93,7 +93,7 @@ def _extract_month_key(df: pd.DataFrame, filename: str) -> str | None:
     return None
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def parse_sqp_file(raw_bytes: bytes, filename: str) -> tuple[pd.DataFrame, str | None]:
     """
     Parsea un archivo SQP individual. Retorna (df_normalizado, month_key).
@@ -248,7 +248,7 @@ def _week_date_label(wk_key: str) -> str:
         return ""
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def parse_br_file(raw_bytes: bytes, filename: str) -> tuple[pd.DataFrame, str | None]:
     """
     Parsea un BR semanal by ASIN. Retorna (df, week_key).
@@ -339,7 +339,7 @@ def _week_sort_key(wk: str) -> tuple[int, int]:
 # INVENTORY PARSER — para mapeo ASIN ↔ SKU
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def parse_inventory(raw_bytes: bytes, filename: str) -> dict[str, str]:
     """
     Parsea Inventory Report y devuelve mapping {asin: sku}.
