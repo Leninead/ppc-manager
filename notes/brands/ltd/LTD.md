@@ -1127,3 +1127,27 @@ La pausa de bulk **sigue en hold** (viene del cierre del 9-jul, motivo original:
 - **B0F8P9GBZN:** mejor performer del WoW, $24.203 / 29 units / **CVR 6.65%** (el más alto del catálogo). Fuerza orgánica.
 - **Flags no-PPC:** B0FLP81RZF (305 sesiones, 0 venta, BB 100%) · B0DG6WRDDL (193, 0).
 - **Buy Box:** B09MG1W91D 50% · B0BJLCL8ST 60% · B005ULUZIQ 88.5% · B09MFZK239 94.4%.
+
+---
+
+## 🔄 Sesión 2026-08-11 — Análisis 360 completo + Plan Funnel SD
+
+**Documentado en:** [[daily/2026-08-11]] · plan [[brands/ltd/planes/2026-08-11-funnel-sd]]
+
+### KPIs (13/07–11/08)
+ACoS paid 18.5% · ROAS 5.4x · TACoS real **13.7%** (sobre target 10-12%) · 55/55 SP capping · tendencia +6.5%.
+
+### Diagnóstico estructural
+Cuenta capada de budget, techo de canal (95% SP búsqueda directa). SD=0. Crecimiento requiere
+abrir funnel (remarketing/conquest/audiences), budget-neutral vía waste recuperado (~$3,176/mes).
+
+### Alarmas P0 nuevas
+- B09MG1PM6L: 681 sessions orgánicas, CVR 0.2% (stock 2u) — restock urgente + pausar ads.
+- B005ULUZIQ: BuyBox 45.2% (empeoró desde flag 16/04) — escalar Agustín/Aaron.
+- Heroes OAT (B0F8PCWD6J 2u, B0F8P9GBZN 13d, B0F8PB4NHX OOS) — restock.
+
+### SQP — regla de precio validada de nuevo
+Genéricos "saco/costal para dormir bebe" (11K+ vol): precio 2.0x mercado → brand purchase share 9-12%.
+Términos "swaddle" específicos (precio par 1.0x): share 33-48%. Confirma regla ≤1.2x conversiones / >1.5x mala share.
+
+### Plan: Fase 0 limpieza SP (bulk) + Fase 1-3 SD (manual, gates). Ancla en B00MJXHM48/B09MG2CVCR/B0CK2KCBLS/B0CLCBQQN2.
