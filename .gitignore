@@ -119,3 +119,5 @@ outputs/
 _smoke_render*.html
 # ── Staging anti-pérdida (backups pre-decisión, nunca se versiona) ──
 _staging/
+# Bulks operativos de Amazon — artefactos, no versionar
+BULK_*.xlsx
