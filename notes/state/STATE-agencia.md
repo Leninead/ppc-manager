@@ -1,11 +1,55 @@
 ---
 tipo: state
-actualizado: 2026-08-04
+actualizado: 2026-08-12
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-08-12 — Frente M&B (Mott & Bow US) — cobertura ad-hoc Lenin, 6 bulks
+
+**Cobertura ad-hoc de Lenin** (owner Cuki de vacaciones). Sin git: todo análisis + ejecución en Amazon Ads Console. **360° completo** (10 reportes, ventana 13/07→12/08) + **6 bulks aplicados, todos OK**.
+
+- ✅ **F0-1 negativos AUTO scavenger** — 10/10 aplicados.
+- ✅ **F0-4 pausas product ads sangrando** — 13/13 por bulk + 1 manual.
+- ✅ **F0-5 bid-down women's shirts** — $0.94 → $0.56.
+- ✅ **F0-6 bid-down SD remarketing** — 90%/100%, 7 targets.
+- 💰 **~$1,200/mes optimizado.** Todo reversible, **cero estructura tocada** (ninguna campaña/ad group creado ni eliminado) — decisión deliberada por ser cobertura, no ownership.
+- 🔧 **Gotcha de bulk cazado:** Negative Keyword en campaña AUTO exige `Ad Group ID` además de `Campaign ID`, si no tira `Missing value for column Ad Group ID`. Mismo patrón que Negative Product Targeting → [[2026-08-12-gotcha-negative-kw-auto-adgroup-id]]
+- 📤 **Entregables:** informe Driggs → Agustín · resumen 📣 → Guille · `Handoff_Cuki_MottBow_20260812.docx` → `#mottandbow-interno`.
+
+**Pendientes que quedan para Cuki (no ejecutados por ser cobertura):**
+- 👁️ **Watchlist de 20 líneas** — vigilar ~**26/08** (día 14 post-bulks).
+- 🔴 **Gap category genérico** — impression share 0%, sin cobertura.
+- 🟠 **SD remarketing 44% sin tocar** — solo se bajó el tramo 90%/100%.
+- 🔴 **Salud de inventario** — crim M unfulfillable + Driggs hero en Available 0.
+
+Detalle: [[2026-08-12]]
+
+---
+
+## 2026-08-11 — Frente LTD/Love To Dream MX — 360° + apertura de canal SD (Fase 1 live)
+
+**360° completo + Fase 0 SP (4 bulks, todos Success) + Fase 1 SD lanzada.** Frente `ops/ltd-2026-08-11` integrado por **FF** (`6ded2cb..66c307d`), 3 commits, 4 archivos, **+200 / −0**, 100% vault.
+
+- 🔴 **TACoS real cuenta 13.7%, sobre el target 10-12%** → post Fase 0 proyectado **~13.0%**. ACoS paid 18.5% · ROAS 5.4x.
+- 🧱 **Techo de canal alcanzado: 55/55 campañas SP en capping.** No hay headroom en SP — es la premisa que justifica abrir SD en vez de subir budgets.
+- 🆕 **GAP estructural cerrado: SD pasó de 0 campañas a 2 live.** `LTD | MX | SD | REMARKETING | VIEWS` (bid $6.00 · $35/d) + `... | PURCHASE` (bid $9.15 · $25/d), portfolio nuevo `LTD | MX | SD | FUNNEL`. Lanzadas a mano en Campaign Manager.
+- 💵 **Budget-neutral por diseño:** SD se financia reasignando ~$3,176/mes de waste, cero pedido de budget nuevo. Fase 0 SP = 4 bulks / 52 filas, todos Success: F0-1 (46) pausa product ads sin stock B0F8PCWD6J + B09MG1PM6L · F0-2 (1) pausa target *saco de dormir bebe* EXACT 76% ACoS · F0-3 (1) negativo *saco de dormir bebe recien nacido* · F0-4 (4) budgets spend-neutral (236/294/279/404).
+- 🚨 **Alarmas P0:** B09MG1PM6L **CVR 0.2%** (681 sessions → 2u) · B005ULUZIQ **BuyBox 45.2%** — el flag del 16/04 **empeoró** (venía reportado en 86% y subiendo en junio; la lectura de hoy lo desmiente).
+- 📦 **Heroes OAT en riesgo de stock:** B0F8P9GBZN (hero #1) ~**13d de runway** · B0F8PCWD6J **2u** · B0F8PB4NHX **OOS**. El restock gatea cualquier escalado.
+- 👤 **Delegado a @Agustín Favano:** restock de 5 ASINs (B0F8P9GBZN · B0F8PCWD6J · B09MG1PM6L · B0F8PB4NHX · B0088HVGBO) + BuyBox B005ULUZIQ → [[2026-08-11-agustin]]
+- 📤 **Entregables (fuera de repo):** mensaje Slack resumen semanal 11/08 formato Guille 📣 — **pendiente de enviar por Lenin** · `LTD_WoW_2026-07-26_08-08.html` (toggle ES/EN + apartado PPC).
+
+**Gates:**
+- **25/08** — medir traspaso de tráfico post-pausas + efecto de la reasignación de budget en ToS IS.
+- **09/09** — **GATE Fase 1 SD**: ACoS <30% **y** ROAS >3x habilitan Fase 2. Si no pasa, no se abre conquest.
+- **Fase 2 SD** (conquest halo/momcozy/kyte/carters) + **Fase 3** (audiences) — **condicionadas al gate**, no calendarizadas.
+
+Detalle: [[2026-08-11]] · plan completo en [[2026-08-11-funnel-sd]] · [[LTD]]
 
 ---
 
@@ -1410,8 +1454,8 @@ Detalle completo en `daily/2026-05-08.md`.
 | Cliente | Mercado | ACoS cuenta | Focus Q2 | Bloqueo principal | Brand note |
 |---|---|---|---|---|---|
 | Dermaglos | Amazon USA 🇺🇸 | 58.9% (objetivo 45%, 360° 19/06) | 360 completo + 5 bulks pre-Prime ejecutados (Success) — listo para Prime 23–30/06 · AM Edu · próx eval 01/07 (STR post-Prime) | Facial Set OOS · unfulfillable recovery · listing fix micellar/cleanser | [[DERMAGLOS]] · [[DERMAGLOS_DATA]] · [[atom11-rules]] |
-| Mott & Bow | Amazon US 🇺🇸 | 10.6% TW (26 abr-2 may, sano) | Full-Funnel Women — Fase 2 en espera del cliente (SBV White Tee + SP Exact Premium Cotton) · transición de owner a Cuki 2026-05-11 | Video creativo + Brand Store Women — espera respuesta cliente para lanzar Fase 2 | [[MB]] |
-| Love To Dream | Amazon MX 🇲🇽 | 15.4% paid · TACoS 10.8% ✅ target | Post-bulks 02/06 — recovery $6K/mes · escalado +$810/d · próx: monitoreo 48-72h + fix M4 viernes | B005ULUZIQ BB 83% (flag 16/04) · 5 INACTIVE_BLOCKED (B0BKB7CJFQ 23u recuperable) · B09MG1J3LC missing del catálogo | [[LTD]] |
+| Mott & Bow | Amazon US 🇺🇸 | 10.6% TW (26 abr-2 may — sin refresh, 360° 12/08 no recalculó ACoS cuenta) | **Owner Cuki** · cobertura ad-hoc Lenin 12/08 (Cuki de vacaciones): 360° 13/07-12/08 + 6 bulks OK, ~$1,200/mes optimizado, cero estructura tocada · **próx eval ~26/08 (watchlist 20 líneas)** | Handoff a Cuki: gap category genérico (imp share 0%) · SD remarketing 44% sin tocar · salud inventario (crim M unfulfillable + Driggs hero Available 0) | [[MB]] |
+| Love To Dream | Amazon MX 🇲🇽 | 18.5% paid · **TACoS 13.7% 🔴 sobre target 10-12%** (→ ~13.0% post Fase 0) · ROAS 5.4x (360° 11/08) | 360° 11/08 + **apertura canal SD**: Fase 0 SP 4 bulks Success (52 filas) + Fase 1 SD 2 camps live budget-neutral · **55/55 SP en capping** (techo de canal) · gates 25/08 y 09/09 | 🚨 B09MG1PM6L CVR 0.2% · B005ULUZIQ BuyBox **45.2%** (flag 16/04 empeorado) · heroes OAT sin stock: B0F8P9GBZN ~13d · B0F8PCWD6J 2u · B0F8PB4NHX OOS → restock delegado a Agustín | [[LTD]] |
 | Setex Technologies | Amazon MX 🇲🇽 | 20.5% (↓ proyectado 16-17% post-bulks 12/05) | 🏆 Best Seller badge B081GB8F89 (lock-in) + push estratégico familia Thin (B0F3PSP82K, 1839u) — 5 EXACT nuevas SKU XG9G515 +$145/d · 154 negativos cross-camp anti-canibalización · pausa preventiva B086H3TZ6B (1u, 19 ads) · **Prime Day 23–30/06 (−20%) armado 17/06** (Bulk A conservación Negro + Bulk B ceilings, Tati OK $1.3–1.4K/d) | B08C2T72ND standby restock (modo conservación, se agota ~arranque evento) · Componente C (bids+ToS) bloqueado por inventario (runway B081GB8F89 + stock B08SNRCL63) · clearance Thin overstock 1.280u B08PZF22R1 sin vehículo + falta OK Tati · 4 urgencias Tati Slack 12/05: B086H3TZ6B 1u · B0F63LTD92 1u · Temple Tips OOS · audit listing EN B081GB8F89 (PS 0% queries anglo) | [[setex]] · [[PENDIENTES_RESTOCK]] |
 | 360 Essentials | Amazon USA 🇺🇸 | 23.0% (✅ target 35%) | SBV FreedomPlus branded + test incrementalidad + relanzar SD bid $1 | Video creativo FreedomPlus para SBV (3 camps) | [[360ESSENTIALS]] |
 | Pura Vida Moringa | Amazon MX 🇲🇽 | 45.5% marzo (proyectado 48-52% post-opt) | Bajar ACoS a 40-45% · consolidar rank orgánico top 2-5 | Sin crédito Atom11 — optimización manual | [[Puravidamoringa]] |
@@ -1423,14 +1467,15 @@ Detalle completo en `daily/2026-05-08.md`.
 ## LTD (Love To Dream) — MX
 
 - **AM**: Agustín | **Escalación**: Adam (Sales Director), Aaron (compliance)
-- **Estado**: saludable post 360° 08/06 — Sales +12.4%, TACoS 9.4% (under target Junio 10-12%). 3 EXACT nuevas live 09/06.
-- **Última sesión**: 2026-06-17 — meeting dueño (caída = PRECIO, no PPC) + bulk F0 (3 pausas, bid-down, 6 negative PT) + setup Prime Day automatizado ([[daily/2026-06-17]] · [[brands/ltd/LTD]]). Previa: 2026-06-08 análisis 360° + 5 bulks ([[daily/2026-06-08]])
-- **Prime Day 23–30/06 (auto-revert 1/jul)**: campaña Grey `SU-PUSH | MX | SP | KW | GREY | PRIMEDAY` (B0081GIZ52 + B0081GIYTE) + Budget Rules UI (PT Category +33% ~$698/d · Broad +30% $455/d). Grey = B0081GIZ52 pendiente confirmación Agustín
-- **Próxima acción**: confirmar Grey + elegibilidad 2 product ads con Agustín · ETA restock B09MG1PM6L (~18d runway → gatilla pull-back, bulk listo) · monitor evento · auditoría tog 0.5 (35 KWs) con fix M4
+- **Estado**: 🔴 **TACoS 13.7% sobre target 10-12%** (360° 11/08) — ACoS paid 18.5%, ROAS 5.4x. **55/55 campañas SP en capping = techo de canal alcanzado.** Post Fase 0 proyectado ~13.0%. (Histórico: TACoS 9.4% en 08/06 — la cuenta se deterioró en 2 meses.)
+- **Última sesión**: 2026-08-11 — 360° completo + **apertura del canal SD** (Fase 0 SP 4 bulks Success / 52 filas + Fase 1 SD 2 campañas live, budget-neutral) ([[2026-08-11]] · [[2026-08-11-funnel-sd]] · [[LTD]]). Previa: 2026-06-17 meeting dueño + bulk F0 ([[daily/2026-06-17]])
+- **Canal SD (nuevo, era GAP estructural)**: portfolio `LTD | MX | SD | FUNNEL` con 2 campañas — `REMARKETING | VIEWS` (bid $6.00 · $35/d) y `REMARKETING | PURCHASE` (bid $9.15 · $25/d). Financiado reasignando ~$3,176/mes de waste, **sin budget nuevo**. Fase 2 (conquest) y Fase 3 (audiences) **condicionadas al gate del 09/09**.
+- **Próxima acción**: **25/08** medir traspaso de tráfico post-pausas + efecto de reasignación en ToS IS · **09/09 GATE Fase 1 SD** (ACoS <30% + ROAS >3x) · destrabar restock con Agustín (gatea todo escalado) · enviar mensaje Slack 11/08 (pendiente Lenin) · auditoría tog 0.5 (35 KWs) con fix M4
 - **Heroes count**: 35 (actualizado de 10, ver brands/ltd/LTD.md sección 🦸 Heroes oficiales canónico)
-- **Stock alerts** (a Agustín): B09MG1PM6L (hero #2, runway 3.7 sem, 0 inbound) · B0DJSF2N6P (6.2 sem) · B09S14W4SS (1.5 sem). Inbound 0 cuenta completa.
+- **Stock alerts** (delegado a @Agustín Favano 11/08 → [[2026-08-11-agustin]]): **heroes OAT en riesgo** — B0F8P9GBZN (hero #1, ~13d runway) · B0F8PCWD6J (2u) · B0F8PB4NHX (**OOS**) · B09MG1PM6L · B0088HVGBO. Los product ads de B0F8PCWD6J y B09MG1PM6L ya se pausaron (bulk F0-1). El restock gatea cualquier escalado de PPC.
 - **Bloqueos pendientes**:
-  - B005ULUZIQ BuyBox 86% subiendo — competidor -20% desapareció, monitor 7-14d antes de reactivar ad groups
+  - 🚨 B005ULUZIQ BuyBox **45.2%** (360° 11/08) — el flag del 16/04 **empeoró**; la lectura de junio (86% subiendo) quedó desmentida. Delegado a Agustín.
+  - 🚨 B09MG1PM6L CVR **0.2%** (681 sessions → 2u) — problema de conversión, no de tráfico. Product ads pausados por falta de stock.
   - Patrón competidor -20% en 7 ASINs (gray market/MAP) — escalación Adam (no PPC)
   - B0BKB7CJFQ 23u UNFULFILLABLE + Inactive desde 01/06 — revisión bloqueo + recovery
   - B09MG1J3LC missing del catálogo (esperando confirmación Agustín)
