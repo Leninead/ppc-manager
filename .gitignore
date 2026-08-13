@@ -121,3 +121,9 @@ _smoke_render*.html
 _staging/
 # Bulks operativos de Amazon — artefactos, no versionar
 BULK_*.xlsx
+# ── Handoffs de frente al consolidador ──
+# Dumps sueltos en raíz (resumenes-YYYY-MM-DD.txt). No se versionan: su
+# contenido se procesa al vault (daily + STATE) y ahí queda el registro.
+# Excepción: los ya archivados en _archive/docs/ siguen trackeados.
+resumenes-*.txt
+!_archive/docs/resumenes-*.txt

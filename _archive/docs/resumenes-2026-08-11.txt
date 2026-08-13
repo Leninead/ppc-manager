@@ -1,0 +1,20 @@
+
+DERMAGLÓS 11/08 — frente ops/dermaglos-2026-08-11
+Commits locales (NO pusheados, integrar):
+  - 0c6d72d  skill umbrales significancia PPC
+  - 8185070  cierre 360° brand note
+  - 11cb6b8  BULK_*.xlsx gitignore
+Bulks Amazon: OK, ambos Success (fuera de git).
+Pendiente publicar: mensaje Slack semanal Dermaglós (Edu/Guille).
+Gotcha knowledge: git check-ignore -v reporta reglas de negación con exit 0.
+
+--- DAILY (notes/daily/2026-08-11.md) ---
+## Dermaglós — Análisis 360° + reestructura PPC
+- 360° completo (9 reportes). Diagnóstico: caída = cuota/visibilidad, no demanda.
+- 2 bulks Amazon (Success): BIDS 5/5, CONQUEST 8/8. +$25/día potencial.
+- Skill umbrales significancia PPC (commit 0c6d72d).
+
+--- STATE (sección Dermaglós) ---
+Dermaglós — ACoS PPC 43% (jul). Diagnóstico 11/08: visibilidad/cuota, no demanda.
+2 bulks aplicados (marca + conquista). P0: listing fix B0CYLMJJJC. Evaluar bulks 21/08.
+Pendiente: COGS real (break-even), decisión micellar (Edu).
