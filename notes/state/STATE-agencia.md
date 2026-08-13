@@ -53,6 +53,29 @@ Detalle: [[2026-08-11]] · plan completo en [[2026-08-11-funnel-sd]] · [[LTD]]
 
 ---
 
+## 2026-08-11 — Frente Dermaglós US — 360° + reestructura PPC (consolidado con retraso el 13/08)
+
+**Frente `ops/dermaglos-2026-08-11` mergeado con `--no-ff`** (3 commits, `+112 / −0`, sin conflictos). ⚠️ **Quedó sin consolidar 2 días**: su handoff vivía en un `.txt` untracked en la raíz y no se procesó junto con LTD/M&B. Ver "Aprendizaje operativo" abajo.
+
+- 🔍 **Diagnóstico: la caída es de CUOTA/VISIBILIDAD, no de demanda.** Categoría con volumen enorme (lotion 428k · scar cream 116k · vitamin a 46k búsq/mes) y Dermaglós con **~0% share**. Captura casi solo su marca (`dermaglos`, 496 búsq/mes) y ahí tiene apenas **30% de Top-of-Search IS**.
+- 📉 Crema single B0CYLMJJJC **205→157→~90 u/mes** (jun/jul/ago) · loción single B0CYLM4L23 **CVR orgánico 16%→8%**, independiente de PPC.
+- 🎯 **Placement:** Top-of-Search convierte (25.7%, ACoS 32%); **Rest-of-Search y Off-Amazon queman >100%**.
+- ✅ **2 bulks Success (11/08):** BIDS UPDATE 5/5 (sube marca + substitutes AUTO, **comprime** `vitamin a cream` $1.41→$1.05 sin matarla, tiene 34 órdenes) · CONQUEST CREATE 8/8 (2 campañas nuevas sobre B0CYLMJJJC: Scar Cream $15/d + Vitamin E $10/d, **+$25/día ≈ $775/mes**).
+- 📊 **KPIs julio:** Spend $726 · Ad Sales $1.679 · **ACoS 43%** (venía de ~58%).
+- 🔴 **Bloqueante: listing fix B0CYLMJJJC.** Sin eso, la conquista manda tráfico frío a un listing con CVR en caída — el gasto nuevo no retorna.
+- 💡 **Hallazgo de margen:** el PPC de crema single **pierde plata** (ACoS 54% > BE_ACoS 27%). La palanca es bajar CPC o subir margen, no escalar.
+- 🧰 **Artefacto reutilizable:** [[skill-umbrales-significancia-ppc]] — umbrales de significancia derivados de break-even, aplicable cross-cliente.
+- 📤 **Pendiente de publicar:** mensaje Slack semanal Dermaglós (Edu/Guille).
+- ⏭️ **Evaluar bulks el 21/08** (campañas frías, no juzgar por ACoS a 7-10 días) · COGS real por ASIN para recalcular break-even (hoy estimado 28%) · decisión de Edu sobre Micellar Water B0CY2XC91Z.
+
+**🔑 Aprendizaje operativo (consolidador):** el 12/08 se cerró la jornada reportando todo sincronizado, con este frente pendiente. El handoff estaba en `resumenes-2026-08-11.txt`, untracked y **no cubierto por `.gitignore`** — invisible salvo que alguien lo abriera. Es la segunda vez que aparece un `resumenes-*.txt` suelto en la raíz (existe `_archive/docs/resumenes-2026-05-26.txt`, que llegó a trackearse por accidente en `5554d2d`). **Pendiente de decisión: convención fija para los handoffs de frente** (`.gitignore` de `resumenes-*.txt` o carpeta `_handoffs/`), y barrido de `git worktree list` como parte del cierre, no como hallazgo casual.
+
+**Gotcha técnico:** `git check-ignore -v` devuelve **exit 0 también para reglas de negación** (`!patrón`) — un exit 0 no prueba que el archivo esté ignorado, hay que leer qué regla reporta.
+
+Detalle: [[2026-08-11]] · [[DERMAGLOS]]
+
+---
+
 ## 2026-08-04 — Consolidador: M31 fc-multi (snapshots + importer By ASIN) a prod
 
 Frente `feature/m31-fc-multi` mergeado por fast-forward (`cca5175..83f89e1`) y pusheado. 3 commits, solo `modules/pages/revenue_forecast.py` + 2 tests nuevos (973 inserciones). Snapshots de forecast nombrados (persistidos vía `_try_persist`, cero DDL) + importer By ASIN con inferencia de período para naming Amazon. Suite tests nuevos 42 passed. Flag `forecast_backend="supabase"` ya estaba en Secrets — deuda del flag SALDADA (ver ítem "Pendiente M31" del 2026-07-07, cubierta). Detalle en `notes/daily/2026-08-04.md`.
@@ -1453,7 +1476,7 @@ Detalle completo en `daily/2026-05-08.md`.
 
 | Cliente | Mercado | ACoS cuenta | Focus Q2 | Bloqueo principal | Brand note |
 |---|---|---|---|---|---|
-| Dermaglos | Amazon USA 🇺🇸 | 58.9% (objetivo 45%, 360° 19/06) | 360 completo + 5 bulks pre-Prime ejecutados (Success) — listo para Prime 23–30/06 · AM Edu · próx eval 01/07 (STR post-Prime) | Facial Set OOS · unfulfillable recovery · listing fix micellar/cleanser | [[DERMAGLOS]] · [[DERMAGLOS_DATA]] · [[atom11-rules]] |
+| Dermaglos | Amazon USA 🇺🇸 | **43% jul** (venía ~58%; objetivo 45% ✅) · Spend $726 / Ad Sales $1.679 | 360° 11/08: caída = **cuota/visibilidad, no demanda** (~0% share de categoría, 30% ToS IS en su propia marca) · 2 bulks Success (BIDS 5/5 + CONQUEST 8/8, +$25/d) · AM Edu · **eval bulks 21/08** | 🔴 **listing fix B0CYLMJJJC bloquea el retorno de la conquista** · PPC crema single pierde en margen (ACoS 54% > BE 27%) · falta COGS real p/ break-even · decisión Edu micellar B0CY2XC91Z · Slack semanal sin publicar | [[DERMAGLOS]] · [[DERMAGLOS_DATA]] · [[atom11-rules]] · [[skill-umbrales-significancia-ppc]] |
 | Mott & Bow | Amazon US 🇺🇸 | 10.6% TW (26 abr-2 may — sin refresh, 360° 12/08 no recalculó ACoS cuenta) | **Owner Cuki** · cobertura ad-hoc Lenin 12/08 (Cuki de vacaciones): 360° 13/07-12/08 + 6 bulks OK, ~$1,200/mes optimizado, cero estructura tocada · **próx eval ~26/08 (watchlist 20 líneas)** | Handoff a Cuki: gap category genérico (imp share 0%) · SD remarketing 44% sin tocar · salud inventario (crim M unfulfillable + Driggs hero Available 0) | [[MB]] |
 | Love To Dream | Amazon MX 🇲🇽 | 18.5% paid · **TACoS 13.7% 🔴 sobre target 10-12%** (→ ~13.0% post Fase 0) · ROAS 5.4x (360° 11/08) | 360° 11/08 + **apertura canal SD**: Fase 0 SP 4 bulks Success (52 filas) + Fase 1 SD 2 camps live budget-neutral · **55/55 SP en capping** (techo de canal) · gates 25/08 y 09/09 | 🚨 B09MG1PM6L CVR 0.2% · B005ULUZIQ BuyBox **45.2%** (flag 16/04 empeorado) · heroes OAT sin stock: B0F8P9GBZN ~13d · B0F8PCWD6J 2u · B0F8PB4NHX OOS → restock delegado a Agustín | [[LTD]] |
 | Setex Technologies | Amazon MX 🇲🇽 | 20.5% (↓ proyectado 16-17% post-bulks 12/05) | 🏆 Best Seller badge B081GB8F89 (lock-in) + push estratégico familia Thin (B0F3PSP82K, 1839u) — 5 EXACT nuevas SKU XG9G515 +$145/d · 154 negativos cross-camp anti-canibalización · pausa preventiva B086H3TZ6B (1u, 19 ads) · **Prime Day 23–30/06 (−20%) armado 17/06** (Bulk A conservación Negro + Bulk B ceilings, Tati OK $1.3–1.4K/d) | B08C2T72ND standby restock (modo conservación, se agota ~arranque evento) · Componente C (bids+ToS) bloqueado por inventario (runway B081GB8F89 + stock B08SNRCL63) · clearance Thin overstock 1.280u B08PZF22R1 sin vehículo + falta OK Tati · 4 urgencias Tati Slack 12/05: B086H3TZ6B 1u · B0F63LTD92 1u · Temple Tips OOS · audit listing EN B081GB8F89 (PS 0% queries anglo) | [[setex]] · [[PENDIENTES_RESTOCK]] |
