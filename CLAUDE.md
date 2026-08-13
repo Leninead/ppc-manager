@@ -737,19 +737,39 @@ No confirmar como terminado hasta que py_compile pase Y el test manual sea exito
 
 **Al FINAL de cada sesión de trabajo, en este orden:**
 
-**1. Git commit** (rutas explícitas — ver 🔚 FLUJO GIT):
+**1. Barrido de frentes sin consolidar** — para cada worktree, `git log origin/main..<branch>`
+(commits sin pushear) + `git status` (trabajo sin commitear). **Ningún cierre se da por
+completo sin este barrido: es lo que evita frentes huérfanos (ver Dermaglós 11/08).**
+
+```bash
+git fetch origin --quiet
+# commits sin mergear, por branch de cada worktree
+git worktree list --porcelain | grep "^branch " | sed 's|^branch refs/heads/||' | \
+  while read -r br; do n=$(git rev-list --count origin/main.."$br"); \
+  [ "$n" != "0" ] && echo "$br → $n commits sin mergear"; done
+# trabajo sin commitear, por worktree
+git worktree list --porcelain | grep "^worktree " | sed 's|^worktree ||' | \
+  while read -r wt; do n=$(git -C "$wt" status --porcelain | grep -c .); \
+  [ "$n" != "0" ] && echo "$wt → $n archivos sucios"; done
+```
+
+Un frente puede estar pendiente sin dejar rastro visible: su handoff puede ser un `.txt`
+suelto que nadie abre. El barrido es la única señal confiable. Si aparece algo, se consolida
+o se anota explícitamente en STATE-agencia como pendiente — nunca se cierra en silencio.
+
+**2. Git commit** (rutas explícitas — ver 🔚 FLUJO GIT):
 ```bash
 git add <rutas explícitas de los archivos tocados>   # NUNCA git add .
 git commit -m "feat/fix/improve: [descripción de lo que hicimos]"
 # push solo desde el chat consolidador
 ```
 
-**2. Actualizar .md de clientes** con pendientes y acciones ejecutadas
+**3. Actualizar .md de clientes** con pendientes y acciones ejecutadas
 (DERMAGLOS.md, LTD.md, MB.md, setex.md según corresponda)
 
-**3. Actualizar CLAUDE.md** con módulos nuevos, fixes y estado actual
+**4. Actualizar CLAUDE.md** con módulos nuevos, fixes y estado actual
 
-**4. Subir archivos actualizados al proyecto de Claude**
+**5. Subir archivos actualizados al proyecto de Claude**
 Ir a claude.ai → proyecto → panel derecho → Archivos → reemplazar:
 - `app.py`
 - `CLAUDE.md`
