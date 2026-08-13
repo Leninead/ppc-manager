@@ -925,3 +925,29 @@ Ahorro anualizado estimado ~$1.100 sobre ~$8.500 = 13% del presupuesto redirigid
 ### Entregables
 - `Dermaglos_US_Analisis_PPC_Julio_2026.html` (cliente)
 - `MACHETE_meet_Dermaglos_24-07.html` (interno)
+
+## 2026-08-11 — Análisis 360° + reestructura PPC
+
+**Trigger:** Edu reportó caída de ventas 3 meses (jun→jul→ago), pidió empujar crema y loción.
+
+**Diagnóstico (360° completo, 9 reportes):**
+- La caída es de CUOTA/VISIBILIDAD, no de demanda. Categoría con volumen enorme (lotion 428k, scar cream 116k, vitamin a 46k búsq/mes) pero Dermaglós ~0% share en el volumen.
+- Captura casi solo su marca (dermaglos, 496 búsq/mes). En su propia marca solo 30% de Top-of-Search IS.
+- Caída confirmada crema single B0CYLMJJJC: 205→157→~90 unidades/mes (jun/jul/ago).
+- CVR orgánico loción single B0CYLM4L23 roto: 16%→8% (jun→ago), independiente de PPC.
+- Placement: Top-of-Search convierte 25.7% ACoS 32%; Rest-of-Search y Off-Amazon queman >100%.
+
+**Acciones ejecutadas (2 bulks, subidos Amazon 11/08 15:36 ART, ambos Success):**
+- BIDS (UPDATE 5/5): +marca dermaglos exact crema single $1.77→$2.30, loción single $1.70→$2.20, loción 2pack phrase $2.23→$2.75; +substitutes AUTO loción $0.93→$1.15; −vitamin a cream phrase crema single $1.41→$1.05 (comprimir, no matar: 34 órdenes).
+- CONQUEST (CREATE 8/8): 2 campañas nuevas sobre B0CYLMJJJC — DG | CONQUEST | Scar Cream ($15/día) + DG | CONQUEST | Vitamin E ($10/día). Gasto potencial +$25/día (~$775/mes).
+
+**KPIs julio:** Cuenta PPC Spend $726 / Ad Sales $1.679 / ACoS 43% (mejoró desde ~58%).
+
+**Pendientes generados:**
+- 🔴 Listing fix B0CYLMJJJC — bloquea retorno de conquista (tráfico frío a listing con CVR en caída).
+- COGS real por ASIN → recalcular break-even (skill usa estimado 28%).
+- Micellar Water B0CY2XC91Z: decisión Edu (¿activar ads? hoy solo orgánico).
+- Evaluación de bulks: 21/08 (campañas frías, no juzgar por ACoS 7-10 días).
+- Hallazgo: PPC crema single pierde en margen (ACoS 54% > BE_ACoS 27%). Palanca: bajar CPC o subir margen.
+
+**Artefacto de método:** skill-umbrales-significancia-ppc.md creada (commit 0c6d72d).
