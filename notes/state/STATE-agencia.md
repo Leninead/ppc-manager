@@ -76,6 +76,22 @@ Detalle: [[2026-08-11]] · [[DERMAGLOS]]
 
 ---
 
+## 2026-08-06 — Onboarding Juan Vargas + incidente prod (RAM) — consolidado con retraso el 14/08
+
+**Segundo frente huérfano detectado.** El código de este día estaba en `main` **desde el 06/08** (5 commits: `f4bccab`, `525ee6d`, `ca4b561`, `18ecf52`, `c809f96`) pero **el vault no tenía nada**: ni daily ni sección de STATE. Se consolidó recién el 14/08.
+
+- 👤 **Juan Vargas es el primer dev del repo.** GitHub `VargasJuan5826` con permiso **Write** — ese mismo permiso es lo que le da acceso a **gestión y logs de Streamlit Cloud** (no es un acceso aparte). Tiene credenciales de app propias, gestionadas en **Streamlit Secrets**. **Repo pasado a privado.**
+- 📋 **Semana 1:** (a) ponerse al día con `SETUP-DEV.md` + README y montar entorno · (b) **LIDERAR la propuesta de migración de infra VPS vs PaaS → Freddy** · (c) analizar los logs de RAM.
+- 🔴 **Incidente prod:** la app se cayó por resource limits / memoria. El **apagón visible** fue el permiso GitHub↔Streamlit al re-clonar — **RESUELTO**. La **causa de fondo sigue abierta**: techo de **~1 GB de RAM en Community Cloud y NO hay upgrade de tier**. Sin opción de comprar la salida, quedan dos: **optimizar o migrar**.
+- 🩹 **Fix parcial de runtime:** `6ded2cb` (10/08) — lazy imports anthropic/pdf + `max_entries` en caches de upload. **Baja el piso de memoria, no mueve el techo.**
+- 🔗 **Cadena explícita:** incidente → techo de 1 GB sin upgrade → **por eso existe** la propuesta de migración que lidera Juan. No es mejora opcional: es respuesta a un límite duro que ya tiró la app.
+- ⚠️ **Aprendizaje operativo:** **no pueden trabajar dos chats commiteando sobre el principal a la vez** (falla con `claude.exe in use`). Con Juan en Write deja de ser problema de un solo operador — hay que **coordinar el no-solapamiento entre worktree y principal**.
+- 🔐 **Tres pendientes de seguridad generados** → registrados como riesgo vivo en Deuda técnica **#21** (branch protection), **#22** (auditar historial por secrets) y **#19** (rotar anon key, urgencia elevada). No son historia: están abiertos.
+
+Detalle: [[2026-08-06]]
+
+---
+
 ## 2026-08-04 — Consolidador: M31 fc-multi (snapshots + importer By ASIN) a prod
 
 Frente `feature/m31-fc-multi` mergeado por fast-forward (`cca5175..83f89e1`) y pusheado. 3 commits, solo `modules/pages/revenue_forecast.py` + 2 tests nuevos (973 inserciones). Snapshots de forecast nombrados (persistidos vía `_try_persist`, cero DDL) + importer By ASIN con inferencia de período para naming Amazon. Suite tests nuevos 42 passed. Flag `forecast_backend="supabase"` ya estaba en Secrets — deuda del flag SALDADA (ver ítem "Pendiente M31" del 2026-07-07, cubierta). Detalle en `notes/daily/2026-08-04.md`.
@@ -1913,11 +1929,36 @@ _PAGES en core/constants.py tiene emojis desincronizados del router real en 4 m�
 
 **Remediación (antes de exposición pública/multi-tenant):** rotar la anon key → `service_role` server-side + activar RLS con políticas por `client_name`. Detalle técnico completo en [[m29-proposal-studio]] (sección Paso 1.5 RLS + Deudas registradas). Candidata natural para primera tarea de onboarding sobre proyecto dev/staging (nunca sobre prod directo).
 
+**🔺 URGENCIA ELEVADA — 2026-08-06 (onboarding Juan Vargas).** El supuesto que hacía esto tolerable era "app single-tenant interna, la key no sale del círculo". Ese supuesto **ya no se sostiene**: Juan tiene permiso Write en GitHub, y con eso **gestiona la app y ve los Secrets de prod**, donde vive la anon key. Deja de ser deuda a futuro y pasa a riesgo presente.
+- **Dueño candidato:** Juan Vargas — **semana 1**.
+- **Acción:** rotar a `service_role` server-side + activar RLS con políticas.
+- ⚠️ **Sobre prod:** la nota de arriba sugería estrenar esto en dev/staging. Sigue siendo lo correcto para la *práctica*, pero **la rotación en sí hay que hacerla sobre prod** — es ahí donde está la key expuesta. No confundir el ejercicio de onboarding con la remediación.
+
 ### 20. M31 uploader mes real no actualiza Spend ni Ventas PPC al re-subir (prioridad MEDIA — decisión abierta)
 
 Descubierto 2026-08-04 (frente fc-multi). Re-subir el MISMO mes con Spend/Ventas PPC corregidos en el CSV NO los actualiza: `_merge_historical` preserva esos 2 campos por diseño (son inputs manuales del AM, no vienen del Business Report). Si el AM corrige esos campos en el CSV del mes real, el merge los ignora silenciosamente.
 
 **Decisión pendiente:** (a) documentarlo como comportamiento esperado y que el AM edite esos campos en la UI, o (b) dar al uploader del mes real un merge propio que NO preserve Spend/VentasPPC. No bloqueante hoy.
+
+### 21. Branch protection en `main` — sin configurar (🔴 SEGURIDAD, abierto desde 2026-08-06)
+
+Abierto con el onboarding de **Juan Vargas** (permiso Write, 06/08). **Hoy `main` no tiene ninguna protección: cualquiera con Write puede pushear directo**, sin PR, sin review y sin que nadie se entere. Hasta el 06/08 el repo tenía un solo operador y el riesgo era teórico; ahora hay dos personas con permiso de escritura.
+
+**Acción:** configurar branch protection en `main` → **PR obligatorio + 1 approval**.
+
+⚠️ **Consecuencia que hay que aceptar antes de activarlo:** aplica a **todos**. Lenin también pasa a mergear por PR — se termina el `git push origin main` directo desde el chat consolidador, que es el flujo que se viene usando todos los días. No es un detalle de configuración: **cambia el flujo de trabajo del consolidador**. Decidir con eso a la vista, no después.
+
+**Dueño candidato:** Lenin (es config de repo, no de código). **Prioridad:** alta — es la más barata de las tres y la que más superficie cierra.
+
+### 22. Auditar el historial del repo por secrets — nunca hecho (🔴 SEGURIDAD, abierto desde 2026-08-06)
+
+**El repo estuvo público** hasta que se pasó a privado el 06/08. Nunca se auditó el historial para confirmar que no se haya commiteado material sensible en ese período.
+
+**Qué verificar:** que nunca hayan entrado al historial `secrets.toml`, `.env`, credenciales, keys de Supabase, tokens ni hashes de password. Pasarlo a privado **no borra nada del historial** — lo que se commiteó sigue ahí y, si el repo fue clonado o indexado mientras era público, ya salió.
+
+**Si aparece algo → rotar de inmediato** (no alcanza con borrar el commit: hay que asumir la credencial comprometida). Se cruza con **#19**: si la anon key aparece en el historial, la rotación deja de ser "semana 1" y pasa a ser inmediata.
+
+**Dueño candidato:** Juan (encaja con su puesta al día del repo) o Lenin. **Nota:** hacerlo **antes** de dar por buena la superficie de exposición actual — es el único de los tres que puede revelar que ya hubo una fuga.
 
 ---
 
