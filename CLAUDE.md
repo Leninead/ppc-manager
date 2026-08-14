@@ -737,9 +737,12 @@ No confirmar como terminado hasta que py_compile pase Y el test manual sea exito
 
 **Al FINAL de cada sesión de trabajo, en este orden:**
 
-**1. Barrido de frentes sin consolidar** — para cada worktree, `git log origin/main..<branch>`
-(commits sin pushear) + `git status` (trabajo sin commitear). **Ningún cierre se da por
-completo sin este barrido: es lo que evita frentes huérfanos (ver Dermaglós 11/08).**
+**1. Barrido de frentes sin consolidar** — **dos señales, ninguna cubre a la otra.**
+**Ningún cierre se da por completo sin las dos: es lo que evita frentes huérfanos
+(ver Dermaglós 11/08 y onboarding 06/08).**
+
+**Señal A — trabajo sin llegar a `main`:** para cada worktree, `git log origin/main..<branch>`
+(commits sin pushear) + `git status` (trabajo sin commitear).
 
 ```bash
 git fetch origin --quiet
@@ -753,9 +756,27 @@ git worktree list --porcelain | grep "^worktree " | sed 's|^worktree ||' | \
   [ "$n" != "0" ] && echo "$wt → $n archivos sucios"; done
 ```
 
-Un frente puede estar pendiente sin dejar rastro visible: su handoff puede ser un `.txt`
-suelto que nadie abre. El barrido es la única señal confiable. Si aparece algo, se consolida
-o se anota explícitamente en STATE-agencia como pendiente — nunca se cierra en silencio.
+**Señal B — código en `main` sin registro de vault:** días con commits que no tienen daily.
+Un frente puede quedar huérfano **con todo pusheado**: `git status` da limpio, el barrido de
+worktrees da vacío, y aun así no hay daily ni sección de STATE. Fue exactamente el caso del
+06/08 (onboarding Juan), donde los 5 commits estaban en `main` desde ese mismo día.
+
+```bash
+# fechas con commits en los ultimos 30 dias que NO tienen notes/daily/<fecha>.md
+git log origin/main --since="30 days ago" --format='%ad' --date=short | sort -u | \
+  while read -r d; do [ -f "notes/daily/$d.md" ] || \
+    echo "$d → SIN daily ($(git log origin/main --since="$d 00:00" --until="$d 23:59" --oneline | wc -l | tr -d ' ') commits)"; done
+```
+
+⚠️ **La señal B tiene falsos positivos y hay que triarlos, no ignorarlos.** Un día de
+consolidación commitea el trabajo de *otros* días (queda registrado en el daily de esos días,
+no en el propio) y aparece acá como hueco. Por eso el bloque imprime el **conteo de commits**:
+9 commits sin daily amerita revisar; 1 commit suele ser un hotfix o una consolidación ajena.
+Descartar un hueco es una decisión válida — **descartarlos todos sin mirar es cómo se pierde
+un frente.**
+
+Si cualquiera de las dos señales devuelve algo, se consolida o se anota explícitamente en
+STATE-agencia como pendiente — nunca se cierra en silencio.
 
 **2. Git commit** (rutas explícitas — ver 🔚 FLUJO GIT):
 ```bash
