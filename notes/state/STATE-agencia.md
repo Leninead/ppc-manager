@@ -98,6 +98,19 @@ Frente `feature/m31-fc-multi` mergeado por fast-forward (`cca5175..83f89e1`) y p
 
 ---
 
+## 2026-08-03 — Reestructura de vault pre-onboarding — consolidado con retraso el 14/08
+
+**Tercer frente huérfano**, detectado por la señal B del barrido de cierre. 9 commits (`cfa77d4`..`5d7c70e`) en `main` desde el 03/08, **cero registro de vault** — el único rastro era una cláusula incidental del daily del 04/08. **74 archivos · +390 / −10.489.** Es el día que le dio al repo la forma que tiene hoy.
+
+- 🗂️ **Qué se hizo:** estructura de orden (`_archive`, SOPs por audiencia, READMEs índice) · **split de 21 SOPs en `dev`/`usuario`/`agencia`** · 11 docs históricos de raíz → `_archive/docs` · 9 archivos de ruido destrackeados → `_staging` · optipet consolidado en `brands`, plan M29 en `modules`, reunión-edu en `meetings` · arranques duplicados archivados · **know-how de deploy de Streamlit preservado en `notes/knowledge/` antes de archivar `setup_deploy.py`** (`5d7c70e`) · **consolidación de la deuda P2 Supabase RLS en el ítem #19** (`0f349ed`).
+- 🔗 **Es el antecedente directo del onboarding del 06/08.** Tres commits dicen literalmente "pre-onboarding": este día se ordenó el repo **para que fuera legible por un dev nuevo**, y el 06/08 entró Juan Vargas. Un solo arco de dos tiempos, y **ninguno de los dos estaba registrado** — ambos se consolidaron el 14/08. `SETUP-DEV.md` sólo tiene sentido sobre la estructura armada acá.
+- ⚠️ **Pregunta abierta — el criterio del split `dev`/`usuario`/`agencia` NO está documentado y Lenin no lo recuerda.** Hoy nadie sabe a qué carpeta va un SOP nuevo. **No se inventó un criterio**: queda por definir cuando aparezca la duda concreta. Registrado como deuda **#23**.
+- 📌 El `−10.489` es destrackeo y archivado, no borrado de contenido. Pero **no hay lista de qué se destrackeó** — si algo salió por error, se reconstruye del `git log`.
+
+Detalle: [[2026-08-03]]
+
+---
+
 ## 2026-07-28 - Consolidador: M36 Mercado Libre + M31 F7 Fase A a produccion
 
 **Dos frentes integrados y pusheados, 12 commits.** M36 Mercado Libre (`ebcd0cb`): modulo nuevo, 3 features, 23 archivos, cero borrados. M31 F7 Fase A (`b4d080e`): capa Real vs Forecast, 5 archivos, 1656 inserciones, pedido de Eduardo del 27-jul. Suite final **823 passed / 5 skipped / 9 failed** conocidos sobre 837 colectados.
@@ -1959,6 +1972,16 @@ Abierto con el onboarding de **Juan Vargas** (permiso Write, 06/08). **Hoy `main
 **Si aparece algo → rotar de inmediato** (no alcanza con borrar el commit: hay que asumir la credencial comprometida). Se cruza con **#19**: si la anon key aparece en el historial, la rotación deja de ser "semana 1" y pasa a ser inmediata.
 
 **Dueño candidato:** Juan (encaja con su puesta al día del repo) o Lenin. **Nota:** hacerlo **antes** de dar por buena la superficie de exposición actual — es el único de los tres que puede revelar que ya hubo una fuga.
+
+### 23. Criterio de audiencia de los SOPs sin documentar — `dev` / `usuario` / `agencia` (🟢 BAJA, abierto desde 2026-08-03)
+
+El split de 21 SOPs en `notes/sops/dev`, `notes/sops/usuario` y `notes/sops/agencia` se hizo el 2026-08-03 (`e89fc4c`) **por "audiencia", pero el criterio que define esa audiencia nunca se escribió**. Lenin no lo recuerda. Resultado: **nadie sabe hoy a qué carpeta va un SOP nuevo.**
+
+**Por qué es deuda real y no cosmética:** afecta a cualquiera que escriba un SOP, y el costo se paga cada vez. Un archivo mal ubicado no rompe nada — simplemente no lo encuentra quien lo necesita. Se agrava con Juan en el repo: es el primer lector que no estuvo cuando se tomó la decisión.
+
+**Casos límite reales (no hipotéticos):** un SOP de flujo git, ¿es `dev` por técnico o `agencia` por proceso interno? · un SOP de uso de módulo que lee un AM, ¿`usuario` o `agencia`? · `consolidador-fin-dia.md` está en `dev/` — ¿por técnico, o porque el consolidador es rol de dev?
+
+**Acción:** definir el criterio **cuando aparezca la primera duda concreta** y documentarlo ahí mismo en `notes/sops/README.md`. **NO inventar un criterio retroactivo** para justificar la distribución actual — si al definirlo algún SOP queda mal ubicado, se mueve.
 
 ---
 
