@@ -1,11 +1,30 @@
 ---
 tipo: state
-actualizado: 2026-08-12
+actualizado: 2026-08-13
 ---
 
 # STATE Agencia — Capybaras
 
 Snapshot operativo de la agencia. Agregador por diseño (no nota atómica).
+
+---
+
+## 2026-08-13 — Frente Setex Technologies (MX) — cierre de ciclo: 360° 10 reportes + 9 bulks
+
+**Cierre de ciclo 03–13/08.** Frente documental (sin git desde el frente; transcripción al vault hecha por el consolidador). **360° completo con 10 reportes** — se promovió **FBA Manage Inventory a fuente obligatoria** (antes eran 9). Ventana de conversión 01–31/07, entrega 01/07–02/08.
+
+- ⚙️ **9 bulks ejecutados, 473 filas**: 6 el **03/08** (199 filas, **6/6 Success**, verificados contra el BSE del 11/08) + 3 el **11/08** (Kids: 248/252 + 11 + 10).
+- 📈 **Resultado medido (WoW 03–09/08 vs 27/07–02/08):** ventas $61.512 → **$68.703 (+11,7%)** · unidades +10,7% · **tráfico +17,7%** · ad sales +19,0% · **ACoS estable 16,3%**. ⚠️ **Todo el crecimiento vino de pauta — el orgánico cayó −3,0%.** No es autosostenido.
+- 🟢 **El quiebre del hero se cerró:** `B081GB8F89` con **restock el 23/07** (fecha determinada por dato duro, no por aviso). CVR PPC 8,8% → **13,8%**, ACoS 21,4% → **14,9%**. ⚠️ **Corrección de métrica:** el "CVR 4,39%" arrastrado 3 semanas en los WoW es **CVR de sesión**, no CVR de clicks PPC — el CVR publicitario del hero nunca bajó de 9,6%.
+- 💰 **Gap de precio recalibrado — la tabla vieja (64%/30%/23%) queda OBSOLETA.** Patrón real mucho más abrupto: ≤1,2x → PurShr **92,3%** · 1,5–2,0x → **16,4%** · >2,0x → 9,8%. **El 71% del volumen accesible está en 1,5–2,0x, donde Setex captura el 16%.**
+- 🎯 **Diagnóstico central: la cuenta está sana y su techo NO es presupuesto sino VISIBILIDAD.** Utilización de budget **14,2%** ($848/día real vs $5.981/día configurado) · 86,5% de las impresiones caen en Product pages (CTR 0,20%) · 63,3% de la facturación es orgánica pura · **no hay whitespace de demanda**.
+- 🔴 **Alarmas abiertas:** **inbound = 0 en los 63 listings** (10 días desde la alerta) · 3 ASINs bajo 32d de runway (`B0DWBYSBQZ` 4u · `B0B94KBY8H` 31d · `B09HVXDH7M` 32d) · **Ear Hook AUTO SUBSTITUTES ACoS 48,2%** = la intervención más urgente.
+- 📚 **10 learnings cross-brand** candidatos al SOP v1.5 → [[learnings-360-2026-08]]. Los más portables: orden de consumo de los 10 reportes · CVR sesión ≠ CVR PPC · **ACoS bajo + gasto bajo NO es señal de escala** en cuentas con alto orgánico · own-ASIN near-miss (5ª confirmación) · gotcha `Targeting expression predefined cannot be archived manually`.
+- 🐛 **Bug del Agency OS weekly report, 3 semanas consecutivas sin corregir:** ventas/unidades por ASIN suman 1,85–1,97× el total de cuenta (las columnas de ads reconcilian al centavo) · la hoja Advertising trae 14 días en vez de 7 · el resumen ejecutivo marca caídas de tráfico sin cruzar con CVR y recomienda subir budget cuando no corresponde.
+
+**Gates:** **18/08** control de restock (owner de follow-up Lenin, destinatario Tatiana) · **25/08** evaluación del cross-sell Kids — **criterio de éxito = unidades movidas, no ACoS**.
+
+Detalle: [[setex]] · [[PENDIENTES_RESTOCK]] · [[learnings-360-2026-08]]
 
 ---
 
@@ -1508,7 +1527,7 @@ Detalle completo en `daily/2026-05-08.md`.
 | Dermaglos | Amazon USA 🇺🇸 | **43% jul** (venía ~58%; objetivo 45% ✅) · Spend $726 / Ad Sales $1.679 | 360° 11/08: caída = **cuota/visibilidad, no demanda** (~0% share de categoría, 30% ToS IS en su propia marca) · 2 bulks Success (BIDS 5/5 + CONQUEST 8/8, +$25/d) · AM Edu · **eval bulks 21/08** | 🔴 **listing fix B0CYLMJJJC bloquea el retorno de la conquista** · PPC crema single pierde en margen (ACoS 54% > BE 27%) · falta COGS real p/ break-even · decisión Edu micellar B0CY2XC91Z · Slack semanal sin publicar | [[DERMAGLOS]] · [[DERMAGLOS_DATA]] · [[atom11-rules]] · [[skill-umbrales-significancia-ppc]] |
 | Mott & Bow | Amazon US 🇺🇸 | 10.6% TW (26 abr-2 may — sin refresh, 360° 12/08 no recalculó ACoS cuenta) | **Owner Cuki** · cobertura ad-hoc Lenin 12/08 (Cuki de vacaciones): 360° 13/07-12/08 + 6 bulks OK, ~$1,200/mes optimizado, cero estructura tocada · **próx eval ~26/08 (watchlist 20 líneas)** | Handoff a Cuki: gap category genérico (imp share 0%) · SD remarketing 44% sin tocar · salud inventario (crim M unfulfillable + Driggs hero Available 0) | [[MB]] |
 | Love To Dream | Amazon MX 🇲🇽 | 18.5% paid · **TACoS 13.7% 🔴 sobre target 10-12%** (→ ~13.0% post Fase 0) · ROAS 5.4x (360° 11/08) | 360° 11/08 + **apertura canal SD**: Fase 0 SP 4 bulks Success (52 filas) + Fase 1 SD 2 camps live budget-neutral · **55/55 SP en capping** (techo de canal) · gates 25/08 y 09/09 | 🚨 B09MG1PM6L CVR 0.2% · B005ULUZIQ BuyBox **45.2%** (flag 16/04 empeorado) · heroes OAT sin stock: B0F8P9GBZN ~13d · B0F8PCWD6J 2u · B0F8PB4NHX OOS → restock delegado a Agustín | [[LTD]] |
-| Setex Technologies | Amazon MX 🇲🇽 | 20.5% (↓ proyectado 16-17% post-bulks 12/05) | 🏆 Best Seller badge B081GB8F89 (lock-in) + push estratégico familia Thin (B0F3PSP82K, 1839u) — 5 EXACT nuevas SKU XG9G515 +$145/d · 154 negativos cross-camp anti-canibalización · pausa preventiva B086H3TZ6B (1u, 19 ads) · **Prime Day 23–30/06 (−20%) armado 17/06** (Bulk A conservación Negro + Bulk B ceilings, Tati OK $1.3–1.4K/d) | B08C2T72ND standby restock (modo conservación, se agota ~arranque evento) · Componente C (bids+ToS) bloqueado por inventario (runway B081GB8F89 + stock B08SNRCL63) · clearance Thin overstock 1.280u B08PZF22R1 sin vehículo + falta OK Tati · 4 urgencias Tati Slack 12/05: B086H3TZ6B 1u · B0F63LTD92 1u · Temple Tips OOS · audit listing EN B081GB8F89 (PS 0% queries anglo) | [[setex]] · [[PENDIENTES_RESTOCK]] |
+| Setex Technologies | Amazon MX 🇲🇽 | **16.3% (✅ objetivo 18%)** · TACoS ~11% · 63,3% de la facturación es orgánica pura (360° 13/08) | 360° 13/08 con **10 reportes** + **9 bulks** (6 el 03/08 + 3 el 11/08, 473 filas) · ventas **+11,7%**, tráfico **+17,7%**, ACoS estable · 🟢 hero B081GB8F89 recuperado (restock 23/07) · **techo = visibilidad, NO budget** (utilización 14,2%) · gap de precio recalibrado (tabla vieja obsoleta: 71% del volumen en 1,5–2,0x donde captura 16%) · caso Kids cross-sell interno, **eval 25/08 por unidades movidas** | 🔴 **inbound = 0 en los 63 listings** (10d desde la alerta) · 3 ASINs <32d: B0DWBYSBQZ (4u) · B0B94KBY8H (31d) · B09HVXDH7M (32d, mejor ACoS 5,0%) · Ear Hook AUTO SUBSTITUTES ACoS **48,2%** (intervención más urgente) · B0DK7PHXXC spend +94,6% / ad sales −27,0% · B0B94KBY8H 4ª semana sin resolver · **control restock 18/08** | [[setex]] · [[PENDIENTES_RESTOCK]] · [[learnings-360-2026-08]] |
 | 360 Essentials | Amazon USA 🇺🇸 | 23.0% (✅ target 35%) | SBV FreedomPlus branded + test incrementalidad + relanzar SD bid $1 | Video creativo FreedomPlus para SBV (3 camps) | [[360ESSENTIALS]] |
 | Pura Vida Moringa | Amazon MX 🇲🇽 | 45.5% marzo (proyectado 48-52% post-opt) | Bajar ACoS a 40-45% · consolidar rank orgánico top 2-5 | Sin crédito Atom11 — optimización manual | [[Puravidamoringa]] |
 
@@ -1531,6 +1550,20 @@ Detalle completo en `daily/2026-05-08.md`.
   - Patrón competidor -20% en 7 ASINs (gray market/MAP) — escalación Adam (no PPC)
   - B0BKB7CJFQ 23u UNFULFILLABLE + Inactive desde 01/06 — revisión bloqueo + recovery
   - B09MG1J3LC missing del catálogo (esperando confirmación Agustín)
+
+## Setex Technologies — MX
+
+- **AM**: Tatiana Velasquez | **Escalación**: Guille (Slack semanal)
+- **Estado**: ✅ **ACoS 16,3% bajo el objetivo de 18%** · TACoS ~11% · **63,3% de la facturación es orgánica pura** ($157.930 de $249.590). **El techo de la cuenta NO es presupuesto sino VISIBILIDAD**: utilización de budget **14,2%** ($848/día real vs $5.981/día configurado), ninguna campaña se queda sin presupuesto. 🟢 **Hero `B081GB8F89` recuperado** — el restock entró el **23/07** (CVR PPC 8,8% → 13,8%, ACoS 21,4% → 14,9%).
+- **Última sesión**: 2026-08-13 — 360° completo con **10 reportes** (FBA Manage Inventory promovido a fuente obligatoria) + **9 bulks ejecutados**: 6 el 03/08 (199 filas, 6/6 Success) + 3 el 11/08 (Kids). Resultado medido WoW 03–09/08: ventas **+11,7%** ($61.512 → $68.703), tráfico **+17,7%**, ACoS estable 16,3%. ⚠️ Todo el crecimiento vino de pauta — el orgánico cayó −3,0%, no es autosostenido. Detalle en [[setex]] · learnings cross-brand en [[learnings-360-2026-08]].
+- **Gap de precio — RECALIBRADO**: la tabla vieja (≤1,2x → 64% · 1,2–1,5x → 30% · >1,5x → 23%) queda **OBSOLETA**. El patrón real es mucho más abrupto, más cercano a LTD: ≤1,2x → PurShr **92,3%** · 1,2–1,5x → 44,4% · 1,5–2,0x → **16,4%** · >2,0x → 9,8%. **Problema estructural: el 71% del volumen accesible (18.508 de búsquedas) está en 1,5–2,0x, donde Setex captura apenas el 16%.** Prueba del concepto: `nose pads for glasses`, única query con gap 1,00x, se lleva el 71,4% de las compras.
+- **Caso Kids** (`B0CC6THCDS` / `B09T89SNZL` / `B09T7BF9TK`, 105u): cross-sell interno **lanzado el 11/08** — Kids anunciados en las PDPs de los 4 nose pads de adulto con más tráfico, placement **invertido** (PDP +100%, ToS 0%, RoS 0%). El bloqueo real es precio (gap 3,66x vs mercado), no PPC. **Evaluación 25/08 con criterio de éxito = UNIDADES MOVIDAS, no ACoS.** Guardarraíl: si cae el CVR de `B081GB8F89`, se apaga el cross-sell.
+- **Bloqueos pendientes**:
+  - 🔴 **Inbound = 0 en los 63 listings** — ni un solo ASIN con unidades en tránsito. Alertado 03/08 y 11/08, sin respuesta reflejada en stock. 3 ASINs bajo 32d de runway: `B0DWBYSBQZ` (4u) · `B0B94KBY8H` (31d) · `B09HVXDH7M` (32d, **mejor ACoS de la cuenta 5,0%**). Ver [[PENDIENTES_RESTOCK]].
+  - 🔴 **Ear Hook · AUTO SUBSTITUTES — ACoS 48,2%** ($815 → $1.690). **La intervención más urgente de la cuenta.**
+  - 🟠 `B0DK7PHXXC` (Nano negro): spend **+94,6%** con ad sales **−27,0%**, ACoS 23,1%.
+  - 🟠 `B0B94KBY8H` (Temple negro): **4ª semana consecutiva sin resolver** — 596 sesiones, CVR 5,54%, TACoS 21,5%, solo 35% orgánico.
+- **Próximas acciones**: **18/08** control de restock (owner de follow-up: Lenin; destinatario del pedido: Tatiana) · **25/08** evaluación del cross-sell Kids por unidades movidas.
 
 ## API Integration — SPP Case · 20/05/2026
 **Status**: SUBMITTED · esperando review Amazon

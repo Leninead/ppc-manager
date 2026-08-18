@@ -846,3 +846,148 @@ La cuenta cerró **plana perdiendo la mitad del hero** porque la escala del 17/0
 **Alarmas nuevas:** Temple·PAT·Slzhds+ZENSUKYE 64.2% ACoS (pausar) · B08SMSBFG9 CVR 5.49% / ACoS 23.8% (auditar).
 
 **Watch:** B08C2T72ND pasó a #1 de la semana ($17,039, CVR 17.03%, orgánico puro) **al caer el hero**.
+
+## 2026-08-13 · Cierre de ciclo — 360° completo + 9 bulks ejecutados
+
+### Contexto
+Primer 360° con los **10 reportes** (no 9): se agregó FBA Manage Inventory como fuente obligatoria. Ventana de conversión 01–31/07; entrega 01/07–02/08.
+
+### 🟢 El quiebre del hero se cerró
+`B081GB8F89` — **el restock entró el 23/07**, fecha determinada por dato duro: la venta del propio ASIN (Advertised SKU Sales) fue $0 los días 13, 14 y 19/07 con halo de hasta 90%, y se normaliza a $1.200–1.920/día desde el 23/07.
+
+| | Pre-restock (12–22/07) | Post (23/07–02/08) |
+|---|---|---|
+| CVR PPC | 8,8% | **13,8%** |
+| ACoS | 21,4% | **14,9%** |
+| Halo | 82% | 39% |
+
+⚠️ **CORRECCIÓN DE MÉTRICA.** El "CVR 4,39%" que se arrastró en los WoW es **CVR de sesión** (unidades ÷ sesiones del Business Report), NO CVR de clicks PPC. El CVR publicitario del hero nunca bajó de 9,6%. No mezclarlas nunca más.
+
+### 🔴 GAP DE PRECIO — TABLA ACTUALIZADA (reemplaza la anterior)
+Medido sobre SQP Brand View mensual julio 2026, queries con compra:
+
+| Gap Setex/mercado | Queries | Volumen | PurShr | CVR marca |
+|---|---|---|---|---|
+| ≤ 1,2x | 108 | 1.937 | **92,3%** | 26,6% |
+| 1,2–1,5x | 11 | 512 | 44,4% | 15,0% |
+| 1,5–2,0x | 47 | **18.508** | **16,4%** | 7,0% |
+| > 2,0x | 15 | 5.011 | 9,8% | 6,8% |
+
+La tabla vieja (64% / 30% / 23%) queda OBSOLETA. El patrón es mucho más abrupto de lo registrado — más cercano a LTD. **Problema estructural:** el 71% del volumen accesible está en 1,5–2,0x, donde Setex captura el 16%. Prueba del concepto: `nose pads for glasses` es la única query con gap 1,00x y ahí Setex se lleva el **71,4% de las compras**.
+
+### Diagnóstico central del 360°
+> **La cuenta está sana (ACoS 15,0% vs objetivo 18%, TACoS 10,5%) y su techo NO es presupuesto sino VISIBILIDAD.**
+
+- **86,5% de las impresiones caen en Product pages** con CTR 0,20%, contra 7,27% en Top of Search. ToS tiene 5,2% de las impresiones y 60,9% del gasto.
+- **Utilización de budget: 14,2%** ($848/día real vs $5.981/día configurado). La peor campaña en 89,1% time-in-budget. Ninguna se queda sin presupuesto.
+- **63,3% de la facturación es orgánica pura** ($157.930 de $249.590).
+- **NO hay whitespace de demanda.** Las 1.030 queries "solo SQP" dejan 2 relevantes de 217 y 182 de volumen.
+
+### Hallazgos por reporte
+
+**STR (1.894 filas, 65 campañas, 1.068 términos)**
+- Other SKU (halo) = **47,3%** de la venta atribuida ($82.307 de $173.967). **Evaluar ACoS por ASIN suelto está mal — leer por familia.** 6 campañas con halo 100%.
+- **Own-ASIN near-miss (5ª confirmación, la más grande):** 21 ASINs propios como search term, gastan $2.132, generan **$26.587 a ACoS 8,0%**. `b081gb8f89` convierte al **32,3% como search term** vs 4,39% como producto anunciado. **NUNCA negativizar.**
+- Sangrado: 866 términos gastaron $7.573 sin venta (29% del gasto), pero **el 83% está bajo el piso de stop-loss ($40)**. Se corta con patrón y bid-down a nivel AUTO, no uno a uno.
+- Match type: AUTO/PAT = 89,5% del gasto. EXACT = 9,2% con mejor ACoS (10,1%) y CVR 16,4%.
+
+**SQP (W27–W30 + mensual julio)**
+- Embudo de marca: ImpSh 2,87% → ClkSh 5,03% → CAsh 6,89% → **PurShr 10,20%**. El share sube en cada escalón.
+- **Cohorte constante (97 queries las 4 semanas):** ImpSh plana (~14,5%) pero **ClkSh se desploma 22,06% → 15,87%**. Aparecemos igual y nos clickean menos. El CVR del mercado se mantuvo → no es enfriamiento de categoría.
+- Correlaciona con precio mediano de Setex: $240 → $290 (W29) → $255 (W30), mientras el mercado bajó $170 → $150. Gap 1,41x → 1,94x.
+
+**Cruce STR×SQP (618 queries en ambos)**
+- 56% del gasto va a términos que el SQP no registra (ASINs + cola larga).
+- Bucket B (SOSTENER): 124 queries, ACoS 6,7%, $74.690 de venta. El negocio.
+- Bucket A (ESCALAR): 6 queries, familia sujetador/retenedor.
+- Bucket D (CORTAR): 14 queries. Dos grupos: ClkSh alto + PurShr nulo NO son negativos (es precio); ClkSh bajo sí lo son (mala intención).
+
+**Targeting — ToS IS (formato validado: fracción decimal, máx 1,0000)**
+
+| Match | Impresiones | ToS IS | ACoS | CPC |
+|---|---|---|---|---|
+| EXACT | 62.102 | **17,42%** | **10,2%** | $4,91 |
+| AUTO/PAT | 691.948 | 3,18% | 16,1% | $5,57 |
+
+**EXACT no pierde la subasta: gana barato.** El budget parado en EXACT es falta de TÉRMINOS, no de puja. Seis AUTO gastan $8.386 (30%) con ToS IS entre 0,05% y 2,05%.
+
+**Placement**
+
+| Placement | % impresiones | CTR | % gasto | ACoS |
+|---|---|---|---|---|
+| Product pages | **86,5%** | 0,20% | 23,8% | **13,9%** |
+| Rest of search | 8,2% | 1,39% | 15,3% | 15,1% |
+| Top of Search | 5,2% | **7,27%** | **60,9%** | 15,9% |
+
+⚠️ Product pages tiene el MEJOR ACoS. Bajo CTR + buena conversión. Matarlo sería un error.
+⚠️ **Fixed bids $17.043 a ACoS 13,8% vs Dynamic down-only $10.951 a 18,3%.** 4,5pp de diferencia con CVR casi igual. Merece test controlado — NO cambiar a ciegas.
+
+**BSR by Child + Campaign**
+- ⚠️ **REGLA NUEVA: ACoS bajo + gasto bajo NO es señal de escala.** Con 63% orgánico, la pauta puede pegarle a demanda que ya venía sola. `B086H3TZ6B` tenía ACoS 4,6%, CVR 33,3%, $142 de gasto — parecía el mayor desbalance. **El BSR mostró que el 96% de sus $13.425 es orgánico.** Escalarlo canibaliza.
+- Mismo caso: `B08SNRCL63` (100% orgánico), `B0C7WPFVGV` (96%).
+- `B08C2T72ND`: **$41.037 con CERO pauta, CVR sesión 18,11%**, el mejor del catálogo. No necesita ads.
+- `B0B94KBY8H`: el peor por tres vías — CVR sesión 6,55%, TACoS 21,5%, solo 35% orgánico. `sujetador de lentes` (3.229 vol) tiene PurShr 5,0% con gap 2,01x.
+
+### BULKS EJECUTADOS
+
+**03/08 — 6 bulks, 199 filas, 6/6 Success** (verificado en BSE del 11/08)
+
+| Bulk | Filas | Acción | Upload ID |
+|---|---|---|---|
+| 1 | 182 | Negativos campaign-level (14 términos × 13 AUTO) | `2a4f42a2` |
+| 2 | 6 | Negative PT `B0GH4JJ4DQ` | `53394c48` |
+| 3 | 1 | Pausar `Temple·PAT·Slzhds+ZENSUKYE` (ACoS 32,8%) | `29829baa` |
+| 4 | 4 | Placement ToS: DEFENSIVE +50→+150%, EarHook CLOSE 0→+100%, 1mm SUBST 0→+100%, Temple CLOSE 0→+60% | `5c4ee3fb` |
+| 5 | 3 | Bid-down 15% en 3 AUTO ya bien posicionadas | `e4bb2a8f` |
+| 6 | 3 | Bid-up `retenedores de lentes` $3,50→$5,50 y `sujetador de lentes` $3,10→$4,80 + dedupe | `4c7814ae` |
+
+⚠️ **Hallazgo del BSE: TODAS las AUTO tenían `Placement Top = 0%`.** El vault decía "+20% para el resto" — no aplicado en ninguna. Ese era el motivo real del 86,5% en Product pages.
+⚠️ **6 de 14 negativos YA EXISTÍAN a nivel ad group y seguían gastando.** La fuga entraba por AUTO/PAT → se elevaron a campaign-level. 6 de los 7 ASINs competidores ya estaban en los 1.574 negative PT vigentes. **Valida cruzar contra BSE antes de generar.**
+
+**11/08 — 3 bulks Kids (pedido de Tatiana)**
+
+| Bulk | Filas | Resultado |
+|---|---|---|
+| 7 | 252 | **248/252** — 137 kw + 111 PT de Perpetua archivados |
+| 8b | 11 | Success — cross-sell Kids en 4 PDPs propios |
+| 9 | 10 | Success — 8 keywords de nicho infantil |
+
+**RESULTADO MEDIDO (WoW 03–09/08 vs 27/07–02/08):**
+- Ventas $61.512 → **$68.703 (+11,7%)** · Unidades 225 → 249 (+10,7%)
+- **Tráfico +17,7%** · Ad sales **+19,0%** · **ACoS estable 16,3%**
+- Costo: CVR 10,03% → 9,55%, TACoS 11,0% → 11,6%
+- ⚠️ **Todo el crecimiento vino de pauta.** Orgánico −3,0%. No es autosostenido.
+
+### CASO KIDS — el análisis que define la estrategia
+`B0CC6THCDS` / `B09T89SNZL` / `B09T7BF9TK` (parent `B0F3QW4RZR`), 105 unidades.
+**Restricción dura:** nicho infantil MX = **475 de volumen y 6 compras de TODO el mercado en julio**. Al 100% de captura, evacuar 105 u toma 18 meses.
+**El bloqueo es precio:** `B0CC6THCDS` a **$530** vs adulto 15p a $480 y mercado ~$145 → gap **3,66x**. Cero unidades en 30 días.
+**La jugada:** cross-sell interno. Kids anunciados en las PDPs de los 4 nose pads de adulto con más tráfico (~2.200 sesiones/sem), **placement INVERTIDO: PDP +100%, ToS 0%, RoS 0%**.
+⚠️ **PAT auto-referencial** encontrado (`asin=B0CC6THCDS` en su propia campaña). Archivado.
+⚠️ **Las 16 keywords genéricas que pidió Tatiana NO se pujaron.** `sujetador de lentes` (3.229 vol), `almohadillas para lentes` (3.483) — ahí `B081GB8F89` domina orgánicamente. Reforzar donde ya ganamos, no donde no hay base.
+Expectativa: de ~3 a **8–15 u/mes** = 7–14 meses. Si el objetivo es evacuar este trimestre, la palanca es precio/promoción, no PPC.
+**Evaluación: 25/08. Criterio de éxito = UNIDADES MOVIDAS, no ACoS.** Guardarraíl: si el CVR de `B081GB8F89` cae, se apaga el cross-sell.
+
+### ALARMAS ABIERTAS
+
+| P | Item | Dato |
+|---|---|---|
+| 🔴 P0 | Inbound = 0 en los 63 listings | 10 días desde la alerta |
+| 🔴 P0 | `B0DWBYSBQZ` Nano 15p | 4 unidades |
+| 🔴 P0 | `B0B94KBY8H` Temple negro | 31d runway |
+| 🔴 P0 | `B09HVXDH7M` Thick transp | 32d — mejor ACoS de la cuenta (5,0%) |
+| 🟠 P1 | `B08C2T72ND` 1mm negro | 53d — #2 facturación, vende sin pauta, sin reemplazo |
+| 🟠 P1 | `B09HW4VWQR` Thick negro | OOS desde 17/07, sin pedido |
+| 🔴 P1 | Ear Hook · AUTO SUBSTITUTES | ACoS 48,2% ($815→$1.690). Más urgente |
+| 🟠 P1 | `B0DK7PHXXC` Nano negro | spend +94,6%, ad sales −27,0%, ACoS 23,1% |
+| 🟠 P1 | `B0B94KBY8H` | 4ª semana. 596 sesiones, CVR 5,54% |
+| 📌 P2 | Test Fixed vs Dynamic | $10.951 en down-only a 18,3% |
+| 📌 P2 | CVR de cuenta | bajó a 9,55%, vigilar 2 semanas |
+
+**Flags de catálogo para Tatiana (no-PPC):**
+- 5 SKUs duplicados CLOSED reincidieron: `B081GB8F89` ($258,03), `B086H3TZ6B` ($555,99), `B08SNRCL63` ($553,93), `B08SNXF8HP`, `B08SP1JFZ8`
+- `B0BGJHFRKW` con DOS ofertas ACTIVAS simultáneas ($301,87 ambas)
+- `B0DW9Z2H2W` en "Missing offer"
+- `B0CC6THCDS` Buy Box bajó a 92,3%
+
+**Comunicación:** mensaje a Tatiana 11/08 (acciones + precio del 15p marcado NO sugerido + alerta stock). Paso 13 a Slack 03/08 con los 4 campos de Guille.
