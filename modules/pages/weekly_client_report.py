@@ -255,7 +255,11 @@ def _parse_br_wow(file):
     df["_cvr"]   = _to_float(df[cvr_col]) if cvr_col else None
     df["_bb"]    = _to_float(df[bb_col])  if bb_col  else None
 
-    result = {}
+    # Consolidacion por child ASIN. Amazon lista el MISMO (Child) ASIN bajo parents
+    # distintos despues de merges de variaciones, y el `result[asin] = {...}` anterior
+    # pisaba la primera fila (last-wins). En Setex se perdian MX$3.480 en silencio.
+    parent_col = detect["asin_parent"]
+    acc = {}
     for _, row in df.iterrows():
         asin = str(row[asin_col]).strip()
         if not asin or asin == "nan": continue
@@ -268,17 +272,47 @@ def _parse_br_wow(file):
         if bb_val is not None and sessions_val == 0:
             bb_val = None
 
-        # CVR=None propagado si Amazon no exporto ni Unit Session ni Order Item Session Percentage
-        cvr_raw = row.get("_cvr")
-        cvr_val = float(cvr_raw) if cvr_raw is not None and str(cvr_raw) != "nan" else None
+        a = acc.setdefault(asin, {
+            "title": "", "sessions": 0.0, "units": 0.0, "sales": 0.0,
+            "bb_num": 0.0, "bb_sessions": 0.0, "rows": 0, "parents": [],
+        })
+        if not a["title"] and title:
+            a["title"] = title
+        a["sessions"] += sessions_val
+        a["units"]    += float(row["_units"])
+        a["sales"]    += float(row["_sales"])
+        # BuyBox se pondera por sesiones: solo acumulan las filas con bb no-nulo.
+        if bb_val is not None:
+            a["bb_num"]      += bb_val * sessions_val
+            a["bb_sessions"] += sessions_val
+        a["rows"] += 1
+        if parent_col:
+            parent = str(row[parent_col]).strip()
+            if parent and parent != "nan" and parent not in a["parents"]:
+                a["parents"].append(parent)
+
+    result = {}
+    for asin, a in acc.items():
+        title = a["title"]
+        # CVR SIEMPRE recalculado desde los totales consolidados, incluso para ASINs
+        # de una sola fila. Verificado contra 34 filas reales de Setex: el
+        # `Unit Session Percentage` de Amazon ES units/sessions redondeado a 2
+        # decimales (desvio maximo 0.0044). Un solo camino evita drift entre ASINs
+        # con y sin duplicados; la columna CVR del BR ya no define el valor final.
+        cvr_val = (a["units"] / a["sessions"] * 100) if a["sessions"] > 0 else None
+        bb_val  = (a["bb_num"] / a["bb_sessions"]) if a["bb_sessions"] > 0 else None
 
         result[asin] = {
             "Title":    title[:60] + ("\u2026" if len(title) > 60 else ""),
-            "Sessions": sessions_val,
-            "Units":    float(row["_units"]),
-            "Sales":    float(row["_sales"]),
+            "Sessions": a["sessions"],
+            "Units":    a["units"],
+            "Sales":    a["sales"],
             "CVR":      cvr_val,
             "BuyBox":   bb_val,
+            # Trazabilidad de la consolidacion (claves con guion bajo: _build_weekly_excel
+            # accede por .get de claves especificas, no itera el dict).
+            "_rows_merged": a["rows"],
+            "_parents":     a["parents"],
         }
     return result
 
@@ -1101,6 +1135,17 @@ def render():
             if atom_data:     msgs.append(f"{len(atom_data)} ASINs Atom 11 \u2713")
             if camp_data:     msgs.append(f"{len(camp_data.get('campaigns',[]))} camps · {camp_data['totals']['Impressions']:,.0f} imps \u2713")
             st.success("\u2705 " + " \u00b7 ".join(msgs))
+
+            # Aviso de consolidacion: Amazon repite el mismo child ASIN bajo parents
+            # distintos, y el AM tiene que saber que esas filas se sumaron.
+            dups = {a: v for a, v in (br_child_data or {}).items() if v.get("_rows_merged", 1) > 1}
+            if dups:
+                filas = sum(v["_rows_merged"] for v in dups.values())
+                st.info(
+                    f"\u2139\ufe0f El BR by Child trae {len(dups)} ASIN(s) repetidos bajo parents "
+                    f"distintos: {filas} filas consolidadas en {len(dups)}. "
+                    "Se sumaron sesiones, unidades y ventas."
+                )
 
             if br_daily_data:
                 def _dp(tw, pw):

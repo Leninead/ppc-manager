@@ -254,3 +254,57 @@ def test_br_daily_split_7_7_correcto():
 def test_br_daily_rechaza_menos_de_7_fechas():
     with pytest.raises(ValueError):
         _parse_br_daily_wow(_b(_BR_BY_DATE_5D))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F1 — contrato de la consolidación. Verdes desde el fix de dedup.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_dedup_expone_metadata_de_consolidacion():
+    """La consolidación tiene que ser auditable: cuántas filas se fusionaron y
+    bajo qué parents venían. Sin esto el AM no puede explicar por qué el número
+    del reporte no coincide con una lectura ingenua del CSV."""
+    out = _parse_br_wow(_b(_BR_BY_CHILD_DUP))
+
+    assert out["B0TEST0001"]["_rows_merged"] == 2
+    assert set(out["B0TEST0001"]["_parents"]) == {"B0PARENT001", "B0TEST0001"}
+
+    # Sin duplicado: 1 fila, y la metadata igual está presente (no es opcional).
+    assert out["B0TEST0002"]["_rows_merged"] == 1
+    assert out["B0TEST0002"]["_parents"] == ["B0PARENT002"]
+
+
+def test_cvr_recalculado_coincide_con_amazon_en_filas_unicas():
+    """Recalcular el CVR SIEMPRE no debe introducir drift en el caso normal.
+
+    El fixture de variantes no tiene duplicados y su `Unit Session Percentage`
+    (20.00%) es consistente con units/sessions (20/100). Si el recálculo se
+    desviara del valor que reporta Amazon, este test lo caza.
+    """
+    csv_cvr = 20.00  # el Unit Session Percentage del fixture
+    out = _parse_br_wow(_b(_BR_BY_CHILD_VARIANTES))
+    d = out["B0TEST0003"]
+
+    assert d["_rows_merged"] == 1, "guarda: este fixture no debe tener duplicados"
+    assert d["CVR"] == pytest.approx(csv_cvr, abs=0.01)
+    assert d["CVR"] == pytest.approx(d["Units"] / d["Sessions"] * 100, abs=0.01)
+
+
+# Dos filas del mismo ASIN, ambas con 0 sesiones pero con BuyBox informado.
+# Caso degenerado real: ASIN sin tráfico en la ventana. El ponderado por sesiones
+# divide por cero si no se guarda.
+_BR_BY_CHILD_SIN_SESIONES = """\
+(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Featured Offer (Buy Box) Percentage,Units Ordered,Unit Session Percentage,Ordered Product Sales
+B0PARENT004,B0TEST0004,Producto Cuatro,0,100.00%,0,0.00%,"MX$0.00"
+B0PARENT005,B0TEST0004,Producto Cuatro,0,80.00%,0,0.00%,"MX$0.00"
+"""
+
+
+def test_buybox_none_si_todas_las_sesiones_son_cero():
+    out = _parse_br_wow(_b(_BR_BY_CHILD_SIN_SESIONES))
+    d = out["B0TEST0004"]
+
+    assert d["_rows_merged"] == 2
+    assert d["Sessions"] == 0.0
+    assert d["BuyBox"] is None  # sin sesiones no hay ponderación posible
+    assert d["CVR"] is None     # y el cociente no está definido
