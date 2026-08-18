@@ -2018,6 +2018,24 @@ El split de 21 SOPs en `notes/sops/dev`, `notes/sops/usuario` y `notes/sops/agen
 
 ---
 
+### 24. Weekly report generator — WoW roto a nivel ASIN (🔴 P0, producto Agency OS, verificado 2026-08-18)
+
+**Síntoma:** las **filas por producto** muestran el **período completo (14 días)** bajo el encabezado **"esta semana" (7d)**. Los montos por ASIN quedan ~**2×** lo real (medido en Setex: 2,19× ventas, 2,23× unidades vs el total de esa columna).
+
+**Lo que NO está roto** (descartado contra datos crudos el 18/08): el **total de cuenta es correcto** (54.632 + 68.413 = 123.045 = total real de 14 días) y la **hoja Advertising es correcta** (copia el Campaign report al centavo). El bug está acotado al desglose por ASIN.
+
+**Causa raíz:** el **export por ASIN de Amazon no trae desglose por día** — el Business Report por ASIN es un único agregado del período pedido. El generador lo vuelca en la columna "esta semana" porque no tiene con qué partirlo.
+
+**Impacto:** si el reporte va a cliente con montos por producto, **los números por ASIN están al doble**. Riesgo de credibilidad, no cosmético.
+
+**Fix (decisión de producto, hay dos caminos):**
+- **(a)** pedir **2 exports por ASIN**, uno por semana, y comparar — WoW real a nivel ASIN, a costa de un input más para el AM.
+- **(b)** **rotular** los montos por ASIN como **"período completo"** en vez de "esta semana" — sin input extra, pero se pierde el WoW por producto.
+
+**Dueño: dev (Juan / Lenin). NO es tema del frente PPC** — el frente ya aplica el workaround (omitir montos por producto, presentar solo CVR / sesiones / ACoS / TACoS). Detalle del hallazgo en [[learnings-360-2026-08]] (learning #8).
+
+---
+
 ## Próximos pasos inmediatos
 
 ### Próxima semana (26-31/05) — orden de prioridad
