@@ -1,5 +1,7 @@
 ﻿__pycache__/
 *.pyc
+# Scratch temporal de validacion de ingesta (descartable, no se versiona)
+_scratch_*.py
 # ── Capa de persistencia (data/) ──────────────────────
 # Por default ignoramos todo data/, pero permitimos versionar:
 #   - _README.md y _schemas/ (estructura del directorio)
