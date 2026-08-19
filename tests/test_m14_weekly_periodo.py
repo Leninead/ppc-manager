@@ -142,6 +142,24 @@ B0PARENT002,B0TEST0002,Producto Dos,50,100.00%,10,20.00%,"MX$1,000.00"
 """
 
 
+# Sesiones MUY dispares, para distinguir CVR ponderado de promedio simple:
+#   B0TEST0005: 500 sesiones / 50 units -> CVR 10%
+#   B0TEST0006:   3 sesiones /  3 units -> CVR 100%
+# ponderado = 53/503*100 = 10.54   ·   promedio simple = (10+100)/2 = 55.00
+_BR_BY_CHILD_CVR_DISPAR_TW = """\
+(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Featured Offer (Buy Box) Percentage,Units Ordered,Unit Session Percentage,Ordered Product Sales
+B0PARENT006,B0TEST0005,Producto Alto Trafico,500,100.00%,50,10.00%,"MX$5,000.00"
+B0PARENT007,B0TEST0006,Producto Cola Larga,3,100.00%,3,100.00%,"MX$300.00"
+"""
+
+# La semana anterior, con otro CVR para que el delta exista y la sección se escriba.
+_BR_BY_CHILD_CVR_DISPAR_PW = """\
+(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Featured Offer (Buy Box) Percentage,Units Ordered,Unit Session Percentage,Ordered Product Sales
+B0PARENT006,B0TEST0005,Producto Alto Trafico,500,100.00%,40,8.00%,"MX$4,000.00"
+B0PARENT007,B0TEST0006,Producto Cola Larga,3,100.00%,2,66.67%,"MX$200.00"
+"""
+
+
 def _b(text: str) -> io.BytesIO:
     """CSV como file-like. Sin `.name` → el parser cae a `pd.read_csv` (hasattr)."""
     return io.BytesIO(text.encode("utf-8"))
@@ -447,25 +465,12 @@ def test_modo_wow_con_dos_by_child_rotula_esta_semana():
 
 
 def test_wow_por_producto_calcula_variacion():
-    """El WoW por producto: el delta % sale de comparar las dos semanas."""
-    ws, br_tw = _excel_wow()
+    """El WoW por producto: el delta % sale de comparar las dos semanas.
 
-    filas = {ws.cell(r, 2).value: r for r in range(5, 5 + len(br_tw))}
-
-    # B0TEST0001: 1500 TW (1000 + 500 consolidados) vs 1500 PW -> plano.
-    r1 = filas["B0TEST0001"]
-    assert ws.cell(r1, 3).value == 1500.0
-    assert ws.cell(r1, 4).value == 1500.0
-    assert ws.cell(r1, 5).value == 0.0
-
-    # B0TEST0002: 2000 vs 2000 -> también plano en ventas, pero el fixture le da
-    # el mismo valor, así que se verifica el delta sobre un caso construido aparte.
-    r2 = filas["B0TEST0002"]
-    assert ws.cell(r2, 5).value == 0.0
-
-
-def test_wow_por_producto_delta_distinto_de_cero():
-    """Delta ≠ 0: PW con la mitad de las ventas -> +100%."""
+    Se usa el PW "mitad" a propósito: con los fixtures de totales iguales todos
+    los deltas dan 0.0, y un cálculo roto que devolviera 0 constante pasaría igual.
+    Acá cada ASIN tiene un delta distinto y distinto de cero.
+    """
     br_tw = _parse_br_wow(_b(_BR_BY_CHILD_TW_7D))
     br_pw = _parse_br_wow(_b(_BR_BY_CHILD_PW_7D_MITAD))
     br_daily = _parse_br_daily_wow(_b(_BR_BY_DATE_14D))
@@ -476,10 +481,21 @@ def test_wow_por_producto_delta_distinto_de_cero():
     ws = _wow_sheet(buf)
     filas = {ws.cell(r, 2).value: r for r in range(5, 5 + len(br_tw))}
 
+    # B0TEST0001: 1500 TW (1000 + 500 consolidados) vs 750 PW -> +100%
     r1 = filas["B0TEST0001"]
-    assert ws.cell(r1, 3).value == 1500.0   # TW
-    assert ws.cell(r1, 4).value == 750.0    # PW, la mitad
+    assert ws.cell(r1, 3).value == 1500.0
+    assert ws.cell(r1, 4).value == 750.0
     assert ws.cell(r1, 5).value == pytest.approx(100.0, abs=0.1)
+
+    # B0TEST0002: 2000 TW vs 1000 PW -> +100% también, pero por otra vía;
+    # lo que importa es que cada fila usa SU par, no un valor global.
+    r2 = filas["B0TEST0002"]
+    assert ws.cell(r2, 3).value == 2000.0
+    assert ws.cell(r2, 4).value == 1000.0
+    assert ws.cell(r2, 5).value == pytest.approx(100.0, abs=0.1)
+
+    # Y ningún delta quedó en 0: el cálculo no es constante.
+    assert ws.cell(r1, 5).value != 0.0 and ws.cell(r2, 5).value != 0.0
 
 
 def test_tacos_se_calcula_en_modo_wow():
@@ -522,6 +538,77 @@ def test_coherencia_detecta_desvio():
     assert wcr._chequear_coherencia_child({}, 3500.0, "x") is None
     assert wcr._chequear_coherencia_child(br_child, None, "x") is None
     assert wcr._chequear_coherencia_child(br_child, 0.0, "x") is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F5 — rutas laterales. El contrato cubría la hoja WoW; el mismo error seguía
+# latente en el Reporte Ejecutivo, en el preview y en el CVR promediado.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _hoja_ejecutivo(buf):
+    wb = load_workbook(buf)
+    for ws in wb.worksheets:
+        if "jecutivo" in ws.title or "xecutive" in ws.title:
+            return ws
+    raise AssertionError(f"No se encontró la hoja ejecutiva. Hojas: {wb.sheetnames}")
+
+
+def _texto_hoja(ws):
+    return "\n".join(
+        str(c.value) for row in ws.iter_rows() for c in row if c.value is not None
+    )
+
+
+def test_ejecutivo_sin_br_diario_no_fabrica_totales_semanales():
+    """Sin BR diario y sin MODO WOW, las filas de producto son de período
+    desconocido. Sumarlas y llamarlas 'esta semana' era el bug original entrando
+    por la puerta del ejecutivo."""
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_DUP))  # suma 7000, período desconocido
+
+    buf = wcr._build_weekly_excel(br_tw, {}, {}, {}, "TEST", "es", None)
+    texto = _texto_hoja(_hoja_ejecutivo(buf))
+
+    assert "7,000" not in texto and "7000" not in texto, (
+        "el ejecutivo no puede presentar el total de período desconocido como semanal"
+    )
+    assert "no hay comparación semanal" in texto.lower()
+
+
+def test_cvr_ejecutivo_ponderado_por_sesiones():
+    """El CVR de cuenta se pondera por sesiones. Con promedio simple, un ASIN de
+    3 sesiones pesaba lo mismo que uno de 500."""
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_CVR_DISPAR_TW))
+    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_CVR_DISPAR_PW))
+    buf = wcr._build_weekly_excel(
+        br_tw, br_pw, {}, {}, "TEST", "es", None,
+        period_child_tw=_P7_B, period_child_pw=_P7_A,
+    )
+    texto = _texto_hoja(_hoja_ejecutivo(buf))
+
+    # ponderado: (50 + 3) / (500 + 3) * 100 = 10.54
+    # promedio simple (incorrecto): (10 + 100) / 2 = 55.00
+    assert "10.54" in texto, f"se esperaba el CVR ponderado 10.54 en:\n{texto}"
+    assert "55.00" not in texto, "el CVR quedó como promedio simple por ASIN"
+
+
+def test_coherencia_un_solo_child_contra_periodo_completo():
+    """El chequeo que hubiese cazado el bug original: con un solo by-Child, su
+    suma tiene que igualar el período COMPLETO del BR diario, no una semana."""
+    br_child = _parse_br_wow(_b(_BR_BY_CHILD_DUP))  # suma 7000
+    daily = _parse_br_daily_wow(_b(_BR_BY_DATE_14D))
+    total_full = daily["Sales_TW"] + daily["Sales_PW"]  # 7000
+
+    # Cuadra contra el período completo → sin desvío.
+    assert wcr._chequear_coherencia_child(br_child, total_full, "período completo") is None
+
+    # Contra UNA semana no cuadra: es exactamente el síntoma del bug.
+    d = wcr._chequear_coherencia_child(br_child, daily["Sales_TW"], "período completo")
+    assert d is not None
+    assert d["delta_pct"] == pytest.approx(100.0, abs=0.1)
+
+    # Desvío chico fuera de tolerancia.
+    d2 = wcr._chequear_coherencia_child(br_child, 6900.0, "período completo")
+    assert d2 is not None and d2["delta_pct"] == pytest.approx(1.45, abs=0.05)
 
 
 def test_periodo_de_14_dias_no_habilita_modo_wow():
