@@ -198,6 +198,17 @@ B0PARENT010,B0TEST0009,Producto Nueve Discontinuado,40,100.00%,8,20.00%,"MX$800.
 """
 
 
+# BR diario donde las unidades suben DENTRO de la banda estable (+1.43%):
+#   PW 7 dias x 10 units = 70   ·   TW 6x10 + 1x11 = 71
+# Sirve para probar la rama flat de unidades leyendo el Excel, no el diccionario.
+_BR_BY_DATE_UNIDADES_PLANAS = "".join(
+    ["Date,Ordered Product Sales,Units Ordered,Sessions - Total,Order Item Session Percentage\n"]
+    + [f'8/{d}/26,"MX$500.00",10,50,20.00%\n' for d in range(3, 10)]      # PW: 70 units
+    + [f'8/{d}/26,"MX$500.00",10,50,20.00%\n' for d in range(10, 16)]     # TW: 60...
+    + ['8/16/26,"MX$550.00",11,50,22.00%\n']                              # ...+11 = 71
+)
+
+
 def _b(text: str) -> io.BytesIO:
     """CSV como file-like. Sin `.name` → el parser cae a `pd.read_csv` (hasattr)."""
     return io.BytesIO(text.encode("utf-8"))
@@ -400,8 +411,11 @@ def test_cvr_recalculado_coincide_con_amazon_en_filas_unicas():
     d = out["B0TEST0003"]
 
     assert d["_rows_merged"] == 1, "guarda: este fixture no debe tener duplicados"
+    # El requisito es coincidir con lo que reporta Amazon, que es independiente
+    # del código. El assert que recalculaba con `d["Units"]/d["Sessions"]` derivaba
+    # el esperado del mismo output con la misma fórmula del código: solo podía
+    # fallar si la implementación no era la implementación. Eliminado.
     assert d["CVR"] == pytest.approx(csv_cvr, abs=0.01)
-    assert d["CVR"] == pytest.approx(d["Units"] / d["Sessions"] * 100, abs=0.01)
 
 
 # Dos filas del mismo ASIN, ambas con 0 sesiones pero con BuyBox informado.
@@ -724,12 +738,21 @@ def test_unidades_planas_no_se_reportan_como_caida():
     tenía las tres ramas — la asimetría delataba el olvido. El signo quedaba
     invertido en un texto que lee el cliente.
     """
-    assert "units_flat" in wcr._L_EXEC["es"], "falta la rama flat de unidades (ES)"
-    assert "units_flat" in wcr._L_EXEC["en"], "falta la rama flat de unidades (EN)"
+    # F9: la versión de F8 asertaba sobre `_L_EXEC` — verificaba que la CLAVE
+    # existiera, no que la RAMA se eligiera bien. Con el signo invertido en el
+    # `elif` el bug volvía y el test pasaba igual. Ahora se genera el Excel y se
+    # lee el texto que ve el cliente.
+    daily = _parse_br_daily_wow(_b(_BR_BY_DATE_UNIDADES_PLANAS))
+    u_d = (daily["Units_TW"] - daily["Units_PW"]) / daily["Units_PW"] * 100
+    assert 0 < u_d <= 2, f"el fixture debe dar un alza dentro de ±2%, da {u_d:+.2f}%"
 
-    # Un movimiento de +1.5% no puede describirse como caída.
-    texto = wcr._L_EXEC["es"]["units_flat"].format(d="1.5", pw=100, tw=101).lower()
-    assert "bajaron" not in texto and "cayeron" not in texto, texto
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_DUP))
+    buf = wcr._build_weekly_excel(br_tw, {}, {}, {}, "TEST", "es", daily)
+    texto = _texto_hoja(_hoja_ejecutivo(buf)).lower()
+
+    # Un alza no puede describirse como caída, sea cual sea la redacción elegida.
+    assert "unidades bajaron" not in texto, texto
+    assert "unidades cayeron" not in texto, texto
 
 
 def test_coherencia_un_solo_child_contra_periodo_completo():
@@ -951,11 +974,19 @@ def test_modo_no_wow_no_escribe_valores_pw():
 
     ws = _wow_sheet(wcr._build_weekly_excel(br_tw, br_pw, {}, {}, "TEST", "es", None))
 
-    assert ws.cell(3, 4).value == "—", "guarda: sin períodos el header PW es '—'"
+    # El requisito es "ninguna celda con valor cae bajo un subheader que dice —",
+    # no "las columnas 4,5,7,8,10,11,13,14 están vacías". Enumerar índices a mano
+    # sobrevive a un reorden de WOW_GROUPS midiendo celdas equivocadas EN SILENCIO;
+    # derivarlos de la fila 3 hace que el test siga apuntando a lo que importa.
+    cols_sin_dato = [
+        c for c in range(3, ws.max_column + 1) if ws.cell(3, c).value == "—"
+    ]
+    assert cols_sin_dato, "guarda: sin períodos tiene que haber columnas rotuladas '—'"
+
     for r in range(4, 4 + len(br_tw)):
-        for col in (4, 5, 7, 8, 10, 11, 13, 14):  # PW y deltas de SALES/UNITS/SESSIONS/CVR
+        for col in cols_sin_dato:
             assert ws.cell(r, col).value == "—", (
-                f"fila {r} col {col}: hay un valor bajo una columna rotulada '—': "
+                f"fila {r} col {col} (header '—'): hay un valor debajo: "
                 f"{ws.cell(r, col).value!r}"
             )
 

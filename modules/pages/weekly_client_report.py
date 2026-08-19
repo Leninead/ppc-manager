@@ -1733,7 +1733,6 @@ def render():
                             )
                         else:
                             _ctx_periodo = (
-                                f"PERIODO: {_rango}. ATENCION: NO hay comparacion semanal por producto — "
                                 f"PERIODO: {_rango}. ATENCION: este reporte NO trae comparacion "
                                 "semanal por producto: los montos por ASIN cubren el periodo completo. "
                                 "Los totales de cuenta si tienen comparacion semanal. "
