@@ -633,7 +633,12 @@ def test_cvr_ejecutivo_ponderado_tambien_con_br_diario():
     """
     daily = _parse_br_daily_wow(_b(_BR_BY_DATE_CVR_DISPAR))
 
-    media_diaria = daily["CVR_TW"]                                   # 1.43
+    # La media de porcentajes diarios se calcula ACÁ, a partir del fixture, no se
+    # lee de `daily["CVR_TW"]`: ese campo ya está ponderado (F9 lo arregló en el
+    # origen) y usarlo como referencia haría que el test dependa de que el bug
+    # siga existiendo. El requisito es "el ejecutivo muestra el ponderado", no
+    # "CVR_TW es la media".
+    media_diaria = (0.00 * 6 + 10.00) / 7                            # 1.43
     ponderado = daily["Units_TW"] / daily["Sessions_TW"] * 100       # 9.65
     assert abs(media_diaria - ponderado) > 5, (
         f"el fixture debe distinguir ambos cálculos: {media_diaria} vs {ponderado}"
@@ -645,6 +650,62 @@ def test_cvr_ejecutivo_ponderado_tambien_con_br_diario():
 
     assert f"{ponderado:.2f}" in texto, f"se esperaba el ponderado {ponderado:.2f} en:\n{texto}"
     assert f"{media_diaria:.2f}" not in texto, "el CVR de cuenta sigue promediando % diarios"
+
+
+def test_cvr_de_cuenta_coincide_entre_las_dos_hojas():
+    """Las dos hojas del MISMO Excel no pueden informar CVR distintos.
+
+    Este test no necesita saber cuál de las dos está mal: hubiese cazado el
+    defecto sin conocerlo. F5 arregló el ejecutivo, F8 arregló una de las dos
+    ramas de CUENTA TOTAL, y la fila de la hoja WoW quedó con el promedio de
+    porcentajes diarios — 1,43% contra 9,65% en el mismo workbook.
+    """
+    daily = _parse_br_daily_wow(_b(_BR_BY_DATE_CVR_DISPAR))
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_TW_7D))
+    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_PW_7D))
+
+    buf = wcr._build_weekly_excel(
+        br_tw, br_pw, {}, {}, "TEST", "es", daily,
+        period_child_tw=daily["period_tw"], period_child_pw=daily["period_pw"],
+    )
+    wb = load_workbook(buf)
+    ws_wow = next(w for w in wb.worksheets if w.title.endswith("WoW Comparison"))
+    ws_exec = next(w for w in wb.worksheets if "jecutivo" in w.title)
+
+    cvr_hoja_wow = ws_wow.cell(4, 12).value  # CUENTA TOTAL, columna CVR / esta semana
+    texto_exec = "\n".join(
+        str(c.value) for row in ws_exec.iter_rows() for c in row if c.value is not None
+    )
+
+    assert f"{cvr_hoja_wow:.2f}" in texto_exec, (
+        f"la hoja WoW dice CVR {cvr_hoja_wow:.2f} y el ejecutivo dice otra cosa:\n{texto_exec}"
+    )
+
+    # Y el valor común tiene que ser el ponderado, no el promedio de % diarios.
+    ponderado = daily["Units_TW"] / daily["Sessions_TW"] * 100
+    assert cvr_hoja_wow == pytest.approx(ponderado, abs=0.01)
+
+
+def test_cvr_del_parser_es_ponderado_para_todo_consumidor():
+    """El CVR de cuenta se pondera en el ORIGEN, no en cada consumidor.
+
+    Son cinco los que leen `CVR_TW`/`CVR_PW`: la fila CUENTA TOTAL (valor TW, valor
+    PW y su delta), el Reporte Ejecutivo y el prompt de IA. Arreglarlos uno a uno
+    deja al sexto que se agregue con el bug. El prompt no es alcanzable sin
+    ejecutar render(), así que se verifica el campo que consume.
+    """
+    daily = _parse_br_daily_wow(_b(_BR_BY_DATE_CVR_DISPAR))
+
+    assert daily["CVR_TW"] == pytest.approx(
+        daily["Units_TW"] / daily["Sessions_TW"] * 100, abs=0.01
+    )
+    assert daily["CVR_PW"] == pytest.approx(
+        daily["Units_PW"] / daily["Sessions_PW"] * 100, abs=0.01
+    )
+
+    # El promedio de porcentajes diarios daba 1.43 con este fixture: no puede
+    # quedar ni en el campo ni, por lo tanto, en el prompt que lo transcribe.
+    assert daily["CVR_TW"] > 5.0, "sigue siendo el promedio de porcentajes diarios"
 
 
 def test_unidades_planas_no_se_reportan_como_caida():

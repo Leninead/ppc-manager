@@ -422,11 +422,24 @@ def _parse_br_daily_wow(file):
     cvr_col   = detect["cvr"]
     bb_col    = detect["buybox"]
 
+    # CVR de cuenta PONDERADO por sesiones, calculado UNA VEZ en el origen.
+    # `_a(cvr_col)` promedia los porcentajes DIARIOS: un dia de 3 sesiones pesa
+    # igual que uno de 500 (medido: 1,43% contra 9,65% real). Lo leen cinco
+    # consumidores — la fila CUENTA TOTAL (valor TW, valor PW y su delta), el
+    # Reporte Ejecutivo y el prompt de IA — asi que ponderar aca y no en cada uno
+    # es lo que evita que el proximo consumidor reintroduzca el defecto.
+    # Bonus: ya no depende de que Amazon exporte la columna de CVR.
+    _u_tw, _u_pw = _s(tw_df, units_col), _s(pw_df, units_col)
+    _se_tw, _se_pw = _sessions_sum(tw_df), _sessions_sum(pw_df)
+
+    def _cvr(units, sessions):
+        return round(units / sessions * 100, 2) if sessions else 0
+
     return {
         "Sales_TW":    _s(tw_df, sales_col), "Sales_PW":    _s(pw_df, sales_col),
-        "Units_TW":    _s(tw_df, units_col), "Units_PW":    _s(pw_df, units_col),
-        "Sessions_TW": _sessions_sum(tw_df), "Sessions_PW": _sessions_sum(pw_df),
-        "CVR_TW":      _a(tw_df, cvr_col),   "CVR_PW":      _a(pw_df, cvr_col),
+        "Units_TW":    _u_tw,                "Units_PW":    _u_pw,
+        "Sessions_TW": _se_tw,               "Sessions_PW": _se_pw,
+        "CVR_TW":      _cvr(_u_tw, _se_tw),  "CVR_PW":      _cvr(_u_pw, _se_pw),
         "BuyBox_TW":   _a(tw_df, bb_col) if bb_col else None,
         "BuyBox_PW":   _a(pw_df, bb_col) if bb_col else None,
         "dates_pw": [str(d.date()) for d in sorted(pw_df["_date"].unique())],
@@ -1242,13 +1255,10 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         ts_tw = br_daily["Sales_TW"];    ts_pw = br_daily["Sales_PW"]
         tu_tw = br_daily["Units_TW"];    tu_pw = br_daily["Units_PW"]
         tse_tw = br_daily["Sessions_TW"]; tse_pw = br_daily["Sessions_PW"]
-        # CVR de cuenta PONDERADO por sesiones. `br_daily['CVR_TW']` es el promedio
-        # aritmetico de los porcentajes DIARIOS (.mean() en _parse_br_daily_wow): un dia
-        # de 3 sesiones pesa igual que uno de 500. Medido con trafico dispar: 1,43%
-        # contra 9,65% real, 8,22 puntos. F5 pondero la otra rama y dejo esta, que es
-        # la que corre en casi todos los usos.
-        avg_cvr_tw = (tu_tw / tse_tw * 100) if tse_tw > 0 else 0
-        avg_cvr_pw = (tu_pw / tse_pw * 100) if tse_pw > 0 else 0
+        # `CVR_TW`/`CVR_PW` ya vienen ponderados por sesiones desde el parser
+        # (_parse_br_daily_wow). Recalcularlos aca seria una segunda forma de
+        # obtener el mismo numero, que es como el defecto sobrevivio dos fases.
+        avg_cvr_tw = br_daily["CVR_TW"]; avg_cvr_pw = br_daily["CVR_PW"]
     elif modo_wow:
         totales_semanales = True
         ts_tw = sum(r["sales_tw"] for r in rows_data)
