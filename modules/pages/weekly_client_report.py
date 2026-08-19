@@ -155,6 +155,72 @@ def _validar_cols_core_br(detect, tipo):
     return faltantes
 
 
+_UMBRAL_ESTABLE = 2.0  # ±2%: el mismo que usa el resto del ejecutivo
+
+
+def _calificar_trafico(se_d, cvr_d):
+    """Cruza el delta de sesiones con el de conversion antes de calificar.
+
+    Devuelve la clave del dict de traducciones a usar. Mirar solo las sesiones
+    hacia felicitar un alza de trafico que convierte peor: en el WoW real de
+    Setex el trafico subio 43,9% mientras el CVR caia 39,7% y las ventas 20,1%,
+    y el reporte lo presentaba como logro. Mas gente que compra menos es un
+    diagnostico de CALIDAD de trafico, no un exito.
+
+    Sin CVR disponible cae al texto neutro: describe el movimiento sin calificarlo.
+    """
+    if se_d is None:
+        return None
+    sube = se_d > _UMBRAL_ESTABLE
+    baja = se_d < -_UMBRAL_ESTABLE
+    if not (sube or baja):
+        return None  # dentro del rango estable: no amerita frase propia
+
+    if cvr_d is None:
+        return "sess_up_neutro" if sube else "sess_down"
+
+    cvr_sube = cvr_d > _UMBRAL_ESTABLE
+    cvr_baja = cvr_d < -_UMBRAL_ESTABLE
+    if sube:
+        if cvr_baja:
+            return "sess_up_cvr_down"   # el caso Setex: NO felicitar
+        return "sess_up" if cvr_sube else "sess_up_neutro"
+    if cvr_sube:
+        return "sess_down_cvr_up"       # menos trafico, mejor calificado
+    return "sess_down"
+
+
+def _trend_ejecutivo(s_d, u_d, se_d):
+    """Veredicto de la semana. Devuelve 'pos' | 'neg' | 'flat'.
+
+    REGLA: el trend lo deciden VENTAS y UNIDADES, que son resultados. Las sesiones
+    son un input y NO computan como senal positiva por si solas — antes las tres
+    metricas votaban igual, asi que un alza de trafico sin ventas empujaba el
+    veredicto a "Semana positiva".
+
+    Las sesiones entran solo como desempate cuando ventas y unidades se
+    contradicen entre si, y ahi solo pueden inclinar hacia negativo (trafico
+    cayendo confirma el problema), nunca hacia positivo.
+    """
+    resultados = [d for d in (s_d, u_d) if d is not None]
+    if not resultados:
+        return "flat"
+    pos = sum(1 for d in resultados if d > _UMBRAL_ESTABLE)
+    neg = sum(1 for d in resultados if d < -_UMBRAL_ESTABLE)
+
+    if pos and not neg:
+        return "pos"
+    if neg and not pos:
+        return "neg"
+    if neg and pos:
+        # ventas y unidades en direcciones opuestas: el trafico desempata, pero
+        # solo puede confirmar el lado negativo.
+        if se_d is not None and se_d < -_UMBRAL_ESTABLE:
+            return "neg"
+        return "flat"
+    return "flat"
+
+
 def _es_modo_wow(period_child_tw, period_child_pw):
     """Unica fuente de verdad del modo: dos periodos by-Child de 7 dias exactos.
 
@@ -506,6 +572,85 @@ def _parse_campaign_csv(file):
     return {"totals": totals, "campaigns": campaigns, "portfolios": portfolios}
 
 
+# Textos del Reporte Ejecutivo. A nivel de modulo para que la narrativa sea
+# testeable sin tener que generar el Excel entero.
+_L_EXEC = {
+    "es": {
+        "title_wow": "Reporte Semanal WoW", "product": "Producto", "asin": "ASIN",
+        "tw": "Esta semana", "pw": "Semana anterior", "delta": "Variaci\u00f3n %",
+        "full_period": "Período completo ({days}d)", "full_period_nodays": "Período completo",
+        "warn_full": ("⚠️ Sin comparación semanal por producto: se cargó un solo BR by Child "
+                      "({days}d). Los montos por ASIN son del período completo. La comparación "
+                      "semanal de la cuenta está en la hoja Reporte Ejecutivo."),
+        "note": "* ACoS = Gasto Ads / Ventas Ads  |  TACoS = Gasto Ads / Ventas Totales  |  \u2014 = dato no disponible",
+        "exec_title": "RESUMEN EJECUTIVO SEMANAL", "generated": "Generado por Capybaras Agency PPC Manager",
+        "intro": "An\u00e1lisis comparativo semana a semana (WoW) del rendimiento en Amazon:",
+        "sec_sales": "VENTAS TOTALES", "sec_traffic": "TR\u00c1FICO Y CONVERSI\u00d3N",
+        "exec_no_weekly": ("Sin BR diario no hay comparación semanal de la cuenta. "
+                           "Los montos por producto corresponden al período completo del archivo cargado."),
+        "sec_ads": "PUBLICIDAD (ADS)", "sec_bb": "BUY BOX", "sec_conclusion": "CONCLUSI\u00d3N",
+        "sales_up":   "Las ventas totales aumentaron un {d}%, de MX${pw} a MX${tw}.",
+        "sales_down": "Las ventas totales cayeron un {d}%, de MX${pw} a MX${tw}.",
+        "sales_flat": "Las ventas totales se mantuvieron estables (MX${tw}).",
+        "units_up":   "Las unidades crecieron un {d}%, de {pw} a {tw} unidades.",
+        "units_down": "Las unidades bajaron un {d}%, de {pw} a {tw} unidades.",
+        "sess_up":    "El tr\u00e1fico aument\u00f3 un {d}%, se\u00f1al positiva de visibilidad org\u00e1nica y/o ads.",
+        "sess_down":  "El tr\u00e1fico cay\u00f3 un {d}%. Revisar ranking org\u00e1nico y presupuesto de campa\u00f1as.",
+        "sess_up_neutro": "El tráfico aumentó un {d}%.",
+        "sess_up_cvr_down": ("El tráfico aumentó un {d}% pero la conversión cayó: entró más gente y compró una proporción menor. Revisar calidad del tráfico (términos de búsqueda y targeting de campañas) y el listing antes de sumar más presupuesto."),
+        "sess_down_cvr_up": ("El tráfico cayó un {d}%, pero la conversión mejoró: menos visitas y mejor calificadas. Revisar ranking orgánico y presupuesto para recuperar volumen sin perder esa calidad."),
+        "cvr_up":     "La tasa de conversi\u00f3n mejor\u00f3 a {tw}% (anterior: {pw}%).",
+        "cvr_down":   "La tasa de conversi\u00f3n baj\u00f3 a {tw}% (anterior: {pw}%). Revisar listing y precio.",
+        "acos_ok":    "ACoS global en {v}% \u2014 dentro del rango objetivo.",
+        "acos_warn":  "ACoS global en {v}% \u2014 por encima del objetivo. Revisar bids.",
+        "tacos_line": "TACoS: {v}%",
+        "bb_warn":    "\u26a0\ufe0f {asin}: BuyBox en {bb}% \u2014 acci\u00f3n requerida.",
+        "bb_ok":      "BuyBox promedio en {bb}% \u2014 saludable.",
+        "conclusion": "{trend}. Recomendaci\u00f3n: {action}",
+        "trend_pos": "Semana positiva", "trend_neg": "Semana con \u00e1reas de mejora", "trend_flat": "Semana estable",
+        "act_pos": "mantener estrategia y escalar campa\u00f1as top.",
+        "act_neg": "revisar keywords de bajo rendimiento, ajustar bids y verificar stock.",
+        "act_flat": "monitorear conversi\u00f3n y explorar nuevas keywords.",
+    },
+    "en": {
+        "title_wow": "Weekly WoW Report", "product": "Product", "asin": "ASIN",
+        "tw": "This Week", "pw": "Prior Week", "delta": "Change %",
+        "full_period": "Full period ({days}d)", "full_period_nodays": "Full period",
+        "warn_full": ("⚠️ No weekly comparison per product: a single by-Child BR was "
+                      "uploaded ({days}d). Per-ASIN amounts cover the full period. The account's "
+                      "weekly comparison is in the Executive Report sheet."),
+        "note": "* ACoS = Ad Spend / Ad Sales  |  TACoS = Ad Spend / Total Sales  |  \u2014 = not available",
+        "exec_title": "WEEKLY EXECUTIVE SUMMARY", "generated": "Generated by Capybaras Agency PPC Manager",
+        "intro": "Week-over-week (WoW) performance comparison for Amazon:",
+        "sec_sales": "TOTAL SALES", "sec_traffic": "TRAFFIC & CONVERSION",
+        "exec_no_weekly": ("Without the daily BR there is no weekly account comparison. "
+                           "Per-product amounts cover the full period of the uploaded file."),
+        "sec_ads": "ADVERTISING", "sec_bb": "BUY BOX", "sec_conclusion": "CONCLUSION",
+        "sales_up":   "Total sales increased by {d}%, from MX${pw} to MX${tw}.",
+        "sales_down": "Total sales dropped by {d}%, from MX${pw} to MX${tw}.",
+        "sales_flat": "Total sales remained stable (MX${tw}).",
+        "units_up":   "Units sold grew by {d}%, from {pw} to {tw} units.",
+        "units_down": "Units sold dropped by {d}%, from {pw} to {tw} units.",
+        "sess_up":    "Traffic increased by {d}%, a positive visibility signal.",
+        "sess_down":  "Traffic dropped by {d}%. Review organic ranking and campaign budgets.",
+        "sess_up_neutro": "Traffic increased by {d}%.",
+        "sess_up_cvr_down": ("Traffic increased by {d}% but conversion dropped: more visitors bought at a lower rate. Review traffic quality (search terms and campaign targeting) and the listing before adding budget."),
+        "sess_down_cvr_up": ("Traffic dropped by {d}%, but conversion improved: fewer, better qualified visits. Review organic ranking and budget to recover volume without losing that quality."),
+        "cvr_up":     "Conversion rate improved to {tw}% (prior: {pw}%).",
+        "cvr_down":   "Conversion rate dropped to {tw}% (prior: {pw}%). Review listing and pricing.",
+        "acos_ok":    "Global ACoS at {v}% \u2014 within target range.",
+        "acos_warn":  "Global ACoS at {v}% \u2014 above target. Review bids.",
+        "tacos_line": "TACoS: {v}%",
+        "bb_warn":    "\u26a0\ufe0f {asin}: BuyBox at {bb}% \u2014 action required.",
+        "bb_ok":      "Average BuyBox at {bb}% \u2014 healthy.",
+        "conclusion": "{trend}. Recommended action: {action}",
+        "trend_pos": "Positive week", "trend_neg": "Mixed week", "trend_flat": "Stable week",
+        "act_pos": "maintain current strategy and scale top campaigns.",
+        "act_neg": "review low-performing keywords, adjust bids, and check stock.",
+        "act_flat": "monitor conversion metrics and explore new keywords.",
+    },
+}
+
 def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es", br_daily=None, camp_data=None, changelog_text="",
                         period_child_tw=None, period_child_pw=None):
     """
@@ -562,76 +707,7 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         ws.row_dimensions[rn].height = h
         return rn + 1
 
-    L = {
-        "es": {
-            "title_wow": "Reporte Semanal WoW", "product": "Producto", "asin": "ASIN",
-            "tw": "Esta semana", "pw": "Semana anterior", "delta": "Variaci\u00f3n %",
-            "full_period": "Período completo ({days}d)", "full_period_nodays": "Período completo",
-            "warn_full": ("⚠️ Sin comparación semanal por producto: se cargó un solo BR by Child "
-                          "({days}d). Los montos por ASIN son del período completo. La comparación "
-                          "semanal de la cuenta está en la hoja Reporte Ejecutivo."),
-            "note": "* ACoS = Gasto Ads / Ventas Ads  |  TACoS = Gasto Ads / Ventas Totales  |  \u2014 = dato no disponible",
-            "exec_title": "RESUMEN EJECUTIVO SEMANAL", "generated": "Generado por Capybaras Agency PPC Manager",
-            "intro": "An\u00e1lisis comparativo semana a semana (WoW) del rendimiento en Amazon:",
-            "sec_sales": "VENTAS TOTALES", "sec_traffic": "TR\u00c1FICO Y CONVERSI\u00d3N",
-            "exec_no_weekly": ("Sin BR diario no hay comparación semanal de la cuenta. "
-                               "Los montos por producto corresponden al período completo del archivo cargado."),
-            "sec_ads": "PUBLICIDAD (ADS)", "sec_bb": "BUY BOX", "sec_conclusion": "CONCLUSI\u00d3N",
-            "sales_up":   "Las ventas totales aumentaron un {d}%, de MX${pw} a MX${tw}.",
-            "sales_down": "Las ventas totales cayeron un {d}%, de MX${pw} a MX${tw}.",
-            "sales_flat": "Las ventas totales se mantuvieron estables (MX${tw}).",
-            "units_up":   "Las unidades crecieron un {d}%, de {pw} a {tw} unidades.",
-            "units_down": "Las unidades bajaron un {d}%, de {pw} a {tw} unidades.",
-            "sess_up":    "El tr\u00e1fico aument\u00f3 un {d}%, se\u00f1al positiva de visibilidad org\u00e1nica y/o ads.",
-            "sess_down":  "El tr\u00e1fico cay\u00f3 un {d}%. Revisar ranking org\u00e1nico y presupuesto de campa\u00f1as.",
-            "cvr_up":     "La tasa de conversi\u00f3n mejor\u00f3 a {tw}% (anterior: {pw}%).",
-            "cvr_down":   "La tasa de conversi\u00f3n baj\u00f3 a {tw}% (anterior: {pw}%). Revisar listing y precio.",
-            "acos_ok":    "ACoS global en {v}% \u2014 dentro del rango objetivo.",
-            "acos_warn":  "ACoS global en {v}% \u2014 por encima del objetivo. Revisar bids.",
-            "tacos_line": "TACoS: {v}%",
-            "bb_warn":    "\u26a0\ufe0f {asin}: BuyBox en {bb}% \u2014 acci\u00f3n requerida.",
-            "bb_ok":      "BuyBox promedio en {bb}% \u2014 saludable.",
-            "conclusion": "{trend}. Recomendaci\u00f3n: {action}",
-            "trend_pos": "Semana positiva", "trend_neg": "Semana con \u00e1reas de mejora", "trend_flat": "Semana estable",
-            "act_pos": "mantener estrategia y escalar campa\u00f1as top.",
-            "act_neg": "revisar keywords de bajo rendimiento, ajustar bids y verificar stock.",
-            "act_flat": "monitorear conversi\u00f3n y explorar nuevas keywords.",
-        },
-        "en": {
-            "title_wow": "Weekly WoW Report", "product": "Product", "asin": "ASIN",
-            "tw": "This Week", "pw": "Prior Week", "delta": "Change %",
-            "full_period": "Full period ({days}d)", "full_period_nodays": "Full period",
-            "warn_full": ("⚠️ No weekly comparison per product: a single by-Child BR was "
-                          "uploaded ({days}d). Per-ASIN amounts cover the full period. The account's "
-                          "weekly comparison is in the Executive Report sheet."),
-            "note": "* ACoS = Ad Spend / Ad Sales  |  TACoS = Ad Spend / Total Sales  |  \u2014 = not available",
-            "exec_title": "WEEKLY EXECUTIVE SUMMARY", "generated": "Generated by Capybaras Agency PPC Manager",
-            "intro": "Week-over-week (WoW) performance comparison for Amazon:",
-            "sec_sales": "TOTAL SALES", "sec_traffic": "TRAFFIC & CONVERSION",
-            "exec_no_weekly": ("Without the daily BR there is no weekly account comparison. "
-                               "Per-product amounts cover the full period of the uploaded file."),
-            "sec_ads": "ADVERTISING", "sec_bb": "BUY BOX", "sec_conclusion": "CONCLUSION",
-            "sales_up":   "Total sales increased by {d}%, from MX${pw} to MX${tw}.",
-            "sales_down": "Total sales dropped by {d}%, from MX${pw} to MX${tw}.",
-            "sales_flat": "Total sales remained stable (MX${tw}).",
-            "units_up":   "Units sold grew by {d}%, from {pw} to {tw} units.",
-            "units_down": "Units sold dropped by {d}%, from {pw} to {tw} units.",
-            "sess_up":    "Traffic increased by {d}%, a positive visibility signal.",
-            "sess_down":  "Traffic dropped by {d}%. Review organic ranking and campaign budgets.",
-            "cvr_up":     "Conversion rate improved to {tw}% (prior: {pw}%).",
-            "cvr_down":   "Conversion rate dropped to {tw}% (prior: {pw}%). Review listing and pricing.",
-            "acos_ok":    "Global ACoS at {v}% \u2014 within target range.",
-            "acos_warn":  "Global ACoS at {v}% \u2014 above target. Review bids.",
-            "tacos_line": "TACoS: {v}%",
-            "bb_warn":    "\u26a0\ufe0f {asin}: BuyBox at {bb}% \u2014 action required.",
-            "bb_ok":      "Average BuyBox at {bb}% \u2014 healthy.",
-            "conclusion": "{trend}. Recommended action: {action}",
-            "trend_pos": "Positive week", "trend_neg": "Mixed week", "trend_flat": "Stable week",
-            "act_pos": "maintain current strategy and scale top campaigns.",
-            "act_neg": "review low-performing keywords, adjust bids, and check stock.",
-            "act_flat": "monitor conversion metrics and explore new keywords.",
-        },
-    }
+    L = _L_EXEC
     t = L.get(lang, L["es"])
 
     # ── Contrato de periodo ───────────────────────────────────────────────────
@@ -1081,11 +1157,12 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     se_d = _pct(tse_tw, tse_pw) if tse_pw else None
     cvr_d = _pct(avg_cvr_tw, avg_cvr_pw) if avg_cvr_pw else None
 
-    pos = sum(1 for d in [s_d, u_d, se_d] if d is not None and d > 0)
-    neg = sum(1 for d in [s_d, u_d, se_d] if d is not None and d < 0)
-    if pos >= 2:   trend, action = t["trend_pos"],  t["act_pos"]
-    elif neg >= 2: trend, action = t["trend_neg"],  t["act_neg"]
-    else:          trend, action = t["trend_flat"], t["act_flat"]
+    _trend = _trend_ejecutivo(s_d, u_d, se_d)
+    trend, action = {
+        "pos":  (t["trend_pos"],  t["act_pos"]),
+        "neg":  (t["trend_neg"],  t["act_neg"]),
+        "flat": (t["trend_flat"], t["act_flat"]),
+    }[_trend]
 
     cur = 1
     cur = _erow(cur, t["exec_title"],    bg=NAVY,   fg=WHITE, bold=True, size=14, h=30)
@@ -1115,10 +1192,11 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
 
     cur = _erow(cur, f"\U0001f50d {t['sec_traffic']}", bg=DGRAY, fg=WHITE, bold=True, h=18)
     if totales_semanales and se_d is not None:
-        if se_d > 2: stxt2 = t["sess_up"].format(d=f"{se_d:.1f}")
-        else:        stxt2 = t["sess_down"].format(d=f"{abs(se_d):.1f}")
-        bg_se, _ = _delta_bg(se_d)
-        cur = _erow(cur, f"  {stxt2}", bg=bg_se, h=24, wrap=True)
+        _k_traf = _calificar_trafico(se_d, cvr_d)
+        if _k_traf:
+            stxt2 = t[_k_traf].format(d=f"{abs(se_d):.1f}")
+            bg_se, _ = _delta_bg(se_d if _k_traf != "sess_up_cvr_down" else -1.0)
+            cur = _erow(cur, f"  {stxt2}", bg=bg_se, h=34, wrap=True)
     elif totales_semanales and tse_tw > 0:
         cur = _erow(cur, f"  Sesiones TW: {int(tse_tw):,}", h=20)
     if totales_semanales and avg_cvr_tw > 0 and avg_cvr_pw > 0:
@@ -1492,7 +1570,37 @@ def render():
                                     alarmas.append(f"{camp.get('Campaign', '')} — ACoS {camp.get('ACoS', 0):.1f}%")
                         alarmas_txt = "\n".join(alarmas[:5]) if alarmas else "Sin alarmas críticas"
 
+                        # Contexto que el modelo no puede deducir de los numeros:
+                        # en que periodo esta parado y como leer trafico vs conversion.
+                        _p_tw = (br_daily_data or {}).get("period_tw") or {}
+                        _p_pw = (br_daily_data or {}).get("period_pw") or {}
+                        _rango = (f"{_p_pw.get('start', '?')} a {_p_tw.get('end', '?')}"
+                                  if _p_tw or _p_pw else "sin fechas declaradas")
+                        if modo_wow_ui:
+                            _ctx_periodo = (
+                                f"PERIODO: comparacion semanal real ({_rango}). "
+                                "Los numeros por producto son de 7 dias contra los 7 previos."
+                            )
+                        else:
+                            _ctx_periodo = (
+                                f"PERIODO: {_rango}. ATENCION: NO hay comparacion semanal por producto — "
+                                "se cargo un solo BR by Child, que cubre el periodo completo. "
+                                "Los totales de cuenta si tienen comparacion semanal. "
+                                "NO escribas variaciones semanales por ASIN: no existen en estos datos."
+                            )
+
+                        _ctx_lectura = (
+                            "COMO INTERPRETAR: si las sesiones suben y el CVR baja, NO es un logro — "
+                            "es un problema de calidad de trafico (terminos de busqueda, targeting) "
+                            "o del listing, y se reporta como tal. Las sesiones son un input, "
+                            "no un resultado: no las presentes como exito si no se tradujeron en ventas."
+                        )
+
                         prompt = f"""Sos un experto senior en Amazon PPC redactando el reporte semanal de {client_w}.
+
+{_ctx_periodo}
+
+{_ctx_lectura}
 
 MÉTRICAS CUENTA TOTAL (PW vs TW):
 - Ventas TW: ${sales_tw:,.2f} | PW: ${sales_pw:,.2f} | WoW: {sales_wow:+.1f}%
@@ -1527,7 +1635,7 @@ Formato exacto:
 [2-3 acciones concretas que el equipo va a ejecutar la semana que viene]
 
 Tono: profesional pero cercano. Máximo 200 palabras.
-Usá los números reales. No inventes métricas.
+Usá los números reales. No inventes métricas ni variaciones que no estén arriba.
 """
                         analisis = _claude_analyze(prompt)
 

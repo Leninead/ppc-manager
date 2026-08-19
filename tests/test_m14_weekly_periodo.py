@@ -611,6 +611,67 @@ def test_coherencia_un_solo_child_contra_periodo_completo():
     assert d2 is not None and d2["delta_pct"] == pytest.approx(1.45, abs=0.05)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# F6 — narrativa. Los números ya eran correctos; esto arregla lo que el reporte
+# DICE sobre ellos, que es lo que el cliente lee.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_trafico_sube_con_cvr_cayendo_no_felicita():
+    """El caso real de Setex: tráfico +43,9% con CVR −39,7% y ventas −20,1%.
+
+    El ejecutivo lo presentaba como 'señal positiva de visibilidad'. Más gente
+    que compra en menor proporción es un diagnóstico de calidad de tráfico.
+    """
+    clave = wcr._calificar_trafico(se_d=43.9, cvr_d=-39.7)
+    assert clave == "sess_up_cvr_down"
+
+    for lang in ("es", "en"):
+        texto = wcr._L_EXEC[lang][clave].format(d="43.9").lower()
+        assert "positiv" not in texto, f"[{lang}] no debe felicitar: {texto}"
+        assert ("calidad del tráfico" in texto or "traffic quality" in texto
+                or "conversión" in texto or "conversion" in texto), texto
+
+
+def test_trafico_sube_con_cvr_subiendo_si_felicita():
+    """El complemento: la calificación positiva no quedó bloqueada para siempre."""
+    assert wcr._calificar_trafico(se_d=43.9, cvr_d=12.0) == "sess_up"
+
+    # Y los otros dos cuadrantes siguen teniendo texto propio.
+    assert wcr._calificar_trafico(se_d=-20.0, cvr_d=15.0) == "sess_down_cvr_up"
+    assert wcr._calificar_trafico(se_d=-20.0, cvr_d=-15.0) == "sess_down"
+
+    # Sin CVR: describe el movimiento, sin calificarlo.
+    clave = wcr._calificar_trafico(se_d=43.9, cvr_d=None)
+    assert clave == "sess_up_neutro"
+    assert "positiv" not in wcr._L_EXEC["es"][clave].format(d="43.9").lower()
+
+    # Dentro del ±2% no amerita frase.
+    assert wcr._calificar_trafico(se_d=1.0, cvr_d=-30.0) is None
+
+
+def test_trend_no_positivo_solo_por_sesiones():
+    """Las sesiones son un input, no un resultado: no votan como señal positiva.
+
+    Antes, ventas ↓ + unidades ↓ + sesiones ↑ daba pos=1/neg=2 → negativo por
+    poco; con ventas ↓, unidades ~0 y sesiones ↑ el veredicto se iba a positivo.
+    """
+    assert wcr._trend_ejecutivo(s_d=-20.1, u_d=-15.0, se_d=43.9) == "neg"
+
+    # El caso que se colaba: una sola métrica de resultado en baja, tráfico en alza.
+    assert wcr._trend_ejecutivo(s_d=-20.1, u_d=None, se_d=43.9) == "neg"
+    assert wcr._trend_ejecutivo(s_d=-20.1, u_d=0.5, se_d=43.9) == "neg"
+
+    # Ventas y unidades arriba sí es positivo, con o sin tráfico acompañando.
+    assert wcr._trend_ejecutivo(s_d=10.0, u_d=8.0, se_d=-30.0) == "pos"
+
+    # Contradicción entre resultados: el tráfico solo puede confirmar lo negativo.
+    assert wcr._trend_ejecutivo(s_d=10.0, u_d=-10.0, se_d=-30.0) == "neg"
+    assert wcr._trend_ejecutivo(s_d=10.0, u_d=-10.0, se_d=50.0) == "flat"
+
+    # Sin datos de resultado no se inventa veredicto.
+    assert wcr._trend_ejecutivo(s_d=None, u_d=None, se_d=99.0) == "flat"
+
+
 def test_periodo_de_14_dias_no_habilita_modo_wow():
     """La guarda mira `days`, no la mera presencia del período declarado.
 
