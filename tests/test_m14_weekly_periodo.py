@@ -105,6 +105,33 @@ _BR_BY_CHILD_VARIANTES = (
 )
 
 
+# ── by-Child partido en dos semanas ──────────────────────────────────────────
+# El par que habilita MODO WOW: dos archivos de 7d, uno por semana. Es lo que en
+# F3 va a cargar el AM por el 5º uploader, así que estos fixtures se reusan ahí.
+# Cada uno suma exactamente lo que el BR diario reporta para su mitad:
+#   sales 3500 · units 35 · sessions 175
+#
+# El TW mantiene el ASIN duplicado (B0TEST0001 bajo dos parents) para que el
+# invariante se pruebe CON consolidación de por medio, no sobre un caso trivial.
+#   B0TEST0001: 50+25 = 75 sesiones · 10+5 = 15 units · 1000+500 = 1500 sales
+#   B0TEST0002: 100 sesiones · 20 units · 2000 sales
+_BR_BY_CHILD_TW_7D = """\
+(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Featured Offer (Buy Box) Percentage,Units Ordered,Unit Session Percentage,Ordered Product Sales
+B0PARENT001,B0TEST0001,Producto Uno Variante A,50,100.00%,10,20.00%,"MX$1,000.00"
+B0TEST0001,B0TEST0001,Producto Uno Variante A,25,90.00%,5,20.00%,"MX$500.00"
+B0PARENT002,B0TEST0002,Producto Dos,100,100.00%,20,20.00%,"MX$2,000.00"
+"""
+
+# La semana anterior, mismos totales, sin duplicado.
+#   B0TEST0001: 75 sesiones · 15 units · 1500 sales
+#   B0TEST0002: 100 sesiones · 20 units · 2000 sales
+_BR_BY_CHILD_PW_7D = """\
+(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Featured Offer (Buy Box) Percentage,Units Ordered,Unit Session Percentage,Ordered Product Sales
+B0PARENT001,B0TEST0001,Producto Uno Variante A,75,100.00%,15,20.00%,"MX$1,500.00"
+B0PARENT002,B0TEST0002,Producto Dos,100,100.00%,20,20.00%,"MX$2,000.00"
+"""
+
+
 def _b(text: str) -> io.BytesIO:
     """CSV como file-like. Sin `.name` → el parser cae a `pd.read_csv` (hasattr)."""
     return io.BytesIO(text.encode("utf-8"))
@@ -165,30 +192,51 @@ def test_dedup_total_by_child_igual_a_total_by_date():
     assert sum(v["Sales"] for v in out.values()) == total_14d
 
 
-def test_invariante_suma_productos_no_supera_cuenta_total():
-    # FALLA HOY - F2/F3
-    #
+@pytest.mark.parametrize(
+    "modo, src_tw, src_pw, p_tw, p_pw, cuenta_esperada",
+    [
+        # El caso que produjo el bug: un solo by-Child de 14d.
+        ("completo", _BR_BY_CHILD_DUP, None, {"start": "2026-08-03", "end": "2026-08-16", "days": 14}, None, 7000.0),
+        # El caso sano: dos by-Child de 7d, uno por semana.
+        ("wow", _BR_BY_CHILD_TW_7D, _BR_BY_CHILD_PW_7D,
+         {"start": "2026-08-10", "end": "2026-08-16", "days": 7},
+         {"start": "2026-08-03", "end": "2026-08-09", "days": 7}, 3500.0),
+    ],
+    # Sin ids explícitos pytest usa el CSV entero como identificador del caso.
+    ids=["modo_periodo_completo", "modo_wow"],
+)
+def test_invariante_suma_productos_no_supera_cuenta_total(
+    modo, src_tw, src_pw, p_tw, p_pw, cuenta_esperada
+):
     # EL TEST CENTRAL. Invariante de sentido común que ningún reporte puede violar:
     # la suma de las filas de producto no puede superar el total de la cuenta, en
-    # la MISMA columna. Hoy da 5000 (productos, 14d) contra 3500 (cuenta, 7d).
-    # Este es el test que hubiese cazado el bug el día 1.
+    # la MISMA columna. Antes de F2 daba 5000 (productos, 14d) contra 3500 (cuenta,
+    # 7d) — este es el test que hubiese cazado el bug el día 1.
     #
-    # Ojo: arreglar solo F1 NO lo pone en verde — con dedup la suma pasa a 7000
-    # contra los mismos 3500. Se cierra recién con el fix de período (F2/F3).
-    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_DUP))
+    # Se verifica en LOS DOS modos: el invariante no depende del modo, y correrlo
+    # en ambos evita que un futuro cambio lo satisfaga solo en el camino feliz.
+    br_tw = _parse_br_wow(_b(src_tw))
+    br_pw = _parse_br_wow(_b(src_pw)) if src_pw else {}
     br_daily = _parse_br_daily_wow(_b(_BR_BY_DATE_14D))
 
-    # Llamado tal como lo hace render() hoy.
-    buf = wcr._build_weekly_excel(br_tw, {}, {}, {}, "TEST", "es", br_daily)
+    buf = wcr._build_weekly_excel(
+        br_tw, br_pw, {}, {}, "TEST", "es", br_daily,
+        period_child_tw=p_tw, period_child_pw=p_pw,
+    )
     ws = _wow_sheet(buf)
 
     # Guardas de layout: si el Excel cambia de forma, que falle por eso y no por
-    # comparar celdas equivocadas en silencio.
+    # comparar celdas equivocadas en silencio. Se verifica el GRUPO de la fila 2,
+    # que es "SALES" en ambos modos — el subheader de la fila 3 ya no sirve de
+    # ancla porque cambia de rótulo según el modo, que es justo lo que F2 arregló.
     assert "CUENTA TOTAL" in str(ws.cell(4, 1).value), "la fila 4 debe ser CUENTA TOTAL"
-    assert ws.cell(3, 3).value == "Esta semana", "la col 3 debe ser SALES / esta semana"
+    assert ws.cell(2, 3).value == "SALES", "la col 3 debe pertenecer al grupo SALES"
 
+    # Guarda de valor por modo: el test sigue sabiendo qué número espera.
+    # En MODO PERÍODO COMPLETO la cuenta muestra el agregado de 14d (7000); en
+    # MODO WOW muestra solo la semana (3500).
     cuenta_total = ws.cell(4, 3).value
-    assert cuenta_total == 3500.0, "guarda del fixture: la cuenta TW son 3500"
+    assert cuenta_total == cuenta_esperada, f"guarda del fixture (modo {modo})"
 
     primera_fila_producto = 5  # 4 (CUENTA TOTAL) + 1
     suma_productos = sum(
@@ -308,3 +356,67 @@ def test_buybox_none_si_todas_las_sesiones_son_cero():
     assert d["Sessions"] == 0.0
     assert d["BuyBox"] is None  # sin sesiones no hay ponderación posible
     assert d["CVR"] is None     # y el cociente no está definido
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F2 — contrato de período. El rótulo de una columna tiene que corresponderse
+# con los días de dato que la respaldan, y una columna nunca mezcla períodos.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_P7_A = {"start": "2026-08-03", "end": "2026-08-09", "days": 7}
+_P7_B = {"start": "2026-08-10", "end": "2026-08-16", "days": 7}
+_P14 = {"start": "2026-08-03", "end": "2026-08-16", "days": 14}
+
+
+def _excel(period_child_tw=None, period_child_pw=None, atom_tw=None):
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_DUP))
+    br_daily = _parse_br_daily_wow(_b(_BR_BY_DATE_14D))
+    buf = wcr._build_weekly_excel(
+        br_tw, {}, atom_tw or {}, {}, "TEST", "es", br_daily,
+        period_child_tw=period_child_tw, period_child_pw=period_child_pw,
+    )
+    return _wow_sheet(buf), br_tw
+
+
+def test_modo_wow_rotula_esta_semana():
+    """Con dos períodos de 7d declarados, el reporte puede comparar semanas."""
+    ws, _ = _excel(period_child_tw=_P7_B, period_child_pw=_P7_A)
+
+    assert ws.cell(3, 3).value == "Esta semana"
+    assert ws.cell(3, 4).value == "Semana anterior"
+    assert ws.cell(3, 5).value == "Variación %"
+
+
+def test_modo_degradado_rotula_periodo_completo():
+    """Sin período para la semana anterior no hay WoW posible: hay que decirlo."""
+    ws, _ = _excel(period_child_tw=_P14, period_child_pw=None)
+
+    encabezado = str(ws.cell(3, 3).value)
+    assert "completo" in encabezado.lower()
+    assert "14" in encabezado
+    assert ws.cell(3, 4).value == "—"
+    assert ws.cell(3, 5).value == "—"
+
+
+def test_modo_degradado_cuenta_total_coherente_con_productos():
+    """La raíz del bug: cuenta en 7d y productos en 14d, en la misma columna."""
+    ws, br_tw = _excel(period_child_tw=_P14, period_child_pw=None)
+
+    cuenta_total = ws.cell(4, 3).value
+    suma_productos = sum(ws.cell(r, 3).value or 0 for r in range(5, 5 + len(br_tw)))
+
+    assert cuenta_total == 7000.0, "la cuenta debe mostrar el agregado de 14d, no 3500"
+    assert suma_productos == 7000.0
+    assert suma_productos == cuenta_total
+
+
+def test_periodo_de_14_dias_no_habilita_modo_wow():
+    """La guarda mira `days`, no la mera presencia del período declarado.
+
+    Es el caso que produjo el bug: había un período, pero de 14 días. Si la
+    condición fuera `if period_child_tw:` el reporte volvería a rotular mal.
+    """
+    ws, _ = _excel(period_child_tw=_P14, period_child_pw=_P14)
+
+    assert ws.cell(3, 3).value != "Esta semana"
+    assert "completo" in str(ws.cell(3, 3).value).lower()
