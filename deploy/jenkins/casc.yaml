@@ -30,7 +30,7 @@ jobs:
                   url('https://github.com/Leninead/ppc-manager.git')
                   credentials('github-pat')
                 }
-                branches('feat/vps-deploy')
+                branches('main')
               }
             }
             scriptPath('Jenkinsfile')
