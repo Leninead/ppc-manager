@@ -39,37 +39,9 @@ data/sales/proposals/*
 data/sales/interested-votes.parquet
 *.csv
 app_backup.py
-notes/*
-!notes/knowledge/
-!notes/knowledge/**
-!notes/brands/
-!notes/brands/**
-!notes/clients/
-!notes/clients/**
-!notes/sops/
-!notes/sops/**
-!notes/state/
-!notes/state/**
-!notes/daily/
-!notes/daily/**
-!notes/walmart/
-!notes/walmart/**
-!notes/personal/
-!notes/personal/**
-!notes/personal-projects-backup/
-!notes/personal-projects-backup/**
-!notes/prompts/
-!notes/prompts/**
-!notes/sales/
-notes/sales/*
-!notes/sales/contrato-importer-b7-v1.md
-!notes/api-integration/
-!notes/api-integration/**
-!notes/README.md
-!notes/_archive/
-!notes/_archive/**
-!notes/CLAUDE.md
-!notes/_cheat-sheet-diario.md
+# ── Vault de documentación (Obsidian) ──────────────────
+# The vault now lives in its own repo; ignore it wholesale here (untracked 2026-08-18).
+notes/
 .env
 # ── Agregado por setup_deploy.py ──────────────────
 .streamlit/secrets.toml
@@ -101,15 +73,6 @@ MB_Attribution_*.csv
 Amazon_Attribution_Tags_*.csv
 # NotebookLM PDF exports + cowork reports (artefactos generados, reproducibles)
 outputs/
-# Whitelist notes/meetings/ (carpeta nueva del 22/05 para sync notes)
-!notes/meetings/
-!notes/meetings/**
-# Whitelist notes/modules/ (carpeta de planes de implementación por módulo)
-!notes/modules/
-!notes/modules/**
-# Whitelist notes/decisiones/ (carpeta de documentos de decisión arquitectónica)
-!notes/decisiones/
-!notes/decisiones/**
 # ── Entorno local Python 3.12 (setup 2026-05-26) ──
 # venv local — nunca se versiona. Recrear con py -3.12 -m venv .venv
 .venv/
