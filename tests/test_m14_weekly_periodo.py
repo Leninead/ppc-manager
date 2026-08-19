@@ -160,6 +160,35 @@ B0PARENT007,B0TEST0006,Producto Cola Larga,3,100.00%,2,66.67%,"MX$200.00"
 """
 
 
+# Cuadrante sesiones ↑ / CVR ↓ — el caso real de Setex (tráfico +44%, CVR −40%).
+# Fixtures propios: los de CVR-dispar dan sesiones planas y CVR subiendo.
+#   TW: 720 sesiones, 43 units -> CVR 5.97
+#   PW: 500 sesiones, 50 units -> CVR 10.00
+#   se_d = +44.0%   ·   cvr_d = -40.3%
+_BR_BY_CHILD_TRAFICO_SUBE_TW = """\
+(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Featured Offer (Buy Box) Percentage,Units Ordered,Unit Session Percentage,Ordered Product Sales
+B0PARENT008,B0TEST0007,Producto Siete,420,100.00%,25,5.95%,"MX$2,500.00"
+B0PARENT009,B0TEST0008,Producto Ocho,300,100.00%,18,6.00%,"MX$1,800.00"
+"""
+
+_BR_BY_CHILD_TRAFICO_SUBE_PW = """\
+(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Featured Offer (Buy Box) Percentage,Units Ordered,Unit Session Percentage,Ordered Product Sales
+B0PARENT008,B0TEST0007,Producto Siete,300,100.00%,30,10.00%,"MX$3,000.00"
+B0PARENT009,B0TEST0008,Producto Ocho,200,100.00%,20,10.00%,"MX$2,000.00"
+"""
+
+# BR diario con días de tráfico MUY dispar, para distinguir el CVR de cuenta
+# ponderado del promedio de porcentajes diarios que hacía `.mean()`.
+#   TW: 6 días de 3 sesiones/0 units + 1 día de 500 sesiones/50 units
+#   media de % diarios = 1.43   ·   ponderado real = 9.65
+_BR_BY_DATE_CVR_DISPAR = "".join(
+    ["Date,Ordered Product Sales,Units Ordered,Sessions - Total,Order Item Session Percentage\n"]
+    + [f'8/{d}/26,"MX$100.00",5,50,10.00%\n' for d in range(3, 10)]        # PW
+    + [f'8/{d}/26,"MX$10.00",0,3,0.00%\n' for d in range(10, 16)]          # TW flojo
+    + ['8/16/26,"MX$5,000.00",50,500,10.00%\n']                            # TW pico
+)
+
+
 def _b(text: str) -> io.BytesIO:
     """CSV como file-like. Sin `.name` → el parser cae a `pd.read_csv` (hasattr)."""
     return io.BytesIO(text.encode("utf-8"))
@@ -579,8 +608,7 @@ def test_ejecutivo_sin_br_diario_no_fabrica_totales_semanales():
 
 
 def test_cvr_ejecutivo_ponderado_por_sesiones():
-    """El CVR de cuenta se pondera por sesiones. Con promedio simple, un ASIN de
-    3 sesiones pesaba lo mismo que uno de 500."""
+    """El CVR de cuenta se pondera por sesiones, sin BR diario (rama modo_wow)."""
     br_tw = _parse_br_wow(_b(_BR_BY_CHILD_CVR_DISPAR_TW))
     br_pw = _parse_br_wow(_b(_BR_BY_CHILD_CVR_DISPAR_PW))
     buf = wcr._build_weekly_excel(
@@ -593,6 +621,45 @@ def test_cvr_ejecutivo_ponderado_por_sesiones():
     # promedio simple (incorrecto): (10 + 100) / 2 = 55.00
     assert "10.54" in texto, f"se esperaba el CVR ponderado 10.54 en:\n{texto}"
     assert "55.00" not in texto, "el CVR quedó como promedio simple por ASIN"
+
+
+def test_cvr_ejecutivo_ponderado_tambien_con_br_diario():
+    """La rama que corre casi siempre: CON BR diario.
+
+    F5 ponderó la rama `elif modo_wow` y dejó `if br_daily:` usando el promedio
+    aritmético de los porcentajes DIARIOS. Con días de tráfico dispar el desvío
+    medido fue de 8,22 puntos (1,43% contra 9,65% real), y el test de F5 pasaba
+    porque ejercitaba justo la otra rama.
+    """
+    daily = _parse_br_daily_wow(_b(_BR_BY_DATE_CVR_DISPAR))
+
+    media_diaria = daily["CVR_TW"]                                   # 1.43
+    ponderado = daily["Units_TW"] / daily["Sessions_TW"] * 100       # 9.65
+    assert abs(media_diaria - ponderado) > 5, (
+        f"el fixture debe distinguir ambos cálculos: {media_diaria} vs {ponderado}"
+    )
+
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_DUP))
+    buf = wcr._build_weekly_excel(br_tw, {}, {}, {}, "TEST", "es", daily)
+    texto = _texto_hoja(_hoja_ejecutivo(buf))
+
+    assert f"{ponderado:.2f}" in texto, f"se esperaba el ponderado {ponderado:.2f} en:\n{texto}"
+    assert f"{media_diaria:.2f}" not in texto, "el CVR de cuenta sigue promediando % diarios"
+
+
+def test_unidades_planas_no_se_reportan_como_caida():
+    """'Las unidades bajaron un 1.5%, de 100 a 101 unidades.'
+
+    Faltaba la rama flat de unidades: `if u_d > 2 ... else units_down`. Ventas sí
+    tenía las tres ramas — la asimetría delataba el olvido. El signo quedaba
+    invertido en un texto que lee el cliente.
+    """
+    assert "units_flat" in wcr._L_EXEC["es"], "falta la rama flat de unidades (ES)"
+    assert "units_flat" in wcr._L_EXEC["en"], "falta la rama flat de unidades (EN)"
+
+    # Un movimiento de +1.5% no puede describirse como caída.
+    texto = wcr._L_EXEC["es"]["units_flat"].format(d="1.5", pw=100, tw=101).lower()
+    assert "bajaron" not in texto and "cayeron" not in texto, texto
 
 
 def test_coherencia_un_solo_child_contra_periodo_completo():
@@ -683,21 +750,39 @@ def test_trend_no_positivo_solo_por_sesiones():
 def test_no_hay_diagnosticos_contradictorios():
     """Tráfico ↑ con CVR ↓ es UN hecho: no puede recibir dos causas distintas.
 
-    La sección de tráfico ya diagnostica calidad de tráfico; la de conversión no
-    debe además proponer listing y precio como causa separada.
+    La sección de tráfico diagnostica calidad de tráfico; la de conversión debe
+    remitir a esa, no proponer listing y precio como causa separada.
+
+    F8: la versión de F7 usaba los fixtures de CVR-dispar, que dan sesiones
+    PLANAS (503 vs 503) y CVR SUBIENDO (+26%) — el cuadrante opuesto al que dice
+    cubrir. El assert quedaba en `not (False and False)` y pasaba siempre.
+    Fixtures propios, y se verifica primero que el cuadrante sea el correcto.
     """
-    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_CVR_DISPAR_TW))
-    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_CVR_DISPAR_PW))
-    # PW con menos sesiones y mejor CVR -> sesiones suben, CVR baja.
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_TRAFICO_SUBE_TW))
+    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_TRAFICO_SUBE_PW))
+
+    # Guarda: sin esto el test puede volver a quedar vacuo si los fixtures cambian.
+    s_tw = sum(v["Sessions"] for v in br_tw.values())
+    s_pw = sum(v["Sessions"] for v in br_pw.values())
+    c_tw = sum(v["Units"] for v in br_tw.values()) / s_tw * 100
+    c_pw = sum(v["Units"] for v in br_pw.values()) / s_pw * 100
+    se_d = (s_tw - s_pw) / s_pw * 100
+    cvr_d = (c_tw - c_pw) / c_pw * 100
+    assert se_d > 2, f"el fixture debe subir sesiones, da {se_d:+.1f}%"
+    assert cvr_d < -2, f"el fixture debe bajar CVR, da {cvr_d:+.1f}%"
+    assert wcr._calificar_trafico(se_d, cvr_d) == "sess_up_cvr_down"
+
     buf = wcr._build_weekly_excel(
         br_tw, br_pw, {}, {}, "TEST", "es", None,
         period_child_tw=_P7_B, period_child_pw=_P7_A,
     )
     texto = _texto_hoja(_hoja_ejecutivo(buf)).lower()
 
-    tiene_calidad = "calidad del tráfico" in texto
-    tiene_listing = "revisar listing y precio" in texto
-    assert not (tiene_calidad and tiene_listing), (
+    # El diagnóstico de calidad de tráfico SÍ tiene que estar...
+    assert "calidad del tráfico" in texto, texto
+    # ...y la línea de CVR tiene que remitir a él, no dar otra causa.
+    assert "ver el punto anterior" in texto, texto
+    assert "revisar listing y precio" not in texto, (
         "el ejecutivo da dos causas distintas para el mismo hecho:\n" + texto
     )
 

@@ -695,6 +695,7 @@ _L_EXEC = {
         "sales_down": "Las ventas totales cayeron un {d}%, de MX${pw} a MX${tw}.",
         "sales_flat": "Las ventas totales se mantuvieron estables (MX${tw}).",
         "units_up":   "Las unidades crecieron un {d}%, de {pw} a {tw} unidades.",
+            "units_flat": "Las unidades se mantuvieron estables ({tw} vs {pw} la semana anterior).",
         "units_down": "Las unidades bajaron un {d}%, de {pw} a {tw} unidades.",
         "sess_up":    "El tr\u00e1fico aument\u00f3 un {d}%, se\u00f1al positiva de visibilidad org\u00e1nica y/o ads.",
         "sess_down":  "El tr\u00e1fico cay\u00f3 un {d}%. Revisar ranking org\u00e1nico y presupuesto de campa\u00f1as.",
@@ -733,6 +734,7 @@ _L_EXEC = {
         "sales_down": "Total sales dropped by {d}%, from MX${pw} to MX${tw}.",
         "sales_flat": "Total sales remained stable (MX${tw}).",
         "units_up":   "Units sold grew by {d}%, from {pw} to {tw} units.",
+            "units_flat": "Units held steady ({tw} vs {pw} the prior week).",
         "units_down": "Units sold dropped by {d}%, from {pw} to {tw} units.",
         "sess_up":    "Traffic increased by {d}%, a positive visibility signal.",
         "sess_down":  "Traffic dropped by {d}%. Review organic ranking and campaign budgets.",
@@ -1240,7 +1242,13 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         ts_tw = br_daily["Sales_TW"];    ts_pw = br_daily["Sales_PW"]
         tu_tw = br_daily["Units_TW"];    tu_pw = br_daily["Units_PW"]
         tse_tw = br_daily["Sessions_TW"]; tse_pw = br_daily["Sessions_PW"]
-        avg_cvr_tw = br_daily["CVR_TW"]; avg_cvr_pw = br_daily["CVR_PW"]
+        # CVR de cuenta PONDERADO por sesiones. `br_daily['CVR_TW']` es el promedio
+        # aritmetico de los porcentajes DIARIOS (.mean() en _parse_br_daily_wow): un dia
+        # de 3 sesiones pesa igual que uno de 500. Medido con trafico dispar: 1,43%
+        # contra 9,65% real, 8,22 puntos. F5 pondero la otra rama y dejo esta, que es
+        # la que corre en casi todos los usos.
+        avg_cvr_tw = (tu_tw / tse_tw * 100) if tse_tw > 0 else 0
+        avg_cvr_pw = (tu_pw / tse_pw * 100) if tse_pw > 0 else 0
     elif modo_wow:
         totales_semanales = True
         ts_tw = sum(r["sales_tw"] for r in rows_data)
@@ -1294,8 +1302,14 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         bg_s, _ = _delta_bg(s_d)
         cur = _erow(cur, f"  {stxt}", bg=bg_s, h=24, wrap=True)
     if totales_semanales and u_d is not None:
-        if u_d > 2:   utxt = t["units_up"].format(d=f"{u_d:.1f}", pw=int(tu_pw), tw=int(tu_tw))
-        else:          utxt = t["units_down"].format(d=f"{abs(u_d):.1f}", pw=int(tu_pw), tw=int(tu_tw))
+        # Tres ramas, como ventas. Sin la rama flat un +1.5% caia en el `else` y
+        # salia "Las unidades bajaron un 1.5%, de 100 a 101 unidades".
+        if u_d > _UMBRAL_ESTABLE:
+            utxt = t["units_up"].format(d=f"{u_d:.1f}", pw=int(tu_pw), tw=int(tu_tw))
+        elif u_d < -_UMBRAL_ESTABLE:
+            utxt = t["units_down"].format(d=f"{abs(u_d):.1f}", pw=int(tu_pw), tw=int(tu_tw))
+        else:
+            utxt = t["units_flat"].format(d=f"{abs(u_d):.1f}", pw=int(tu_pw), tw=int(tu_tw))
         bg_u, _ = _delta_bg(u_d)
         cur = _erow(cur, f"  {utxt}", bg=bg_u, h=24, wrap=True)
     ws2.row_dimensions[cur].height = 6; cur += 1

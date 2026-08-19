@@ -410,6 +410,7 @@ fila CUENTA TOTAL de esa columna también.
 
 ### Funciones clave
 ```python
+_derivar_periodos(br_daily, hay_child_pw)  # -> (period_tw, period_pw). Extraido de render()
 _periodo(fechas)                  # [ISO] -> {'start','end','days'} | None. days = fechas DISTINTAS
 _es_modo_wow(p_tw, p_pw)          # única decisión de modo (7d + 7d)
 _chequear_coherencia_child(...)   # suma del by-Child vs BR diario, tol 1%; avisa, NO bloquea
@@ -425,8 +426,10 @@ _L_EXEC                           # textos del ejecutivo, a NIVEL DE MÓDULO (te
   child bajo parents distintos tras merges de variaciones. Sessions/units/sales
   suman; CVR se recalcula del cociente de totales; BuyBox se pondera por sesiones.
   Metadata `_rows_merged` / `_parents` para trazabilidad.
-- CVR de cuenta en el ejecutivo: **ponderado por sesiones**, nunca promedio simple
-  por ASIN.
+- CVR de cuenta en el ejecutivo: **ponderado por sesiones** (`units/sessions`), en
+  las DOS ramas (con BR diario y sin él). Nunca promedio simple por ASIN ni
+  promedio de los porcentajes diarios — `br_daily["CVR_TW"]` es un `.mean()` de
+  porcentajes y NO sirve para el total de cuenta (desvío medido: 8,22 puntos).
 - El trend lo deciden ventas y unidades. Las sesiones son un input, no un resultado.
 - Tráfico ↑ con CVR ↓ **no se felicita**: es diagnóstico de calidad de tráfico.
 - BuyBox con 0 sesiones → ignorado.
