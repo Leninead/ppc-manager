@@ -49,7 +49,8 @@ notes/
 # HTMLs fuente que se portean a módulos Streamlit. Los archivos .html
 # son data del compañero (privacidad + tamaño) y NO se versionan.
 # El _README.md SÍ se versiona como inventario de qué se porteó cuándo.
-.claude/porting-sources/*.html
+.claude/porting-sources/**
+!.claude/porting-sources/**/
 !.claude/porting-sources/_README.md
 # ── Fixtures reales de tests (datos de clientes) ──
 # CSV de Business Reports reales (Setex MX, Dermaglos US) para validar el parser
