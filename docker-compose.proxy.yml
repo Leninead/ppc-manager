@@ -1,0 +1,46 @@
+# Reverse-proxy overlay: docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+# Only Caddy is published (80/443); it reaches the app by container name over an internal network.
+# .env: APP_DOMAIN (app.capybaras.agency; :80 for HTTP-on-IP; app.localhost for local) + ACME_EMAIL
+# CD: set COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml in .env so a bare `docker compose
+# up -d` (what Jenkins runs) uses both files and app stays on Caddy's network (no reparent → no 502).
+services:
+  app:
+    ports: !reset []
+    networks: [web]
+    # Behind a subdomain proxy Streamlit's WebSocket Origin check 403s the proxied
+    # connection ("Connecting..."); disabling it is the documented reverse-proxy config
+    # (safe here: proxy is the only public entry, app is behind login). Overlay-only.
+    command:
+      - streamlit
+      - run
+      - app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+      - --server.enableCORS=false
+      - --server.enableXsrfProtection=false
+
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-app.localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-internal@local}
+    volumes:
+      - ./deploy/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # persist certs across deploys
+      - caddy_config:/config
+    networks: [web]
+    depends_on: [app]
+
+networks:
+  web: {}
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

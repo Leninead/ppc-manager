@@ -64,7 +64,8 @@ except ImportError:
 # Constantes
 # ─────────────────────────────────────────────────────────────────────────────
 
-DATA_ROOT = Path("data")
+from core.data_root import DATA_ROOT  # data root, configurable via AGENCY_OS_DATA_DIR
+
 _INNOVATION_SUBDIR = "innovation"
 
 _IDEAS_FILE = "ideas.json"

@@ -1,0 +1,78 @@
+# Self-hosted data layer overlay: Postgres + PostgREST ("Supabase flaco") + a /rest/v1
+# gateway + pgAdmin. The app talks pure PostgREST, so this is a drop-in for Supabase with
+# no app-code change — just point SUPABASE_URL at the gateway and flip the backend flags.
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.db.yml up -d
+# Nothing here is published publicly except pgAdmin on loopback (reach it via an SSH tunnel).
+services:
+  app:
+    networks: [web]
+    environment:
+      AGENCY_OS_AH_BACKEND: supabase
+      AGENCY_OS_FORECAST_BACKEND: supabase
+      AGENCY_OS_INNOVATION_BACKEND: supabase
+      SUPABASE_URL: http://rest-gateway
+      SUPABASE_KEY: ${SUPABASE_KEY:?set SUPABASE_KEY (a JWT signed with PGRST_JWT_SECRET, role=web_user) in .env}
+
+  db:
+    image: postgres:16
+    container_name: agency-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agency_os
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro  # runs once on first init
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d agency_os"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [web]
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.3
+    container_name: agency-postgrest
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/agency_os
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: web_anon                                       # no-token role: no privileges → denied
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET:?set PGRST_JWT_SECRET in .env}  # verifies the app's Bearer JWT → role=web_user
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [web]
+
+  rest-gateway:
+    image: caddy:2
+    container_name: agency-rest-gateway
+    restart: unless-stopped
+    volumes:
+      - ./deploy/db/rest-gateway.Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on: [postgrest]
+    networks: [web]
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: agency-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?set PGADMIN_PASSWORD in .env}
+      PGADMIN_LISTEN_PORT: 80
+    ports:
+      - "127.0.0.1:5050:80"   # loopback only → reach via SSH tunnel, never public
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on: [db]
+    networks: [web]
+
+networks:
+  web: {}
+
+volumes:
+  pgdata: {}
+  pgadmin_data: {}

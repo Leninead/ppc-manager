@@ -2390,3 +2390,16 @@ Detalle completo en `notes/daily/2026-07-09.md` + `notes/state/STATE-agencia.md`
 - Sacar el import muerto de `_PAGES` en `app.py:8`.
 - El worktree `ppc-manager-meli` y su branch siguen vivos, candidatos a limpieza. Hay 15 worktrees abiertos en total.
 - La tabla de navegacion salta del 28 al 30: falta la fila de M29 Proposal Studio.
+
+<!-- capybaras-dev:rules START — managed by /capybaras-dev:init; edit in the plugin, not here -->
+## Capybaras — Claude working rules
+
+- **Verify before you claim.** Never label something "honest / honestamente" or assert a
+  state — published/not, connected/not, done/not, exists/not, synced/not — without checking
+  it first with a tool (`git`, `gh`, `ls`, `git status`, …). State only what the check shows.
+  If you can't verify, say **"not verified"** — don't assert. Don't use "honest" as a
+  rhetorical flourish; verified facts carry the credibility.
+- **Evidence over claims.** Any statement about behavior is backed by results you actually
+  observed (real test output, a reproduction before/after, data you inspected) — never
+  "should work", unproven probabilities, or confidence you didn't measure.
+<!-- capybaras-dev:rules END -->

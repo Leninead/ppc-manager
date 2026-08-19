@@ -1,0 +1,17 @@
+# APP_DOMAIN → the site (subdomain, or :80 for HTTP-on-IP). ACME_EMAIL → Let's Encrypt.
+# Caddy auto-HTTPS: internal CA for local names, Let's Encrypt for a public domain.
+{
+    email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+    encode zstd gzip
+    # Access log to stdout (docker logs caddy) — request trail for incident diagnosis.
+    log {
+        format json
+    }
+    reverse_proxy app:8501 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+}

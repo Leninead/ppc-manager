@@ -1,0 +1,53 @@
+# Amazon PPC Manager (Agency OS) — single node, always-on. TLS/WebSocket via a
+# separate reverse proxy (see docs/DEPLOY-VPS.md). Self-contained image (seeds the
+# skeleton on boot).
+#   Local:  docker compose up -d --build
+#   Deploy: IMAGE_TAG=<sha> docker compose up -d
+name: ppc-manager
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ppc-manager:${IMAGE_TAG:-latest}
+    container_name: ppc-manager
+    init: true
+    restart: unless-stopped
+
+    # Loopback only; the reverse proxy reaches it here. No proxy yet → use "8501:8501".
+    ports:
+      - "127.0.0.1:8501:8501"
+
+    environment:
+      AGENCY_OS_DATA_DIR: /app/data
+      # Filesystem backend (phase 1). Supabase = flip these + SUPABASE_URL/KEY, no rebuild.
+      AGENCY_OS_AH_BACKEND: local
+      AGENCY_OS_FORECAST_BACKEND: local
+      AGENCY_OS_INNOVATION_BACKEND: local
+      # Do NOT set AGENCY_OS_LOCAL_MODE in prod — it disables login (app.py:166).
+
+    env_file:
+      - path: .env            # ANTHROPIC_API_KEY etc. on the host; never in git/image.
+        required: false
+
+    volumes:
+      - agency_data:/app/data
+      # Must exist before `up` (else Docker creates a dir and login breaks).
+      - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; b=urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=4).read(); sys.exit(0 if b'ok' in b else 1)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  agency_data:

@@ -16,7 +16,9 @@ from pathlib import Path
 # Raíz de la sección Sales dentro de data/
 # ─────────────────────────────────────────────────────────────────────────────
 
-SALES_ROOT = Path("data") / "sales"
+from core.data_root import DATA_ROOT  # data root, configurable via AGENCY_OS_DATA_DIR
+
+SALES_ROOT = DATA_ROOT / "sales"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Archivos versionados en git (estructura del producto)
@@ -31,7 +33,7 @@ TEMPLATES_DIR = SALES_ROOT / "_templates"
 SEED_DIR = SALES_ROOT / "_seed"
 """Propuestas semilla de los 5 PDFs/DOCX. Versionado como referencia histórica."""
 
-SCHEMAS_DIR = Path("data") / "_schemas"
+SCHEMAS_DIR = DATA_ROOT / "_schemas"
 """Schemas versionados. proposal-v1.json vive acá (compartido con el resto del Agency OS)."""
 
 PROPOSAL_SCHEMA_FILE = SCHEMAS_DIR / "proposal-v1.json"

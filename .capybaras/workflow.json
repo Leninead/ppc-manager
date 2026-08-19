@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "project": "ppc-manager",
+  "language": "python",
+  "test": {
+    "command": "pytest",
+    "paths": ["tests"]
+  },
+  "version": {
+    "source": "CHANGELOG.md",
+    "style": "keep-a-changelog"
+  },
+  "git": {
+    "baseBranch": "main",
+    "branchPrefixes": ["feat", "fix", "docs", "refactor", "chore"]
+  },
+  "pr": {
+    "baseRepo": "Leninead/ppc-manager",
+    "baseBranch": "main"
+  },
+  "commit": {
+    "standard": "conventional+capybaras",
+    "language": "en"
+  }
+}

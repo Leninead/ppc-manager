@@ -1,0 +1,40 @@
+jenkins:
+  systemMessage: "Capybaras — ppc-manager CI/CD"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin"          # dev only: change for any real use
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+security:
+  globalJobDslSecurityConfiguration:
+    useScriptSecurity: false
+unclassified:
+  location:
+    url: "http://127.0.0.1:8080/"
+jobs:
+  - script: |
+      pipelineJob('ppc-manager') {
+        description('Agency OS CI/CD — build/test always, deploy with DEPLOY=true')
+        parameters { booleanParam('DEPLOY', false, 'true = deploy to the VPS on top of CI') }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                // Clone the app repo from GitHub over HTTPS with the PAT (credential id: github-pat).
+                remote {
+                  url('https://github.com/Leninead/ppc-manager.git')
+                  credentials('github-pat')
+                }
+                branches('feat/vps-deploy')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(false)
+          }
+        }
+      }

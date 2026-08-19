@@ -1,0 +1,10 @@
+# Internal gateway: the app builds {SUPABASE_URL}/rest/v1/<table>, PostgREST serves at root.
+# handle_path strips /rest/v1 so /rest/v1/proposals → postgrest:3000/proposals. Not published.
+# The app's Authorization: Bearer <JWT> is forwarded so PostgREST verifies it (PGRST_JWT_SECRET) and
+# runs as role=web_user; a request with no valid token falls to web_anon (no privileges) → denied.
+:80 {
+    handle_path /rest/v1/* {
+        reverse_proxy postgrest:3000
+    }
+    respond "rest-gateway" 200
+}

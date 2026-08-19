@@ -1,0 +1,24 @@
+# Jenkins CI/CD for the Agency OS, running on the VPS itself.
+# network_mode: host → 127.0.0.1:8080 is Jenkins and 127.0.0.1:8501 reaches the app
+# (the Jenkinsfile health gate). Host Docker socket mounted → build/deploy on the same
+# Docker as the app. JENKINS_HOME at /srv/jenkins-home (same path on host and container)
+# so the test stage's `docker run -v $WORKSPACE` resolves correctly.
+#
+#   docker compose -f deploy/jenkins/docker-compose.yml up -d --build
+#   → http://127.0.0.1:8080   (admin / admin by default; change it)
+name: capy-jenkins
+
+services:
+  jenkins:
+    build: .
+    image: capy-jenkins
+    container_name: jenkins
+    user: root                         # needs the mounted socket + write to JENKINS_HOME
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      JENKINS_HOME: /srv/jenkins-home
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /srv:/srv
