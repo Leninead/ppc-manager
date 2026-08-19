@@ -672,6 +672,76 @@ def test_trend_no_positivo_solo_por_sesiones():
     assert wcr._trend_ejecutivo(s_d=None, u_d=None, se_d=99.0) == "flat"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# F7 — cierre. Coherencia entre secciones y período visible en el encabezado.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_no_hay_diagnosticos_contradictorios():
+    """Tráfico ↑ con CVR ↓ es UN hecho: no puede recibir dos causas distintas.
+
+    La sección de tráfico ya diagnostica calidad de tráfico; la de conversión no
+    debe además proponer listing y precio como causa separada.
+    """
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_CVR_DISPAR_TW))
+    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_CVR_DISPAR_PW))
+    # PW con menos sesiones y mejor CVR -> sesiones suben, CVR baja.
+    buf = wcr._build_weekly_excel(
+        br_tw, br_pw, {}, {}, "TEST", "es", None,
+        period_child_tw=_P7_B, period_child_pw=_P7_A,
+    )
+    texto = _texto_hoja(_hoja_ejecutivo(buf)).lower()
+
+    tiene_calidad = "calidad del tráfico" in texto
+    tiene_listing = "revisar listing y precio" in texto
+    assert not (tiene_calidad and tiene_listing), (
+        "el ejecutivo da dos causas distintas para el mismo hecho:\n" + texto
+    )
+
+
+def test_encabezado_declara_periodo():
+    """El encabezado imprime el rango real de cada columna.
+
+    Es lo que hace el error visible sin auditoría: 'Esta semana: 10–16 ago' al
+    lado de montos de 14 días canta solo.
+    """
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_TW_7D))
+    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_PW_7D))
+    br_daily = _parse_br_daily_wow(_b(_BR_BY_DATE_14D))
+
+    # MODO WOW -> las dos semanas, con fechas.
+    ws = _wow_sheet(wcr._build_weekly_excel(
+        br_tw, br_pw, {}, {}, "TEST", "es", br_daily,
+        period_child_tw=br_daily["period_tw"], period_child_pw=br_daily["period_pw"],
+    ))
+    titulo = str(ws.cell(1, 1).value)
+    assert "Esta semana" in titulo and "Semana anterior" in titulo
+    assert "10–16 ago" in titulo, titulo
+    assert "03–09 ago" in titulo, titulo
+
+    # MODO PERÍODO COMPLETO -> el rango entero y los 14 días.
+    ws2 = _wow_sheet(wcr._build_weekly_excel(
+        _parse_br_wow(_b(_BR_BY_CHILD_DUP)), {}, {}, {}, "TEST", "es", br_daily,
+        period_child_tw=_P14, period_child_pw=None,
+    ))
+    titulo2 = str(ws2.cell(1, 1).value)
+    assert "completo" in titulo2.lower() and "14" in titulo2
+    assert "03–16 ago" in titulo2, titulo2
+
+    # Sin períodos ni BR diario -> el título de siempre, sin fechas inventadas.
+    ws3 = _wow_sheet(wcr._build_weekly_excel(
+        _parse_br_wow(_b(_BR_BY_CHILD_DUP)), {}, {}, {}, "TEST", "es", None,
+    ))
+    titulo3 = str(ws3.cell(1, 1).value)
+    assert titulo3 == "TEST — Reporte Semanal WoW", titulo3
+
+    # EN: mismo contrato, meses en inglés.
+    ws4 = _wow_sheet(wcr._build_weekly_excel(
+        br_tw, br_pw, {}, {}, "TEST", "en", br_daily,
+        period_child_tw=br_daily["period_tw"], period_child_pw=br_daily["period_pw"],
+    ))
+    assert "Aug 10–16" in str(ws4.cell(1, 1).value), ws4.cell(1, 1).value
+
+
 def test_periodo_de_14_dias_no_habilita_modo_wow():
     """La guarda mira `days`, no la mera presencia del período declarado.
 

@@ -374,21 +374,76 @@ Detección automática PDF vs XLSX, parsers defensivos con try/except, export mu
 ### Propósito
 Generar reporte semanal al cliente: WoW comparativo + Advertising + Changelog.
 
+### Causa raíz que define el diseño
+**El export "Detail Page Sales and Traffic By Child Item" de Amazon NO trae columna
+de fecha**: es un único agregado del rango pedido. Por eso un solo by-Child no se
+puede partir en dos semanas, y el período de esas columnas tiene que declararse
+desde afuera. Ignorarlo produjo el bug de deuda técnica #24: los montos por ASIN
+salían de 14 días bajo el encabezado "esta semana", ~2× lo real.
+
 ### Arquitectura
-4 inputs (BR diario, BR by ASIN, Atom11, Campaign CSV) → 4 sheets Excel con branding Capybaras
+**5 inputs** → 4 sheets Excel con branding Capybaras.
+
+| # | Input | Obligatorio | Notas |
+|---|---|---|---|
+| 1 | BR diario 14d (By Date) | sí | única fuente con fechas reales; de acá se derivan los períodos |
+| 2 | BR by Child — esta semana | sí | sin fechas propias |
+| 3 | BR by Child — semana anterior | **no** | sin este archivo NO hay WoW por producto |
+| 4 | Atom 11 ASIN 14d | no | sí trae desglose diario: su split 7+7 es correcto |
+| 5 | Campaign CSV | no | |
+
+### Los dos modos
+`_es_modo_wow(period_child_tw, period_child_pw)` es la única fuente de verdad y la
+consultan tanto el Excel como la UI, para que no puedan discrepar.
+
+- **MODO WOW** — exige DOS períodos by-Child de **7 días exactos**. Se mira `days`,
+  no la presencia del dato: un período informado de 14d NO habilita el WoW.
+  Rótulos "Esta semana / Semana anterior / Variación %", WoW por producto, TACoS
+  por ASIN calculado.
+- **MODO PERÍODO COMPLETO** — cualquier otro caso. SALES/UNITS/SESSIONS/CVR se
+  rotulan "Período completo (Nd)", las columnas PW y de delta van a "—", la fila
+  CUENTA TOTAL muestra el **mismo agregado** que los productos, y el TACoS por
+  producto queda en "—". AD SALES y AD SPEND no cambian (vienen de Atom 11).
+
+**Invariante:** una columna nunca mezcla períodos. Si los productos son de 14d, la
+fila CUENTA TOTAL de esa columna también.
+
+### Funciones clave
+```python
+_periodo(fechas)                  # [ISO] -> {'start','end','days'} | None. days = fechas DISTINTAS
+_es_modo_wow(p_tw, p_pw)          # única decisión de modo (7d + 7d)
+_chequear_coherencia_child(...)   # suma del by-Child vs BR diario, tol 1%; avisa, NO bloquea
+_calificar_trafico(se_d, cvr_d)   # cruza sesiones x conversión -> clave de texto
+_trend_ejecutivo(s_d, u_d, se_d)  # 'pos'|'neg'|'flat'; las sesiones NO votan
+_rango_legible(period, lang)      # '10–16 ago' / 'Aug 10–16'
+_sufijo_periodo(...)              # sufijo del título con el período real
+_L_EXEC                           # textos del ejecutivo, a NIVEL DE MÓDULO (testeable sin generar Excel)
+```
 
 ### Reglas de negocio
-- PW vs TW automático (12+2 días)
-- Detección BuyBox faltante si BR no tiene columna
-- Toggle ES/EN para redacción ejecutiva
-
-### Inputs
-- BR diario 14d + BR by ASIN + Atom11 ASIN + Campaign CSV
-- Client name + Language (ES/EN)
+- `_parse_br_wow` **consolida** filas del mismo (Child) ASIN: Amazon lista el mismo
+  child bajo parents distintos tras merges de variaciones. Sessions/units/sales
+  suman; CVR se recalcula del cociente de totales; BuyBox se pondera por sesiones.
+  Metadata `_rows_merged` / `_parents` para trazabilidad.
+- CVR de cuenta en el ejecutivo: **ponderado por sesiones**, nunca promedio simple
+  por ASIN.
+- El trend lo deciden ventas y unidades. Las sesiones son un input, no un resultado.
+- Tráfico ↑ con CVR ↓ **no se felicita**: es diagnóstico de calidad de tráfico.
+- BuyBox con 0 sesiones → ignorado.
+- Toggle ES/EN para toda la redacción ejecutiva.
 
 ### Anti-patterns
-- No validar date range — debe ser idéntico en los 4 archivos
-- BuyBox con 0 sesiones → ignorar
+- **Rotular una columna sin saber su período.** Todo rótulo temporal sale del modo.
+- **Sumar filas de producto y llamarlas "esta semana"** sin BR diario ni MODO WOW.
+- `result[asin] = {...}` en el loop de `_parse_br_wow` — pisa duplicados (last-wins).
+- `br_pw={}` hardcodeado en el call site: era el origen del bug.
+- Calificar una métrica en aislamiento, o dar dos causas distintas al mismo hecho.
+- No validar date range — el by-Child debe cubrir el mismo rango que el BR diario
+  (lo chequea `_chequear_coherencia_child`).
+
+### Tests
+`tests/test_m14_weekly_periodo.py` — 29 casos: dedup, contrato de período, WoW por
+producto, coherencia, narrativa y encabezado.
 
 ---
 

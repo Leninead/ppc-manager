@@ -157,6 +157,67 @@ def _validar_cols_core_br(detect, tipo):
 
 _UMBRAL_ESTABLE = 2.0  # ±2%: el mismo que usa el resto del ejecutivo
 
+_MESES_ES = ("ene", "feb", "mar", "abr", "may", "jun",
+             "jul", "ago", "sep", "oct", "nov", "dic")
+_MESES_EN = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _rango_legible(period, lang="es"):
+    """{'start','end'} ISO -> '03-09 ago' | '28 jul - 03 ago'. None si no hay dato.
+
+    El encabezado tiene que decir de que fechas habla cada columna: con
+    "Esta semana: 10-16 ago" al lado de montos de 14 dias, el bug original se
+    veia a simple vista, sin auditoria.
+    """
+    if not period or not period.get("start") or not period.get("end"):
+        return None
+    meses = _MESES_ES if lang == "es" else _MESES_EN
+
+    def _partes(iso):
+        try:
+            y, m, d = str(iso)[:10].split("-")
+            return int(m), int(d)
+        except (ValueError, AttributeError):
+            return None
+    p_ini, p_fin = _partes(period["start"]), _partes(period["end"])
+    if not p_ini or not p_fin:
+        return None
+    (m1, d1), (m2, d2) = p_ini, p_fin
+
+    if lang == "es":
+        if m1 == m2:
+            return f"{d1:02d}–{d2:02d} {meses[m1 - 1]}"
+        return f"{d1:02d} {meses[m1 - 1]} – {d2:02d} {meses[m2 - 1]}"
+    if m1 == m2:
+        return f"{meses[m1 - 1]} {d1:02d}–{d2:02d}"
+    return f"{meses[m1 - 1]} {d1:02d} – {meses[m2 - 1]} {d2:02d}"
+
+
+def _sufijo_periodo(modo_wow, period_child_tw, period_child_pw, br_daily, t, lang="es"):
+    """Sufijo del titulo con el periodo real de las columnas. '' si no hay dato."""
+    if modo_wow:
+        r_tw = _rango_legible(period_child_tw, lang)
+        r_pw = _rango_legible(period_child_pw, lang)
+        if r_tw and r_pw:
+            return f" · {t['tw']}: {r_tw} · {t['pw']}: {r_pw}"
+        return ""
+
+    full = period_child_tw
+    if not full and br_daily:
+        _p_tw = br_daily.get("period_tw") or {}
+        _p_pw = br_daily.get("period_pw") or {}
+        dias = _p_tw.get("days", 0) + _p_pw.get("days", 0)
+        if dias:
+            full = {"start": _p_pw.get("start") or _p_tw.get("start"),
+                    "end": _p_tw.get("end") or _p_pw.get("end"), "days": dias}
+    rango = _rango_legible(full, lang)
+    if not rango:
+        return ""
+    dias = (full or {}).get("days")
+    etiqueta = t["full_period"].format(days=dias) if dias else t["full_period_nodays"]
+    return f" · {etiqueta}: {rango}"
+
 
 def _calificar_trafico(se_d, cvr_d):
     """Cruza el delta de sesiones con el de conversion antes de calificar.
@@ -601,6 +662,7 @@ _L_EXEC = {
         "sess_down_cvr_up": ("El tráfico cayó un {d}%, pero la conversión mejoró: menos visitas y mejor calificadas. Revisar ranking orgánico y presupuesto para recuperar volumen sin perder esa calidad."),
         "cvr_up":     "La tasa de conversi\u00f3n mejor\u00f3 a {tw}% (anterior: {pw}%).",
         "cvr_down":   "La tasa de conversi\u00f3n baj\u00f3 a {tw}% (anterior: {pw}%). Revisar listing y precio.",
+            "cvr_down_ya_visto": "La tasa de conversión bajó a {tw}% (anterior: {pw}%) — ver el punto anterior sobre calidad del tráfico.",
         "acos_ok":    "ACoS global en {v}% \u2014 dentro del rango objetivo.",
         "acos_warn":  "ACoS global en {v}% \u2014 por encima del objetivo. Revisar bids.",
         "tacos_line": "TACoS: {v}%",
@@ -638,6 +700,7 @@ _L_EXEC = {
         "sess_down_cvr_up": ("Traffic dropped by {d}%, but conversion improved: fewer, better qualified visits. Review organic ranking and budget to recover volume without losing that quality."),
         "cvr_up":     "Conversion rate improved to {tw}% (prior: {pw}%).",
         "cvr_down":   "Conversion rate dropped to {tw}% (prior: {pw}%). Review listing and pricing.",
+            "cvr_down_ya_visto": "Conversion rate dropped to {tw}% (prior: {pw}%) — see the traffic quality note above.",
         "acos_ok":    "Global ACoS at {v}% \u2014 within target range.",
         "acos_warn":  "Global ACoS at {v}% \u2014 above target. Review bids.",
         "tacos_line": "TACoS: {v}%",
@@ -779,7 +842,8 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     total_cols = 2 + sum(len(g[2]) for g in WOW_GROUPS)
 
     ws1.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
-    c = ws1.cell(row=1, column=1, value=f"{client_name} \u2014 {t['title_wow']}")
+    _suf = _sufijo_periodo(modo_wow, period_child_tw, period_child_pw, br_daily, t, lang)
+    c = ws1.cell(row=1, column=1, value=f"{client_name} — {t['title_wow']}{_suf}")
     c.fill = _fill(NAVY); c.font = _font(True, WHITE, 14)
     c.alignment = _al("left"); c.border = _bd()
     ws1.row_dimensions[1].height = 28
@@ -1165,7 +1229,7 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     }[_trend]
 
     cur = 1
-    cur = _erow(cur, t["exec_title"],    bg=NAVY,   fg=WHITE, bold=True, size=14, h=30)
+    cur = _erow(cur, f'{t["exec_title"]}{_suf}', bg=NAVY, fg=WHITE, bold=True, size=14, h=30)
     cur = _erow(cur, t["generated"],     bg=DGRAY,  fg=WHITE, size=8,  h=14)
     cur = _erow(cur, f"  {client_name}", bg=BLUE_L, fg=BLUE_D, bold=True, size=11, h=22)
     ws2.row_dimensions[cur].height = 6; cur += 1
@@ -1191,8 +1255,8 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     ws2.row_dimensions[cur].height = 6; cur += 1
 
     cur = _erow(cur, f"\U0001f50d {t['sec_traffic']}", bg=DGRAY, fg=WHITE, bold=True, h=18)
+    _k_traf = _calificar_trafico(se_d, cvr_d) if totales_semanales else None
     if totales_semanales and se_d is not None:
-        _k_traf = _calificar_trafico(se_d, cvr_d)
         if _k_traf:
             stxt2 = t[_k_traf].format(d=f"{abs(se_d):.1f}")
             bg_se, _ = _delta_bg(se_d if _k_traf != "sess_up_cvr_down" else -1.0)
@@ -1200,8 +1264,15 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     elif totales_semanales and tse_tw > 0:
         cur = _erow(cur, f"  Sesiones TW: {int(tse_tw):,}", h=20)
     if totales_semanales and avg_cvr_tw > 0 and avg_cvr_pw > 0:
-        if cvr_d and cvr_d > 0: ctxt = t["cvr_up"].format(tw=f"{avg_cvr_tw:.2f}", pw=f"{avg_cvr_pw:.2f}")
-        else:                    ctxt = t["cvr_down"].format(tw=f"{avg_cvr_tw:.2f}", pw=f"{avg_cvr_pw:.2f}")
+        if cvr_d and cvr_d > 0:
+            ctxt = t["cvr_up"].format(tw=f"{avg_cvr_tw:.2f}", pw=f"{avg_cvr_pw:.2f}")
+        elif _k_traf == "sess_up_cvr_down":
+            # La seccion de trafico ya diagnostico calidad de trafico para ESTE
+            # mismo hecho. Repetir "revisar listing y precio" seria dar dos causas
+            # distintas al mismo sintoma: se reporta el dato y se remite arriba.
+            ctxt = t["cvr_down_ya_visto"].format(tw=f"{avg_cvr_tw:.2f}", pw=f"{avg_cvr_pw:.2f}")
+        else:
+            ctxt = t["cvr_down"].format(tw=f"{avg_cvr_tw:.2f}", pw=f"{avg_cvr_pw:.2f}")
         bg_c, _ = _delta_bg(cvr_d)
         cur = _erow(cur, f"  {ctxt}", bg=bg_c, h=24, wrap=True)
     elif avg_cvr_tw > 0:
