@@ -189,6 +189,15 @@ _BR_BY_DATE_CVR_DISPAR = "".join(
 )
 
 
+# Igual que _BR_BY_CHILD_PW_7D pero con un ASIN que NO existe en el TW, para
+# detectar filas fantasma cuando el archivo PW se descarta.
+_BR_BY_CHILD_PW_7D_ASIN_EXTRA = """(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Featured Offer (Buy Box) Percentage,Units Ordered,Unit Session Percentage,Ordered Product Sales
+B0PARENT001,B0TEST0001,Producto Uno Variante A,75,100.00%,15,20.00%,"MX$1,500.00"
+B0PARENT002,B0TEST0002,Producto Dos,100,100.00%,20,20.00%,"MX$2,000.00"
+B0PARENT010,B0TEST0009,Producto Nueve Discontinuado,40,100.00%,8,20.00%,"MX$800.00"
+"""
+
+
 def _b(text: str) -> io.BytesIO:
     """CSV como file-like. Sin `.name` → el parser cae a `pd.read_csv` (hasattr)."""
     return io.BytesIO(text.encode("utf-8"))
@@ -949,6 +958,27 @@ def test_modo_no_wow_no_escribe_valores_pw():
                 f"fila {r} col {col}: hay un valor bajo una columna rotulada '—': "
                 f"{ws.cell(r, col).value!r}"
             )
+
+
+def test_pw_descartado_no_aporta_filas_fantasma():
+    """Si el PW no se usa, no puede aportar ASINs a la tabla.
+
+    `all_asins` era la unión de TW y PW sin mirar `has_pw`: un ASIN que solo
+    existía en el archivo descartado generaba una fila entera de MX$0,00 / 0 / —,
+    diciéndole al AM que ese producto vendió cero. F9 cambió un rótulo mentiroso
+    por una pérdida de dato; esto evita que además invente filas.
+    """
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_TW_7D))          # B0TEST0001, B0TEST0002
+    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_PW_7D_ASIN_EXTRA))  # + B0TEST0009
+    assert "B0TEST0009" in br_pw and "B0TEST0009" not in br_tw
+
+    # Sin períodos declarados -> el PW no se usa.
+    ws = _wow_sheet(wcr._build_weekly_excel(br_tw, br_pw, {}, {}, "TEST", "es", None))
+
+    asins = {ws.cell(r, 2).value for r in range(4, 4 + 5)}
+    assert "B0TEST0009" not in asins, (
+        f"el ASIN del archivo descartado aparece en la tabla: {asins}"
+    )
 
 
 def test_coherencia_no_se_calla_con_esperado_cero():

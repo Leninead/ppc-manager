@@ -853,7 +853,10 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     # el error de la deuda #24 espejado. Si el modo dice que no hay comparacion
     # semanal, no se escribe ninguna, venga br_pw lleno o vacio.
     has_pw = modo_wow and bool(br_pw)
-    all_asins = sorted(set(list(br_tw.keys()) + list(br_pw.keys())))
+    # `all_asins` respeta has_pw: si el PW no se usa, tampoco aporta ASINs. Sin
+    # esto, un ASIN que solo existia en el archivo descartado generaba una fila
+    # entera de MX$0,00 / 0 / — diciendo que ese producto vendio cero.
+    all_asins = sorted(set(br_tw) | (set(br_pw) if has_pw else set()))
     rows_data = []
     for asin in all_asins:
         tw = br_tw.get(asin, {}); pw = br_pw.get(asin, {})
@@ -1520,12 +1523,35 @@ def render():
             atom_data     = _parse_atom11_wow(atom_file)        if atom_file     else {}
             camp_data     = _parse_campaign_csv(camp_file)      if camp_file     else None
 
+            # El by-Child no trae fechas: los periodos se DERIVAN del BR diario
+            # (ver _derivar_periodos, extraido y testeado directo).
+            period_child_tw, period_child_pw = _derivar_periodos(
+                br_daily_data, hay_child_pw=bool(br_child_pw_data)
+            )
+
+            # El PW solo se usa si el modo lo habilita. Preguntarle al MODO y no al
+            # conteo de fechas cubre tambien el diario de 21 fechas, que apagaba
+            # modo_wow en silencio porque 21 no es < 14.
+
             msgs = []
             if br_daily_data: msgs.append(f"BR diario \u2713 TW={br_daily_data['dates_tw'][-1]}")
             if br_child_data: msgs.append(f"{len(br_child_data)} ASINs BR child \u2713")
-            if br_child_pw_data: msgs.append(f"{len(br_child_pw_data)} ASINs BR child PW \u2713")
             if atom_data:     msgs.append(f"{len(atom_data)} ASINs Atom 11 \u2713")
             if camp_data:     msgs.append(f"{len(camp_data.get('campaigns',[]))} camps · {camp_data['totals']['Impressions']:,.0f} imps \u2713")
+            _pw_usable = _es_modo_wow(period_child_tw, period_child_pw)
+            if _pw_usable:
+                msgs.append(f"{len(br_child_pw_data)} ASINs BR child PW ✓")
+            elif br_child_pw_data:
+                _n = sum((br_daily_data or {}).get(k, {}).get("days", 0)
+                         for k in ("period_tw", "period_pw"))
+                st.warning(
+                    "⚠️ Se cargó el BR by Child de la **semana anterior**, pero no se puede "
+                    "usar: las fechas salen del BR diario, y "
+                    + (f"el que subiste trae **{_n} fechas** en vez de 14. "
+                        if br_daily_data else "no subiste el BR diario. ")
+                    + "Sin eso no hay comparación semanal por producto y ese archivo se "
+                    "descarta. Subí el BR diario con un rango de 14 días."
+                )
             st.success("\u2705 " + " \u00b7 ".join(msgs))
 
             # Aviso de consolidacion: Amazon repite el mismo child ASIN bajo parents
@@ -1561,30 +1587,12 @@ def render():
                 c4.metric("\U0001f4e3 Ad Spend TW", f"MX${tsp:,.0f}" if tsp else "\u2014")
                 c5.metric("\U0001f3af ACoS", f"{tsp/tad*100:.1f}%" if tad > 0 else "\u2014")
 
-            # El by-Child no trae fechas: los periodos se DERIVAN del BR diario
-            # (ver _derivar_periodos, extraido y testeado directo).
-            period_child_tw, period_child_pw = _derivar_periodos(
-                br_daily_data, hay_child_pw=bool(br_child_pw_data)
-            )
-
-            if br_daily_data:
-                _dias_diario = sum(
-                    (br_daily_data.get(k) or {}).get("days", 0)
-                    for k in ("period_tw", "period_pw")
-                )
-                if _dias_diario < 14:
-                    st.warning(
-                        f"⚠️ El BR diario trae **{_dias_diario} fechas**, no 14. Sin dos "
-                        "semanas completas no hay comparación semanal de cuenta, y tampoco "
-                        "se puede habilitar la comparación por producto aunque subas los dos "
-                        "by-Child. Re-exportalo con un rango de 14 días."
-                    )
 
             if br_daily_data:
                 # Control de coherencia: el by-Child tiene que sumar lo mismo que el
                 # BR diario de su semana. Si el AM exporto con otro rango, los montos
                 # por producto no corresponden al periodo que dice la columna.
-                if br_child_pw_data:
+                if _pw_usable:
                     _desvios = [
                         d for d in (
                             _chequear_coherencia_child(br_child_data, br_daily_data.get("Sales_TW"), "esta semana"),
