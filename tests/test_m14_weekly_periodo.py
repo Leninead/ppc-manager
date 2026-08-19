@@ -537,7 +537,11 @@ def test_coherencia_detecta_desvio():
     # Casos degenerados: sin datos no hay nada que reportar.
     assert wcr._chequear_coherencia_child({}, 3500.0, "x") is None
     assert wcr._chequear_coherencia_child(br_child, None, "x") is None
-    assert wcr._chequear_coherencia_child(br_child, 0.0, "x") is None
+    # F8: `esperado == 0` con ventas del lado del by-Child NO es coherencia, es
+    # divergencia total. Este assert pedía `is None` y encodeaba el guard viejo
+    # `esperado <= 0`, que silenciaba justo el caso más grave (BR diario de 7
+    # fechas → Sales_PW = 0). Ver test_coherencia_no_se_calla_con_esperado_cero.
+    assert wcr._chequear_coherencia_child(br_child, 0.0, "x") is not None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -740,6 +744,81 @@ def test_encabezado_declara_periodo():
         period_child_tw=br_daily["period_tw"], period_child_pw=br_daily["period_pw"],
     ))
     assert "Aug 10–16" in str(ws4.cell(1, 1).value), ws4.cell(1, 1).value
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F8 — correcciones de auditoría. Cada test se escribió ANTES de su fix y falló.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_derivar_periodos_cubre_todas_las_combinaciones():
+    """La derivación vivía dentro de render(), donde ningún test la veía.
+
+    Extraída, los seis caminos se cubren en un test. El que estaba roto es el
+    primero: dos by-Child sin BR diario.
+    """
+    d14 = _parse_br_daily_wow(_b(_BR_BY_DATE_14D))
+
+    # Sin BR diario no hay fechas de dónde derivar, con o sin segundo by-Child.
+    assert wcr._derivar_periodos(None, hay_child_pw=True) == (None, None)
+    assert wcr._derivar_periodos(None, hay_child_pw=False) == (None, None)
+
+    # Dos by-Child + diario de 14d -> las dos mitades, 7d cada una.
+    p_tw, p_pw = wcr._derivar_periodos(d14, hay_child_pw=True)
+    assert p_tw["days"] == 7 and p_pw["days"] == 7
+    assert wcr._es_modo_wow(p_tw, p_pw) is True
+
+    # Un solo by-Child -> período completo declarado, sin PW.
+    p_tw1, p_pw1 = wcr._derivar_periodos(d14, hay_child_pw=False)
+    assert p_tw1["days"] == 14 and p_pw1 is None
+    assert p_tw1["start"] == "2026-08-03" and p_tw1["end"] == "2026-08-16"
+    assert wcr._es_modo_wow(p_tw1, p_pw1) is False
+
+    # Diario incompleto (10 fechas): se devuelve lo que hay, el modo degrada solo.
+    csv10 = "".join(
+        ["Date,Ordered Product Sales,Units Ordered,Sessions - Total,Order Item Session Percentage\n"]
+        + [f'8/{d}/26,"MX$500.00",5,25,20.00%\n' for d in range(3, 13)]
+    )
+    d10 = _parse_br_daily_wow(_b(csv10))
+    p_tw2, p_pw2 = wcr._derivar_periodos(d10, hay_child_pw=True)
+    assert p_tw2["days"] == 7 and p_pw2["days"] == 3
+    assert wcr._es_modo_wow(p_tw2, p_pw2) is False
+
+
+def test_modo_no_wow_no_escribe_valores_pw():
+    """El modo manda sobre los VALORES, no solo sobre los rótulos.
+
+    Con dos by-Child pero sin BR diario del que derivar fechas, `has_pw` daba
+    True y se escribían montos PW y deltas debajo de columnas rotuladas "—".
+    Era el error de la deuda #24 espejado: rótulo que no corresponde al contenido.
+    """
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_TW_7D))
+    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_PW_7D))
+
+    ws = _wow_sheet(wcr._build_weekly_excel(br_tw, br_pw, {}, {}, "TEST", "es", None))
+
+    assert ws.cell(3, 4).value == "—", "guarda: sin períodos el header PW es '—'"
+    for r in range(4, 4 + len(br_tw)):
+        for col in (4, 5, 7, 8, 10, 11, 13, 14):  # PW y deltas de SALES/UNITS/SESSIONS/CVR
+            assert ws.cell(r, col).value == "—", (
+                f"fila {r} col {col}: hay un valor bajo una columna rotulada '—': "
+                f"{ws.cell(r, col).value!r}"
+            )
+
+
+def test_coherencia_no_se_calla_con_esperado_cero():
+    """`esperado <= 0` silenciaba el caso que más hay que gritar.
+
+    Con un BR diario de exactamente 7 fechas, Sales_PW queda en 0; si además hay
+    un by-Child PW con ventas, la divergencia es total y el control no decía nada.
+    """
+    br_child = _parse_br_wow(_b(_BR_BY_CHILD_PW_7D))  # suma 3500
+
+    d = wcr._chequear_coherencia_child(br_child, 0.0, "semana anterior")
+    assert d is not None, "3500 contra 0 no puede pasar como coherente"
+    assert d["suma"] == 3500.0 and d["esperado"] == 0.0
+
+    # Cero contra cero sí es coherente: no hay nada que reportar.
+    assert wcr._chequear_coherencia_child({}, 0.0, "x") is None
 
 
 def test_periodo_de_14_dias_no_habilita_modo_wow():
