@@ -132,6 +132,16 @@ B0PARENT002,B0TEST0002,Producto Dos,100,100.00%,20,20.00%,"MX$2,000.00"
 """
 
 
+# Semana anterior con la MITAD de las ventas, para probar un delta distinto de
+# cero (los otros dos fixtures dan totales iguales a propósito, para el invariante).
+#   B0TEST0001: 750 sales -> TW 1500 es +100%
+_BR_BY_CHILD_PW_7D_MITAD = """\
+(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Featured Offer (Buy Box) Percentage,Units Ordered,Unit Session Percentage,Ordered Product Sales
+B0PARENT001,B0TEST0001,Producto Uno Variante A,40,100.00%,8,20.00%,"MX$750.00"
+B0PARENT002,B0TEST0002,Producto Dos,50,100.00%,10,20.00%,"MX$1,000.00"
+"""
+
+
 def _b(text: str) -> io.BytesIO:
     """CSV como file-like. Sin `.name` → el parser cae a `pd.read_csv` (hasattr)."""
     return io.BytesIO(text.encode("utf-8"))
@@ -408,6 +418,110 @@ def test_modo_degradado_cuenta_total_coherente_con_productos():
     assert cuenta_total == 7000.0, "la cuenta debe mostrar el agregado de 14d, no 3500"
     assert suma_productos == 7000.0
     assert suma_productos == cuenta_total
+
+
+def _excel_wow(atom_tw=None):
+    """El caso sano de F3: dos by-Child de 7d + períodos derivados del BR diario."""
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_TW_7D))
+    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_PW_7D))
+    br_daily = _parse_br_daily_wow(_b(_BR_BY_DATE_14D))
+    buf = wcr._build_weekly_excel(
+        br_tw, br_pw, atom_tw or {}, {}, "TEST", "es", br_daily,
+        period_child_tw=br_daily["period_tw"], period_child_pw=br_daily["period_pw"],
+    )
+    return _wow_sheet(buf), br_tw
+
+
+def test_modo_wow_con_dos_by_child_rotula_esta_semana():
+    """Con el segundo archivo, los períodos derivados del BR diario son 7d+7d."""
+    ws, br_tw = _excel_wow()
+
+    assert ws.cell(3, 3).value == "Esta semana"
+    assert ws.cell(3, 4).value == "Semana anterior"
+
+    # Las columnas PW de producto traen valores, no el "—" del modo degradado.
+    for r in range(5, 5 + len(br_tw)):
+        assert isinstance(ws.cell(r, 4).value, (int, float)), (
+            f"fila {r}: la columna PW debería tener un número, no {ws.cell(r, 4).value!r}"
+        )
+
+
+def test_wow_por_producto_calcula_variacion():
+    """El WoW por producto: el delta % sale de comparar las dos semanas."""
+    ws, br_tw = _excel_wow()
+
+    filas = {ws.cell(r, 2).value: r for r in range(5, 5 + len(br_tw))}
+
+    # B0TEST0001: 1500 TW (1000 + 500 consolidados) vs 1500 PW -> plano.
+    r1 = filas["B0TEST0001"]
+    assert ws.cell(r1, 3).value == 1500.0
+    assert ws.cell(r1, 4).value == 1500.0
+    assert ws.cell(r1, 5).value == 0.0
+
+    # B0TEST0002: 2000 vs 2000 -> también plano en ventas, pero el fixture le da
+    # el mismo valor, así que se verifica el delta sobre un caso construido aparte.
+    r2 = filas["B0TEST0002"]
+    assert ws.cell(r2, 5).value == 0.0
+
+
+def test_wow_por_producto_delta_distinto_de_cero():
+    """Delta ≠ 0: PW con la mitad de las ventas -> +100%."""
+    br_tw = _parse_br_wow(_b(_BR_BY_CHILD_TW_7D))
+    br_pw = _parse_br_wow(_b(_BR_BY_CHILD_PW_7D_MITAD))
+    br_daily = _parse_br_daily_wow(_b(_BR_BY_DATE_14D))
+    buf = wcr._build_weekly_excel(
+        br_tw, br_pw, {}, {}, "TEST", "es", br_daily,
+        period_child_tw=br_daily["period_tw"], period_child_pw=br_daily["period_pw"],
+    )
+    ws = _wow_sheet(buf)
+    filas = {ws.cell(r, 2).value: r for r in range(5, 5 + len(br_tw))}
+
+    r1 = filas["B0TEST0001"]
+    assert ws.cell(r1, 3).value == 1500.0   # TW
+    assert ws.cell(r1, 4).value == 750.0    # PW, la mitad
+    assert ws.cell(r1, 5).value == pytest.approx(100.0, abs=0.1)
+
+
+def test_tacos_se_calcula_en_modo_wow():
+    """Complemento del test 6: la guarda bloquea el TACoS cuando los períodos no
+    coinciden, pero NO lo deja bloqueado para siempre. En MODO WOW es 7d/7d."""
+    atom_tw = {
+        "B0TEST0002": {
+            "Sales_TW": 500.0, "Sales_PW": 400.0,
+            "Spend_TW": 100.0, "Spend_PW": 80.0,
+        }
+    }
+    ws, br_tw = _excel_wow(atom_tw=atom_tw)
+
+    fila = next(r for r in range(5, 5 + len(br_tw)) if ws.cell(r, 2).value == "B0TEST0002")
+    tacos = ws.cell(fila, 23).value
+
+    assert tacos != EM_DASH, "en MODO WOW el TACoS por producto debe calcularse"
+    assert isinstance(tacos, (int, float))
+    assert tacos == pytest.approx(100.0 / 2000.0 * 100, abs=0.1)  # spend 7d / sales 7d
+
+
+def test_coherencia_detecta_desvio():
+    """El control que automatiza la verificación hecha a mano contra Setex."""
+    br_child = _parse_br_wow(_b(_BR_BY_CHILD_TW_7D))  # suma 3500
+
+    # Dentro del 1%: no se reporta.
+    assert wcr._chequear_coherencia_child(br_child, 3500.0, "esta semana") is None
+    assert wcr._chequear_coherencia_child(br_child, 3520.0, "esta semana") is None
+
+    # Fuera del 1%: se reporta con el desvío exacto.
+    d = wcr._chequear_coherencia_child(br_child, 7000.0, "esta semana")
+    assert d is not None
+    assert d["etiqueta"] == "esta semana"
+    assert d["suma"] == 3500.0
+    assert d["esperado"] == 7000.0
+    assert d["delta"] == -3500.0
+    assert d["delta_pct"] == pytest.approx(-50.0, abs=0.1)
+
+    # Casos degenerados: sin datos no hay nada que reportar.
+    assert wcr._chequear_coherencia_child({}, 3500.0, "x") is None
+    assert wcr._chequear_coherencia_child(br_child, None, "x") is None
+    assert wcr._chequear_coherencia_child(br_child, 0.0, "x") is None
 
 
 def test_periodo_de_14_dias_no_habilita_modo_wow():

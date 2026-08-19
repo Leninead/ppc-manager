@@ -155,6 +155,33 @@ def _validar_cols_core_br(detect, tipo):
     return faltantes
 
 
+def _chequear_coherencia_child(br_child, total_diario, etiqueta, tol=0.01):
+    """Compara la suma de Sales de un by-Child contra el total del BR diario.
+
+    Devuelve None si cuadran dentro de la tolerancia (1% por defecto), o un dict
+    {'etiqueta','suma','esperado','delta','delta_pct'} si se pasan.
+
+    Es la verificacion que se hizo a mano contra los datos de Setex y que destapo
+    el bug: si el AM exporta el by-Child con un rango distinto al del BR diario,
+    los numeros por producto no corresponden al periodo que dice la columna.
+    Automatizarla es lo que vuelve el fix verificable y no solo posible.
+    """
+    if not br_child or total_diario is None:
+        return None
+    suma = sum(v.get("Sales", 0) for v in br_child.values())
+    esperado = float(total_diario)
+    if esperado <= 0:
+        return None
+    delta = suma - esperado
+    delta_pct = delta / esperado * 100
+    if abs(delta) / esperado <= tol:
+        return None
+    return {
+        "etiqueta": etiqueta, "suma": suma, "esperado": esperado,
+        "delta": delta, "delta_pct": delta_pct,
+    }
+
+
 def _periodo(fechas):
     """[str ISO] -> {'start','end','days'} | None si la lista viene vacia.
 
@@ -1140,8 +1167,8 @@ def render():
     lang_w = "es" if wlang == "Espa\u00f1ol" else "en"
 
     st.header("\U0001f4ca Weekly Client Report")
-    st.caption("BR diario + BR by Child + Atom 11 ASIN + Campaign CSV \u2192 Excel 3 hojas" if lang_w == "es"
-               else "Daily BR + BR by Child + Atom 11 ASIN + Campaign CSV \u2192 3-sheet Excel")
+    st.caption("BR diario + BR by Child (1 o 2 semanas) + Atom 11 ASIN + Campaign CSV → Excel 3 hojas" if lang_w == "es"
+               else "Daily BR + BR by Child (1 or 2 weeks) + Atom 11 ASIN + Campaign CSV → 3-sheet Excel")
     st.divider()
 
     with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
@@ -1151,16 +1178,21 @@ def render():
             st.caption("Generar el reporte semanal para el cliente con comparación WoW automática (CUENTA TOTAL + desglose por ASIN).")
         with col2:
             st.markdown("**📂 Archivos necesarios**")
-            st.caption("BR diario 14d (By Date) + BR by Child (By ASIN) + Atom 11 ASIN 14d + Campaign CSV. Todos con el mismo date range.")
+            st.caption("BR diario 14d (By Date) + BR by Child de esta semana + BR by Child de la "
+                       "semana anterior (opcional) + Atom 11 ASIN 14d + Campaign CSV. "
+                       "Todos con el mismo date range.")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Enviar al cliente vía Slack/email. Usar el botón de changelog para comunicación técnica.")
         st.markdown("**▶️ Pasos:**")
         st.markdown(
             "1. Seleccioná idioma (ES/EN) e ingresá nombre del cliente\n"
-            "2. Subí los 4 archivos (mismo date range de 14 días)\n"
-            "3. Agregá changelog técnico opcional (se suma como hoja extra)\n"
-            "4. Descargá el Excel con 3 hojas: WoW Comparison + Advertising + Reporte Ejecutivo"
+            "2. Subí los archivos (mismo date range de 14 días)\n"
+            "3. Para tener comparación semanal POR PRODUCTO, subí también el by-Child de la "
+            "semana anterior (3º uploader). Sin ese archivo el reporte sale igual, pero los "
+            "montos por ASIN van etiquetados como período completo\n"
+            "4. Agregá changelog técnico opcional (se suma como hoja extra)\n"
+            "5. Descargá el Excel con 3 hojas: WoW Comparison + Advertising + Reporte Ejecutivo"
         )
 
     client_w = st.text_input("Nombre del cliente / Client name",
@@ -1193,15 +1225,23 @@ def render():
     st.caption("Sales Dashboard \u2192 By Date \u2192 Sales and Traffic \u00b7 Rango: 14 d\u00edas")
     br_daily_file = st.file_uploader("BR diario 14 d\u00edas (.csv/.xlsx)", type=["csv","xlsx"], key="br_daily")
 
-    st.markdown("#### 2\ufe0f\u20e3 Business Report \u2014 " + ("By Child Item" if lang_w == "es" else "By Child Item"))
-    st.caption("By ASIN \u2192 Detail Page Sales and Traffic By Child Item")
-    br_child_file = st.file_uploader("BR by Child Item (.csv/.xlsx)", type=["csv","xlsx"], key="br_child")
+    st.markdown("#### 2\ufe0f\u20e3 Business Report — By Child Item — "
+                + ("esta semana" if lang_w == "es" else "this week"))
+    st.caption("By ASIN → Detail Page Sales and Traffic By Child Item · Rango: los últimos 7 días")
+    br_child_file = st.file_uploader("BR by Child Item — esta semana (.csv/.xlsx)", type=["csv","xlsx"], key="br_child")
 
-    st.markdown("#### 3\ufe0f\u20e3 Atom 11 \u2014 ASIN (14 d\u00edas)")
+    st.markdown("#### 3\ufe0f\u20e3 Business Report — By Child Item — "
+                + ("semana anterior" if lang_w == "es" else "prior week"))
+    st.caption("Opcional. Sin este archivo no hay comparación semanal por producto: Amazon no manda "
+               "fechas en el by-Child, así que un solo export no se puede partir en dos semanas. "
+               "Mismo reporte, rango de los 7 días previos.")
+    br_child_pw_file = st.file_uploader("BR by Child Item — semana anterior (.csv/.xlsx)", type=["csv","xlsx"], key="br_child_pw")
+
+    st.markdown("#### 4\ufe0f\u20e3 Atom 11 \u2014 ASIN (14 d\u00edas)")
     st.caption("Atom 11 \u2192 ASIN \u2192 DateRange 14 d\u00edas. Split autom\u00e1tico 7+7.")
     atom_file = st.file_uploader("Atom 11 ASIN (.xlsx)", type=["xlsx"], key="atom_wow")
 
-    st.markdown("#### 4\ufe0f\u20e3 Campaign Report")
+    st.markdown("#### 5\ufe0f\u20e3 Campaign Report")
     st.caption("Campaign Manager \u2192 Advertising \u2192 Campaign Manager \u2192 mismo date range de 14 d\u00edas")
     camp_file = st.file_uploader("Campaign CSV (.csv)", type=["csv"], key="wcr_campaign")
 
@@ -1226,17 +1266,19 @@ def render():
         st.code(slack_msg, language=None)
         st.caption("👆 Hacé click en el ícono de copiar arriba a la derecha del bloque para copiarlo.")
 
-    if br_daily_file or br_child_file or atom_file or camp_file:
+    if br_daily_file or br_child_file or br_child_pw_file or atom_file or camp_file:
         st.divider()
         try:
-            br_daily_data = _parse_br_daily_wow(br_daily_file) if br_daily_file else None
-            br_child_data = _parse_br_wow(br_child_file)       if br_child_file else {}
+            br_daily_data    = _parse_br_daily_wow(br_daily_file) if br_daily_file else None
+            br_child_data    = _parse_br_wow(br_child_file)       if br_child_file else {}
+            br_child_pw_data = _parse_br_wow(br_child_pw_file)    if br_child_pw_file else {}
             atom_data     = _parse_atom11_wow(atom_file)        if atom_file     else {}
             camp_data     = _parse_campaign_csv(camp_file)      if camp_file     else None
 
             msgs = []
             if br_daily_data: msgs.append(f"BR diario \u2713 TW={br_daily_data['dates_tw'][-1]}")
             if br_child_data: msgs.append(f"{len(br_child_data)} ASINs BR child \u2713")
+            if br_child_pw_data: msgs.append(f"{len(br_child_pw_data)} ASINs BR child PW \u2713")
             if atom_data:     msgs.append(f"{len(atom_data)} ASINs Atom 11 \u2713")
             if camp_data:     msgs.append(f"{len(camp_data.get('campaigns',[]))} camps · {camp_data['totals']['Impressions']:,.0f} imps \u2713")
             st.success("\u2705 " + " \u00b7 ".join(msgs))
@@ -1295,32 +1337,58 @@ def render():
 
             st.divider()
 
-            # Con UN solo uploader by-Child, ese archivo cubre el periodo COMPLETO
-            # del BR diario (no hay un segundo archivo para la semana anterior).
-            # Declararlo asi deja el reporte en MODO PERIODO COMPLETO, que es la
-            # descripcion honesta de lo que hay. El WoW por producto vuelve en F3,
-            # cuando el AM pueda subir un by-Child por semana.
-            period_child_tw = None
+            # El by-Child no trae fechas: los periodos se DERIVAN del BR diario.
+            # Con los DOS by-Child + BR diario hay WoW real por producto (7d vs 7d).
+            # Con uno solo, o sin BR diario del que derivar, se declara el periodo
+            # completo y el reporte degrada a MODO PERIODO COMPLETO (F2). Nunca se
+            # inventan fechas que Amazon no mando.
+            period_child_tw = period_child_pw = None
             if br_daily_data:
                 _p_tw = br_daily_data.get("period_tw") or {}
                 _p_pw = br_daily_data.get("period_pw") or {}
-                _dias = _p_tw.get("days", 0) + _p_pw.get("days", 0)
-                if _dias:
-                    period_child_tw = {
-                        "start": _p_pw.get("start") or _p_tw.get("start"),
-                        "end":   _p_tw.get("end")   or _p_pw.get("end"),
-                        "days":  _dias,
-                    }
+                if br_child_pw_data:
+                    period_child_tw = br_daily_data.get("period_tw")
+                    period_child_pw = br_daily_data.get("period_pw")
+                else:
+                    _dias = _p_tw.get("days", 0) + _p_pw.get("days", 0)
+                    if _dias:
+                        period_child_tw = {
+                            "start": _p_pw.get("start") or _p_tw.get("start"),
+                            "end":   _p_tw.get("end")   or _p_pw.get("end"),
+                            "days":  _dias,
+                        }
+
+                # Control de coherencia: el by-Child tiene que sumar lo mismo que el
+                # BR diario de su semana. Si el AM exporto con otro rango, los montos
+                # por producto no corresponden al periodo que dice la columna.
+                if br_child_pw_data:
+                    _desvios = [
+                        d for d in (
+                            _chequear_coherencia_child(br_child_data, br_daily_data.get("Sales_TW"), "esta semana"),
+                            _chequear_coherencia_child(br_child_pw_data, br_daily_data.get("Sales_PW"), "semana anterior"),
+                        ) if d
+                    ]
+                    if _desvios:
+                        for _d in _desvios:
+                            st.warning(
+                                f"⚠️ El BR by Child de **{_d['etiqueta']}** no cuadra con el BR diario: "
+                                f"suma MX\\${_d['suma']:,.2f} contra MX\\${_d['esperado']:,.2f} "
+                                f"(diferencia MX\\${_d['delta']:,.2f} · {_d['delta_pct']:+.1f}%). "
+                                "Suele pasar cuando ese archivo se exportó con un rango de fechas distinto "
+                                "al del BR diario. Revisá el rango y volvé a exportarlo."
+                            )
+                    else:
+                        st.success("✅ Los dos BR by Child cuadran con el BR diario (dentro del 1%).")
 
             excel_buf = _build_weekly_excel(
-                br_tw=br_child_data, br_pw={},
+                br_tw=br_child_data, br_pw=br_child_pw_data,
                 atom_tw=atom_data, atom_pw={},
                 client_name=client_w or "Client",
                 lang=lang_w, br_daily=br_daily_data,
                 camp_data=camp_data,
                 changelog_text=changelog_input,
                 period_child_tw=period_child_tw,
-                period_child_pw=None,
+                period_child_pw=period_child_pw,
             )
             safe_n = (client_w or "report").replace(" ", "_")[:30]
             st.download_button(
