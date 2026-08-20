@@ -42,7 +42,8 @@ data/sales/interested-votes.parquet
 *.csv
 app_backup.py
 # ── Vault de documentación (Obsidian) ──────────────────
-# The vault now lives in its own repo; ignore it wholesale here (untracked 2026-08-18).
+# El vault vive en su propio repo: Leninead/capybaras-vault (privado).
+# Clonar en notes/ — repo anidado, este repo lo ignora entero. Destrackeado 2026-08-20 (cfc2f92).
 notes/
 .env
 # ── Agregado por setup_deploy.py ──────────────────
