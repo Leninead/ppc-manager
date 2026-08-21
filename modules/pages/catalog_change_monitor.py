@@ -29,8 +29,10 @@ Riesgos de la nota que este archivo implementa:
           literal pegado antes del primer header · Business Report utf-8-sig.
     R4  — todo valor sale como str trimmed. Única excepción documentada:
           `cat_es_padre`, que es un flag DERIVADO (no se diffea) y sale bool.
-          Del lado del diff, `_valores_iguales` compara como número cuando los dos
-          lados parsean: '301.90' == '301.9' no es un cambio.
+          Del lado del diff, `_valores_iguales` compara como número en los campos
+          de cantidad (`_CAMPOS_NUMERICOS`): '301.90' == '301.9' no es un cambio.
+          Fuera de esa whitelist se compara como string, para no enmascarar un
+          cero a la izquierda en un SKU o un ASIN.
     R6  — el dedupe por SKU del Fee Preview cuenta y loguea las filas descartadas
           (el `dedupeBySku` del HTML las tiraba en silencio).
     R7  — los (Child) ASIN del Business Report que no cruzan contra ningún SKU se
@@ -154,6 +156,16 @@ _SNAPSHOT_FIELDS: list[str] = (
     + ["br_asin", "br_buy_box", "br_sessions", "br_page_views",
        "br_units_ordered", "br_sales"]
 )
+
+# Campos donde la comparación numérica es correcta (cantidades). El resto se compara
+# SIEMPRE como string, aunque parezca número: un SKU/ASIN con ceros a la izquierda
+# ('0860...' vs '860...') es un cambio real que la guarda numérica enmascararía.
+_CAMPOS_NUMERICOS = frozenset({
+    "inv_price",
+    "fee_referral", "fee_fulfillment", "fee_total",
+    "fee_longest_side", "fee_median_side", "fee_shortest_side", "fee_weight",
+    "br_buy_box", "br_sessions", "br_page_views", "br_units_ordered", "br_sales",
+})
 
 # R21 — campos ADITIVOS del Business Report: cuando un child ASIN aparece en
 # varias filas (colgado de distintos parents) estos se SUMAN. buy_box no está
@@ -786,27 +798,35 @@ def _es_padre_del_cambio(viejo: dict | None, nuevo: dict | None) -> bool:
     return (rec or {}).get("cat_es_padre") is True
 
 
-def _valores_iguales(a: str, b: str) -> bool:
+def _valores_iguales(campo: str, a: str, b: str) -> bool:
     """R4 — ¿son el MISMO valor, aunque no sean la misma string?
 
-    Si AMBOS lados parsean a número, se comparan como número: '301.90' == '301.9',
-    '99.79' == '99.790'. Tolerancia 1e-9 porque el parseo pasa por float.
-    Si alguno no es numérico, comparación string trimmed.
+    Comparación string trimmed, con guarda numérica SOLO para `_CAMPOS_NUMERICOS`:
+    ahí, si ambos lados parsean a número, se comparan como número ('301.90' ==
+    '301.9', '99.79' == '99.790'). Tolerancia 1e-9 porque el parseo pasa por float.
 
-    Sin esta guarda, un cambio de FORMATO de Amazon entre exports (mismo valor,
+    Sin la guarda, un cambio de FORMATO de Amazon entre exports (mismo valor,
     distinta representación) dispara una alerta falsa de precio o de Buy Box.
     `_num` ya limpia miles, moneda y porcentaje, pero no canoniza los decimales:
     '301.90' y '301.9' llegan acá como strings distintas.
+
+    La whitelist NO es una optimización, es corrección: aplicar la guarda a todo
+    ENMASCARA cambios reales en los campos identificadores. '0860002551906' y
+    '860002551906' parsean al mismo float y son SKUs distintos — un cero a la
+    izquierda es significativo en un SKU, un ASIN o un parent SKU. Enmascarar es
+    peor que un falso positivo: el falso positivo molesta, el enmascaramiento
+    oculta y nadie se entera.
 
     Vacío contra cero NO son iguales: `_to_float('')` es None (no había dato), así
     que cae a la comparación string y '' -> '0' sigue siendo un cambio real.
     """
     if a == b:
         return True
-    fa = _to_float(a)
-    fb = _to_float(b)
-    if fa is not None and fb is not None:
-        return abs(fa - fb) < 1e-9
+    if campo in _CAMPOS_NUMERICOS:
+        fa = _to_float(a)
+        fb = _to_float(b)
+        if fa is not None and fb is not None:
+            return abs(fa - fb) < 1e-9
     return False
 
 
@@ -824,7 +844,7 @@ def _diff_snapshots(snap_viejo: dict[str, dict],
     (R10). Ambas cosas van en la fase siguiente.
 
     Comparación por `_valores_iguales` (R4): string trimmed, con guarda numérica
-    cuando los dos lados parsean a número. Los valores ya salen normalizados de la
+    solo en los campos de cantidad. Los valores ya salen normalizados de la
     ingesta (`_num` limpia miles/moneda/porcentaje, `_fmt_num` canoniza los agregados
     del Business Report), pero eso no alcanza: `_num` no canoniza decimales, así que
     sin la guarda un '301.90' que Amazon exporta como '301.9' al día siguiente
@@ -865,7 +885,7 @@ def _diff_snapshots(snap_viejo: dict[str, dict],
             va = _s(viejo.get(campo))
             vn = _s(nuevo.get(campo))
             # R4: guarda numérica — formato distinto, mismo valor, no dispara.
-            if _valores_iguales(va, vn):
+            if _valores_iguales(campo, va, vn):
                 continue
             cambios.append({**base, "tipo": "cambio_campo", "campo": campo,
                             "valor_viejo": va, "valor_nuevo": vn})
