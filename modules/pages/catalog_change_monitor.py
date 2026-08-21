@@ -29,6 +29,8 @@ Riesgos de la nota que este archivo implementa:
           literal pegado antes del primer header · Business Report utf-8-sig.
     R4  — todo valor sale como str trimmed. Única excepción documentada:
           `cat_es_padre`, que es un flag DERIVADO (no se diffea) y sale bool.
+          Del lado del diff, `_valores_iguales` compara como número cuando los dos
+          lados parsean: '301.90' == '301.9' no es un cambio.
     R6  — el dedupe por SKU del Fee Preview cuenta y loguea las filas descartadas
           (el `dedupeBySku` del HTML las tiraba en silencio).
     R7  — los (Child) ASIN del Business Report que no cruzan contra ningún SKU se
@@ -784,6 +786,30 @@ def _es_padre_del_cambio(viejo: dict | None, nuevo: dict | None) -> bool:
     return (rec or {}).get("cat_es_padre") is True
 
 
+def _valores_iguales(a: str, b: str) -> bool:
+    """R4 — ¿son el MISMO valor, aunque no sean la misma string?
+
+    Si AMBOS lados parsean a número, se comparan como número: '301.90' == '301.9',
+    '99.79' == '99.790'. Tolerancia 1e-9 porque el parseo pasa por float.
+    Si alguno no es numérico, comparación string trimmed.
+
+    Sin esta guarda, un cambio de FORMATO de Amazon entre exports (mismo valor,
+    distinta representación) dispara una alerta falsa de precio o de Buy Box.
+    `_num` ya limpia miles, moneda y porcentaje, pero no canoniza los decimales:
+    '301.90' y '301.9' llegan acá como strings distintas.
+
+    Vacío contra cero NO son iguales: `_to_float('')` es None (no había dato), así
+    que cae a la comparación string y '' -> '0' sigue siendo un cambio real.
+    """
+    if a == b:
+        return True
+    fa = _to_float(a)
+    fb = _to_float(b)
+    if fa is not None and fb is not None:
+        return abs(fa - fb) < 1e-9
+    return False
+
+
 def _diff_snapshots(snap_viejo: dict[str, dict],
                     snap_nuevo: dict[str, dict]) -> list[dict]:
     """Compara dos snapshots `{sku: {campo: str}}` y devuelve los cambios CRUDOS.
@@ -797,14 +823,12 @@ def _diff_snapshots(snap_viejo: dict[str, dict],
     Detecta, no juzga: sin severidad (D3) y sin comparar unidades antes que valores
     (R10). Ambas cosas van en la fase siguiente.
 
-    Comparación STRING-TRIMMED, sin reconvertir tipos (R4): los valores ya salen
-    normalizados de la ingesta (`_num` limpia miles/moneda/porcentaje, `_fmt_num`
-    canoniza los agregados del Business Report). DESVÍO CONSCIENTE vs el HTML de
-    Marcos, que además tenía una guarda numérica (19.99 contra 19.990 no disparaba).
-    Los campos que pasan por `_num` sin canonizar decimales — `inv_price`, `fee_*` —
-    quedan expuestos a un falso positivo si Amazon cambia el formato del decimal sin
-    cambiar el valor. Anotado para la tanda de severidades, que va a comparar
-    magnitudes numéricamente igual.
+    Comparación por `_valores_iguales` (R4): string trimmed, con guarda numérica
+    cuando los dos lados parsean a número. Los valores ya salen normalizados de la
+    ingesta (`_num` limpia miles/moneda/porcentaje, `_fmt_num` canoniza los agregados
+    del Business Report), pero eso no alcanza: `_num` no canoniza decimales, así que
+    sin la guarda un '301.90' que Amazon exporta como '301.9' al día siguiente
+    dispararía una alerta de precio falsa.
 
     Otro desvío consciente: el HTML descartaba el cambio cuando un lado venía vacío
     en Dimensiones/Fee ('dato faltante'). Acá vacío -> valor y valor -> vacío SÍ son
@@ -840,7 +864,8 @@ def _diff_snapshots(snap_viejo: dict[str, dict],
         for campo in _DIFF_FIELDS:
             va = _s(viejo.get(campo))
             vn = _s(nuevo.get(campo))
-            if va == vn:
+            # R4: guarda numérica — formato distinto, mismo valor, no dispara.
+            if _valores_iguales(va, vn):
                 continue
             cambios.append({**base, "tipo": "cambio_campo", "campo": campo,
                             "valor_viejo": va, "valor_nuevo": vn})
