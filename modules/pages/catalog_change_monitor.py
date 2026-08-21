@@ -1,20 +1,23 @@
 """M33 — Catalog Change Monitor (port del HTML standalone a módulo Streamlit).
 
-FASE INGESTA — SOLO parsing + ensamblado del snapshot.
-Sin motor de diff, sin severidades, sin UI, sin router, sin persistencia (esas
-fases vienen después). Este archivo todavía NO expone render() — nada routea acá.
+FASES INGESTA + DIFF (núcleo).
+Sin severidades (D3), sin comparación de unidades (R10), sin UI, sin router, sin
+persistencia (esas fases vienen después). Este archivo todavía NO expone render()
+— nada routea acá.
 
 Fuente de verdad del comportamiento: `.claude/porting-sources/m33/monitor_cambios.html`
 (gitignored). Validado contra archivos reales de Setex MX (2026-08-18), ver
 `notes/modules/m33-catalog-change-monitor.md`.
 
-Contrato de esta fase — 4 parsers puros + 1 ensamblador:
+Contrato hasta acá — 4 parsers puros + 1 ensamblador + 2 funciones de diff:
 
     _parse_all_listings(data)                  -> {seller-sku: {...}}
     _parse_fee_preview(data, marketplace)      -> {sku: {...}}
     _parse_category_listings(data)             -> {sku: {...}}
     _parse_business_report(data)               -> {(Child) ASIN: {...}}
     _build_snapshot(inv, fee, cat, br)         -> {sku: {...}}
+    _diff_snapshots(viejo, nuevo)              -> [{cambio}, ...]
+    _agrupar_alertas_por_asin(cambios)         -> [{alerta}, ...]
 
 Riesgos de la nota que este archivo implementa:
 
@@ -44,6 +47,11 @@ Riesgos de la nota que este archivo implementa:
     R17 — PROHIBIDO el fallback posicional del prototipo (asumía imagen principal
           en 28 y bullets en 39-43; en MX son 33 y 44-48). Si el mapeo por nombre
           técnico falla, se levanta excepción RUIDOSA.
+    R20 — buy_box es propiedad del ASIN, no del SKU: el ensamblado lo REPLICA a
+          todos los SKUs que comparten el ASIN.
+    R22 — consecuencia directa de R20: sin agrupar, un solo cambio de Buy Box
+          genera N alertas idénticas (una por SKU del ASIN). Es el modo de falla
+          de R8 por otra vía. `_agrupar_alertas_por_asin` las colapsa en una.
 
 Decisiones de forma:
 
@@ -721,3 +729,186 @@ def _build_snapshot(all_listings: dict[str, dict],
               len(snapshot), len(all_listings), len(fee_preview), len(category),
               len(br_por_sku))
     return snapshot
+
+
+# =====================================================================
+# Motor de diff — núcleo
+# =====================================================================
+
+# Campos que el diff NO compara.
+#   sku          — es la CLAVE del snapshot. Para un SKU presente en los dos lados
+#                  siempre es igual a sí mismo: compararlo es una tautología, no un
+#                  chequeo.
+#   cat_es_padre — flag DERIVADO (R4), no un dato del catálogo; tampoco está en
+#                  _SNAPSHOT_FIELDS. Se lista acá para dejar dicho que la omisión
+#                  es deliberada y no un olvido.
+_DIFF_EXCLUIDOS = ("sku", "cat_es_padre")
+
+# Orden de comparación = orden de _SNAPSHOT_FIELDS. Es lo que hace determinista la
+# salida del diff, junto con el recorrido de SKUs ordenado.
+_DIFF_FIELDS: list[str] = [c for c in _SNAPSHOT_FIELDS if c not in _DIFF_EXCLUIDOS]
+
+# R22 — prefijo de los campos que el ensamblado REPLICA a todos los SKUs que
+# comparten un ASIN (R20). `br_asin` entra a propósito: también se replica, y viaja
+# pegado a los valores (`_build_snapshot` los escribe juntos).
+_BR_PREFIJO = "br_"
+
+
+def _asin_del_cambio(viejo: dict | None, nuevo: dict | None) -> str:
+    """ASIN de referencia de un SKU: `br_asin` del snapshot nuevo, con fallback al
+    viejo.
+
+    El fallback NO es cosmético, es lo que hace funcionar R22 en el caso feo: cuando
+    un ASIN desaparece del export del Business Report, `br_asin` va 'B09...' -> ''
+    y los cinco br_* se vacían de golpe. Tomando solo el lado nuevo, esas N alertas
+    tendrían ASIN vacío y no agruparían — volveríamos a las N alertas idénticas que
+    R22 existe para evitar. Con el fallback colapsan bajo el ASIN viejo.
+    """
+    for rec in (nuevo, viejo):
+        if rec:
+            asin = _s(rec.get("br_asin"))
+            if asin:
+                return asin
+    return ""
+
+
+def _es_padre_del_cambio(viejo: dict | None, nuevo: dict | None) -> bool:
+    """Marca si el SKU del cambio es un padre de variación.
+
+    Se lee del snapshot nuevo, y del viejo para las bajas (donde el nuevo no existe)
+    — misma regla que el `padreDe` del HTML. `cat_es_padre` es True/False/None (R11);
+    acá colapsa a bool porque el consumidor es el filtro binario "Ocultar padres"
+    (D6): un parentesco desconocido no se esconde.
+    """
+    rec = nuevo if nuevo is not None else viejo
+    return (rec or {}).get("cat_es_padre") is True
+
+
+def _diff_snapshots(snap_viejo: dict[str, dict],
+                    snap_nuevo: dict[str, dict]) -> list[dict]:
+    """Compara dos snapshots `{sku: {campo: str}}` y devuelve los cambios CRUDOS.
+
+    Cada cambio:
+
+        {"sku", "asin", "es_padre", "tipo", "campo", "valor_viejo", "valor_nuevo"}
+
+    donde `tipo` es 'alta_sku' | 'baja_sku' | 'cambio_campo'.
+
+    Detecta, no juzga: sin severidad (D3) y sin comparar unidades antes que valores
+    (R10). Ambas cosas van en la fase siguiente.
+
+    Comparación STRING-TRIMMED, sin reconvertir tipos (R4): los valores ya salen
+    normalizados de la ingesta (`_num` limpia miles/moneda/porcentaje, `_fmt_num`
+    canoniza los agregados del Business Report). DESVÍO CONSCIENTE vs el HTML de
+    Marcos, que además tenía una guarda numérica (19.99 contra 19.990 no disparaba).
+    Los campos que pasan por `_num` sin canonizar decimales — `inv_price`, `fee_*` —
+    quedan expuestos a un falso positivo si Amazon cambia el formato del decimal sin
+    cambiar el valor. Anotado para la tanda de severidades, que va a comparar
+    magnitudes numéricamente igual.
+
+    Otro desvío consciente: el HTML descartaba el cambio cuando un lado venía vacío
+    en Dimensiones/Fee ('dato faltante'). Acá vacío -> valor y valor -> vacío SÍ son
+    cambios; vacío en AMBOS lados no lo es, por igualdad.
+
+    Salida determinista: SKUs en orden alfabético, campos en el orden de
+    `_SNAPSHOT_FIELDS`.
+    """
+    cambios: list[dict] = []
+
+    for sku in sorted(set(snap_viejo) | set(snap_nuevo)):
+        viejo = snap_viejo.get(sku)
+        nuevo = snap_nuevo.get(sku)
+        base = {
+            "sku": sku,
+            "asin": _asin_del_cambio(viejo, nuevo),
+            "es_padre": _es_padre_del_cambio(viejo, nuevo),
+        }
+
+        if viejo is None:
+            # Alta: una sola entrada por SKU. Los valores van vacíos a propósito —
+            # el '(no existía)' / 'Aparece en catálogo' del HTML es presentación y
+            # vive en la UI, no en el dato.
+            cambios.append({**base, "tipo": "alta_sku", "campo": "",
+                            "valor_viejo": "", "valor_nuevo": ""})
+            continue
+
+        if nuevo is None:
+            cambios.append({**base, "tipo": "baja_sku", "campo": "",
+                            "valor_viejo": "", "valor_nuevo": ""})
+            continue
+
+        for campo in _DIFF_FIELDS:
+            va = _s(viejo.get(campo))
+            vn = _s(nuevo.get(campo))
+            if va == vn:
+                continue
+            cambios.append({**base, "tipo": "cambio_campo", "campo": campo,
+                            "valor_viejo": va, "valor_nuevo": vn})
+
+    altas = sum(1 for c in cambios if c["tipo"] == "alta_sku")
+    bajas = sum(1 for c in cambios if c["tipo"] == "baja_sku")
+    _LOG.info("Diff: %d cambios (%d altas, %d bajas, %d de campo) sobre %d SKUs "
+              "viejos -> %d nuevos", len(cambios), altas, bajas,
+              len(cambios) - altas - bajas, len(snap_viejo), len(snap_nuevo))
+    return cambios
+
+
+def _agrupar_alertas_por_asin(cambios: list[dict]) -> list[dict]:
+    """R22 — colapsa las alertas replicadas por ASIN y uniforma la salida.
+
+    Los campos `br_*` (Buy Box, sessions, page views, units, sales, y el propio
+    `br_asin`) son propiedad del ASIN, no del SKU: `_build_snapshot` los REPLICA a
+    todos los SKUs que comparten el ASIN (R20). Sin agrupar, un único cambio de Buy
+    Box de un ASIN con 5 SKUs produce 5 alertas idénticas — el mismo modo de falla
+    de R8 (el equipo aprende a ignorar el ruido) por otra vía.
+
+    Agrupa por `(asin, campo, valor_viejo, valor_nuevo)` los `cambio_campo` de campos
+    `br_*`. El resto — campos no br_*, altas y bajas — queda una alerta por SKU.
+
+    TODA alerta sale con `"skus": list[str]`, así el consumidor tiene una interfaz
+    uniforme y no necesita saber si hubo agrupación. En una alerta agrupada `"sku"`
+    conserva el primer SKU como representante estable y `"skus"` trae la lista
+    completa.
+
+    Guarda: si el ASIN resuelto viene vacío, NO agrupa. Agrupar bajo la clave vacía
+    fusionaría SKUs que no tienen nada que ver. En la práctica no debería dispararse
+    (`br_asin` viaja pegado a los valores br_*), pero fusionar en silencio es peor
+    que una alerta de más.
+
+    `es_padre` de un grupo se resuelve con `all(...)`, no `any(...)`: el consumidor
+    es el filtro "Ocultar padres" (D6), y si un solo SKU hijo real está afectado la
+    alerta NO se puede esconder.
+    """
+    grupos: dict[tuple, dict] = {}
+    salida: list[dict] = []
+
+    for c in cambios:
+        campo = _s(c.get("campo"))
+        asin = _s(c.get("asin"))
+        agrupable = (c.get("tipo") == "cambio_campo"
+                     and campo.startswith(_BR_PREFIJO)
+                     and bool(asin))
+
+        if not agrupable:
+            salida.append({**c, "skus": [c["sku"]]})
+            continue
+
+        clave = (asin, campo, c.get("valor_viejo", ""), c.get("valor_nuevo", ""))
+        grupo = grupos.get(clave)
+        if grupo is None:
+            grupo = {**c, "skus": [c["sku"]]}
+            grupos[clave] = grupo
+            # Se agrega ACÁ para preservar el orden de primera aparición; las
+            # ocurrencias siguientes mutan este mismo objeto por referencia.
+            salida.append(grupo)
+            continue
+
+        if c["sku"] not in grupo["skus"]:
+            grupo["skus"].append(c["sku"])
+        grupo["es_padre"] = bool(grupo["es_padre"]) and bool(c.get("es_padre"))
+
+    colapsadas = len(cambios) - len(salida)
+    if colapsadas:
+        _LOG.info("R22: %d cambios -> %d alertas (%d replicadas por ASIN colapsadas)",
+                  len(cambios), len(salida), colapsadas)
+    return salida
