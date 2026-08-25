@@ -1,9 +1,15 @@
 """Tests Fase 4 de M31 Revenue Forecast — UI editable del forecast.
 
-La UI completa (data_editor + controles + cards) requiere runtime Streamlit y
-NO se testea acá. Lo que SÍ se testea es el helper PURO `_apply_forecast_edits`
-y el helper PURO `_build_forecast_summary_cards`, que son la lógica crítica del
-F4 (la UI los wrapea sin agregar lógica de negocio).
+La UI completa (data_editor + cards) requiere runtime Streamlit y NO se testea
+acá. Lo que SÍ se testea es el helper PURO `_apply_forecast_edits` y el helper
+PURO `_build_forecast_summary_cards`, que son la lógica crítica del F4 (la UI
+los wrapea sin agregar lógica de negocio).
+
+Excepción: los controles de generación (`_render_forecast_controls`) SÍ se
+testean con AppTest — sus bounds (min/max/value del number_input) son lógica
+que Streamlit valida en runtime y que puede tumbar la página, así que no se
+puede verificar sin runtime. Se usa `AppTest.from_string` (NO `from_function`:
+da falsos negativos silenciosos bajo pytest en este proyecto).
 
 Regla anti-placebo: los valores esperados se derivan de la FÓRMULA del HTML
 aplicada a los AUTO VALUES del motor F3 — no se copian del output de
@@ -29,6 +35,8 @@ Cobertura:
     9. _value_or_none — NaN, '', None, número, string numérico.
    10. _build_forecast_summary_cards — totales y promedios fieles a HTML L2193.
    11. _build_forecast_df — columnas correctas + _idx preservado + Mes label.
+   12. _render_forecast_controls — tope de "Ventana MoM" sigue al historial.
+   13. _render_forecast_controls — clamp del value= al cambiar de cliente (E1).
 
 Diseño: tests puros sin runtime Streamlit. Llaman directamente a los helpers
 con forecast generados por `generate_forecast`.
@@ -37,9 +45,11 @@ con forecast generados por `generate_forecast`.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pandas as pd
 import pytest
+from streamlit.testing.v1 import AppTest
 
 from modules.pages import revenue_forecast as rf
 
@@ -577,3 +587,122 @@ def test_reset_forecast_overrides_pure_no_streamlit():
 def test_module_imports_math_for_nan_check():
     """El helper `_value_or_none` usa math.isnan — asegurar que el módulo lo importa."""
     assert hasattr(rf, "math") or hasattr(math, "isnan")  # tautológico pero documenta el contrato
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _render_forecast_controls — bounds de "Ventana MoM" (E1)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El tope de la ventana MoM sigue al historial cargado: max(12, len(historical)).
+# El riesgo que cubren estos tests es el CLAMP del `value=`: el buffer de los
+# controles (`_K_FC_BUF`) es GLOBAL de sesión, no por cliente, y no se resetea al
+# cambiar de cliente. Sin clamp, venir de un cliente con historial largo
+# (momWindow=20) a uno corto (max=12) hace que Streamlit levante
+# StreamlitValueAboveMaxError y se caiga la página entera.
+
+_REPO_ROOT = str(Path(__file__).resolve().parents[1])
+
+_CONTROLS_APP = """
+import sys
+sys.path.insert(0, r"__REPO_ROOT__")
+import streamlit as st
+from modules.pages import revenue_forecast as rf
+
+hist = [
+    {
+        "date": "2025-%02d-01" % (i + 1),
+        "revenue": 1000.0, "units": 10, "sessions": 300, "cvr": 6,
+        "buyBox": 90, "pageViews": 450, "revenueB2B": 0,
+        "spend": None, "ventasPPC": None,
+    }
+    for i in range(__N_MESES__)
+]
+c = rf._new_client(name="T", client_id="t1")
+c["historical"] = hist
+st.session_state[rf._K_CLIENTS] = [c]
+st.session_state[rf._K_ACTIVE_CLIENT_ID] = "t1"
+st.session_state[rf._K_ACCOUNT_MANAGERS] = []
+
+# Buffer GLOBAL, heredado de un cliente con historial mas largo.
+buf = rf._ensure_fc_buf()
+buf["momWindow"] = __MOM_BUF__
+
+rf._render_forecast_controls(c)
+"""
+
+
+def _run_controls(n_meses: int, mom_buf: int) -> AppTest:
+    """Corre `_render_forecast_controls` con N meses de historial y un buffer
+    global que ya trae `momWindow=mom_buf`.
+    """
+    script = (
+        _CONTROLS_APP
+        .replace("__REPO_ROOT__", _REPO_ROOT)
+        .replace("__N_MESES__", str(n_meses))
+        .replace("__MOM_BUF__", str(mom_buf))
+    )
+    at = AppTest.from_string(script)
+    at.run()
+    return at
+
+
+def _mom_widget(at: AppTest):
+    """El number_input de 'Ventana MoM (meses)'."""
+    for w in at.number_input:
+        if "Ventana MoM" in w.label:
+            return w
+    raise AssertionError(
+        f"No se encontro el number_input de Ventana MoM. "
+        f"Labels: {[w.label for w in at.number_input]}"
+    )
+
+
+def test_forecast_controls_mom_max_follows_history():
+    """Historial largo (23 meses) → el tope sube a 23, no queda clavado en 12."""
+    at = _run_controls(n_meses=23, mom_buf=3)
+    assert not at.exception, f"La pagina levanto excepcion: {at.exception}"
+    assert _mom_widget(at).max == 23
+
+
+def test_forecast_controls_mom_max_floor_is_12_on_short_history():
+    """Historial corto (5 meses) → el tope NO baja de 12 (piso, sin regresion)."""
+    at = _run_controls(n_meses=5, mom_buf=3)
+    assert not at.exception, f"La pagina levanto excepcion: {at.exception}"
+    assert _mom_widget(at).max == 12
+
+
+def test_forecast_controls_clamps_mom_window_when_switching_to_short_client():
+    """E1 — el caso que tumbaba la pagina.
+
+    Buffer global con momWindow=20 (venia de un cliente de 23 meses) + cliente
+    de 5 meses (max=12). Sin el clamp en `value=`, Streamlit levanta
+    StreamlitValueAboveMaxError y la pagina entera se cae.
+    """
+    at = _run_controls(n_meses=5, mom_buf=20)
+
+    assert not at.exception, (
+        "La pagina se cayo al cambiar a un cliente de historial corto con "
+        f"momWindow=20 en el buffer global: {at.exception}"
+    )
+    w = _mom_widget(at)
+    assert w.max == 12
+    assert w.value <= w.max, f"value={w.value} excede max={w.max}"
+    assert w.value == 12, f"esperado clamp a 12, quedo {w.value}"
+
+
+def test_forecast_controls_does_not_clamp_when_history_allows():
+    """Sin cambio de cliente: momWindow=20 con 23 meses se respeta tal cual."""
+    at = _run_controls(n_meses=23, mom_buf=20)
+    assert not at.exception, f"La pagina levanto excepcion: {at.exception}"
+    w = _mom_widget(at)
+    assert w.max == 23
+    assert w.value == 20, f"el value no deberia clampearse, quedo {w.value}"
+
+
+def test_forecast_controls_horizon_stays_capped_at_12():
+    """'Meses a proyectar' es el horizonte, NO la ventana: sigue topeado en 12."""
+    at = _run_controls(n_meses=23, mom_buf=3)
+    assert not at.exception
+    horizon = [w for w in at.number_input if "Meses a proyectar" in w.label]
+    assert len(horizon) == 1
+    assert horizon[0].max == 12

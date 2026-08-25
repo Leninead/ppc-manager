@@ -4058,6 +4058,10 @@ def _render_forecast_controls(cur: dict) -> Optional[dict]:
         "estacionalidad si está activa, y deja los campos clave editables abajo."
     )
     buf = _ensure_fc_buf()
+    # E1: tope de la ventana MoM = meses de historial cargado (mín. 12). Evita
+    # que el AM pida más meses de los que existen — _avg_mom_growth no tendría
+    # datos — pero permite usar todo el historial cuando supera los 12 meses.
+    _mom_max = max(12, len(cur.get("historical", [])))
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -4071,8 +4075,12 @@ def _render_forecast_controls(cur: dict) -> Optional[dict]:
     with col2:
         new_mom = st.number_input(
             "Ventana MoM (meses)",
-            min_value=1, max_value=12, step=1,
-            value=int(buf.get("momWindow", 3)),
+            min_value=1, max_value=_mom_max, step=1,
+            # El buffer es GLOBAL (no por cliente) y no se resetea al cambiar de
+            # cliente: sin este clamp, venir de un cliente con historial largo
+            # (momWindow 20) a uno corto (_mom_max 12) hace que Streamlit levante
+            # StreamlitValueAboveMaxError y se caiga la página.
+            value=min(int(buf.get("momWindow", 3)), _mom_max),
         )
         buf["momWindow"] = int(new_mom)
     with col3:
