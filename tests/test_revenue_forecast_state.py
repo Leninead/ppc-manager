@@ -115,8 +115,13 @@ def test_new_client_custom_params():
 # _ensure_state — idempotencia
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_ensure_state_seeds_empty_keys():
-    """Sobre un dict vacío, siembra las 3 keys con defaults."""
+def test_ensure_state_seeds_empty_keys(isolated_data_root):
+    """Sobre un dict vacío, siembra las 3 keys con defaults.
+
+    Usa `isolated_data_root` (conftest): `_ensure_state` hidrata desde disco, y
+    un cliente —o incluso sólo el puntero huérfano `_meta/.../active.json`—
+    dejado por una validación en la app hace que `active_client_id` NO sea None.
+    """
     state: dict = {}
     rf._ensure_state(state=state)
     assert state[rf._K_CLIENTS] == []

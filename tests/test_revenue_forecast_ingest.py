@@ -389,10 +389,16 @@ def test_load_demo_into_active_populates_23_months():
         assert r["ventasPPC"] is None
 
 
-def test_load_demo_into_active_no_client_returns_zero():
-    """Sin cliente activo: devuelve 0, no modifica state."""
+def test_load_demo_into_active_no_client_returns_zero(isolated_data_root):
+    """Sin cliente activo: devuelve 0, no modifica state.
+
+    Usa `isolated_data_root` (conftest): sin él, `_ensure_state` hidrata los
+    clientes que haya en el `data/` del repo y el test encuentra un cliente
+    activo donde esperaba ninguno.
+    """
     state: dict = {}
     rf._ensure_state(state=state)
+    assert state[rf._K_CLIENTS] == []
     assert rf._load_demo_into_active(state=state) == 0
 
 
