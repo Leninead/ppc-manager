@@ -1492,6 +1492,35 @@ def _forecast_single_asin(history: list[dict], opts: dict,
 # parcial incluido); el forecast arranca en el mes siguiente (F6.3c). O sea: la
 # comparación es graficar ambas series en el mismo eje, no cruzar dos capas.
 
+# E6 — el forecast por-ASIN se dispara con un botón explícito, no al elegir el
+# ASIN. Usa los MISMOS opts de la proyección general (un único set de
+# parámetros, para que ambas vistas sean reconciliables) y cachea el resultado
+# POR ASIN en session_state. Estos dos helpers son puros para poder testear el
+# gating sin runtime Streamlit.
+
+def _asin_fc_cache_key(client_id: str, asin: str) -> str:
+    """Key de session_state del forecast cacheado de UN asin de UN cliente.
+
+    Incluye el asin para que cambiar de ASIN no muestre el forecast del
+    anterior: cada ASIN se genera (y se re-muestra) por separado.
+    """
+    return f"rf_asin_fc_result_{client_id}_{asin}"
+
+
+def _fc_params_caption(opts: dict) -> str:
+    """Resumen legible de los parámetros de proyección: 'horizonte 3 meses ·
+    ventana MoM 2 · mezcla 50% MoM [· estacionalidad ON]'.
+    """
+    txt = (
+        f"horizonte {int(opts.get('horizon', 3))} meses · "
+        f"ventana MoM {int(opts.get('momWindow', 3))} · "
+        f"mezcla {int(opts.get('blend', 50))}% MoM"
+    )
+    if opts.get("useSeasonality"):
+        txt += " · estacionalidad ON"
+    return txt
+
+
 _ASIN_CHART_METRICS: tuple = ("revenue", "sessions", "units", "cvr")
 
 
@@ -5343,10 +5372,42 @@ def _render_asin_section(cur: dict) -> None:
         "blend": int(buf.get("blend", 50)),
         "useSeasonality": bool(buf.get("useSeasonality", False)),
     }
-    fc = _forecast_single_asin(model[sel]["history"], opts)
-    if not fc:
+    # E6: no se calcula solo al elegir el ASIN — lo dispara el AM con el botón,
+    # y el resultado queda cacheado por-ASIN hasta que regenere.
+    st.caption(
+        "Usa los parámetros de la proyección general de arriba: "
+        + _fc_params_caption(opts)
+    )
+    gen_clicked = st.button(
+        "Generar forecast por ASIN",
+        key=f"rf_asin_fc_gen_{cur['id']}",
+        type="primary",
+    )
+
+    _fc_cache_key = _asin_fc_cache_key(cur["id"], sel)
+    if gen_clicked:
+        # Guardamos también los opts USADOS: si el AM cambia los controles de
+        # arriba sin regenerar, el caption tiene que seguir describiendo lo que
+        # realmente se proyectó, no los valores nuevos.
+        st.session_state[_fc_cache_key] = {
+            "fc": _forecast_single_asin(model[sel]["history"], opts),
+            "opts": dict(opts),
+        }
+
+    _cached = st.session_state.get(_fc_cache_key)
+    if _cached is None:
+        st.caption("Todavía no generaste el forecast de este ASIN.")
+    elif not _cached["fc"]:
         st.info("Se necesitan 2+ meses COMPLETOS para proyectar este ASIN (los meses parciales se excluyen del cálculo).")
     else:
+        fc = _cached["fc"]
+        _used = _cached.get("opts", {})
+        st.caption("Proyectado con: " + _fc_params_caption(_used))
+        if _used != opts:
+            st.caption(
+                "⚠️ Los parámetros de arriba cambiaron desde que generaste este "
+                "forecast — volvé a generar para que refleje los nuevos."
+            )
         # Real vs forecast del ASIN. Sólo 4 métricas: el reporte By Child Item
         # no trae spend ni ventas PPC, así que ACOS/TACOS/Spend viven a nivel
         # cuenta y no se ofrecen acá.

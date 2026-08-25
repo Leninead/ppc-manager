@@ -322,3 +322,85 @@ def test_build_asin_parent_df_missing_period_is_empty_not_nan():
     assert row["2026-05"] == ""
     assert row["2026-06"] == pytest.approx(10.0)
     assert df.isna().sum().sum() == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# E6 — gating del forecast por-ASIN (botón explícito + cache por ASIN)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El render del bloque es UI inline y no se testea acá. Lo que SÍ se testea es
+# la lógica pura que sostiene el gating: la key de cache (que sea POR ASIN, o
+# el AM vería el forecast del ASIN anterior) y el texto de parámetros (que
+# describa lo realmente usado). El flujo de clic se valida en app.
+
+_E6_OPTS = {"horizon": 3, "momWindow": 2, "blend": 50, "useSeasonality": False}
+
+
+def test_asin_fc_cache_key_is_per_asin():
+    """Dos ASINs del MISMO cliente no comparten cache.
+
+    Si la key no incluyera el asin, cambiar de ASIN mostraría el forecast del
+    anterior como si fuera del nuevo.
+    """
+    k1 = rf._asin_fc_cache_key("c1", "B00AAA")
+    k2 = rf._asin_fc_cache_key("c1", "B00BBB")
+    assert k1 != k2
+    assert "B00AAA" in k1 and "B00BBB" in k2
+
+
+def test_asin_fc_cache_key_is_per_client():
+    """El mismo ASIN en dos clientes distintos tampoco comparte cache."""
+    assert rf._asin_fc_cache_key("c1", "B00AAA") != rf._asin_fc_cache_key("c2", "B00AAA")
+
+
+def test_asin_fc_cache_key_is_stable():
+    """Misma entrada → misma key (si no, el cache nunca haría hit)."""
+    assert rf._asin_fc_cache_key("c1", "B00AAA") == rf._asin_fc_cache_key("c1", "B00AAA")
+
+
+def test_fc_params_caption_reflects_opts():
+    """El caption transcribe los 3 valores, no textos hardcodeados."""
+    txt = rf._fc_params_caption({"horizon": 6, "momWindow": 4, "blend": 70,
+                                 "useSeasonality": False})
+    assert "horizonte 6 meses" in txt
+    assert "ventana MoM 4" in txt
+    assert "mezcla 70% MoM" in txt
+
+
+def test_fc_params_caption_seasonality_off_has_no_suffix():
+    txt = rf._fc_params_caption({**_E6_OPTS, "useSeasonality": False})
+    assert "estacionalidad" not in txt
+
+
+def test_fc_params_caption_seasonality_on_adds_suffix():
+    txt = rf._fc_params_caption({**_E6_OPTS, "useSeasonality": True})
+    assert txt.endswith("· estacionalidad ON")
+
+
+def test_fc_params_caption_uses_defaults_when_opts_incomplete():
+    """opts vacío no revienta — cae a los defaults del módulo (3/3/50)."""
+    txt = rf._fc_params_caption({})
+    assert "horizonte 3 meses" in txt
+    assert "ventana MoM 3" in txt
+    assert "mezcla 50% MoM" in txt
+
+
+def test_forecast_single_asin_two_complete_months_is_not_empty():
+    """Precondición del flujo E6: con 2 meses COMPLETOS sí proyecta.
+
+    El caso contrario (1 mes → []) ya está en
+    `test_forecast_single_asin_insufficient`. El happy path sólo estaba
+    cubierto por los tests de fixtures reales, que SKIPEAN cuando los CSV
+    gitignored no están — así que sin este test el gating quedaba sin piso
+    verificable en una corrida limpia.
+    """
+    history = [
+        {"period": "2026-05", "revenue": 1000.0, "units": 10.0,
+         "sessions": 100.0, "unit_session_pct": 10.0},
+        {"period": "2026-06", "revenue": 1200.0, "units": 12.0,
+         "sessions": 110.0, "unit_session_pct": 10.9},
+    ]
+    fc = rf._forecast_single_asin(history, _E6_OPTS)
+    assert fc, "2 meses completos deberían alcanzar para proyectar"
+    assert len(fc) == _E6_OPTS["horizon"]
+    assert all("date" in r and "revenue" in r for r in fc)
