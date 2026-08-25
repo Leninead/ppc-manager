@@ -2,7 +2,7 @@
 
 Cubre las funciones PURAS de F6.3 (`_period_to_date`, `_asin_history_to_engine_rows`,
 `_forecast_single_asin`) y los helpers PUROS de F6.2 (`_build_asin_child_df`,
-`_asin_account_totals`). NO tocan Streamlit — sólo lógica.
+`_build_asin_parent_df`, `_asin_account_totals`). NO tocan Streamlit — sólo lógica.
 
 Los tests reales reusan los 3 fixtures Dermaglos may/jun/jul 2026 (gitignored,
 mismo skip guard que test_forecast_asin_accumulate.py).
@@ -222,3 +222,103 @@ def test_forecast_hero_real_stable_not_crashing():
     assert fc, "el hero debería proyectar con may+jun completos"
     assert fc[0]["date"] == "2026-08-01"   # F6.3c: mes sig al último CARGADO (jul parcial) → agosto
     assert fc[0]["revenue"] > 1500         # crecimiento sigue anclado a may+jun; solo se corre el cursor
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _build_asin_parent_df — título del parent (E5)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Un parent agrupa varios childs con títulos distintos. La regla es: usar el
+# título del child cuyo asin == parent_asin (el padre real del catálogo); si ese
+# child no está en el modelo, caer al primer título no vacío del grupo.
+
+def _node(parent: str, title: str, rev_by_period: dict) -> dict:
+    """Nodo del modelo con el shape que produce el merge por-ASIN."""
+    return {
+        "parent_asin": parent,
+        "title": title,
+        "history": [
+            {"period": p, "revenue": r, "units": 1.0, "sessions": 10.0,
+             "unit_session_pct": 10.0}
+            for p, r in sorted(rev_by_period.items())
+        ],
+    }
+
+
+def _parent_row(df, parent_asin: str) -> dict:
+    rows = df[df["parent_asin"] == parent_asin]
+    assert len(rows) == 1, f"esperaba 1 fila para {parent_asin}, hay {len(rows)}"
+    return rows.iloc[0].to_dict()
+
+
+def test_build_asin_parent_df_has_title_column_first():
+    """La columna title existe y va primera después de parent_asin (como Child)."""
+    model = {"P1": _node("P1", "Padre uno", {"2026-06": 100.0})}
+    df = rf._build_asin_parent_df(model, ["2026-06"])
+    assert "title" in df.columns
+    assert list(df.columns)[:2] == ["parent_asin", "title"]
+
+
+def test_build_asin_parent_df_uses_real_parent_title():
+    """Caso 1: existe el child cuyo asin == parent_asin → gana ESE título."""
+    model = {
+        # El padre real, presente en el catálogo con su propio título.
+        "P1": _node("P1", "TITULO DEL PADRE", {"2026-06": 10.0}),
+        "C1": _node("P1", "Variante roja", {"2026-06": 20.0}),
+        "C2": _node("P1", "Variante azul", {"2026-06": 30.0}),
+    }
+    df = rf._build_asin_parent_df(model, ["2026-06"])
+    row = _parent_row(df, "P1")
+    assert row["title"] == "TITULO DEL PADRE"
+    # El agregado sigue sumando los 3 childs.
+    assert row["2026-06"] == pytest.approx(60.0)
+
+
+def test_build_asin_parent_df_falls_back_to_first_child_title():
+    """Caso 2: ningún child_asin == parent_asin → primer título no vacío."""
+    model = {
+        "C1": _node("P9", "Variante roja", {"2026-06": 20.0}),
+        "C2": _node("P9", "Variante azul", {"2026-06": 30.0}),
+    }
+    df = rf._build_asin_parent_df(model, ["2026-06"])
+    row = _parent_row(df, "P9")
+    assert row["title"] == "Variante roja"
+    assert row["2026-06"] == pytest.approx(50.0)
+
+
+def test_build_asin_parent_df_fallback_skips_empty_titles():
+    """El fallback ignora títulos vacíos / whitespace y toma el primero real."""
+    model = {
+        "C0": _node("P9", "   ", {"2026-06": 5.0}),
+        "C1": _node("P9", "", {"2026-06": 5.0}),
+        "C2": _node("P9", "Titulo real", {"2026-06": 10.0}),
+    }
+    df = rf._build_asin_parent_df(model, ["2026-06"])
+    assert _parent_row(df, "P9")["title"] == "Titulo real"
+
+
+def test_build_asin_parent_df_real_parent_wins_over_earlier_child():
+    """El padre real gana aunque aparezca DESPUÉS de un child en el dict."""
+    model = {
+        "C1": _node("P1", "Variante roja", {"2026-06": 20.0}),
+        "P1": _node("P1", "TITULO DEL PADRE", {"2026-06": 10.0}),
+    }
+    assert _parent_row(rf._build_asin_parent_df(model, ["2026-06"]), "P1")["title"]         == "TITULO DEL PADRE"
+
+
+def test_build_asin_parent_df_no_title_anywhere_is_empty_string():
+    """Sin ningún título → '' (nunca NaN, que rompería Arrow)."""
+    model = {"C1": _node("P9", "", {"2026-06": 5.0})}
+    df = rf._build_asin_parent_df(model, ["2026-06"])
+    assert _parent_row(df, "P9")["title"] == ""
+    assert df.isna().sum().sum() == 0
+
+
+def test_build_asin_parent_df_missing_period_is_empty_not_nan():
+    """Períodos sin dato quedan como '' — mismo contrato que la tabla Child."""
+    model = {"P1": _node("P1", "Padre", {"2026-06": 10.0})}
+    df = rf._build_asin_parent_df(model, ["2026-05", "2026-06"])
+    row = _parent_row(df, "P1")
+    assert row["2026-05"] == ""
+    assert row["2026-06"] == pytest.approx(10.0)
+    assert df.isna().sum().sum() == 0

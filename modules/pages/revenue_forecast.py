@@ -1614,6 +1614,46 @@ def _build_asin_child_df(model: dict) -> pd.DataFrame:
     return df
 
 
+def _build_asin_parent_df(model: dict, all_periods: list[str]) -> pd.DataFrame:
+    """Una fila por parent_asin: columnas parent_asin, title, y una columna
+    revenue por period (suma de los childs del parent).
+
+    E5 — título representativo del parent: un parent agrupa varios childs con
+    títulos distintos, así que se elige el del child cuyo asin == parent_asin
+    (el "padre real", que suele estar en el catálogo con su propio título). Si
+    ese child no está en el modelo, se cae al primer título no vacío que
+    aparezca para ese parent. `title` va primera después de parent_asin, igual
+    que en la tabla Child.
+
+    Celdas de períodos sin dato quedan como '' (no NaN, no 0.0) pre-Arrow.
+    """
+    pagg: dict = {}
+    ptitle: dict = {}
+    ptitle_fallback: dict = {}
+    for asin, node in model.items():
+        par = node.get("parent_asin", "")
+        byp = pagg.setdefault(par, {})
+        for h in node["history"]:
+            byp[h["period"]] = byp.get(h["period"], 0.0) + _js_number(
+                h.get("revenue"))
+        node_title = (node.get("title") or "").strip()
+        if asin == par and node_title:
+            ptitle[par] = node_title
+        elif node_title and par not in ptitle_fallback:
+            ptitle_fallback[par] = node_title
+
+    prows = []
+    for par, byp in pagg.items():
+        title = ptitle.get(par) or ptitle_fallback.get(par, "")
+        row = {"parent_asin": par, "title": title}
+        for p in all_periods:
+            row[p] = byp.get(p, "")
+        prows.append(row)
+    pdf = pd.DataFrame(prows)
+    pdf = pdf.where(pd.notna(pdf), "")
+    return pdf
+
+
 def _asin_account_totals(model: dict) -> list[dict]:
     """Totales por period sumando todos los ASINs: [{period, revenue, units,
     sessions}, ...] ordenado asc. Para nivel Cuenta y KPI cards.
@@ -5273,21 +5313,7 @@ def _render_asin_section(cur: dict) -> None:
             hide_index=True, use_container_width=True,
         )
     elif level == "Parent":
-        pagg: dict = {}
-        for node in model.values():
-            par = node.get("parent_asin", "")
-            byp = pagg.setdefault(par, {})
-            for h in node["history"]:
-                byp[h["period"]] = byp.get(h["period"], 0.0) + _js_number(
-                    h.get("revenue"))
-        prows = []
-        for par, byp in pagg.items():
-            row = {"parent_asin": par}
-            for p in all_periods:
-                row[p] = byp.get(p, "")
-            prows.append(row)
-        pdf = pd.DataFrame(prows)
-        pdf = pdf.where(pd.notna(pdf), "")
+        pdf = _build_asin_parent_df(model, all_periods)
         st.data_editor(
             pdf, key=f"rf_asin_parent_editor_{cur['id']}", disabled=True,
             hide_index=True, use_container_width=True,
