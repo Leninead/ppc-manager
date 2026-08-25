@@ -1295,6 +1295,30 @@ def _infer_asin_period(filename: str) -> Optional[str]:
     return None
 
 
+def _duplicate_periods(periods: list[str]) -> list[str]:
+    """Períodos asignados a más de un archivo, ordenados asc. Vacíos ignorados.
+
+    Asignar el mismo mes a dos archivos NO es inocuo: `_accumulate_asin_snapshots`
+    hace append (no pisa), así que el ASIN queda con DOS entradas del mismo
+    period y el motor las lee como meses consecutivos — dos archivos de junio con
+    $1.000 y $2.000 se interpretan como +100% MoM y proyectan una tendencia
+    inventada, sin ningún error visible. Por eso el render corta antes de parsear.
+
+    Los vacíos se ignoran acá porque la validación de formato (`_period_valid`)
+    ya los reporta: si no, el AM vería dos errores por el mismo problema.
+    """
+    seen: set = set()
+    dups: set = set()
+    for p in periods:
+        p = (p or "").strip()
+        if not p:
+            continue
+        if p in seen:
+            dups.add(p)
+        seen.add(p)
+    return sorted(dups)
+
+
 def _parse_asin_report(file_or_bytes: Any, period: str) -> list[dict]:
     """Parsea UN snapshot por-ASIN a lista de dicts (1 por child ASIN).
 
@@ -5245,23 +5269,54 @@ def _render_asin_section(cur: dict) -> None:
     currency = cur.get("currency", "USD")
     _period_valid = re.compile(r"^20\d{2}-(0[1-9]|1[0-2])$")
 
-    # 1) Derivar period por archivo (del nombre; fallback text_input).
+    # 1) Derivar period por archivo. La inferencia del nombre es solo un DEFAULT
+    # editable, nunca la decisión final: el naming real de Amazon
+    # (BusinessReport-M-DD-YY) codifica la FECHA DE DESCARGA, no el mes de los
+    # datos — si el AM baja varios meses el mismo día, todos infieren el mismo
+    # mes equivocado (bug E4). Por eso el input siempre se muestra y el AM
+    # puede corregir. Pre-sembramos session_state para no mezclar key=+value=
+    # (gotcha 1.43.2).
+    st.caption(
+        "El mes se detecta del nombre del archivo, pero el export de Amazon usa "
+        "la fecha de descarga — **revisá y corregí** cada período si hace falta. "
+        "⚠️ El orden de los archivos **no indica el mes**: verificá el contenido "
+        "de cada uno antes de asignar el período (si no, el forecast puede quedar "
+        "con los meses cruzados)."
+    )
     periods: list[str] = []
-    for f in files:
-        inferred = _infer_asin_period(f.name)
-        if inferred:
-            periods.append(inferred)
-        else:
-            pin = st.text_input(
-                f"Período de {f.name} (formato YYYY-MM)",
-                key=f"rf_asin_period_{cur['id']}_{f.name}",
-            )
-            periods.append((pin or "").strip())
+    for i, f in enumerate(files):
+        # El índice va en la key porque el uploader multi-archivo SÍ puede traer
+        # dos archivos con el mismo nombre (el AM baja el mismo
+        # BusinessReport-M-DD-YY en carpetas distintas, una por mes — que es
+        # justo el escenario de E4). Con la key sólo por nombre, los dos
+        # text_input comparten key y Streamlit tumba la página entera.
+        k = f"rf_asin_period_{cur['id']}_{i}_{f.name}"
+        if k not in st.session_state:
+            st.session_state[k] = _infer_asin_period(f.name) or ""
+        pin = st.text_input(
+            f"Período de {f.name} (formato YYYY-MM)",
+            key=k,
+        )
+        periods.append((pin or "").strip())
 
     if not all(_period_valid.match(p) for p in periods):
         st.warning(
             "Falta el período de algún archivo (o formato inválido). Completá "
             "cada período como YYYY-MM (ej. 2026-07) para continuar."
+        )
+        return
+
+    # Un mes asignado a dos archivos duplica la entrada en el history y el motor
+    # lo lee como dos meses consecutivos → tendencia inventada, en silencio.
+    # Va DESPUÉS de la validación de formato para no mostrar dos errores por lo
+    # mismo cuando el período está vacío.
+    _dups = _duplicate_periods(periods)
+    if _dups:
+        st.error(
+            f"Dos o más archivos tienen el mismo período ({', '.join(_dups)}). "
+            "Cada mes debe cargarse una sola vez — revisá que no hayas asignado "
+            "el mismo período a archivos distintos, o que no estés subiendo el "
+            "mismo mes dos veces."
         )
         return
 

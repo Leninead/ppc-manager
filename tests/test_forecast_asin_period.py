@@ -8,6 +8,14 @@ Dos piezas:
        al input manual y, sin completarlo con el formato exacto, cortaba con un
        warning antes de parsear nada.
 
+       OJO con lo que esta función PUEDE prometer (bug E4): el `M-DD-YY` del
+       naming de Amazon es la FECHA DE DESCARGA, no el mes de los datos. Bajar
+       mayo, junio y julio el mismo día produce tres archivos que infieren el
+       MISMO mes, equivocado. Por eso los casos de acá fijan el parseo del
+       nombre y nada más: en la UI la inferencia es sólo un default editable,
+       nunca la decisión final. Si alguien "optimiza" el render para confiar en
+       la inferencia cuando existe, vuelve E4.
+
     2. `_asin_realvs_forecast_series` — las series real + forecast de UN ASIN.
        RESTRICCIÓN DURA blindada acá: el reporte By Child Item no trae spend ni
        ventas PPC, así que ACOS / TACOS / Spend / Ventas PPC NO se pueden pedir
@@ -183,3 +191,66 @@ def test_chart_marca_el_mes_parcial_con_punto_hueco():
 def test_chart_sin_history_devuelve_figura_vacia():
     fig = rf._asin_realvs_forecast_chart([], [], "revenue")
     assert len(fig.data) == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _duplicate_periods — guard de meses repetidos (E4)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Asignar el mismo mes a dos archivos no es inocuo: `_accumulate_asin_snapshots`
+# hace append, así que el ASIN queda con dos entradas del mismo period y el motor
+# las lee como meses consecutivos → tendencia inventada, sin error visible. El
+# render corta con st.error antes de parsear; acá se fija la detección.
+
+def test_duplicate_periods_none_when_all_distinct():
+    assert rf._duplicate_periods(["2026-05", "2026-06", "2026-07"]) == []
+
+
+def test_duplicate_periods_detects_repeated_month():
+    """El caso de Edu: dos archivos del mismo día terminan con el mismo mes."""
+    assert rf._duplicate_periods(["2026-06", "2026-06", "2026-07"]) == ["2026-06"]
+
+
+def test_duplicate_periods_reports_each_repeat_once():
+    """Tres archivos del mismo mes → el período aparece UNA vez en el reporte."""
+    assert rf._duplicate_periods(["2026-06"] * 3) == ["2026-06"]
+
+
+def test_duplicate_periods_multiple_distinct_repeats_sorted():
+    dups = rf._duplicate_periods(["2026-07", "2026-05", "2026-07", "2026-05"])
+    assert dups == ["2026-05", "2026-07"]
+
+
+def test_duplicate_periods_ignores_empties():
+    """Los vacíos los reporta la validación de formato — no se duplica el error.
+
+    Si `_duplicate_periods` los contara, el AM vería "período repetido ()"
+    encima del warning de formato, por el mismo problema.
+    """
+    assert rf._duplicate_periods(["", "", "2026-06"]) == []
+    assert rf._duplicate_periods(["   ", None, "2026-06"]) == []
+
+
+def test_duplicate_periods_empty_list():
+    assert rf._duplicate_periods([]) == []
+
+
+def test_accumulate_with_duplicate_period_is_why_the_guard_exists():
+    """Documenta el daño que el guard evita: dos entradas para UN mes.
+
+    No es un overwrite — `_accumulate_asin_snapshots` hace append, y el motor
+    después lee esas dos entradas como meses consecutivos.
+    """
+    def snap(period, rev):
+        return [{"child_asin": "B00X", "parent_asin": "B00X", "title": "T",
+                 "period": period, "sessions": 100.0, "page_views": 120.0,
+                 "buy_box_pct": 90.0, "units": 10.0, "unit_session_pct": 10.0,
+                 "revenue": rev}]
+
+    model = rf._accumulate_asin_snapshots([snap("2026-06", 1000.0),
+                                           snap("2026-06", 2000.0)])
+    hist = model["B00X"]["history"]
+    assert len(hist) == 2, "append, no overwrite"
+    assert {h["period"] for h in hist} == {"2026-06"}, "un solo mes, dos filas"
+    # Y el guard es justo lo que impide que esto llegue al motor.
+    assert rf._duplicate_periods(["2026-06", "2026-06"]) == ["2026-06"]
