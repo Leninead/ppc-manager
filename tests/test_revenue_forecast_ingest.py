@@ -546,14 +546,98 @@ def test_build_history_df_desc_order_with_idx_preserved():
     assert df.iloc[2]["_idx"] == 0
 
 
-def test_build_history_df_spend_none_becomes_empty_string():
-    """spend None → '' en el DF (Arrow-safe para data_editor)."""
+def test_build_history_df_spend_none_becomes_nan():
+    """spend None → NaN en el DF (NO '': ver test de dtype abajo, bug G1)."""
     hist = [
         {"date": "2025-06-01", "revenue": 100, "units": 5, "sessions": 300, "cvr": 6, "buyBox": 90, "pageViews": 450, "revenueB2B": 0, "spend": None, "ventasPPC": None},
     ]
     df = rf._build_history_df(hist)
-    assert df.iloc[0]["Spend"] == ""
-    assert df.iloc[0]["Ventas PPC"] == ""
+    assert pd.isna(df.iloc[0]["Spend"])
+    assert pd.isna(df.iloc[0]["Ventas PPC"])
+    assert df.iloc[0]["Spend"] != ""
+    assert df.iloc[0]["Ventas PPC"] != ""
+
+
+# Regresión bug G1 — el estado PARCIAL (unos meses con spend, otros sin) es el
+# que rompía: mezclar float y '' hacía la columna dtype object, y Streamlit
+# 1.43.2 DESHABILITA toda columna Arrow-incompatible (data_editor.py:836-843),
+# dejando las celdas Spend / Ventas PPC sin aceptar teclado. Estos tests fijan
+# el dtype numérico para que el sentinel '' no pueda volver.
+
+_G1_EDITABLE_COLS = ["Spend", "Ventas PPC", "ACOS%", "TACOS%"]
+
+
+def _g1_partial_hist():
+    """3 meses: el del medio con spend/ventasPPC cargados, los otros vacíos."""
+    base = dict(revenue=1000.0, units=10, sessions=300, cvr=6,
+                buyBox=90, pageViews=450, revenueB2B=0)
+    return [
+        {"date": "2025-06-01", **base, "spend": None, "ventasPPC": None},
+        {"date": "2025-07-01", **base, "spend": 100.0, "ventasPPC": 400.0},
+        {"date": "2025-08-01", **base, "spend": None, "ventasPPC": None},
+    ]
+
+
+def test_build_history_df_partial_cols_are_numeric_not_object():
+    """Estado parcial: las 4 columnas numéricas NO pueden ser dtype object.
+
+    dtype object == Arrow-incompatible == Streamlit deshabilita la columna.
+    """
+    df = rf._build_history_df(_g1_partial_hist())
+    for col in _G1_EDITABLE_COLS:
+        assert df[col].dtype != object, (
+            f"'{col}' quedó dtype object en estado parcial — vuelve el bug G1: "
+            f"Streamlit deshabilitaría la columna. Valores: {list(df[col])}"
+        )
+        assert pd.api.types.is_numeric_dtype(df[col]), (
+            f"'{col}' no es numérica: dtype={df[col].dtype}"
+        )
+
+
+def test_build_history_df_partial_empty_cells_are_nan_not_empty_string():
+    """Las celdas vacías del estado parcial son NaN, nunca ''."""
+    df = rf._build_history_df(_g1_partial_hist())
+    # DESC: iloc[0]=agosto (vacío), iloc[1]=julio (cargado), iloc[2]=junio (vacío).
+    assert df.iloc[1]["Spend"] == pytest.approx(100.0)
+    for row in (0, 2):
+        for col in _G1_EDITABLE_COLS:
+            val = df.iloc[row][col]
+            assert not isinstance(val, str), f"'{col}' fila {row} es str: {val!r}"
+            assert pd.isna(val), f"'{col}' fila {row} debería ser NaN, es {val!r}"
+
+
+def test_build_history_df_partial_is_arrow_compatible():
+    """La prueba de fuego: el df del estado parcial serializa a Arrow.
+
+    Es exactamente el check que corre Streamlit antes de decidir si deshabilita
+    la columna (dataframe_util.is_colum_type_arrow_incompatible).
+    """
+    pa = pytest.importorskip("pyarrow")
+    df = rf._build_history_df(_g1_partial_hist())
+    table = pa.Table.from_pandas(df, preserve_index=False)  # no debe levantar
+    types = {f.name: str(f.type) for f in table.schema}
+    for col in _G1_EDITABLE_COLS:
+        assert types[col] in ("double", "float"), (
+            f"'{col}' llegó a Arrow como {types[col]} — NumberColumn necesita numérico"
+        )
+
+
+def test_update_historical_row_nan_becomes_none():
+    """Vaciar una celda devuelve NaN: no debe entrar NaN al historical.
+
+    NaN rompe json.dumps del path de persistencia (JSON inválido).
+    """
+    hist = [
+        {"date": "2025-06-01", "revenue": 100, "units": 5, "sessions": 300, "cvr": 6, "buyBox": 90, "pageViews": 450, "revenueB2B": 0, "spend": 50.0, "ventasPPC": 200.0},
+    ]
+    c = rf._new_client(name="Test", client_id="t1")
+    c["historical"] = hist
+    state = {rf._K_CLIENTS: [c], rf._K_ACTIVE_CLIENT_ID: "t1", rf._K_ACCOUNT_MANAGERS: []}
+
+    assert rf._update_historical_row(0, "spend", float("nan"), state=state) is True
+    assert c["historical"][0]["spend"] is None
+    assert rf._update_historical_row(0, "ventasPPC", float("nan"), state=state) is True
+    assert c["historical"][0]["ventasPPC"] is None
 
 
 def test_build_history_df_computes_acos_tacos():

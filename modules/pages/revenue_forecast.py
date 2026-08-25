@@ -1715,7 +1715,7 @@ def _update_historical_row(idx: int, field: str, value: Any, state: Optional[Any
     if not (0 <= idx < len(hist)):
         return False
     # Normalizar vacío a None (fiel al HTML L2044: value === '' ? null : parseFloat).
-    if value == "" or value is None:
+    if value == "" or value is None or (isinstance(value, float) and math.isnan(value)):
         hist[idx][field] = None
     else:
         try:
@@ -1905,10 +1905,15 @@ def _build_history_df(historical: list[dict], currency: str = "USD") -> pd.DataF
             "Sessions": r.get("sessions", 0) or 0,
             "CVR%": r.get("cvr", 0) or 0,
             "AOV": rev / max(1, units),
-            "Spend": "" if spend_f is None else spend_f,
-            "Ventas PPC": "" if vppc_f is None else vppc_f,
-            "ACOS%": "" if acos is None else acos,
-            "TACOS%": "" if tacos is None else tacos,
+            # Sentinel None (→ NaN) en vez de '' — mezclar float y str hace la
+            # columna dtype object, que Streamlit 1.43.2 marca Arrow-incompatible
+            # y DESHABILITA (data_editor.py:836-843). Eso congelaba la edición en
+            # estado parcial (bug G1). None → NaN mantiene la columna float64
+            # limpia; NaN se renderiza como celda vacía en NumberColumn.
+            "Spend": spend_f,
+            "Ventas PPC": vppc_f,
+            "ACOS%": acos,
+            "TACOS%": tacos,
         })
 
     df = pd.DataFrame(rows)
