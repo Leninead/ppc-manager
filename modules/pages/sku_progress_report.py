@@ -872,11 +872,28 @@ def _dialog_add_event(cliente: str, sku: str):
 
     periods = _list_periods(AREA, cliente, MODULE_SLUG)
     today = date.today()
-    iso_year, iso_week, _ = today.isocalendar()
-    current_period = _period_str(iso_year, iso_week)
-    options = sorted(set(periods + [current_period]))
-
-    default_idx = len(options) - 1 if options else 0
+    # Marcos registra SIEMPRE la semana ISO cerrada anterior (los lunes registra
+    # la semana que acaba de terminar). El default es esa semana anterior, y el
+    # dropdown ofrece 8 semanas cerradas hacia atras, mas cualquier period que ya
+    # tenga optimizaciones cargadas (para no perderlo del selector).
+    # Se calcula restando dias reales -> maneja el cruce de anio solo.
+    prev_week_date = today - timedelta(days=7)
+    prev_year, prev_week, _ = prev_week_date.isocalendar()
+    prev_period = _period_str(prev_year, prev_week)
+    window = []
+    for i in range(8):
+        d = today - timedelta(days=7 * (i + 1))
+        y, w, _ = d.isocalendar()
+        window.append(_period_str(y, w))
+    # Union con periods existentes; excluir cualquier semana posterior a la anterior
+    # (saca la semana en curso y futuras). Orden descendente: la mas reciente arriba.
+    options = sorted(
+        {p for p in set(window) | set(periods) if p <= prev_period},
+        reverse=True,
+    )
+    if not options:
+        options = [prev_period]
+    default_idx = 0
     period_sel = st.selectbox(
         "Semana de aplicacion",
         options=options,
