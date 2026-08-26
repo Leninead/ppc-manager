@@ -404,3 +404,77 @@ def test_forecast_single_asin_two_complete_months_is_not_empty():
     assert fc, "2 meses completos deberían alcanzar para proyectar"
     assert len(fc) == _E6_OPTS["horizon"]
     assert all("date" in r and "revenue" in r for r in fc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# E7 pieza 2 — key del modelo por-ASIN + invariante de invalidación
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El modelo por-ASIN se persiste en session_state para que el export lo lea
+# (corre después, mismo run). Es DATO: un modelo rancio manda un deliverable con
+# ASINs que ya no están cargados. El contrato es "se borra al ENTRAR a la
+# sección, se escribe sólo en el camino feliz".
+#
+# El pop/set vive inline en el render y no se puede ejercitar sin AppTest (la
+# sección arranca con un st.file_uploader, que AppTest 1.43.2 no expone como
+# widget interactivo). Lo que SÍ se puede blindar es el invariante estructural
+# que hace correcto al fix: que el pop esté antes de todo `return`. Si alguien lo
+# mueve debajo de un return temprano, el bug vuelve en silencio — y este test lo
+# caza.
+
+def test_k_asin_model_is_per_client():
+    assert rf._k_asin_model("c1") != rf._k_asin_model("c2")
+
+
+def test_k_asin_model_is_stable():
+    assert rf._k_asin_model("c1") == rf._k_asin_model("c1")
+
+
+def test_k_asin_model_uses_module_prefix():
+    """Namespaced con el prefijo del módulo: nunca colisiona con otro módulo."""
+    assert rf._k_asin_model("c1").startswith(rf._STATE_PREFIX)
+    assert "c1" in rf._k_asin_model("c1")
+
+
+def _asin_section_src():
+    import inspect
+    return inspect.getsource(rf._render_asin_section)
+
+
+def test_asin_section_invalidates_model_before_any_return():
+    """LOAD-BEARING. El pop tiene que estar ANTES del primer `return`.
+
+    La sección tiene seis return tempranos (sin archivos, período inválido,
+    períodos duplicados, archivo no-By-Child, fallo de parseo, modelo vacío). Si
+    el pop queda debajo de cualquiera de ellos, un run que corta deja el modelo
+    del run anterior vivo y el export se lo lleva.
+    """
+    src = _asin_section_src()
+    pop_at = src.find("st.session_state.pop(_k_asin_model(")
+    assert pop_at != -1, "no se encontró el pop de invalidación"
+
+    import re
+    first_return = re.search(r"^\s+return\b", src, re.M)
+    assert first_return, "esperaba al menos un return temprano en la sección"
+    assert pop_at < first_return.start(), (
+        "el pop de invalidación quedó DESPUÉS de un return temprano: "
+        "un run que corta dejaría el modelo rancio para el export"
+    )
+
+
+def test_asin_section_persists_model_after_empty_guard():
+    """El set va después del guard `if not model`, para no persistir {}."""
+    src = _asin_section_src()
+    guard_at = src.find("No se acumuló ningún ASIN")
+    set_at = src.find("st.session_state[_k_asin_model(")
+    assert guard_at != -1 and set_at != -1
+    assert set_at > guard_at, (
+        "el modelo se persiste antes del guard de modelo vacío"
+    )
+
+
+def test_asin_section_pop_and_set_appear_once_each():
+    """Un solo punto de invalidación y uno de escritura — sin caminos alternos."""
+    src = _asin_section_src()
+    assert src.count("st.session_state.pop(_k_asin_model(") == 1
+    assert src.count("st.session_state[_k_asin_model(") == 1

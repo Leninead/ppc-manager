@@ -9,11 +9,14 @@ para que estos tests NO dependan del buffer de G5 en session_state.
 
 from datetime import date
 
+import pytest
+
 from modules.pages.revenue_forecast import (
     _CHART_ACTUAL,
     _CHART_ACTUAL_WASHED,
     _acos_tacos_chart,
     _ads_chart,
+    _asin_table_html,
     _build_export_html,
     _cliente_slug,
     _custom_chart,
@@ -409,3 +412,423 @@ def test_export_custom_order_is_catalog_not_buffer():
                                   actual_rows=_actual())
     assert al_reves.count("(real)") == en_orden.count("(real)")
     assert al_reves.count(_CHART_ACTUAL_WASHED) == en_orden.count(_CHART_ACTUAL_WASHED)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _asin_table_html — tabla por-ASIN del export (E7, pieza 1)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Se construye desde los dicts del modelo, NO desde los df builders de la app:
+# el HTML va a un documento que se manda por mail, así que necesita formato con
+# currency y `html.escape` en todo string que venga de datos (los títulos los
+# escribe Amazon y traen `&` seguido).
+
+def _asin_node(parent, title, rev_by_period):
+    return {
+        "parent_asin": parent,
+        "title": title,
+        "history": [
+            {"period": p, "revenue": r, "units": 10.0, "sessions": 100.0,
+             "unit_session_pct": 10.0, "page_views": 120.0, "buy_box_pct": 90.0}
+            for p, r in sorted(rev_by_period.items())
+        ],
+    }
+
+
+def _asin_model_2x2():
+    """2 ASINs x 2 períodos, con el padre real presente."""
+    return {
+        "B00PARENT": _asin_node("B00PARENT", "Producto Padre",
+                                {"2026-06": 1000.0, "2026-07": 1500.0}),
+        "B00CHILD1": _asin_node("B00PARENT", "Variante Roja",
+                                {"2026-06": 500.0, "2026-07": 2000.0}),
+    }
+
+
+# nivel child
+
+def test_asin_table_child_one_row_per_asin():
+    out = _asin_table_html(_asin_model_2x2(), "child")
+    assert out.count("<tr>") == 3          # 1 header + 2 ASINs
+    assert "B00PARENT" in out and "B00CHILD1" in out
+
+
+def test_asin_table_child_has_period_columns():
+    out = _asin_table_html(_asin_model_2x2(), "child")
+    assert "<th>2026-06</th>" in out
+    assert "<th>2026-07</th>" in out
+
+
+def test_asin_table_child_formats_revenue_as_currency():
+    """Revenue formateado, no float crudo."""
+    out = _asin_table_html(_asin_model_2x2(), "child")
+    assert "$1,000" in out
+    assert ">1000.0<" not in out
+
+
+def test_asin_table_child_missing_period_is_dash():
+    """ASIN sin dato en un mes queda em-dash, igual que _forecast_table_html."""
+    model = {
+        "B00A": _asin_node("B00A", "A", {"2026-06": 100.0}),
+        "B00B": _asin_node("B00B", "B", {"2026-07": 200.0}),
+    }
+    assert "—" in _asin_table_html(model, "child")
+
+
+def test_asin_table_child_sorted_by_latest_revenue_desc():
+    """El que más factura en el último mes va primero."""
+    out = _asin_table_html(_asin_model_2x2(), "child")
+    assert out.index("B00CHILD1") < out.index(">B00PARENT<")
+
+
+# nivel parent
+
+def test_asin_table_parent_uses_real_parent_title():
+    """Mismo criterio E5 que la app (fuente única: _asin_parent_agg)."""
+    out = _asin_table_html(_asin_model_2x2(), "parent")
+    assert "Producto Padre" in out
+    assert "Variante Roja" not in out
+
+
+def test_asin_table_parent_falls_back_to_first_child_title():
+    model = {
+        "B00C1": _asin_node("B00P9", "Primera Variante", {"2026-06": 100.0}),
+        "B00C2": _asin_node("B00P9", "Segunda Variante", {"2026-06": 200.0}),
+    }
+    assert "Primera Variante" in _asin_table_html(model, "parent")
+
+
+def test_asin_table_parent_sums_children_revenue():
+    """La fila parent suma los childs: 1000 + 500 en junio."""
+    out = _asin_table_html(_asin_model_2x2(), "parent")
+    assert "$1,500" in out
+    assert out.count("<tr>") == 2          # 1 header + 1 parent
+
+
+def test_asin_table_parent_empty_parent_shows_placeholder():
+    """parent_asin vacío queda como placeholder, no celda en blanco."""
+    model = {"B00A": _asin_node("", "Suelto", {"2026-06": 100.0})}
+    assert "Sin parent" in _asin_table_html(model, "parent")
+
+
+def test_asin_table_child_empty_parent_shows_placeholder():
+    """Mismo placeholder en la columna Parent ASIN del nivel child."""
+    model = {"B00A": _asin_node("", "Suelto", {"2026-06": 100.0})}
+    assert "Sin parent" in _asin_table_html(model, "child")
+
+
+# nivel cuenta
+
+def test_asin_table_cuenta_one_row_per_period():
+    out = _asin_table_html(_asin_model_2x2(), "cuenta")
+    assert out.count("<tr>") == 3          # 1 header + 2 períodos
+    assert "2026-06" in out and "2026-07" in out
+
+
+def test_asin_table_cuenta_totals_revenue_units_sessions():
+    """Junio: 1000 + 500 revenue, units 20, sessions 200."""
+    out = _asin_table_html(_asin_model_2x2(), "cuenta")
+    for header in ("Revenue", "Units", "Sessions"):
+        assert f"<th>{header}</th>" in out
+    assert "$1,500" in out
+    assert ">20<" in out and ">200<" in out
+
+
+# seguridad: escape
+
+def test_asin_table_escapes_title_ampersand_and_lt():
+    """LOAD-BEARING. Los títulos los escribe Amazon y van a un doc por mail.
+
+    Sin html.escape, un título con < inyecta markup en el deliverable.
+    """
+    model = {"B00A": _asin_node("B00A", "Crema A & B <Night>", {"2026-06": 10.0})}
+    out = _asin_table_html(model, "child")
+    assert "&amp;" in out
+    assert "&lt;Night&gt;" in out
+    assert "A & B <Night>" not in out
+
+
+def test_asin_table_escapes_title_at_parent_level():
+    model = {"B00A": _asin_node("B00A", "Marca & Co", {"2026-06": 10.0})}
+    out = _asin_table_html(model, "parent")
+    assert "&amp;" in out
+    assert "Marca & Co" not in out
+
+
+def test_asin_table_escapes_asin_field():
+    """El ASIN también sale de datos: se escapa igual que el título."""
+    model = {"<script>": _asin_node("<script>", "T", {"2026-06": 10.0})}
+    out = _asin_table_html(model, "child")
+    assert "<script>" not in out
+    assert "&lt;script&gt;" in out
+
+
+# bordes
+
+def test_asin_table_empty_model_returns_empty_string():
+    """Igual que _forecast_table_html: vacío y el caller omite la sección."""
+    for level in ("child", "parent", "cuenta"):
+        assert _asin_table_html({}, level) == ""
+
+
+def test_asin_table_model_without_history_returns_empty_string():
+    model = {"B00A": {"parent_asin": "B00A", "title": "T", "history": []}}
+    for level in ("child", "parent", "cuenta"):
+        assert _asin_table_html(model, level) == ""
+
+
+def test_asin_table_single_period_works():
+    model = {"B00A": _asin_node("B00A", "T", {"2026-06": 100.0})}
+    out = _asin_table_html(model, "child")
+    assert "<th>2026-06</th>" in out
+    assert "$100" in out
+
+
+def test_asin_table_respects_currency():
+    """currency se propaga a _fmt_currency (no hardcodea la moneda)."""
+    model = {"B00A": _asin_node("B00A", "T", {"2026-06": 1000.0})}
+    assert "$1,000" in _asin_table_html(model, "child", currency="MXN")
+
+
+def test_asin_table_invalid_level_raises():
+    """Typo en level falla fuerte: devolver vacío dejaría una sección muda."""
+    with pytest.raises(ValueError, match="level inválido"):
+        _asin_table_html(_asin_model_2x2(), "chid")
+
+
+def test_asin_table_no_plotly_in_output():
+    """LOAD-BEARING (tamaño). La vista por-ASIN es SOLO tabla.
+
+    Decisión de producto: nada de charts por ASIN. 64 ASINs x chart infla el
+    HTML y Gmail rebota adjuntos grandes. Si esto falla, alguien metió una
+    figura acá y el export dejó de ser mailable.
+    """
+    out = _asin_table_html(_asin_model_2x2(), "child")
+    assert "plotly" not in out.lower()
+    assert "cdn.plot.ly" not in out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _build_export_html + asin_model — sección "Detalle por ASIN" (E7, pieza 3)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Sección APILADA, sin tabs ni JS: el reporte se abre y se le saca screenshot,
+# así que una pestaña oculta sería contenido que nadie captura. Sólo niveles
+# Parent + Cuenta (el child con N ASINs es ruido para el cliente).
+
+def _export_asin_model():
+    return {
+        "B00PARENT": _asin_node("B00PARENT", "Producto Padre",
+                                {"2026-06": 1000.0, "2026-07": 1500.0}),
+        "B00CHILD1": _asin_node("B00PARENT", "Variante Roja",
+                                {"2026-06": 500.0, "2026-07": 2000.0}),
+    }
+
+
+# ── retrocompatibilidad ──────────────────────────────────────────────────────
+
+def test_export_without_asin_model_has_no_asin_section():
+    """Default None → el reporte sale como antes de E7, sin la sección."""
+    out = _build_export_html(_cur())
+    assert "Detalle por ASIN" not in out
+    assert "Por producto (Parent)" not in out
+    assert "Total por mes (Cuenta)" not in out
+
+
+def test_export_explicit_none_asin_model_has_no_asin_section():
+    assert "Detalle por ASIN" not in _build_export_html(_cur(), asin_model=None)
+
+
+def test_export_empty_asin_model_has_no_asin_section():
+    """Modelo vacío se trata como ausente: no emite una sección en blanco."""
+    assert "Detalle por ASIN" not in _build_export_html(_cur(), asin_model={})
+
+
+def test_export_asin_model_without_history_has_no_asin_section():
+    """Modelo sin períodos → las tablas dan '' → la sección no se emite."""
+    model = {"B00A": {"parent_asin": "B00A", "title": "T", "history": []}}
+    assert "Detalle por ASIN" not in _build_export_html(_cur(), asin_model=model)
+
+
+# ── con modelo ───────────────────────────────────────────────────────────────
+
+def test_export_with_asin_model_adds_section():
+    out = _build_export_html(_cur(), asin_model=_export_asin_model())
+    assert "Detalle por ASIN" in out
+    assert "Por producto (Parent)" in out
+    assert "Total por mes (Cuenta)" in out
+
+
+def test_export_asin_section_has_parent_and_account_data():
+    out = _build_export_html(_cur(), asin_model=_export_asin_model())
+    assert "B00PARENT" in out
+    assert "Producto Padre" in out
+    assert "$1,500" in out          # junio: 1000 + 500 sumados en el parent
+
+
+def test_export_asin_section_omits_child_level():
+    """Decisión de producto: child NO va (9-64 ASINs = ruido para el cliente).
+
+    El título de la variante sólo existe a nivel child; si aparece, alguien
+    agregó ese nivel al export.
+    """
+    out = _build_export_html(_cur(), asin_model=_export_asin_model())
+    assert "Variante Roja" not in out
+    assert "Child ASIN" not in out
+
+
+def test_export_asin_section_comes_before_footer():
+    """La sección va apilada al final del contenido, antes del footer."""
+    out = _build_export_html(_cur(), asin_model=_export_asin_model())
+    assert out.index("Detalle por ASIN") < out.index("Generado por Agency OS")
+
+
+def test_export_asin_section_after_forecast_detail():
+    """Orden: el detalle por-cuenta primero, el por-ASIN después."""
+    out = _build_export_html(_cur(), asin_model=_export_asin_model())
+    assert out.index("Detalle del forecast") < out.index("Detalle por ASIN")
+
+
+# ── LOAD-BEARING: mailability ────────────────────────────────────────────────
+
+def test_export_with_asin_model_still_seven_charts():
+    """🔴 LOAD-BEARING. La sección ASIN es SÓLO tablas: no suma figuras."""
+    out = _build_export_html(_cur(), asin_model=_export_asin_model())
+    assert out.count("plotly-graph-div") == 7
+
+
+def test_export_with_asin_model_still_loads_plotly_once():
+    """🔴 LOAD-BEARING (tamaño). Con modelo, plotly.js se sigue cargando 1 vez.
+
+    Si esto da >1, alguien metió una figura en la sección por-ASIN y el reporte
+    pasó a pesar decenas de MB: Gmail rebota el adjunto.
+    """
+    out = _build_export_html(_cur(), asin_model=_export_asin_model())
+    assert out.count("cdn.plot.ly") == 1
+
+
+def test_export_asin_section_has_no_script_tags():
+    """Sin tabs = sin JS. El deliverable no debe traer <script> propio.
+
+    (Plotly inyecta los suyos; lo que se blinda acá es que la sección ASIN no
+    agregue lógica de pestañas.)
+    """
+    out = _build_export_html(_cur(), asin_model=_export_asin_model())
+    assert "tab-panel" not in out
+    assert "onclick" not in out
+
+
+# ── escape end-to-end ────────────────────────────────────────────────────────
+
+def test_export_escapes_asin_title_end_to_end():
+    """🔴 El título de Amazon llega escapado al documento final, no sólo en el
+    helper aislado."""
+    model = {"B00A": _asin_node("B00A", "Crema A & B <Night>", {"2026-06": 10.0})}
+    out = _build_export_html(_cur(), asin_model=model)
+    assert "&amp;" in out
+    assert "&lt;Night&gt;" in out
+    assert "A & B <Night>" not in out
+
+
+def test_export_asin_respects_account_currency():
+    """La sección ASIN usa la moneda de la cuenta, no una hardcodeada."""
+    model = {"B00A": _asin_node("B00A", "T", {"2026-06": 1000.0})}
+    out = _build_export_html(_cur(currency="MXN"), asin_model=model)
+    assert "$1,000" in out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# include_general — los 3 casos del selector de vistas (E8, pieza 4)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El AM elige qué mandar: sólo la proyección general, sólo el detalle por ASIN,
+# o las dos. El caso "ninguna" lo ataja la UI antes de llamar acá (no se ofrece
+# la descarga), pero el helper igual no debe romper.
+
+def test_export_include_general_default_is_true():
+    """Sin pasar el param, el reporte sale completo — retrocompat."""
+    out = _build_export_html(_cur())
+    assert out.count("plotly-graph-div") == 7
+    assert "Resumen de la proyección" in out
+    assert "Detalle del forecast" in out
+
+
+# ── caso 1: sólo general ─────────────────────────────────────────────────────
+
+def test_export_only_general_has_no_asin_section():
+    out = _build_export_html(_cur(), include_general=True, asin_model=None)
+    assert out.count("plotly-graph-div") == 7
+    assert "Detalle por ASIN" not in out
+
+
+# ── caso 2: ambos ────────────────────────────────────────────────────────────
+
+def test_export_both_views_has_charts_and_asin():
+    out = _build_export_html(_cur(), include_general=True,
+                             asin_model=_export_asin_model())
+    assert out.count("plotly-graph-div") == 7
+    assert "Resumen de la proyección" in out
+    assert "Detalle por ASIN" in out
+
+
+# ── caso 3: sólo ASIN ────────────────────────────────────────────────────────
+
+def test_export_only_asin_omits_general_content():
+    """include_general=False saca resumen + charts + detalle de cuenta."""
+    out = _build_export_html(_cur(), include_general=False,
+                             asin_model=_export_asin_model())
+    assert "Resumen de la proyección" not in out
+    assert "Detalle del forecast" not in out
+    assert "Detalle por ASIN" in out
+
+
+def test_export_only_asin_has_zero_charts():
+    """🔴 Sin proyección general no hay NINGÚN chart: el reporte más liviano.
+
+    Y sin charts tampoco se carga plotly.js — el documento pesa unos KB.
+    """
+    out = _build_export_html(_cur(), include_general=False,
+                             asin_model=_export_asin_model())
+    assert out.count("plotly-graph-div") == 0
+    assert out.count("cdn.plot.ly") == 0
+
+
+def test_export_only_asin_keeps_header_and_footer():
+    """Sigue siendo un documento con marca, no un fragmento suelto."""
+    out = _build_export_html(_cur(), include_general=False,
+                             asin_model=_export_asin_model())
+    assert out.startswith("<!DOCTYPE html>")
+    assert "Capybaras" in out
+    assert "Dermaglos" in out
+    assert "Generado por Agency OS" in out
+
+
+def test_export_only_asin_keeps_note():
+    """La nota del AM va igual: no depende de la vista general."""
+    out = _build_export_html(_cur(), note="Contexto del mes.",
+                             include_general=False,
+                             asin_model=_export_asin_model())
+    assert "Contexto del mes." in out
+    assert 'class="note"' in out
+
+
+def test_export_only_asin_works_without_account_history():
+    """Sin histórico de cuenta pero CON modelo por-ASIN, no cae al doc mínimo.
+
+    La UI no permite llegar acá (el gate de forecast lo impide), pero el helper
+    es puro y no debe romper ni devolver 'Sin datos' teniendo qué mostrar.
+    """
+    out = _build_export_html(_cur(historical=[], forecast=[]),
+                             include_general=False,
+                             asin_model=_export_asin_model())
+    assert "Detalle por ASIN" in out
+    assert "Sin datos para exportar" not in out
+
+
+def test_export_no_views_selected_is_minimal_not_crash():
+    """Caso que la UI previene: sin general y sin ASIN, no revienta."""
+    out = _build_export_html(_cur(), include_general=False, asin_model=None)
+    assert out.startswith("<!DOCTYPE html>")
+    assert "</html>" in out
+    assert out.count("plotly-graph-div") == 0
+    assert "Detalle por ASIN" not in out

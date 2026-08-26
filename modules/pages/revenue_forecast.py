@@ -130,6 +130,21 @@ _K_CLIENTS = f"{_STATE_PREFIX}clients"
 _K_ACCOUNT_MANAGERS = f"{_STATE_PREFIX}account_managers"
 _K_ACTIVE_CLIENT_ID = f"{_STATE_PREFIX}active_client_id"
 
+
+def _k_asin_model(client_id: str) -> str:
+    """Key donde se persiste el modelo por-ASIN acumulado, por cliente.
+
+    Existe para que el export lo lea: `_render_export_section` corre DESPUÉS de
+    `_render_asin_section` en el mismo run, y el modelo se arma efímero ahí.
+
+    Es DATO, no preferencia — a diferencia de los buffers de Gráficas, un valor
+    rancio acá no es una molestia cosmética: manda un deliverable al cliente con
+    ASINs que ya no están cargados. Por eso la key se BORRA al entrar a la
+    sección y se re-escribe sólo en el camino feliz; los seis `return` tempranos
+    de `_render_asin_section` la dejan ausente, y el export omite la sección.
+    """
+    return f"{_STATE_PREFIX}asin_model_{client_id}"
+
 # ⚠ FLAG MAESTRO: persistencia ENCENDIDA en Fase 2. Cableada en `_ensure_state`
 # (hidrata si el catálogo está vacío) + botón "💾 Guardar cliente" en `render()`
 # + autosave post-demo-load y post-forecast-gen. Backend por default local; para
@@ -1667,18 +1682,21 @@ def _build_asin_child_df(model: dict) -> pd.DataFrame:
     return df
 
 
-def _build_asin_parent_df(model: dict, all_periods: list[str]) -> pd.DataFrame:
-    """Una fila por parent_asin: columnas parent_asin, title, y una columna
-    revenue por period (suma de los childs del parent).
+def _asin_parent_agg(model: dict) -> tuple[dict, dict]:
+    """Agrega el modelo por-ASIN a nivel parent. Fuente ÚNICA del criterio E5.
 
-    E5 — título representativo del parent: un parent agrupa varios childs con
-    títulos distintos, así que se elige el del child cuyo asin == parent_asin
-    (el "padre real", que suele estar en el catálogo con su propio título). Si
-    ese child no está en el modelo, se cae al primer título no vacío que
-    aparezca para ese parent. `title` va primera después de parent_asin, igual
-    que en la tabla Child.
+    La usan `_build_asin_parent_df` (tabla de la app) y `_asin_table_html`
+    (tabla del export): el título del parent tiene que ser el mismo en pantalla
+    y en el deliverable, así que la regla vive en un solo lugar.
 
-    Celdas de períodos sin dato quedan como '' (no NaN, no 0.0) pre-Arrow.
+    Criterio de título (E5): gana el del child cuyo asin == parent_asin (el
+    "padre real", que suele estar en el catálogo con su propio título); si ese
+    child no está en el modelo, cae al primer título no vacío del grupo.
+
+    Returns:
+        (revenue_por_parent, titulo_por_parent):
+            - `{parent_asin: {period: revenue_sumado}}`
+            - `{parent_asin: title}` (str vacío si ningún child tiene título)
     """
     pagg: dict = {}
     ptitle: dict = {}
@@ -1695,9 +1713,28 @@ def _build_asin_parent_df(model: dict, all_periods: list[str]) -> pd.DataFrame:
         elif node_title and par not in ptitle_fallback:
             ptitle_fallback[par] = node_title
 
+    titles = {par: (ptitle.get(par) or ptitle_fallback.get(par, "")) for par in pagg}
+    return pagg, titles
+
+
+def _build_asin_parent_df(model: dict, all_periods: list[str]) -> pd.DataFrame:
+    """Una fila por parent_asin: columnas parent_asin, title, y una columna
+    revenue por period (suma de los childs del parent).
+
+    E5 — título representativo del parent: un parent agrupa varios childs con
+    títulos distintos, así que se elige el del child cuyo asin == parent_asin
+    (el "padre real", que suele estar en el catálogo con su propio título). Si
+    ese child no está en el modelo, se cae al primer título no vacío que
+    aparezca para ese parent. `title` va primera después de parent_asin, igual
+    que en la tabla Child.
+
+    Celdas de períodos sin dato quedan como '' (no NaN, no 0.0) pre-Arrow.
+    """
+    pagg, ptitles = _asin_parent_agg(model)
+
     prows = []
     for par, byp in pagg.items():
-        title = ptitle.get(par) or ptitle_fallback.get(par, "")
+        title = ptitles.get(par, "")
         row = {"parent_asin": par, "title": title}
         for p in all_periods:
             row[p] = byp.get(p, "")
@@ -4621,7 +4658,13 @@ def _render_export_section(cur: dict) -> None:
     """
     forecast = cur.get("forecast", [])
     if not forecast:
-        return  # Sin forecast, no hay export.
+        # DECISIÓN CONSCIENTE (E7/E8): el export es "el reporte del forecast de
+        # cuenta"; la vista por-ASIN es un complemento, no un deliverable
+        # independiente. Sin forecast no se ofrece NADA — ni el CSV ni el HTML —
+        # aunque el AM haya cargado reportes By-ASIN. El caso (cargar By-ASIN sin
+        # generar el forecast de cuenta) es degenerado y raro; si aparece en uso
+        # real, acá es donde hay que aflojar el gate.
+        return
     st.divider()
     st.markdown("### 📤 Exportar")
     st.caption(
@@ -4670,11 +4713,50 @@ def _render_export_section(cur: dict) -> None:
     # si la sección Gráficas llegó a renderizar.
     yoy = st.session_state.get(_K_CHARTS_YOY, True)
     custom = st.session_state.get(_K_CHARTS_CUSTOM, ["revenue"])
+
+    # E8 — selector de vistas. El modelo por-ASIN lo dejó `_render_asin_section`
+    # en este MISMO run (corre antes); si esa sección no llegó a acumular, la key
+    # no existe y la vista queda deshabilitada. Ver `_k_asin_model`.
+    asin_model = st.session_state.get(_k_asin_model(cur["id"]))
+    has_asin = bool(asin_model)
+
+    st.markdown("**Qué incluir**")
+    inc_general = st.checkbox(
+        "Incluir proyección general",
+        value=True,
+        key=f"rf_export_inc_general_{cur['id']}",
+        help="Resumen de la proyección, los 7 gráficos y el detalle mes a mes.",
+    )
+    inc_asin = st.checkbox(
+        "Incluir detalle por ASIN",
+        value=has_asin,
+        disabled=not has_asin,
+        key=f"rf_export_inc_asin_{cur['id']}",
+        help=(
+            "Tabla consolidada por producto-padre y total por mes."
+            if has_asin else
+            "Cargá reportes By-ASIN en la sección 'Por ASIN' para habilitar esta vista."
+        ),
+    )
+    if not has_asin:
+        st.caption(
+            "El detalle por ASIN se habilita cuando cargás reportes By-ASIN "
+            "válidos en la sección 'Por ASIN' de arriba."
+        )
+
+    if not inc_general and not inc_asin:
+        # Un HTML con header y footer y nada en el medio no es un deliverable:
+        # mejor no ofrecer la descarga que mandar un documento vacío.
+        st.warning("Seleccioná al menos una vista para exportar.")
+        return
+
     # `actual` va CRUDO: `_build_export_html` resuelve el `partial` puertas
     # adentro (un solo punto de verdad, ver su docstring).
     html_str = _build_export_html(
         cur, note=note or "", show_yoy=yoy, custom_metrics=custom,
         actual_rows=cur.get("actual", []),
+        asin_model=asin_model if inc_asin else None,
+        include_general=inc_general,
     )
     fname_html = (
         f"forecast_{_cliente_slug(cur.get('name', ''))}_"
@@ -4968,9 +5050,11 @@ body{
   font-size:14px; line-height:1.6;
 }
 .wrap{max-width:1100px; margin:0 auto; padding:40px 28px 64px;}
-h1,h2{font-family:'Bricolage Grotesque',Georgia,serif; font-weight:600; margin:0;}
+h1,h2,h3{font-family:'Bricolage Grotesque',Georgia,serif; font-weight:600; margin:0;}
 h1{font-size:2rem; letter-spacing:-0.02em;}
 h2{font-size:1.15rem; margin:0 0 12px; letter-spacing:-0.01em;}
+h3{font-size:0.95rem; margin:24px 0 10px; color:var(--text-mute); letter-spacing:-0.01em;}
+h3:first-of-type{margin-top:0;}
 header{border-bottom:1px solid var(--line); padding-bottom:24px; margin-bottom:32px;}
 .brand{
   font-family:'Bricolage Grotesque',Georgia,serif; font-weight:700;
@@ -5099,6 +5183,110 @@ def _forecast_table_html(fc_rows: list, currency: str = "USD") -> str:
     return "".join(out)
 
 
+_ASIN_TABLE_LEVELS = ("child", "parent", "cuenta")
+
+# Placeholder del parent vacío. El reporte By Child Item trae `parent_asin` en
+# blanco para ASINs sin variación; una celda vacía en un deliverable se lee como
+# "falta el dato" en vez de "no tiene padre".
+_NO_PARENT_LABEL = "Sin parent"
+
+
+def _asin_table_html(model: dict, level: str, currency: str = "USD") -> str:
+    """Tabla HTML de la vista por-ASIN para el export (E7).
+
+    Construida desde los DICTS del modelo, NO desde `_build_asin_child_df` /
+    `_build_asin_parent_df`: esos devuelven DataFrames formados para
+    `st.data_editor`, que hace el formato vía `column_config` y escapa por su
+    cuenta. Acá el HTML es crudo y va a un documento que se manda por mail, así
+    que el formato lo hacen los `_fmt_*` (respetando `currency`) y TODO string
+    que venga de datos pasa por `html.escape` — los títulos de ASIN los escribe
+    Amazon y traen `&` con frecuencia.
+
+    Mismo patrón que `_forecast_table_html`: celdas ausentes → '—' vía
+    `_table_cell`, y `''` cuando no hay nada que mostrar (el caller omite la
+    sección).
+
+    Args:
+        model: `{child_asin: {"parent_asin", "title", "history": [...]}}` tal
+            como lo devuelve `_accumulate_asin_snapshots`.
+        level: 'child' (fila por ASIN), 'parent' (fila por parent, revenue
+            sumado) o 'cuenta' (fila por período, totales).
+        currency: moneda de la cuenta; se propaga a `_fmt_currency`.
+
+    Returns:
+        `<table>…</table>`, o `''` si no hay datos que mostrar.
+
+    Raises:
+        ValueError: `level` desconocido. Falla fuerte a propósito: devolver ''
+            ante un typo dejaría una sección muda en el deliverable.
+    """
+    if level not in _ASIN_TABLE_LEVELS:
+        raise ValueError(
+            f"level inválido: {level!r}. Esperaba uno de {_ASIN_TABLE_LEVELS}."
+        )
+    if not model:
+        return ""
+
+    periods = sorted({h["period"] for node in model.values()
+                      for h in node["history"]})
+    if not periods:
+        return ""
+
+    def _tbl(headers: list[str], rows: list[list[str]]) -> str:
+        out = ["<table><thead><tr>"]
+        out += [f"<th>{html.escape(h)}</th>" for h in headers]
+        out.append("</tr></thead><tbody>")
+        for r in rows:
+            out.append("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>")
+        out.append("</tbody></table>")
+        return "".join(out)
+
+    if level == "cuenta":
+        totals = _asin_account_totals(model)
+        if not totals:
+            return ""
+        rows = [[
+            html.escape(str(t.get("period", "") or "—")),
+            _fmt_currency(_table_cell(t.get("revenue")), currency),
+            _fmt_num(_table_cell(t.get("units"))),
+            _fmt_num(_table_cell(t.get("sessions"))),
+        ] for t in totals]
+        return _tbl(["Período", "Revenue", "Units", "Sessions"], rows)
+
+    if level == "parent":
+        pagg, ptitles = _asin_parent_agg(model)
+        if not pagg:
+            return ""
+        # Orden por revenue del período más reciente, desc — mismo criterio que
+        # la tabla child de la app: lo primero que mira el cliente es lo que más
+        # factura.
+        latest = periods[-1]
+        order = sorted(pagg, key=lambda par: pagg[par].get(latest, 0.0), reverse=True)
+        rows = [[
+            html.escape(par) if par else _NO_PARENT_LABEL,
+            html.escape(ptitles.get(par, "")),
+            *[_fmt_currency(_table_cell(pagg[par].get(p)), currency) for p in periods],
+        ] for par in order]
+        return _tbl(["Parent ASIN", "Título", *periods], rows)
+
+    # level == "child"
+    rev_by_asin = {
+        ca: {h["period"]: h.get("revenue") for h in node["history"]}
+        for ca, node in model.items()
+    }
+    latest = periods[-1]
+    order = sorted(
+        model, key=lambda ca: _js_number(rev_by_asin[ca].get(latest)), reverse=True,
+    )
+    rows = [[
+        html.escape(ca),
+        html.escape(model[ca].get("title") or ""),
+        html.escape(model[ca].get("parent_asin") or "") or _NO_PARENT_LABEL,
+        *[_fmt_currency(_table_cell(rev_by_asin[ca].get(p)), currency) for p in periods],
+    ] for ca in order]
+    return _tbl(["Child ASIN", "Título", "Parent ASIN", *periods], rows)
+
+
 def _export_shell(title: str, body: str) -> str:
     """Envuelve `body` en el documento completo (head + fonts + CSS + wrap)."""
     return (
@@ -5121,6 +5309,8 @@ def _build_export_html(
     show_yoy: bool = True,
     custom_metrics: Optional[list] = None,
     actual_rows: Optional[list] = None,
+    asin_model: Optional[dict] = None,
+    include_general: bool = True,
 ) -> str:
     """Reporte HTML self-contained del forecast: 7 charts Plotly + resumen + tabla.
 
@@ -5153,6 +5343,30 @@ def _build_export_html(
                   `date.today()` a esta función no agrega una dependencia
                   temporal nueva — ya la tiene para el `gen` del header.
 
+        asin_model: modelo por-ASIN acumulado (`_accumulate_asin_snapshots`), que
+                  el caller lee de `session_state` — la sección Por-ASIN lo deja
+                  ahí en el mismo run (ver `_k_asin_model`). None → el reporte
+                  sale EXACTAMENTE como antes de E7, sin la sección "Detalle por
+                  ASIN": el default mantiene retrocompatible a todo caller viejo,
+                  igual que `actual_rows`.
+                  Con modelo, se agrega UNA sección apilada más (no tabs: el
+                  reporte se abre y se le saca screenshot, y una pestaña oculta
+                  es contenido que nadie captura) con los niveles Parent y
+                  Cuenta. El nivel child queda AFUERA a propósito: con 9-64 ASINs
+                  es una tabla que el cliente no lee, y el consolidado por
+                  producto-padre + total mensual es lo accionable.
+                  NO agrega charts — la sección es sólo tablas, para que el
+                  documento siga siendo mailable (ver el test de `cdn.plot.ly`).
+
+        include_general: si la proyección POR CUENTA va en el reporte (resumen,
+                  los 7 charts y el detalle mes a mes). True (default) → sale
+                  como siempre. False sólo tiene sentido junto a `asin_model`:
+                  es el caso "solo Por ASIN" del selector de vistas (E8), donde
+                  el AM quiere mandar únicamente el consolidado por producto.
+                  Con `False` el documento no lleva NINGÚN chart, así que
+                  tampoco carga plotly.js — es el reporte más liviano de los
+                  tres.
+
     Returns:
         Documento HTML completo como string.
 
@@ -5174,7 +5388,11 @@ def _build_export_html(
         "</header>"
     )
 
-    if not hist:
+    # Sin histórico Y sin nada por-ASIN → documento mínimo. Se mira
+    # `asin_model` porque con `include_general=False` el histórico de cuenta
+    # es irrelevante: el reporte "solo Por ASIN" no lo usa, y cortar acá lo
+    # dejaría vacío.
+    if not hist and not asin_model:
         body = (
             f"{head}\n"
             '<section><p class="meta">Sin datos para exportar. Cargá el '
@@ -5187,50 +5405,71 @@ def _build_export_html(
     if note.strip():
         parts.append(f'<div class="note">{html.escape(note.strip())}</div>')
 
-    # Resumen — reusa el builder puro del summary de F4 (8 cards ya formateados).
-    cards = _build_forecast_summary_cards(fc, currency)
-    if cards:
-        cards_html = "".join(
-            f'<div class="card"><div class="label">{html.escape(c["label"])}</div>'
-            f'<div class="value">{html.escape(str(c["value"]))}</div></div>'
-            for c in cards
+    # La proyección por CUENTA (resumen + 7 charts + detalle) es opcional:
+    # el selector de vistas del AM (E8) permite mandar sólo el detalle
+    # por-ASIN. Default True → retrocompatible con todo caller previo.
+    if include_general:
+        # Resumen — reusa el builder puro del summary de F4 (8 cards ya formateados).
+        cards = _build_forecast_summary_cards(fc, currency)
+        if cards:
+            cards_html = "".join(
+                f'<div class="card"><div class="label">{html.escape(c["label"])}</div>'
+                f'<div class="value">{html.escape(str(c["value"]))}</div></div>'
+                for c in cards
+            )
+            parts.append(
+                f'<section><h2>Resumen de la proyección</h2>'
+                f'<div class="cards">{cards_html}</div></section>'
+            )
+
+        # F7-A4 — la capa `actual` se resuelve UNA vez, acá, y de acá baja a los 7.
+        actual = _resolve_partial(actual_rows) if actual_rows else []
+
+        # Orden de catálogo, igual que G5 en L4301. El buffer de los chips guarda el
+        # orden en que el AM los fue tocando, no el del catálogo, y ese orden decide
+        # dos cosas: qué línea real va sólida (F7-A4) y cuál es el eje izquierdo
+        # (`_axis_split` mira la 1ra unidad que aparece). Sin normalizar, el Custom
+        # del reporte podía salir distinto del que el AM validó en pantalla.
+        custom_ids = [mid for mid in _METRICS if mid in (custom_metrics or ["revenue"])]
+
+        # Los 7 charts — se CONSTRUYEN llamando a los charts puros de G1-G4, con el
+        # mismo `show_yoy` que el AM tiene en pantalla. Orden = tabs de G5.
+        figs = [
+            _metric_chart("revenue", hist, fc, show_yoy, actual_rows=actual),
+            _metric_chart("sessions", hist, fc, show_yoy, actual_rows=actual),
+            _metric_chart("cvr", hist, fc, show_yoy, actual_rows=actual),
+            _metric_chart("units", hist, fc, show_yoy, actual_rows=actual),
+            _ads_chart(hist, fc, show_yoy, actual_rows=actual),
+            _acos_tacos_chart(hist, fc, show_yoy, actual_rows=actual),
+            _custom_chart(custom_ids, hist, fc, show_yoy, actual_rows=actual),
+        ]
+        charts_html = "".join(
+            f'<div class="chart"><h2>{html.escape(t)}</h2>'
+            f"{_fig_to_div(f, first=(i == 0))}</div>"
+            for i, (t, f) in enumerate(zip(_EXPORT_CHART_TITLES, figs))
         )
-        parts.append(
-            f'<section><h2>Resumen de la proyección</h2>'
-            f'<div class="cards">{cards_html}</div></section>'
-        )
+        parts.append(f"<section>{charts_html}</section>")
 
-    # F7-A4 — la capa `actual` se resuelve UNA vez, acá, y de acá baja a los 7.
-    actual = _resolve_partial(actual_rows) if actual_rows else []
+        table = _forecast_table_html(fc, currency)
+        if table:
+            parts.append(f"<section><h2>Detalle del forecast</h2>{table}</section>")
 
-    # Orden de catálogo, igual que G5 en L4301. El buffer de los chips guarda el
-    # orden en que el AM los fue tocando, no el del catálogo, y ese orden decide
-    # dos cosas: qué línea real va sólida (F7-A4) y cuál es el eje izquierdo
-    # (`_axis_split` mira la 1ra unidad que aparece). Sin normalizar, el Custom
-    # del reporte podía salir distinto del que el AM validó en pantalla.
-    custom_ids = [mid for mid in _METRICS if mid in (custom_metrics or ["revenue"])]
-
-    # Los 7 charts — se CONSTRUYEN llamando a los charts puros de G1-G4, con el
-    # mismo `show_yoy` que el AM tiene en pantalla. Orden = tabs de G5.
-    figs = [
-        _metric_chart("revenue", hist, fc, show_yoy, actual_rows=actual),
-        _metric_chart("sessions", hist, fc, show_yoy, actual_rows=actual),
-        _metric_chart("cvr", hist, fc, show_yoy, actual_rows=actual),
-        _metric_chart("units", hist, fc, show_yoy, actual_rows=actual),
-        _ads_chart(hist, fc, show_yoy, actual_rows=actual),
-        _acos_tacos_chart(hist, fc, show_yoy, actual_rows=actual),
-        _custom_chart(custom_ids, hist, fc, show_yoy, actual_rows=actual),
-    ]
-    charts_html = "".join(
-        f'<div class="chart"><h2>{html.escape(t)}</h2>'
-        f"{_fig_to_div(f, first=(i == 0))}</div>"
-        for i, (t, f) in enumerate(zip(_EXPORT_CHART_TITLES, figs))
-    )
-    parts.append(f"<section>{charts_html}</section>")
-
-    table = _forecast_table_html(fc, currency)
-    if table:
-        parts.append(f"<section><h2>Detalle del forecast</h2>{table}</section>")
+    # E7 — Detalle por ASIN: sección APILADA, sin tabs ni JS. El reporte se
+    # consume por screenshot (ver `_CHART_ACTUAL_WASHED`), así que todo lo que
+    # importa tiene que estar visible de una. Sólo Parent + Cuenta. Si no hay
+    # modelo, o las tablas salen vacías, la sección no se emite.
+    if asin_model:
+        asin_parts = []
+        parent_tbl = _asin_table_html(asin_model, "parent", currency)
+        if parent_tbl:
+            asin_parts.append(f"<h3>Por producto (Parent)</h3>{parent_tbl}")
+        cuenta_tbl = _asin_table_html(asin_model, "cuenta", currency)
+        if cuenta_tbl:
+            asin_parts.append(f"<h3>Total por mes (Cuenta)</h3>{cuenta_tbl}")
+        if asin_parts:
+            parts.append(
+                f'<section><h2>Detalle por ASIN</h2>{"".join(asin_parts)}</section>'
+            )
 
     parts.append(
         f"<footer>Generado por Agency OS · Capybaras Agency · {gen[:4]}</footer>"
@@ -5245,6 +5484,13 @@ def _render_asin_section(cur: dict) -> None:
     pre-siembra session_state para inputs con default computado), keys namespaced
     por cur['id'], data_editor read-only, None/NaN→'' pre-Arrow.
     """
+    # El modelo del run anterior se invalida ACÁ, antes de cualquier return
+    # temprano: si esta sección no llega a acumular (sin archivos, período
+    # inválido/duplicado, archivo que no es By Child Item, fallo de parseo,
+    # modelo vacío), el export no debe encontrar nada que exportar. Se re-escribe
+    # más abajo sólo si el modelo sale OK.
+    st.session_state.pop(_k_asin_model(cur["id"]), None)
+
     st.divider()
     st.markdown("### 🧩 Por ASIN")
     st.caption(
@@ -5359,6 +5605,10 @@ def _render_asin_section(cur: dict) -> None:
     if not model:
         st.warning("No se acumuló ningún ASIN (revisá los archivos).")
         return
+
+    # Camino feliz: el modelo es válido y es lo que el AM está viendo en
+    # pantalla. Recién acá se persiste para el export (ver `_k_asin_model`).
+    st.session_state[_k_asin_model(cur["id"])] = model
 
     # 5) KPI cards de cuenta (nivel agregado, último período).
     totals = _asin_account_totals(model)
