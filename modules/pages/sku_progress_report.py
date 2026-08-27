@@ -1584,9 +1584,18 @@ def render() -> None:
         # Permitir usar la tab Admin para borrar cliente o seguir
         return
 
-    # Tabs principales: una por SKU + Importar CSV + Admin
+    # Importar CSV — FUERA de st.tabs a proposito.
+    # Bug de Streamlit 1.43.2: file_uploader dentro de una tab lejana (con ~17 tabs
+    # de charts pesados) no conecta el upload con el backend. Va en un container
+    # plano arriba de las tabs. NO envolver en st.expander: _render_import_tab abre
+    # su propio expander de "SKUs no reconocidos" y 1.43.2 no soporta anidados.
+    with st.container(border=True):
+        _render_import_tab(cliente, tracked_skus)
+
+    st.divider()
+
+    # Tabs principales: una por SKU + Admin
     tab_labels = [f"📦 {s['sku']}" for s in tracked_skus]
-    tab_labels.append("📤 Importar CSV")
     tab_labels.append("⚙️ Admin")
 
     tabs = st.tabs(tab_labels)
@@ -1596,10 +1605,6 @@ def render() -> None:
         with tabs[i]:
             _render_sku_tab(cliente, sku_meta, history, optimizations)
 
-    # Tab importar
-    with tabs[len(tracked_skus)]:
-        _render_import_tab(cliente, tracked_skus)
-
     # Tab admin
-    with tabs[len(tracked_skus) + 1]:
+    with tabs[len(tracked_skus)]:
         _render_admin_tab(cliente, tracked_skus)
