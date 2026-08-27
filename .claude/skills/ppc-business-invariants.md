@@ -35,27 +35,60 @@ Excepción: ninguna. Si un caso parece requerirla, es un bug de clasificación.
 
 ## INV-3 — Piso de significancia
 
-Ninguna recomendación se emite sobre una sola observación.
+Fuente: Capybaras Launch SOP v2026, sección 5.1 y tabla de métricas objetivo.
+Reemplaza los tiers por precio usados antes, que eran una aproximación.
 
-- Negativizar requiere: `clicks >= threshold_tier` AND `orders == 0`
-- Harvest requiere: `orders >= 2` como mínimo absoluto
-- Agregar (M4) requiere: `purchases >= 2`
+### Threshold de clicks para negativizar
 
-Thresholds por tier de precio (clicks sin orden para negativizar):
+`clicks_minimos = max(10, (1 / CVR_producto) × 2)`
 
-| Tier  | Precio    | Clicks | Spend |
-|-------|-----------|--------|-------|
-| LOW   | < $12     | 18     | $15   |
-| MID   | $12–$22   | 22     | $22   |
-| HIGH  | > $22     | 28     | $30   |
+Donde `CVR_producto` es el CVR del producto, no del search term.
+
+| CVR producto | Clicks sin orden requeridos |
+|---|---|
+| 20% | 10 (mínimo absoluto) |
+| 10% | 20 |
+| 5%  | 40 |
+| 2%  | 100 |
+
+Regla global #10 del SOP: por debajo de este umbral se están matando
+keywords por falta de estadística, no por mal rendimiento.
+
+### Threshold de spend para negativizar
+
+`spend_minimo = precio_de_venta × 0.50`
+
+Producto de $30 → negativizar si gastó $15 sin ventas.
+
+### Otros pisos
+
+- Harvest por CVR alto: `CVR >= 10% AND clicks >= 15`
+- Harvest principal: `orders >= 3 AND acos <= 25%`
+- Harvest por volumen: `orders >= 5` (sin techo de ACoS, ver INV-4)
+- CTR bajo: `impresiones >= 2500 AND ctr < 0.18% AND orders == 0`
+  (500 impresiones es insuficiente)
 
 ## INV-4 — Techo de ACoS en harvest
 
-No se hace harvest de un término perdedor.
+Fuente: SOP v2026, tabla de reglas de harvesting.
 
-`acos <= target_acos × 3` es el techo. Un término con ACoS 178% no se
-promociona a exact match aunque tenga volumen de órdenes: se está
-escalando una pérdida.
+| Regla | Criterio | Techo de ACoS |
+|---|---|---|
+| Principal | `orders >= 3 AND acos <= 25%` | implícito en el criterio |
+| Por CVR alto | `cvr >= 10% AND clicks >= 15` | configurable, default `target × 3` |
+| Por volumen | `orders >= 5` | **SIN TECHO — por diseño del SOP** |
+
+La regla de volumen es deliberadamente independiente del ACoS: el SOP
+prioriza impacto en ranking orgánico sobre eficiencia. Un término con
+5+ órdenes y ACoS alto se harvestea igual.
+
+No "arreglar" esto. Si aparece como hallazgo en una revisión, es
+comportamiento correcto.
+
+Destino del harvest (SOP sección 6): campaña Exact dedicada en portfolio
+PROFIT, bid = suggested bid, ToS modifier +25%. Además: bajar bid del
+término en la campaña de origen, y opcionalmente agregarlo como negative
+exact ahí. Son 3 bulks, no uno.
 
 ## INV-5 — Contrato del bulk de Amazon
 
@@ -180,11 +213,63 @@ el ASIN propio.
 Requiere cruce con Campaign CSV o catálogo de marca. Si ese input no está
 disponible, la funcionalidad se ofrece pero advierte que el guard está inactivo.
 
+## INV-11 — Nunca negativizar contra el ranking
+
+Fuente: SOP v2026, regla global #5 y sección 5.2. Es la regla más
+importante del set: violarla destruye posición orgánica, que no se
+recupera ajustando bids.
+
+### INV-11.1 — Exclusión dura por match type de origen
+
+Los negativos se aplican SOLO a términos provenientes de campañas
+Auto, Broad y Phrase.
+
+Términos que vienen de campañas Exact o Product Targeting NO son
+candidatos a negativización. No aparecen en la tabla de candidatos,
+no se pre-tildan, no se exportan. Es un filtro previo, no una opción.
+
+Si una keyword en Exact rinde mal, la acción es bajar bid o pausar.
+
+### INV-11.2 — Guard anti-Exact-activo
+
+Un search term que existe como keyword Exact activa en cualquier
+campaña de la cuenta NO se negativiza, aunque tenga ACoS alto en
+Broad o Phrase.
+
+Requiere cruce contra las keywords Exact enabled de la cuenta.
+Fuente del dato: hoja `Sponsored Products Campaigns` del Bulk File,
+filtrando `Entity == 'Keyword'`, `Match Type == 'Exact'`,
+`State == 'enabled'`.
+
+Si ese cruce no está disponible, la funcionalidad advierte que el
+guard está inactivo (ver INV-10).
+
+### INV-11.3 — Ranking keywords: default seguro
+
+Términos provenientes de campañas en portfolio RANKING se marcan
+por defecto como ranking keyword y NO se negativizan salvo que el
+usuario lo desmarque explícitamente, término por término.
+
+El default se invierte respecto de lo intuitivo a propósito: el costo
+de no negativizar algo negativizable es unos dólares de spend; el costo
+de negativizar una ranking keyword es posición orgánica perdida.
+
+Fuente del dato: columna `Portfolio Name (Informational only)` de la
+hoja `SP Search Term Report` del Bulk File.
+
+### INV-11.4 — Regla 4 (ACoS extremo) no negativiza
+
+`acos > 70% AND orders < 5` produce la acción **bajar bid**, nunca
+un negativo directo. Solo si el problema persiste tras bajar el bid,
+y el término no es ranking keyword, se evalúa negativizar.
+
+Esta es la redacción del SOP, no una interpretación.
+
 ---
 
 ## Cómo se usa este skill
 
-- `code-reviewer`: agrega estas 10 invariantes como checks. Cualquier
+- `code-reviewer`: agrega estas 11 invariantes como checks. Cualquier
   violación es severidad 🔴, no ⚠️.
 - `testing-agent`: cada invariante debe tener al menos un test que la
   verifique con datos sintéticos que la violen.
