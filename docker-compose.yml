@@ -1,7 +1,8 @@
 # Amazon PPC Manager (Agency OS) — single node, always-on. TLS/WebSocket via a
 # separate reverse proxy (see docs/DEPLOY-VPS.md). Self-contained image (seeds the
 # skeleton on boot).
-#   Local:  docker compose up -d --build
+#   Local:  docker network create ai-net   (once per host)
+#           docker compose up -d --build
 #   Deploy: IMAGE_TAG=<sha> docker compose up -d
 name: ppc-manager
 
@@ -26,6 +27,7 @@ services:
       AGENCY_OS_FORECAST_BACKEND: local
       AGENCY_OS_INNOVATION_BACKEND: local
       # Do NOT set AGENCY_OS_LOCAL_MODE in prod — it disables login (app.py:166).
+      CLAUDE_PROVIDER_URL: ${CLAUDE_PROVIDER_URL:-http://ai-provider:3111}  # AI gateway, over ai-net
 
     env_file:
       - path: .env            # ANTHROPIC_API_KEY etc. on the host; never in git/image.
@@ -48,6 +50,13 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+    networks: [ai-net]
+
+networks:
+  # Shared with capybaras-ai-provider (no published ports). `docker network create ai-net` once per host.
+  ai-net:
+    external: true
 
 volumes:
   agency_data:

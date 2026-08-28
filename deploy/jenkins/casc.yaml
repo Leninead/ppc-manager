@@ -17,6 +17,29 @@ unclassified:
   location:
     url: "http://127.0.0.1:8080/"
 jobs:
+  # Independent job per repo: a push to one never builds the other.
+  - script: |
+      pipelineJob('capybaras-ai-provider') {
+        description('AI gateway CI/CD — build/test always, deploy with DEPLOY=true or on push to main')
+        parameters { booleanParam('DEPLOY', false, 'true = deploy to the VPS on top of CI') }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                // Same PAT credential as ppc-manager: the token owner needs
+                // collaborator access to this repo.
+                remote {
+                  url('https://github.com/VargasJuan5826/capybaras-ai-provider.git')
+                  credentials('github-pat')
+                }
+                branches('main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(false)
+          }
+        }
+      }
   - script: |
       pipelineJob('ppc-manager') {
         description('Agency OS CI/CD — build/test always, deploy with DEPLOY=true')
