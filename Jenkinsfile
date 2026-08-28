@@ -76,6 +76,8 @@ pipeline {
           rsync -a --delete --exclude='.git' --exclude='.env' --exclude='.streamlit/secrets.toml' \
             "$WORKSPACE"/ "$DEPLOY_DIR"/
         '''
+        // ai-net is external: compose refuses to start if it is missing.
+        sh 'docker network inspect ai-net >/dev/null 2>&1 || docker network create ai-net'
         dir("${DEPLOY_DIR}") { sh 'IMAGE_TAG=$SHA docker compose up -d' }
       }
     }
