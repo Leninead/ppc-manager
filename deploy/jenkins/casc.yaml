@@ -22,6 +22,9 @@ jobs:
       pipelineJob('capybaras-ai-provider') {
         description('AI gateway CI/CD — build/test always, deploy with DEPLOY=true or on push to main')
         parameters { booleanParam('DEPLOY', false, 'true = deploy to the VPS on top of CI') }
+        // Also in the Jenkinsfile, but that one only lands after a build runs:
+        // without this the job is trigger-less from creation until then.
+        triggers { scm('H/2 * * * *') }
         definition {
           cpsScm {
             scm {
@@ -42,8 +45,9 @@ jobs:
       }
   - script: |
       pipelineJob('ppc-manager') {
-        description('Agency OS CI/CD — build/test always, deploy with DEPLOY=true')
+        description('Agency OS CI/CD — build/test always, deploy on push to main or with DEPLOY=true')
         parameters { booleanParam('DEPLOY', false, 'true = deploy to the VPS on top of CI') }
+        triggers { scm('H/2 * * * *') }
         definition {
           cpsScm {
             scm {
