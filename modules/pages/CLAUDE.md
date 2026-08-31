@@ -37,7 +37,20 @@ Dashboard de estado del Agency OS. Muestra 26 módulos agrupados por sección, W
 Analizar search terms de campañas SP: negativizar, harvestear, clasificar por tipo y estado. Es el módulo más usado — punto de partida del flujo semanal.
 
 ### Arquitectura
-5 tabs: Dashboard (12 KPIs + filtros + charts) | Negatives Mining (tiers dinámicos) | Harvest Candidates (anti-canibalización) | Análisis IA (Claude API) | Por Campaña (groupby)
+5 tabs: Dashboard (12 KPIs + filtros + charts) | Negatives Mining (tiers dinámicos) | Harvest Candidates (anti-canibalización) | Análisis IA (capa sobre ai-provider) | Por Campaña (groupby)
+
+### Capa IA (2026-08-28)
+- La IA es una capa de análisis sobre lo YA calculado: no decide ni recalcula; clasifica, advierte y explica. El AM decide.
+- Disparo AUTOMÁTICO al final del pipeline cuando hay nombre de cliente — sin botón. Corre en segundo plano (pool en `ai/runtime.py`, sobrevive reruns); polling con `st.fragment(run_every="5s")` solo mientras corre.
+- Se envía tal cual: kpi_dict, agregado por campaña (mismo groupby de tab5, top 40 por spend), `df_neg` filtrado Alta/Media top 120, `df_harv` top 60, y los valores reales de los sliders de tabs 2/3 (NO hay sliders propios en el tab IA — se eliminaron los duplicados `str_ai_acos`/`str_ai_precio`).
+- Estructura del output forzada por schema en la generación (`output_schema` del provider → structured_output); las opiniones se joinean por row_id posicional (`make_ids`) contra nuestros DataFrames — la IA nunca re-emite cifras. Sin validadores ni reintentos automáticos.
+- Idempotencia: registro `{(agente, digest) → Analysis}` en `ai/runtime.py`; digest = sha256 de lo que la IA ve. Mismo archivo+parámetros entre AMs = una sola corrida. Cambios → banner desactualizado + botón "Recalcular" (el resultado viejo sigue visible).
+- Chat de repreguntas scopeado al análisis: `runtime.ask_followup()` resume la sesión del provider (`session_id`); historial por digest en session_state.
+- Contrato de datos: `ai/agents/str/context.py` (`StrData`, `build_context`, `OUTPUT_SCHEMA`); prompt versionado en `ai/agents/str/prompt.md` (frontmatter plano model/timeout_s; modelo claude-opus-5). El contexto incluye flag determinista de calidad de datos (`cost_detected` — con columna de costo ausente declara R3 suprimida y ranking de campañas por Clicks en vez de Spend), CTR por fila en negativos y `diagnostico_obligatorio` en campañas sangrantes.
+- Errores tipados de `ai/client.py`: ProviderDown / QuotaExceeded / UpstreamError → mensaje + botón Reintentar (decisión humana).
+- Idioma: selector global `app_lang` en el sidebar de app.py (fuente única ES/EN); viaja como dato en Parámetros y localiza labels del tab y del chat. Cambiarlo desactualiza el análisis.
+- Chat: reglas de formato compartidas en `ai/agents/_shared/chat.md` (el runtime las anexa al system de CUALQUIER agente en cada repregunta — no duplicarlas en prompts). Ramas de conversación aisladas por usuario vía `fork_session` del provider (commit `242ac13` de capybaras-ai-provider). El texto copiado del hilo etiqueta con `st.session_state['name']` del login y "Capybaras AI".
+- UI del análisis: tablas HTML propias (`_tabla_ia_html`) porque `st.dataframe` no envuelve texto; en mobile (<768px) apilan como tarjetas vía `_IA_CSS`. No volver a Styler para las columnas de lectura IA.
 
 ### Reglas de negocio
 - ACoS = Spend / Sales × 100

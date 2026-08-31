@@ -1,3 +1,4 @@
+import html
 import io
 
 import streamlit as st
@@ -139,6 +140,193 @@ def _build_str_excel(df_f, df_original, kpi_dict, brand_terms):
     return buf.getvalue()
 
 
+_IA_L = {
+    "es": {"analizando": "Analizando los datos por IA", "estado": "Estado",
+           "movs": "Movimientos", "riesgo": "Riesgo", "adv": "advertencias",
+           "sin_adv": "Sin advertencias", "neg": "negativos", "harv": "harvest",
+           "camp": "campañas",
+           "tabla_neg": "Candidatos a negativizar (Alta/Media) — lectura IA",
+           "tabla_harv": "Candidatos a harvest — lectura IA",
+           "tabla_camp": "Diagnostico por campana", "chat": "Análisis IA — STR",
+           "h_cand": "Candidato", "h_camp": "Campaña",
+           "h_cat": "Categoría", "h_lect": "Lectura IA", "h_diag": "Diagnóstico",
+           "copy_btn": "Copiar",
+           "stale_t": "Los datos cambiaron",
+           "stale_b": "Modificaste el archivo o los parámetros después del último "
+                      "análisis. Lo que se muestra abajo corresponde a la "
+                      "configuración anterior.",
+           "recalc": "Recalcular análisis",
+           "pend_t": "Análisis pendiente",
+           "pend_b": "Cambiaron los datos del reporte y no hay un análisis vigente "
+                     "para esta configuración.",
+           "run_btn": "Analizar con IA",
+           "cat_dudosa": "revisar categoría"},
+    "en": {"analizando": "AI analyzing the data", "estado": "Status",
+           "movs": "Next moves", "riesgo": "Risk", "adv": "warnings",
+           "sin_adv": "No warnings", "neg": "negatives", "harv": "harvest",
+           "camp": "campaigns",
+           "tabla_neg": "Negative candidates (High/Med) — AI read",
+           "tabla_harv": "Harvest candidates — AI read",
+           "tabla_camp": "Campaign diagnosis", "chat": "AI Analysis — STR",
+           "h_cand": "Candidate", "h_camp": "Campaign",
+           "h_cat": "Category", "h_lect": "AI read", "h_diag": "Diagnosis",
+           "copy_btn": "Copy",
+           "cat_dudosa": "check category",
+           "stale_t": "The data changed",
+           "stale_b": "You modified the file or the parameters after the last "
+                      "analysis. What is shown below belongs to the previous "
+                      "configuration.",
+           "recalc": "Recalculate analysis",
+           "pend_t": "Analysis pending",
+           "pend_b": "The report data changed and there is no current analysis "
+                     "for this configuration.",
+           "run_btn": "Analyze with AI"},
+}
+
+_CAT_COLORS = {
+    "marca_propia": "background-color:#FFF3E0;color:#BF360C",
+    "competidor": "background-color:#EEEDFE;color:#3C3489",
+    "generico": "background-color:#F5F5F5;color:#616161",
+    "atributo": "background-color:#E1F5EE;color:#0F6E56",
+    "irrelevante": "background-color:#FFEBEE;color:#9C0006",
+}
+
+
+def _h(text):
+    """HTML-safe AI text; $ escaped so Streamlit never parses it as LaTeX."""
+    return html.escape(str(text)).replace("$", "&#36;")
+
+
+def _ia_notice_html(titulo, cuerpo):
+    return (f'<div style="border:1px solid #F2C063;background:#FFF8EC;'
+            f'border-radius:12px;padding:16px 18px;margin:6px 0 12px 0">'
+            f'<div style="font-size:16px;font-weight:600;color:#7A4A00">'
+            f'⚠ {titulo}</div>'
+            f'<div style="font-size:15px;color:#1F1F1F;line-height:1.55;'
+            f'margin-top:6px">{cuerpo}</div></div>')
+
+
+_IA_CSS = """<style>
+.ia-tbl {width:100%;border-collapse:collapse}
+.ia-tbl th {text-align:left;padding:10px 16px;font-size:13px;color:#555555;
+  font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.ia-tbl td {padding:14px 16px;vertical-align:top;border-top:1px solid #EEE9E0}
+.ia-tbl .c-cand {width:30%}
+.ia-tbl .c-cat {width:14%}
+.ia-tbl .c-camp {width:34%}
+.ia-warn {background:#FAEEDA55}
+@media (max-width: 768px) {
+  .ia-tbl thead {display:none}
+  .ia-tbl tr {display:block;border-top:1px solid #EEE9E0;padding:6px 0}
+  .ia-tbl td {display:block;width:100% !important;border-top:none;
+    padding:5px 14px}
+}
+</style>"""
+
+
+def _chips_ia_html(n_adv, n_neg, n_harv, n_camp, secs, L):
+    if n_adv:
+        first = (f'<span style="background:#FAEEDA;color:#9C5700;'
+                 f'border:1px solid #EF9F27;border-radius:99px;padding:4px 14px;'
+                 f'font-size:15px;font-weight:500">⚠ {n_adv} {L["adv"]}</span>')
+    else:
+        first = (f'<span style="background:#E8F5E9;color:#2E7D32;'
+                 f'border:1px solid #A5D6A7;border-radius:99px;padding:4px 14px;'
+                 f'font-size:15px;font-weight:500">{L["sin_adv"]}</span>')
+    return (f'<div style="display:flex;align-items:center;gap:12px;'
+            f'flex-wrap:wrap;padding-top:4px">{first}'
+            f'<span style="color:#1F1F1F;font-size:15px">{n_neg} {L["neg"]} · '
+            f'{n_harv} {L["harv"]} · {n_camp} {L["camp"]}</span>'
+            f'<span style="color:#555555;font-size:14px">IA · {secs}s</span></div>')
+
+
+def _sintesis_body_html(s, L):
+    estado = _h(s.get("estado", ""))
+    movs = "".join(
+        f'<div style="display:flex;gap:12px;margin:11px 0;font-size:16px;'
+        f'line-height:1.55;color:#1F1F1F">'
+        f'<span style="background:#FAECE7;color:#993C1D;border-radius:8px;'
+        f'min-width:26px;height:26px;display:flex;align-items:center;'
+        f'justify-content:center;font-weight:500;font-size:14px">{i}</span>'
+        f'<span>{_h(m)}</span></div>'
+        for i, m in enumerate(s.get("movimientos", []), 1))
+    riesgo = ""
+    if s.get("riesgo"):
+        riesgo = (f'<div style="margin-top:14px;background:#FAEEDA;'
+                  f'border-radius:10px;padding:12px 16px;font-size:15px;'
+                  f'line-height:1.55;color:#633806">'
+                  f'<span style="font-weight:500">{L["riesgo"]}:</span> '
+                  f'{_h(s["riesgo"])}</div>')
+    return (f'<div style="padding:4px 2px 6px 2px">'
+            f'<div style="font-size:17px;line-height:1.65;color:#1F1F1F">{estado}</div>'
+            f'{movs}{riesgo}</div>')
+
+
+def _tabla_ia_html(rows, titulo, L):
+    """Custom table: readable type scale, wrapping AI text, mobile stacking."""
+    header = (f'<thead><tr><th class="c-cand">{L["h_cand"]}</th>'
+              f'<th class="c-cat">{L["h_cat"]}</th>'
+              f'<th>{L["h_lect"]}</th></tr></thead>')
+    body = []
+    for r in rows:
+        cat = r["categoria"]
+        badge = (f'<span style="{_CAT_COLORS.get(cat, "background-color:#F5F5F5;color:#616161")};'
+                 f'border-radius:99px;padding:4px 14px;font-size:14px;'
+                 f'white-space:nowrap">{_h(cat)}</span>' if cat else "—")
+        if cat and r.get("cat_dudosa"):
+            badge += (f'<div style="font-size:12px;color:#9C5700;'
+                      f'margin-top:4px">⚠ {L["cat_dudosa"]}</div>')
+        lect = ""
+        if r["advertencia"]:
+            lect += (f'<div style="color:#854F0B;font-weight:500;font-size:15px;'
+                     f'line-height:1.5">⚠ {_h(r["advertencia"])}</div>')
+        if r["razon"]:
+            lect += (f'<div style="color:#1F1F1F;font-size:14px;'
+                     f'line-height:1.5;margin-top:4px">{_h(r["razon"])}</div>')
+        # Each data kind gets its own shape: metric pills, rule tag,
+        # labeled campaign — scannable instead of prose next to prose.
+        pills = "".join(
+            f'<span style="border:1px solid #E6E1D8;background:#FAF9F6;'
+            f'border-radius:6px;padding:2px 9px;font-family:monospace;'
+            f'font-size:13px;color:#1F1F1F;white-space:nowrap">{_h(m)}</span>'
+            for m in r["metrics"])
+        regla_tag = (f'<span style="background:#F1EFE8;color:#5F5E5A;'
+                     f'border-radius:6px;padding:2px 9px;font-size:12px;'
+                     f'font-weight:500;white-space:nowrap">{_h(r["regla"])}</span>'
+                     if r["regla"] else "")
+        camp_line = (f'<div style="margin-top:8px;font-size:13px;color:#6F6A60">'
+                     f'<span style="font-size:11px;font-weight:600;color:#A5A093;'
+                     f'text-transform:uppercase;letter-spacing:.05em;'
+                     f'margin-right:6px">{L["h_camp"]}</span>{_h(r["campaign"])}</div>')
+        body.append(
+            f'<tr><td class="c-cand">'
+            f'<div style="font-size:16px;font-weight:600;color:#1F1F1F">{_h(r["term"])}</div>'
+            f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;'
+            f'align-items:center">{regla_tag}{pills}</div>'
+            f'{camp_line}'
+            f'</td><td class="c-cat">{badge}</td>'
+            f'<td class="{"ia-warn" if r["advertencia"] else ""}">{lect or "—"}</td></tr>')
+    return (f'<div style="font-weight:600;font-size:16px;margin:20px 0 8px">{titulo}</div>'
+            '<div style="border:1px solid #EEE9E0;border-radius:12px;overflow:hidden">'
+            '<table class="ia-tbl">' + header + "<tbody>"
+            + "".join(body) + "</tbody></table></div>")
+
+
+def _tabla_campanas_html(camps, titulo, L):
+    header = (f'<thead><tr><th class="c-camp">{L["h_camp"]}</th>'
+              f'<th>{L["h_diag"]}</th></tr></thead>')
+    body = "".join(
+        f'<tr><td class="c-camp" style="font-family:monospace;font-size:14px;'
+        f'color:#1F1F1F;line-height:1.5">{_h(c.get("campaign", ""))}</td>'
+        f'<td style="font-size:15px;line-height:1.6;color:#1F1F1F">'
+        f'{_h(c.get("diagnostico", ""))}</td></tr>'
+        for c in camps)
+    return (f'<div style="font-weight:600;font-size:16px;margin:20px 0 8px">{titulo}</div>'
+            '<div style="border:1px solid #EEE9E0;border-radius:12px;overflow:hidden">'
+            '<table class="ia-tbl">' + header + "<tbody>" + body
+            + "</tbody></table></div>")
+
+
 def render():
     st.header("Search Term Report")
     st.caption("Analisis de terminos de busqueda con metricas de ACoS, gasto y ventas totales.")
@@ -210,6 +398,7 @@ def render():
     # Pre-init for tab4 (IA) scope
     df_neg = pd.DataFrame()
     df_harv = pd.DataFrame()
+    analysis = None
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "Vista General",
@@ -839,57 +1028,194 @@ def render():
                 st.info("No se encontraron candidatos de harvest con los criterios actuales.")
 
     # ══════════════════════════════════════════════════════════════
-    # TAB 4: Analisis IA (SIN CAMBIOS)
+    # TAB 4: Analisis IA — capa sobre lo ya calculado (ai-provider)
     # ══════════════════════════════════════════════════════════════
     with tab4:
-        st.subheader("Analisis IA — PPC Senior")
-        st.caption("Analisis ejecutivo generado por Claude basado en los candidatos detectados")
+        st.subheader("Analisis IA")
+        st.caption("Analisis ejecutivo generado por IA basado en los candidatos detectados")
+        # Language comes from the app-wide selector in the sidebar (app_lang).
+        lang_ia = "en" if st.session_state.get("app_lang") == "English" else "es"
+        L_ia = _IA_L[lang_ia]
 
-        client_name_str = st.text_input(
-            "Nombre del cliente",
-            placeholder="Ej: Love To Dream MX",
-            key="str_client_ai",
-        )
+        from ai.config import AI_ENABLED
+        if not AI_ENABLED:
+            st.caption("Analisis IA deshabilitado (AI_ENABLED=0).")
+        else:
+            from ai import runtime as ai_runtime
+            from ai.agents.str.context import (
+                StrData, make_ids, NEG_PREFIX, HARV_PREFIX,
+            )
 
-        ai_c1, ai_c2 = st.columns(2)
-        with ai_c1:
-            str_target_acos = st.slider("Target ACoS (%)", 10, 80, 30, key="str_ai_acos")
-        with ai_c2:
-            str_precio = st.number_input("Precio promedio ($)", min_value=1.0, value=30.0, step=1.0, key="str_ai_precio")
-
-        if st.button("Generar analisis", key="btn_str_ai", use_container_width=True):
-            if not client_name_str:
-                st.warning("Ingresa el nombre del cliente primero.")
+            # Same aggregate tab5 shows; the AI receives it as-is.
+            camp_col_ai = cols["campaign"]
+            if camp_col_ai and camp_col_ai in df.columns:
+                df_camp_ai = df.groupby(camp_col_ai).agg(
+                    Impressions=("_imps", "sum"), Clicks=("_clicks", "sum"),
+                    Spend=("_spend", "sum"), Sales=("_sales", "sum"),
+                    Orders=("_orders", "sum"),
+                ).reset_index().rename(columns={camp_col_ai: "Campaign"})
+                df_camp_ai["ACoS"] = (
+                    df_camp_ai["Spend"] / df_camp_ai["Sales"].replace(0, float("nan")) * 100
+                ).fillna(0).round(1)
+                # Without a cost column, ranking by Spend is meaningless (all
+                # zeros) and can drop the worst bleeders; clicks is the proxy.
+                rank_col = "Spend" if cols["spend"] else "Clicks"
+                df_camp_ai = df_camp_ai.sort_values(rank_col, ascending=False).round(2)
             else:
-                with st.spinner("Analizando con Claude..."):
-                    from core.ai_analyze import _claude_analyze, _build_str_prompt
+                df_camp_ai = pd.DataFrame()
 
-                    # CVR promedio del STR
-                    t_clicks = df["_clicks"].sum()
-                    t_orders = df["_orders"].sum()
-                    cvr_val = (t_orders / t_clicks * 100) if t_clicks > 0 else 10.0
+            # Same default view tab2 shows (Alta/Media), capped so Opus answers
+            # in minutes; both frames are already sorted by priority + spend.
+            df_neg_ai = (df_neg[df_neg["Prioridad"].isin(["Alta", "Media"])].head(120)
+                         if not df_neg.empty else df_neg)
+            df_harv_ai = df_harv.head(60)
 
-                    prompt = _build_str_prompt(
-                        df_neg, df_harv,
-                        client_name_str, cvr_val, str_target_acos,
+            data_ai = StrData(
+                cliente="no declarado",
+                brand_terms=brand_terms,
+                target_acos=float(target_acos),
+                precio=float(precio_producto),
+                cvr=float(cvr_avg),
+                umbral_clicks=int(clicks_threshold),
+                umbral_spend=float(spend_threshold),
+                harvest_target_acos=float(harv_target_acos),
+                harvest_precio=float(harv_precio),
+                kpis=kpi_dict,
+                campanas=df_camp_ai.to_dict("records"),
+                negativos=df_neg_ai.to_dict("records"),
+                harvest=df_harv_ai.to_dict("records"),
+                idioma=lang_ia,
+                cost_detected=bool(cols["spend"]),
+            )
+
+            analysis = ai_runtime.peek("str", data_ai)
+            if analysis is None:
+                last_digest = st.session_state.get("str_ai_last_digest")
+                if last_digest is None:
+                    # First complete payload of the session: fire automatically.
+                    analysis = ai_runtime.analyze("str", data_ai)
+                else:
+                    prev = ai_runtime.get("str", last_digest)
+                    if prev is not None and prev.done:
+                        # Old result still shown below the notice.
+                        st.markdown(_ia_notice_html(L_ia["stale_t"], L_ia["stale_b"]),
+                                    unsafe_allow_html=True)
+                        if st.button(L_ia["recalc"], key="str_ai_recalc",
+                                     type="primary"):
+                            ai_runtime.analyze("str", data_ai)
+                            st.rerun()
+                        analysis = prev
+                    else:
+                        # Nothing to show for this configuration.
+                        st.markdown(_ia_notice_html(L_ia["pend_t"], L_ia["pend_b"]),
+                                    unsafe_allow_html=True)
+                        if st.button(L_ia["run_btn"], key="str_ai_recalc",
+                                     type="primary"):
+                            ai_runtime.analyze("str", data_ai)
+                            st.rerun()
+
+            if analysis is not None:
+                st.session_state["str_ai_last_digest"] = analysis.digest
+
+                @st.fragment(run_every="5s" if analysis.running else None)
+                def _render_ai(a=analysis):
+                    if a.running:
+                        st.status(f"{L_ia['analizando']} — {a.elapsed}s",
+                                  state="running")
+                        return
+                    # One full rerun on completion stops the 5s polling.
+                    if st.session_state.get("str_ai_seen") != (a.digest, a.state):
+                        st.session_state["str_ai_seen"] = (a.digest, a.state)
+                        if a.done:
+                            st.toast("Analisis IA listo")
+                        st.rerun()
+                    if a.failed:
+                        st.error(f"El analisis IA fallo: {a.error}")
+                        if st.button("Reintentar", key="str_ai_retry"):
+                            a.retry()
+                            st.rerun()
+                        return
+
+                    r = a.result
+                    s = r.get("sintesis") or {}
+                    negs = r.get("negativos", [])
+                    harvs = r.get("harvest", [])
+                    n_adv = sum(1 for o in negs + harvs if o.get("advertencia"))
+                    sintesis_txt = "\n".join(
+                        [s.get("estado", "")]
+                        + [f"- {m}" for m in s.get("movimientos", [])]
+                        + ([f"Riesgo: {s['riesgo']}"] if s.get("riesgo") else [])
                     )
-                    analisis = _claude_analyze(prompt)
 
-                st.markdown("---")
-                st.markdown(analisis)
-                st.markdown("---")
+                    with st.container(border=True):
+                        head_l, head_r = st.columns([5, 1])
+                        with head_l:
+                            st.markdown(_chips_ia_html(
+                                n_adv, len(negs), len(harvs),
+                                len(r.get("campanas", [])), a.elapsed, L_ia),
+                                unsafe_allow_html=True)
+                        with head_r:
+                            with st.popover(L_ia["copy_btn"],
+                                            use_container_width=True):
+                                st.code(sintesis_txt, language=None)
+                        st.markdown(_sintesis_body_html(s, L_ia),
+                                    unsafe_allow_html=True)
 
-                col_dl_a, col_dl_b = st.columns(2)
-                with col_dl_a:
-                    st.download_button(
-                        "Descargar analisis (.txt)",
-                        data=analisis,
-                        file_name=f"analisis_str_{client_name_str.replace(' ', '_')}.txt",
-                        mime="text/plain",
-                        use_container_width=True, key="dl_str_ai",
-                    )
-                with col_dl_b:
-                    st.code(analisis, language=None)
+                    def _rows_ia(df_base, opinions, prefix, metrics_fn):
+                        ops = {o.get("row_id"): o for o in opinions}
+                        rows = []
+                        for rid, (_, row) in zip(make_ids(prefix, len(df_base)),
+                                                 df_base.iterrows()):
+                            o = ops.get(rid, {})
+                            term_l = str(row.get("Search Term", "")).lower()
+                            cat = o.get("categoria", "")
+                            # Deterministic hint, never a gate: brand term and
+                            # category disagree -> the AM double-checks.
+                            dudosa = bool(brand_terms) and cat and (
+                                (cat == "marca_propia"
+                                 and not any(b in term_l for b in brand_terms))
+                                or (cat != "marca_propia"
+                                    and any(b in term_l for b in brand_terms)))
+                            rows.append({
+                                "term": row.get("Search Term", ""),
+                                "regla": row.get("Regla", ""),
+                                "campaign": row.get("Campaign", ""),
+                                "metrics": metrics_fn(row),
+                                "categoria": cat,
+                                "cat_dudosa": dudosa,
+                                "advertencia": o.get("advertencia") or "",
+                                "razon": o.get("razon", ""),
+                            })
+                        return rows
+
+                    def _met_neg(row):
+                        return [f"{int(row['Clicks'])} clicks",
+                                f"{int(row['Orders'])} ord",
+                                f"${row['Spend']:.2f}",
+                                f"{int(row['Impressions'])} impr"]
+
+                    def _met_harv(row):
+                        return [f"{int(row['Clicks'])} clicks",
+                                f"{int(row['Orders'])} ord",
+                                f"ACoS {row['ACoS']:.1f}%",
+                                f"CVR {row['CVR%']:.1f}%",
+                                f"bid ${row['Bid Sugerido']:.2f}"]
+
+                    st.markdown(_IA_CSS, unsafe_allow_html=True)
+                    if not df_neg_ai.empty:
+                        st.markdown(_tabla_ia_html(
+                            _rows_ia(df_neg_ai, negs, NEG_PREFIX, _met_neg),
+                            L_ia["tabla_neg"], L_ia), unsafe_allow_html=True)
+                    if not df_harv_ai.empty:
+                        st.markdown(_tabla_ia_html(
+                            _rows_ia(df_harv_ai, harvs, HARV_PREFIX, _met_harv),
+                            L_ia["tabla_harv"], L_ia), unsafe_allow_html=True)
+                    if r.get("campanas"):
+                        st.markdown(_tabla_campanas_html(r["campanas"],
+                                                         L_ia["tabla_camp"], L_ia),
+                                    unsafe_allow_html=True)
+
+                _render_ai()
 
     # ══════════════════════════════════════════════════════════════
     # TAB 5: Por Campana (NUEVO)
@@ -1031,3 +1357,12 @@ def render():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True, key="str_camp_dl",
             )
+
+    # Floating chat over the finished analysis — mounted outside st.tabs so
+    # the bubble follows the AM on every tab of this module.
+    if analysis is not None and analysis.done and analysis.session_id:
+        from core.ai_chat import floating_chat
+        chat_lang = "en" if st.session_state.get("app_lang") == "English" else "es"
+        floating_chat(chat_id=f"str_{analysis.digest}", agent="str",
+                      session_id=analysis.session_id,
+                      title=_IA_L[chat_lang]["chat"], lang=chat_lang)
