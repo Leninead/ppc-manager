@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 
 from core.helpers import kpi_card
+from core.bulk_export import build_amazon_bulk, write_bulk_excel
 
 
 @st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
@@ -533,6 +534,7 @@ def render():
                 acos_r = row["_acos"]
                 ctr_r = row["_ctr"]
                 campaign = str(row[cols["campaign"]]).strip() if cols["campaign"] and pd.notna(row.get(cols["campaign"])) else ""
+                ad_group = str(row[cols["ad_group"]]).strip() if cols["ad_group"] and pd.notna(row.get(cols["ad_group"])) else ""
 
                 matched_rules = []
 
@@ -562,6 +564,7 @@ def render():
                     candidates.append({
                         "Search Term": term,
                         "Campaign": campaign,
+                        "Ad Group": ad_group,
                         "Clicks": int(clicks),
                         "Impressions": int(imps),
                         "Spend": round(spend, 2),
@@ -605,28 +608,57 @@ def render():
                     height=min(38 + 35 * len(df_show), 800),
                 )
 
-                # Export bulk-ready formato Amazon
+                # Export bulk-ready formato Amazon — usa core.bulk_export
                 st.markdown("---")
                 st.markdown("**Export bulk-ready para Amazon**")
-                st.caption("Columnas en formato Amazon Bulk. Campaign Name y Ad Group Name vacios — el AM los completa.")
+                st.caption(
+                    "Schema Amazon Bulk SP (12 cols) + hoja Metadata con razones. "
+                    "Filas sin Campaign Name o Ad Group quedan en la hoja Metadata, no en el bulk."
+                )
                 df_export = df_show.copy()
                 if not df_export.empty:
-                    df_bulk = pd.DataFrame({
-                        "Product": "",
-                        "Entity": "Negative keyword",
-                        "Operation": "Create",
-                        "Campaign Name": "",
-                        "Ad Group Name": "",
-                        "Customer Search Term": df_export["Search Term"].values,
-                        "Match Type": df_export["Match Type"].values,
-                        "Prioridad": df_export["Prioridad"].values,
-                    })
-                    st.dataframe(df_bulk, use_container_width=True)
-                    buf = io.BytesIO()
-                    df_bulk.to_excel(buf, index=False)
+                    # Pre-flag de invalidez por row (sin colisiones por texto duplicado).
+                    # Mismo criterio que aplica el helper para "Missing Parent ID".
+                    def _row_invalid_reason(r):
+                        if not str(r.get("Campaign", "")).strip():
+                            return "Campaign Name vacio (Amazon: Missing Parent ID)"
+                        if not str(r.get("Ad Group", "")).strip():
+                            return "Ad Group Name vacio (Amazon: Missing Parent ID)"
+                        return ""
+                    df_export["_invalid_reason"] = df_export.apply(_row_invalid_reason, axis=1)
+
+                    # Build rows para el helper (1 row por candidato del STR)
+                    bulk_rows = [
+                        {
+                            "campaign_name": str(r.get("Campaign", "")).strip(),
+                            "ad_group_name": str(r.get("Ad Group", "")).strip(),
+                            "keyword_text":  str(r.get("Search Term", "")).strip(),
+                            "match_type":    str(r.get("Match Type", "")).strip(),
+                        }
+                        for _, r in df_export.iterrows()
+                    ]
+                    bulk_df, invalid_df = build_amazon_bulk(bulk_rows, entity="Negative keyword")
+
+                    # Warning si hay invalidas
+                    if not invalid_df.empty:
+                        st.warning(
+                            f"{len(invalid_df)} terminos sin Campaign Name o Ad Group en el STR — "
+                            "quedan en la hoja Metadata para que los completes manualmente. "
+                            f"Bulk subible: {len(bulk_df)} filas."
+                        )
+
+                    # Hoja Metadata Capybaras (_invalid_reason ya pre-flaggeado por row)
+                    metadata_df = df_export[
+                        ["Search Term", "Campaign", "Ad Group", "Clicks", "Impressions",
+                         "Spend", "Orders", "ACoS", "Match Type", "Regla", "Prioridad",
+                         "_invalid_reason"]
+                    ].copy()
+
+                    st.dataframe(bulk_df, use_container_width=True)
+                    xlsx_bytes = write_bulk_excel(bulk_df, metadata_df)
                     st.download_button(
                         "Descargar negativos bulk (.xlsx)",
-                        data=buf.getvalue(),
+                        data=xlsx_bytes,
                         file_name="negatives_bulk.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True, key="neg_dl",
@@ -706,6 +738,7 @@ def render():
                 cvr_row = orders / clicks * 100
                 acos_row = (spend / sales * 100) if sales > 0 else 999
                 campaign = str(row[cols["campaign"]]).strip() if cols["campaign"] and pd.notna(row.get(cols["campaign"])) else ""
+                ad_group = str(row[cols["ad_group"]]).strip() if cols["ad_group"] and pd.notna(row.get(cols["ad_group"])) else ""
 
                 matched = []
                 best_prio = None
@@ -731,6 +764,7 @@ def render():
                     harvests.append({
                         "Search Term": term,
                         "Campaign": campaign,
+                        "Ad Group": ad_group,
                         "Clicks": int(clicks),
                         "Orders": int(orders),
                         "ACoS": round(acos_row, 1),
@@ -815,22 +849,49 @@ def render():
                     df_harv_export = df_harv
                     st.caption("Campaign Name y Ad Group Name vacios — el AM los completa antes de subir.")
 
-                df_hbulk = pd.DataFrame({
-                    "Product": "",
-                    "Entity": "Keyword",
-                    "Operation": "Create",
-                    "Campaign Name": "",
-                    "Ad Group Name": "",
-                    "Keyword": df_harv_export["Search Term"].values,
-                    "Match Type": "exact",
-                    "Max Bid": df_harv_export["Bid Sugerido"].values,
-                })
-                st.dataframe(df_hbulk, use_container_width=True)
-                buf_h = io.BytesIO()
-                df_hbulk.to_excel(buf_h, index=False)
+                # Bulk-ready — usa core.bulk_export
+                # Pre-flag de invalidez por row (sin colisiones por texto duplicado).
+                def _row_invalid_reason(r):
+                    if not str(r.get("Campaign", "")).strip():
+                        return "Campaign Name vacio (Amazon: Missing Parent ID)"
+                    if not str(r.get("Ad Group", "")).strip():
+                        return "Ad Group Name vacio (Amazon: Missing Parent ID)"
+                    return ""
+                df_harv_export = df_harv_export.copy()
+                df_harv_export["_invalid_reason"] = df_harv_export.apply(_row_invalid_reason, axis=1)
+
+                bulk_rows = [
+                    {
+                        "campaign_name": str(r.get("Campaign", "")).strip(),
+                        "ad_group_name": str(r.get("Ad Group", "")).strip(),
+                        "keyword_text":  str(r.get("Search Term", "")).strip(),
+                        "match_type":    "exact",
+                        "bid":           r.get("Bid Sugerido", ""),
+                    }
+                    for _, r in df_harv_export.iterrows()
+                ]
+                bulk_df, invalid_df = build_amazon_bulk(bulk_rows, entity="Keyword")
+
+                if not invalid_df.empty:
+                    st.warning(
+                        f"{len(invalid_df)} terminos sin Campaign Name o Ad Group en el STR — "
+                        "quedan en la hoja Metadata para que los completes manualmente. "
+                        f"Bulk subible: {len(bulk_df)} filas."
+                    )
+
+                # Hoja Metadata Capybaras (_invalid_reason ya pre-flaggeado por row)
+                metadata_cols = ["Search Term", "Campaign", "Ad Group", "Clicks", "Orders",
+                                 "ACoS", "CVR%", "Bid Sugerido", "Regla", "Prioridad"]
+                if "Ya en Exact" in df_harv_export.columns:
+                    metadata_cols.append("Ya en Exact")
+                metadata_cols.append("_invalid_reason")
+                metadata_df = df_harv_export[metadata_cols].copy()
+
+                st.dataframe(bulk_df, use_container_width=True)
+                xlsx_bytes = write_bulk_excel(bulk_df, metadata_df)
                 st.download_button(
                     "Descargar Harvest Bulk (formato Amazon)",
-                    data=buf_h.getvalue(),
+                    data=xlsx_bytes,
                     file_name="harvest_exact_bulk.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True, key="harv_dl",
