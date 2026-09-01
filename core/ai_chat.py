@@ -28,6 +28,7 @@ _L = {
            "placeholder": "Escribí tu repregunta...",
            "copy": "Copiar chat", "copied": "Copiado",
            "copy_fail": "No se pudo copiar",
+           "close": "Cerrar",
            "error": "No se pudo responder"},
     "en": {"subtitle": "answers about this analysis",
            "empty": "Ask about the analysis: why a warning, what to "
@@ -35,6 +36,7 @@ _L = {
            "placeholder": "Type your follow-up...",
            "copy": "Copy chat", "copied": "Copied",
            "copy_fail": "Copy failed",
+           "close": "Close",
            "error": "Could not answer"},
 }
 
@@ -95,10 +97,15 @@ _CHECK_SVG = ('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
               'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" '
               'stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>')
 
+_X_SVG = ('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
+          'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" '
+          'stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>')
 
-def _chat_header(title: str, subtitle: str, copy_text: str, copy_title: str) -> None:
-    """Orange header with a discreet icon-only copy button (needs JS, so the
-    whole header lives in one component iframe)."""
+
+def _chat_header(title: str, subtitle: str, copy_text: str, copy_title: str,
+                 close_title: str) -> None:
+    """Orange header with icon-only copy and close buttons (they need JS, so
+    the whole header lives in one component iframe)."""
     icon = ""
     if copy_text:
         icon = (f'<button id="cp" title="{html.escape(copy_title)}" '
@@ -106,6 +113,12 @@ def _chat_header(title: str, subtitle: str, copy_text: str, copy_title: str) -> 
                 'style="margin-left:auto;background:transparent;border:none;'
                 'color:#FADFD3;cursor:pointer;padding:8px;border-radius:8px;'
                 f'display:flex;align-items:center">{_CLIP_SVG}</button>')
+    close_margin = "" if copy_text else "margin-left:auto;"
+    close_btn = (f'<button id="cl" title="{html.escape(close_title)}" '
+                 f'aria-label="{html.escape(close_title)}" '
+                 f'style="{close_margin}background:transparent;border:none;'
+                 'color:#FADFD3;cursor:pointer;padding:8px;border-radius:8px;'
+                 f'display:flex;align-items:center">{_X_SVG}</button>')
     components.html(f"""
 <div style="display:flex;align-items:center;gap:10px;background:{_ACCENT};
   border-radius:12px;padding:10px 14px;margin:0;
@@ -119,8 +132,24 @@ def _chat_header(title: str, subtitle: str, copy_text: str, copy_title: str) -> 
   <span style="display:block;font-size:13px;
     color:#FADFD3">{html.escape(subtitle)}</span></span>
   {icon}
+  {close_btn}
 </div>
 <script>
+// st.popover has no programmatic close: the X synthesizes the two gestures
+// BaseWeb already listens for (Escape, then an outside mousedown).
+const x = document.getElementById('cl');
+if (x) {{
+  x.addEventListener('mouseenter', () => x.style.color = '#fff');
+  x.addEventListener('mouseleave', () => x.style.color = '#FADFD3');
+  x.addEventListener('click', () => {{
+    const doc = window.parent.document;
+    doc.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Escape',
+      code: 'Escape', keyCode: 27, which: 27, bubbles: true}}));
+    for (const ev of ['mousedown', 'mouseup', 'click']) {{
+      doc.body.dispatchEvent(new MouseEvent(ev, {{bubbles: true}}));
+    }}
+  }});
+}}
 const b = document.getElementById('cp');
 if (b) {{
   const t = {json.dumps(copy_text)};
@@ -153,9 +182,13 @@ if (b) {{
 </script>""", height=66)
 
 
-def floating_chat(*, chat_id: str, agent: str, session_id: str,
+def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                   title: str = "Análisis IA",
-                  lang: str = "es") -> None:
+                  lang: str = "es",
+                  pending_text: str | None = None) -> None:
+    """session_id=None mounts the chat before the analysis is ready: questions
+    stay in the thread and are answered locally with pending_text until a real
+    session arrives on a later mount."""
     L = _L.get(lang, _L["es"])
     subtitle = L["subtitle"]
     anchor = f"aichat_{chat_id}_anchor"
@@ -166,7 +199,7 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str,
     # Re-seed when the underlying analysis session changed (e.g. the registry
     # evicted and the same digest was recomputed): a stale chain would resume
     # a branch that may no longer exist.
-    if st.session_state.get(base_key) != session_id:
+    if session_id and st.session_state.get(base_key) != session_id:
         st.session_state[base_key] = session_id
         st.session_state[sid_key] = session_id
     st.session_state.setdefault(sid_key, session_id)
@@ -207,7 +240,7 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str,
                 plain = (title + "\n\n" + "\n\n".join(
                     (f"{user_lbl}: " if t["role"] == "user" else "Capybaras AI: ")
                     + t["text"] for t in history)) if history else ""
-                _chat_header(title, subtitle, plain, L["copy"])
+                _chat_header(title, subtitle, plain, L["copy"], L["close"])
                 if history:
                     thread = "".join(
                         _user_bubble(t["text"]) if t["role"] == "user"
@@ -232,12 +265,19 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str,
                 question = st.chat_input(L["placeholder"],
                                          key=f"aichat_{chat_id}_q")
                 if question:
+                    sid = st.session_state.get(sid_key)
+                    if not sid:
+                        # Analysis not ready: answer locally, spend nothing.
+                        history.append({"role": "user", "text": question})
+                        history.append({"role": "assistant",
+                                        "text": pending_text or L["error"]})
+                        st.rerun(scope="fragment")
                     with live:
                         st.markdown(_user_bubble(question) + _TYPING,
                                     unsafe_allow_html=True)
                         try:
                             text, new_sid = runtime.ask_followup(
-                                agent, st.session_state[sid_key], question)
+                                agent, sid, question)
                             st.session_state[sid_key] = new_sid
                         except AIError as e:
                             text = f"{L['error']}: {e}"

@@ -1,6 +1,22 @@
 # CLAUDE.md — Módulos del Agency OS
 ## Contexto por módulo para agentes especializados
-Última actualización: 2026-04-26
+Última actualización: 2026-09-01
+
+---
+
+## Capa IA reusable — `core/ai_layer.py` (2026-09-01)
+
+Capa intermedia entre el pipeline determinístico de un módulo y `ai/`: ciclo de
+vida del análisis (`decide_analysis_action` pura + `resolve_analysis` con
+staleness de dos velocidades: archivo nuevo re-dispara solo, cambio de
+parámetro pide click), polling (`render_analysis`), kit de render localizado
+(`ai_labels`, `opinion_table_html`, `synthesis_html`, `ai_chips_html`,
+`ai_notice_html`, `escape_ai_text`, `AI_CSS`) y chat con espera
+(`mount_analysis_chat`). El contrato de uso completo está en el docstring del
+módulo; tests en `tests/test_ai_layer.py`. Keys de sesión: `<slug>_ai_*`.
+**Todo módulo nuevo con tab IA consume esta capa — no copia el wiring de
+M2/M3.** La migración de STR y SQP a la capa está pendiente (tickets aparte);
+hasta entonces sus copias módulo-side siguen vigentes.
 
 ---
 
