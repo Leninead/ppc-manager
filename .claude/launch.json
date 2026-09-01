@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agency-os",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.headless", "true", "--server.port", "8502"],
+      "port": 8502,
+      "autoPort": false
+    },
+    {
+      "name": "agency-os-e2e-local",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set AGENCY_OS_LOCAL_MODE=1&& .venv\\Scripts\\python.exe -m streamlit run app.py --server.headless true --server.port 8503"],
+      "port": 8503,
+      "autoPort": false
+    }
+  ]
+}
