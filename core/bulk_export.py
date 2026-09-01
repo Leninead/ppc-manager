@@ -1,48 +1,64 @@
 """
-Helper para emitir bulks Amazon Ads SP ejecutables.
+Constructores de bulks Amazon Ads SP ejecutables.
 
-Diseno:
-  - build_amazon_bulk(rows, entity, ...) -> (bulk_df, invalid_df)
-      Construye DataFrame de 12 cols schema Amazon. Valida que cada row tenga
-      campaign_name + ad_group_name no vacios (sin eso Amazon rechaza con
-      "Missing Parent ID"). Filas invalidas van al 2do DataFrame.
+Por que se rediseno:
+  La version anterior tenia UN constructor generico (build_amazon_bulk) que
+  escribia el NOMBRE de la campana en la columna Campaign ID. Eso solo
+  resuelve en modo ALIAS (INV-5.1), o sea cuando la campana se crea en el
+  mismo archivo. Los dos usos reales — negativizar y harvestear sobre
+  campanas que YA existen — son modo REFERENCIA y necesitan el ID numerico
+  real. A eso se le sumaban Entity 'Negative keyword' con k minuscula y los
+  Match Type en camelCase, ninguno de los dos canonico (INV-5.3).
 
-  - aggregate_str_with_top_campaign(df_str, ...) -> DataFrame
-      Agrupa STR por termino preservando Campaign / Ad Group / Match Type
-      del row con MAYOR SPEND (idxmax). Flag _n_campaigns para ambiguedad.
+  Resultado: bulks que Amazon rechazaba enteros. Y como Amazon hace rollback
+  total (INV-5.4), un archivo de 200 filas con una sola mal armada no aplica
+  ninguna.
 
-  - write_bulk_excel(bulk_df, metadata_df, ...) -> bytes
-      Excel 2 hojas: "Sponsored Products Campaigns" (schema Amazon) +
-      "Metadata Capybaras" (info contextual del analisis).
+Diseno actual — cuatro constructores, no uno:
+  Las firmas son incompatibles entre si A PROPOSITO. Cada caso de uso de
+  INV-5.2 pide campos distintos, y un unico constructor generico obliga a
+  decidir en runtime lo que se puede decidir en el sitio de la llamada.
 
-Usado por:
-  - modules/pages/search_term_report.py — tab Negativizar (Negative keyword)
-  - modules/pages/search_term_report.py — tab Harvest (Keyword)
-  - modules/pages/analisis_cruzado.py   — tab Plan de Accion (Keyword)
+  - build_campaign_negative(rows)  Entity 'Campaign Negative Keyword'
+  - build_adgroup_negative(rows)   Entity 'Negative Keyword'
+  - build_keyword_create(rows)     Entity 'Keyword',  Operation 'Create'
+  - build_bid_update(rows)         Entity 'Keyword',  Operation 'Update'
 
-Reglas duras Amazon Ads SP (NO negociables):
-  - Campaign ID = Campaign Name en cada row (vacio = "Missing Parent ID")
-  - Ad Group ID = Ad Group Name en cada row (idem)
-  - Portfolio ID siempre vacio
-  - Product hardcoded "Sponsored Products"
-  - Negative keyword: Bid forzado a "" (Amazon rechaza Negative con bid)
-  - Sheet name del bulk: "Sponsored Products Campaigns" (oficial; otros rebotan)
-  - Header "State" en lowercase de valor ("enabled"), NO "Status"
+  Los cuatro devuelven (bulk_df, invalid_df). Ninguna fila dudosa entra al
+  bulk: si no se puede armar bien, va a invalid_df con el motivo escrito.
+
+Doble llave:
+  Antes de devolver, cada constructor pasa su propio bulk_df por
+  validate_bulk (core.bulk_parser). Lo que el validador marque como error de
+  severidad "error" sale del bulk y se va a invalid_df. El validador vive en
+  otro modulo a proposito: el que valida no puede ser el mismo que construye.
+
+Sin dependencia de Streamlit: codigo puro, testeable sin levantar la app.
+
+Contrato: .claude/skills/ppc-business-invariants.md — INV-5.
 """
 
 from __future__ import annotations
 
 import io
-from typing import Any, Iterable, Literal
+from dataclasses import dataclass
+from typing import Any, Iterable
 
 import pandas as pd
+
+# _id_to_str es privado de bulk_parser, pero es LA normalizacion de IDs del
+# repo y duplicarla seria garantizar que las dos copias se separen. Se importa
+# a proposito. validate_bulk es la segunda llave de cada constructor.
+from core.bulk_parser import _id_to_str, validate_bulk
 
 
 # ============================================================================
 # Constantes publicas
 # ============================================================================
 
-# Schema oficial Amazon Bulk SP — 12 columnas, ORDEN MANDATORIO
+# Schema del template validado — 26 columnas, ORDEN MANDATORIO (INV-5.5).
+# Las columnas anexas del analisis (Prioridad, Regla, Customer Search Term)
+# NUNCA van aca: van en la hoja Metadata.
 _BULK_COLS: list[str] = [
     "Product",
     "Entity",
@@ -50,24 +66,38 @@ _BULK_COLS: list[str] = [
     "Campaign ID",
     "Ad Group ID",
     "Portfolio ID",
+    "Ad ID",
+    "Keyword ID",
+    "Product Targeting ID",
     "Campaign Name",
     "Ad Group Name",
+    "Start Date",
+    "End Date",
+    "Targeting Type",
     "State",
+    "Daily Budget",
+    "SKU",
+    "Ad Group Default Bid",
     "Bid",
     "Keyword Text",
     "Match Type",
+    "Bidding Strategy",
+    "Placement",
+    "Percentage",
+    "Product Targeting Expression",
+    "Sites",
 ]
 
-_VALID_KW_MATCH_TYPES: set[str] = {"exact", "phrase", "broad"}
-_VALID_NEG_MATCH_TYPES: set[str] = {
-    "negativeExact",
-    "negativePhrase",
-    "negativeProductTarget",
-}
-
+# Valores canonicos (INV-5.3). Title Case, que es el que tiene validacion
+# empirica. Los camelCase (negativeExact, exact) no la tienen.
 _PRODUCT_SP: str = "Sponsored Products"
+_MT_POSITIVOS: tuple[str, ...] = ("Exact", "Phrase", "Broad")
+_MT_NEGATIVOS: tuple[str, ...] = ("Negative Exact", "Negative Phrase")
+
 _BULK_SHEET_NAME: str = "Sponsored Products Campaigns"
 _METADATA_SHEET_NAME: str = "Metadata Capybaras"
+
+_COL_INVALID_REASON: str = "_invalid_reason"
 
 
 # ============================================================================
@@ -75,7 +105,7 @@ _METADATA_SHEET_NAME: str = "Metadata Capybaras"
 # ============================================================================
 
 def _coerce_str(v: Any) -> str:
-    """Convierte a string limpio. NaN/None/'nan' → ''."""
+    """Convierte a string limpio. NaN / None / 'nan' -> ''."""
     if v is None:
         return ""
     if isinstance(v, float) and pd.isna(v):
@@ -86,168 +116,406 @@ def _coerce_str(v: Any) -> str:
     return s
 
 
-def _coerce_bid(v: Any) -> str | float:
+def _norm_id(v: Any) -> tuple[str, str | None]:
     """
-    Convierte bid a float o ''. Reglas:
-      - None / NaN / '' → ''
-      - Numerico convertible → float redondeado a 2 decimales
-      - No convertible → '' (el helper marca la fila como invalida aparte si era requerido)
-    """
-    if v is None or v == "":
-        return ""
-    if isinstance(v, float) and pd.isna(v):
-        return ""
-    try:
-        f = float(v)
-        if pd.isna(f):
-            return ""
-        return round(f, 2)
-    except (TypeError, ValueError):
-        return ""
-
-
-def _validate_row(
-    row: dict,
-    *,
-    entity: str,
-    valid_kw_mt: set[str],
-    valid_neg_mt: set[str],
-) -> str | None:
-    """
-    Valida una row de entrada. Devuelve None si OK, o string con motivo de invalidez.
-    """
-    campaign = _coerce_str(row.get("campaign_name"))
-    ad_group = _coerce_str(row.get("ad_group_name"))
-    keyword = _coerce_str(row.get("keyword_text"))
-    match_type = _coerce_str(row.get("match_type"))
-
-    if not campaign:
-        return "Campaign Name vacio (Amazon: Missing Parent ID)"
-    if not ad_group:
-        return "Ad Group Name vacio (Amazon: Missing Parent ID)"
-    if not keyword:
-        return "Keyword Text vacio"
-    if not match_type:
-        return "Match Type vacio"
-
-    if entity == "Keyword":
-        if match_type not in valid_kw_mt:
-            return f"Match Type invalido para Keyword: '{match_type}' (validos: {sorted(valid_kw_mt)})"
-    elif entity == "Negative keyword":
-        if match_type not in valid_neg_mt:
-            return f"Match Type invalido para Negative keyword: '{match_type}' (validos: {sorted(valid_neg_mt)})"
-
-    return None
-
-
-# ============================================================================
-# API publica
-# ============================================================================
-
-def build_amazon_bulk(
-    rows: Iterable[dict] | pd.DataFrame,
-    *,
-    entity: Literal["Keyword", "Negative keyword"],
-    operation: str = "Create",
-    state: str = "enabled",
-    drop_invalid: bool = True,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Construye un bulk Amazon Ads SP valido con 12 columnas en orden.
-
-    Args:
-        rows: lista de dicts (o DataFrame con cols equivalentes). Cada row:
-            {
-                "campaign_name": str (NO vacio — si vacio, fila va a invalid_df),
-                "ad_group_name": str (NO vacio — idem),
-                "keyword_text":  str,
-                "match_type":    str (exact/phrase/broad o negativeExact/negativePhrase/negativeProductTarget),
-                "bid":           float | str | None (solo Keyword; ignorado en Negative)
-            }
-        entity: "Keyword" o "Negative keyword"
-        operation: "Create" por default (otros valores: "Update", "Archive")
-        state: "enabled" por default
-        drop_invalid: si True, filas invalidas se separan a invalid_df (recomendado)
+    Normaliza un ID a string, o explica por que no se puede.
 
     Returns:
-        (bulk_df, invalid_df):
-          - bulk_df: 12 cols schema Amazon, en orden. Solo filas validas si drop_invalid=True.
-          - invalid_df: filas que no entraron al bulk + col "_invalid_reason".
-                       Si no hay invalidas → DataFrame vacio con la col "_invalid_reason".
+        (id_normalizado, motivo_de_invalidez_o_None).
 
-    Raises:
-        ValueError: si entity no es uno de los dos validos.
+    El float con cola decimal ('375512123676480.0') SI se repara: no hay
+    perdida de informacion, es el mismo numero mal renderizado.
+
+    La notacion cientifica ('4.42e+14') NO se repara y la fila se marca
+    invalida. float('4.42e+14') da 442000000000000, un ID que parece valido
+    y no es el que el AM quiso: los digitos que faltaban ya se perdieron en
+    el origen. Repararlo seria inventar un ID.
     """
-    if entity not in ("Keyword", "Negative keyword"):
-        raise ValueError(
-            f"entity invalido: {entity!r}. Validos: 'Keyword', 'Negative keyword'."
+    crudo = _coerce_str(v)
+    if crudo == "":
+        return "", None
+    if "e+" in crudo.lower():
+        return "", (
+            f"ID en notacion cientifica ({crudo!r}): perdio digitos al leerse "
+            "como numero. Cargalo como texto desde el Bulk File."
         )
+    return _id_to_str(crudo), None
 
-    # Normalizar input a lista de dicts
+
+def _coerce_bid(v: Any) -> tuple[float | None, str | None]:
+    """
+    Convierte el bid a float, o explica por que no se puede.
+
+    Returns:
+        (bid_redondeado_o_None, motivo_de_invalidez_o_None).
+
+    Cambio de comportamiento respecto de la version anterior: antes un bid no
+    convertible ('$1.20', 'abc') se transformaba en '' y la fila entraba
+    igual al bulk. Amazon rechazaba el archivo entero y el AM no tenia como
+    saber cual fila lo habia roto. Ahora la fila no entra y se dice por que.
+    """
+    crudo = _coerce_str(v)
+    if crudo == "":
+        return None, "Bid vacio: una keyword tiene que llevar bid."
+    try:
+        f = float(crudo)
+    except (TypeError, ValueError):
+        return None, (
+            f"Bid {crudo!r} no es un numero. Va sin simbolo de moneda y con "
+            "punto decimal, por ejemplo 0.75."
+        )
+    if pd.isna(f):
+        return None, "Bid vacio: una keyword tiene que llevar bid."
+    if f <= 0:
+        return None, (
+            f"Bid de {f:.2f}: tiene que ser mayor a 0, un bid de 0 no compite "
+            "en ninguna subasta."
+        )
+    return round(f, 2), None
+
+
+@dataclass(frozen=True)
+class _Spec:
+    """
+    Que exige cada caso de uso de INV-5.2.
+
+    Cada campo de ID / bid es "requerido" (no puede venir vacio) o
+    "prohibido" (tiene que venir vacio; si viene, la fila es invalida).
+    """
+
+    entity: str
+    operation: str
+    match_types: tuple[str, ...]
+    ad_group_id: str
+    keyword_id: str
+    bid: str
+
+
+_SPEC_CAMPAIGN_NEGATIVE = _Spec(
+    entity="Campaign Negative Keyword",
+    operation="Create",
+    match_types=_MT_NEGATIVOS,
+    ad_group_id="prohibido",
+    keyword_id="prohibido",
+    bid="prohibido",
+)
+
+_SPEC_ADGROUP_NEGATIVE = _Spec(
+    entity="Negative Keyword",
+    operation="Create",
+    match_types=_MT_NEGATIVOS,
+    ad_group_id="requerido",
+    keyword_id="prohibido",
+    bid="prohibido",
+)
+
+_SPEC_KEYWORD_CREATE = _Spec(
+    entity="Keyword",
+    operation="Create",
+    match_types=_MT_POSITIVOS,
+    ad_group_id="requerido",
+    keyword_id="prohibido",
+    bid="requerido",
+)
+
+_SPEC_BID_UPDATE = _Spec(
+    entity="Keyword",
+    operation="Update",
+    match_types=_MT_POSITIVOS,
+    ad_group_id="requerido",
+    keyword_id="requerido",
+    bid="requerido",
+)
+
+
+def _fila_bulk(**valores: Any) -> dict:
+    """Fila con las 26 columnas, todas en '' salvo las que se pasen."""
+    fila = {col: "" for col in _BULK_COLS}
+    fila.update(valores)
+    return fila
+
+
+def _motivo_id(
+    valor_crudo: Any,
+    *,
+    campo: str,
+    columna: str,
+    exigencia: str,
+    entity: str,
+) -> tuple[str, str | None]:
+    """Normaliza un ID y lo contrasta contra lo que el spec exige."""
+    normalizado, motivo = _norm_id(valor_crudo)
+    if motivo:
+        return "", f"{columna}: {motivo}"
+
+    if exigencia == "requerido" and not normalizado:
+        return "", (
+            f"Falta {campo}: una fila '{entity}' no se puede subir sin ese "
+            "campo. Amazon la rechaza con 'Missing Parent ID' y tira el "
+            "archivo entero."
+        )
+    if exigencia == "prohibido" and normalizado:
+        if entity == "Campaign Negative Keyword" and columna == "Ad Group ID":
+            return "", (
+                "Un 'Campaign Negative Keyword' NO puede tener Ad Group ID: "
+                "el negativo va a nivel campana y no pertenece a ningun ad "
+                "group. Si el negativo es de un ad group puntual, el "
+                "constructor correcto es build_adgroup_negative."
+            )
+        return "", (
+            f"{columna} tiene que ir vacio en una fila '{entity}', y llego "
+            f"{normalizado!r}."
+        )
+    return normalizado, None
+
+
+def _armar(
+    rows: Iterable[dict] | pd.DataFrame,
+    spec: _Spec,
+    *,
+    state: str = "enabled",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Motor comun de los cuatro constructores.
+
+    Arma las filas segun el spec, aparta las que no cumplen, y despues pasa
+    el bulk resultante por validate_bulk como segunda llave.
+    """
     if isinstance(rows, pd.DataFrame):
         rows_list = rows.to_dict(orient="records")
     else:
         rows_list = list(rows)
 
-    valid_records: list[dict] = []
-    invalid_records: list[dict] = []
+    validas: list[dict] = []
+    invalidas: list[dict] = []
 
     for row in rows_list:
-        reason = _validate_row(
-            row,
-            entity=entity,
-            valid_kw_mt=_VALID_KW_MATCH_TYPES,
-            valid_neg_mt=_VALID_NEG_MATCH_TYPES,
-        )
+        motivos: list[str] = []
 
-        campaign = _coerce_str(row.get("campaign_name"))
-        ad_group = _coerce_str(row.get("ad_group_name"))
-        keyword = _coerce_str(row.get("keyword_text"))
+        campaign_id, motivo = _motivo_id(
+            row.get("campaign_id"),
+            campo="campaign_id",
+            columna="Campaign ID",
+            exigencia="requerido",
+            entity=spec.entity,
+        )
+        if motivo:
+            motivos.append(motivo)
+
+        ad_group_id, motivo = _motivo_id(
+            row.get("ad_group_id"),
+            campo="ad_group_id",
+            columna="Ad Group ID",
+            exigencia=spec.ad_group_id,
+            entity=spec.entity,
+        )
+        if motivo:
+            motivos.append(motivo)
+
+        keyword_id, motivo = _motivo_id(
+            row.get("keyword_id"),
+            campo="keyword_id",
+            columna="Keyword ID",
+            exigencia=spec.keyword_id,
+            entity=spec.entity,
+        )
+        if motivo:
+            motivos.append(motivo)
+
+        keyword_text = _coerce_str(row.get("keyword_text"))
+        if not keyword_text:
+            motivos.append(
+                f"Keyword Text vacio: una fila '{spec.entity}' sin termino no "
+                "significa nada para Amazon."
+            )
+
         match_type = _coerce_str(row.get("match_type"))
+        if match_type not in spec.match_types:
+            motivos.append(
+                f"Match Type {match_type!r} no es valido para un "
+                f"'{spec.entity}'. Amazon acepta: "
+                + " | ".join(spec.match_types)
+                + ". El casing importa: es Title Case, no camelCase."
+            )
 
-        # Bid: solo para Keyword. Negative keyword fuerza vacio (Amazon rechaza Negative con bid)
-        if entity == "Keyword":
-            bid_val = _coerce_bid(row.get("bid"))
-        else:
-            bid_val = ""
+        # Bid. En los negativos se fuerza vacio: Amazon rechaza un negativo
+        # que traiga bid, y el negativo no puja por nada.
+        bid_val: float | str = ""
+        if spec.bid == "requerido":
+            bid_num, motivo = _coerce_bid(row.get("bid"))
+            if motivo:
+                motivos.append(motivo)
+            else:
+                bid_val = bid_num  # type: ignore[assignment]
 
-        record = {
-            "Product": _PRODUCT_SP,
-            "Entity": entity,
-            "Operation": operation,
-            "Campaign ID": campaign,       # = Campaign Name (regla Amazon Bulk Capybaras)
-            "Ad Group ID": ad_group,        # = Ad Group Name
-            "Portfolio ID": "",             # SIEMPRE vacio
-            "Campaign Name": campaign,
-            "Ad Group Name": ad_group,
-            "State": state,
-            "Bid": bid_val,
-            "Keyword Text": keyword,
-            "Match Type": match_type,
-        }
-
-        if reason is None:
-            valid_records.append(record)
-        else:
-            invalid_record = dict(record)
-            invalid_record["_invalid_reason"] = reason
-            invalid_records.append(invalid_record)
-
-    bulk_df = pd.DataFrame(valid_records, columns=_BULK_COLS)
-    invalid_df = pd.DataFrame(
-        invalid_records,
-        columns=_BULK_COLS + ["_invalid_reason"],
-    )
-
-    # Si drop_invalid=False → meter las invalidas en el bulk tambien (caveat: rebotaran en Amazon)
-    if not drop_invalid and not invalid_df.empty:
-        bulk_df = pd.concat(
-            [bulk_df, invalid_df[_BULK_COLS]],
-            ignore_index=True,
+        registro = _fila_bulk(
+            Product=_PRODUCT_SP,
+            Entity=spec.entity,
+            Operation=spec.operation,
+            **{
+                "Campaign ID": campaign_id,
+                "Ad Group ID": ad_group_id,
+                "Keyword ID": keyword_id,
+                # Nombres: informativos cuando la fila referencia por ID.
+                # Se pasan si el caller los tiene, para que el AM reconozca
+                # la fila al abrir el archivo.
+                "Campaign Name": _coerce_str(row.get("campaign_name")),
+                "Ad Group Name": _coerce_str(row.get("ad_group_name")),
+                "State": state,
+                "Bid": bid_val,
+                "Keyword Text": keyword_text,
+                "Match Type": match_type,
+            },
         )
 
+        if motivos:
+            invalido = dict(registro)
+            invalido[_COL_INVALID_REASON] = " | ".join(motivos)
+            invalidas.append(invalido)
+        else:
+            validas.append(registro)
+
+    bulk_df = pd.DataFrame(validas, columns=_BULK_COLS)
+
+    # ── Segunda llave: el validador de core.bulk_parser sobre lo ya armado.
+    # Si algo se le escapo al spec, la fila sale del bulk igual.
+    if not bulk_df.empty:
+        por_fila: dict[int, list[str]] = {}
+        for err in validate_bulk(bulk_df):
+            if err.severidad != "error":
+                continue
+            if err.fila < 0:
+                # Error de archivo (columnas faltantes). Imposible por
+                # construccion: _fila_bulk siempre emite las 26 columnas.
+                continue
+            por_fila.setdefault(err.fila, []).append(err.mensaje)
+
+        if por_fila:
+            for pos in sorted(por_fila):
+                rechazada = bulk_df.iloc[pos].to_dict()
+                rechazada[_COL_INVALID_REASON] = " | ".join(por_fila[pos])
+                invalidas.append(rechazada)
+            bulk_df = bulk_df.drop(index=sorted(por_fila)).reset_index(drop=True)
+
+    invalid_df = pd.DataFrame(
+        invalidas,
+        columns=_BULK_COLS + [_COL_INVALID_REASON],
+    )
     return bulk_df, invalid_df
 
+
+# ============================================================================
+# API publica — constructores
+# ============================================================================
+
+def build_campaign_negative(
+    rows: Iterable[dict] | pd.DataFrame,
+    *,
+    state: str = "enabled",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Negativos a nivel CAMPANA (INV-5.2, fila 1).
+
+    Args:
+        rows: cada dict con
+            campaign_id:   ID numerico real de Amazon (~15 digitos). La
+                           campana ya existe, asi que va modo REFERENCIA:
+                           el nombre no resuelve (INV-5.1).
+            keyword_text:  el termino a negativizar.
+            match_type:    "Negative Exact" | "Negative Phrase".
+            campaign_name: opcional, informativo.
+        state: "enabled" por default.
+
+    Returns:
+        (bulk_df, invalid_df). bulk_df con las 26 columnas en orden.
+
+    Ad Group ID va SIEMPRE vacio y Bid tambien. Una row con ad_group_id es un
+    error de nivel — el negativo de campana no pertenece a ningun ad group —
+    y la fila entera se va a invalid_df.
+    """
+    return _armar(rows, _SPEC_CAMPAIGN_NEGATIVE, state=state)
+
+
+def build_adgroup_negative(
+    rows: Iterable[dict] | pd.DataFrame,
+    *,
+    state: str = "enabled",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Negativos a nivel AD GROUP (INV-5.2, fila 2).
+
+    Args:
+        rows: cada dict con
+            campaign_id / ad_group_id: IDs numericos reales, los dos.
+            keyword_text: el termino a negativizar.
+            match_type:   "Negative Exact" | "Negative Phrase".
+            campaign_name / ad_group_name: opcionales, informativos.
+        state: "enabled" por default.
+
+    Returns:
+        (bulk_df, invalid_df).
+
+    Bid va SIEMPRE vacio: Amazon rechaza un negativo que traiga bid.
+    """
+    return _armar(rows, _SPEC_ADGROUP_NEGATIVE, state=state)
+
+
+def build_keyword_create(
+    rows: Iterable[dict] | pd.DataFrame,
+    *,
+    state: str = "enabled",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Keywords nuevas (INV-5.2, fila 3).
+
+    Args:
+        rows: cada dict con
+            campaign_id / ad_group_id: numericos si la campana y el ad group
+                YA existen (modo REFERENCIA), o el mismo alias que usan las
+                filas que los crean en este archivo (modo ALIAS, INV-5.1).
+                Lo que no se puede es mezclar los dos criterios en una fila.
+            keyword_text: la keyword.
+            match_type:   "Exact" | "Phrase" | "Broad".
+            bid:          numero mayor a 0. Techo por INV-1, que se aplica
+                          rio arriba: este helper no calcula bids.
+        state: "enabled" por default.
+
+    Returns:
+        (bulk_df, invalid_df).
+    """
+    return _armar(rows, _SPEC_KEYWORD_CREATE, state=state)
+
+
+def build_bid_update(
+    rows: Iterable[dict] | pd.DataFrame,
+    *,
+    state: str = "enabled",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Update de bid sobre keywords que ya existen (INV-5.2, fila 4).
+
+    Args:
+        rows: cada dict con
+            campaign_id / ad_group_id / keyword_id: los TRES numericos.
+                Sin keyword_id Amazon no sabe que keyword modificar y la fila
+                es invalida. El dato sale del Bulk File
+                (core.bulk_parser.parse_bulk_str), no del STR standalone.
+            keyword_text: el texto de la keyword. Amazon lo resuelve por
+                Keyword ID, pero la fila igual lo lleva — es lo que hace
+                legible el archivo cuando el AM lo revisa antes de subir.
+            match_type: "Exact" | "Phrase" | "Broad", el de la keyword.
+            bid:        el bid nuevo, mayor a 0.
+        state: "enabled" por default.
+
+    Returns:
+        (bulk_df, invalid_df).
+    """
+    return _armar(rows, _SPEC_BID_UPDATE, state=state)
+
+
+# ============================================================================
+# API publica — agregacion del STR
+# ============================================================================
 
 def aggregate_str_with_top_campaign(
     df_str: pd.DataFrame,
@@ -341,6 +609,10 @@ def aggregate_str_with_top_campaign(
     return out
 
 
+# ============================================================================
+# API publica — escritura
+# ============================================================================
+
 def write_bulk_excel(
     bulk_df: pd.DataFrame,
     metadata_df: pd.DataFrame | None = None,
@@ -352,15 +624,18 @@ def write_bulk_excel(
     Genera Excel multi-hoja para download.
 
     Args:
-        bulk_df: DataFrame con 12 cols schema Amazon (output de build_amazon_bulk).
-        metadata_df: DataFrame opcional con info contextual (Accion, Brand Share, etc).
-                     Esta hoja NO se sube a Amazon; queda como referencia del AM.
-        bulk_sheet_name: por default "Sponsored Products Campaigns" (oficial Amazon).
-                         Si lo cambias podes romper compat con templates Amazon.
+        bulk_df: DataFrame con las 26 cols del schema Amazon (salida de
+                 cualquiera de los cuatro constructores).
+        metadata_df: DataFrame opcional con info contextual (Accion, Regla,
+                     Prioridad, etc). Esta hoja NO se sube a Amazon; queda
+                     como referencia del AM. INV-5.5: las columnas anexas van
+                     aca y nunca en la hoja del bulk.
+        bulk_sheet_name: por default "Sponsored Products Campaigns" (oficial
+                         Amazon). Si lo cambias podes romper compat.
         metadata_sheet_name: por default "Metadata Capybaras".
 
     Returns:
-        bytes — listo para io.BytesIO().getvalue() o st.download_button(data=...).
+        bytes — listo para st.download_button(data=...).
     """
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
