@@ -5,7 +5,59 @@ import unicodedata
 import streamlit as st
 import pandas as pd
 
+from core.bulk_export import (
+    aggregate_str_with_top_campaign,
+    build_bid_update,
+    build_keyword_create,
+    write_bulk_excel,
+)
+from core.bulk_parser import (
+    SHEET_CAMPAIGNS,
+    SHEET_STR,
+    get_exact_activas,
+    get_portfolio_por_campaign,
+    parse_bulk_campaigns,
+    parse_bulk_str,
+    validate_bulk,
+)
 from core.helpers import read_sqp, extract_sqp_brand
+from core.ppc_metrics import acos_series, calc_acos, calc_cvr
+
+
+# Paridad de conversión contra el mercado (FIX 3).
+# Por debajo de este factor se considera que convertís peor que la query.
+# 0.8 = tolerás rendir hasta un 20% peor antes de llamarlo problema de listing.
+# NO tiene respaldo empírico: el relevamiento de SQP (2026-09) confirmó que no
+# existe literatura con umbrales de share ni de paridad de CVR. Es un default
+# para mover, no una constante de negocio.
+_CVR_PARIDAD_MERCADO = 0.8
+
+# Piso de bid de Amazon (INV-1). Por debajo de esto la subasta no acepta la puja.
+_BID_MINIMO_AMAZON = 0.10
+
+# ── Columnas del Bulk File ───────────────────────────────────────────────
+# El input de este módulo es el Bulk File de Amazon, no el STR standalone. Sus
+# nombres de columna son FIJOS y conocidos, así que se declaran acá en vez de
+# buscarlos por substring: la detección difusa que había antes agarraba la
+# columna "Product" (que vale "Sponsored Products") como si fuera el ASIN.
+_COL_TERM      = "Customer Search Term"
+_COL_CAMP_NAME = "Campaign Name"
+_COL_AG_NAME   = "Ad Group Name"
+_COL_CAMP_ID   = "Campaign ID"
+_COL_AG_ID     = "Ad Group ID"
+_COL_KW_ID     = "Keyword ID"
+_COL_IMPR      = "Impressions"
+_COL_CLICKS    = "Clicks"
+_COL_SPEND     = "Spend"
+_COL_SALES     = "Sales"
+_COL_ORDERS    = "Orders"
+_COL_MATCH     = "Match Type"
+_COL_PORTFOLIO = "Portfolio Name"
+
+# Portfolio cuyos términos NO se negativizan por default (INV-11.3). El costo de
+# no negativizar algo negativizable son unos dólares; el de negativizar una
+# ranking keyword es posición orgánica, que no se recupera ajustando bids.
+_PORTFOLIO_RANKING = "RANKING"
 
 
 def _norm(s) -> str:
@@ -34,10 +86,44 @@ def _br_num(raw, present) -> float:
 
 
 @st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
-def _load_str_file(data, name):
-    """Cached reader for STR files."""
-    buf = io.BytesIO(data)
-    return pd.read_excel(buf) if name.endswith(".xlsx") else pd.read_csv(buf)
+def _load_bulk_str(data: bytes) -> pd.DataFrame:
+    """Hoja "SP Search Term Report" del Bulk File. Cacheada por bytes."""
+    return parse_bulk_str(io.BytesIO(data))
+
+
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
+def _load_bulk_campaigns(data: bytes) -> pd.DataFrame:
+    """Hoja "Sponsored Products Campaigns" del Bulk File. Cacheada por bytes."""
+    return parse_bulk_campaigns(io.BytesIO(data))
+
+
+@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
+def _asin_por_ad_group(df_campaigns: pd.DataFrame) -> dict[str, str]:
+    """
+    Mapa Ad Group ID -> ASIN, leído de las filas Entity == "Product Ad".
+
+    El ASIN NO vive en la hoja del Search Term Report: ahí la columna "Product"
+    vale "Sponsored Products" en todas las filas. Tomarla como ASIN produce un
+    ASIN fantasma con el 100% del spend, que es una falla silenciosa. El dato
+    real está en la hoja de campañas, en las filas de Product Ad.
+
+    Un ad group con varios Product Ad se queda con el primero: el análisis por
+    ASIN de la Tab 3 es de grano ad group, no de SKU.
+    """
+    requeridas = {"Entity", "Ad Group ID", "ASIN"}
+    if not requeridas.issubset(df_campaigns.columns):
+        return {}
+
+    filas = df_campaigns[
+        df_campaigns["Entity"].astype(str).str.strip().str.lower() == "product ad"
+    ]
+    out: dict[str, str] = {}
+    for ag_id, asin in zip(filas["Ad Group ID"], filas["ASIN"]):
+        ag_s = str(ag_id).strip()
+        asin_s = "" if asin is None else str(asin).strip()
+        if ag_s and asin_s and asin_s.lower() != "nan" and ag_s not in out:
+            out[ag_s] = asin_s
+    return out
 
 
 def render():
@@ -51,34 +137,95 @@ def render():
             st.markdown("**🎯 Para qué sirve**")
             st.caption("Cruzar tus campañas (STR) contra el mercado (SQP) y generar un Plan de Acción accionable.")
         with col2:
-            st.markdown("**📂 Archivo necesario**")
-            st.caption("STR (.xlsx) + SQP (.xlsx). Opcional: BR by ASIN (.csv) para Tab 3 PPC Insights.")
+            st.markdown("**📂 Archivos necesarios**")
+            st.caption("**Bulk File** de Amazon (.xlsx) + SQP (.xlsx). El BR by ASIN ya no hace falta: los ASINs salen del propio Bulk File.")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Campaign Builder (M10) para ejecutar, o Tendencia Multi-Semana (M5) para contexto.")
+
+        st.markdown("**📥 Cómo bajar el Bulk File (es el archivo clave):**")
+        st.markdown(
+            "1. Campaign Manager → **Bulk Operations**\n"
+            "2. En *Create & download custom spreadsheet*, elegí un rango de "
+            "**30 días o más**. Con menos, los términos no juntan clicks "
+            "suficientes y los umbrales del análisis no llegan a dispararse.\n"
+            "3. Tildá **Sponsored Products**.\n"
+            "4. En las opciones de datos, tildá **Search term data** "
+            "(*Sponsored products search term data*). **Sin esa opción el archivo "
+            "no trae la hoja que este módulo necesita.**\n"
+            "5. Download → subí el `.xlsx` tal cual, sin abrirlo ni guardarlo de nuevo."
+        )
+        st.caption(
+            "⚠️ **No sirve el Search Term Report standalone.** Se parece, pero no trae "
+            "los IDs numéricos de campaña, ad group y keyword — y sin esos IDs Amazon "
+            "rechaza cualquier bulk que generemos."
+        )
+
         st.markdown("**▶️ Pasos:**")
         st.markdown(
-            "1. Subí STR y SQP\n"
+            "1. Subí el Bulk File y el SQP\n"
             "2. Ingresá brand terms + Target ACoS\n"
-            "3. Tab Cruce: revisá En ambos / Solo STR / Solo SQP\n"
-            "4. Tab Plan de Acción: revisá columna Acción (AGREGAR / HARVEST / BAJAR BID / ESCALAR / MONITOREAR)\n"
-            "5. Descargá Plan de Acción bulk"
+            "3. Tab Cruce: revisá En ambos / Solo STR / Solo SQP y el diagnóstico de funnel\n"
+            "4. Tab Plan de Acción: revisá la columna Acción y las columnas de guarda "
+            "(🛑 No negativizable · 🏅 Ranking KW · ♻️ Ya en Exact)\n"
+            "5. Descargá el bulk y subilo a Bulk Operations"
         )
 
     st.info("Subí ambos archivos para comparar qué términos aparecen en cada reporte y detectar oportunidades.")
 
     col_str, col_sqp = st.columns(2)
     with col_str:
-        file_str_x = st.file_uploader("STR (.xlsx o .csv)", type=["xlsx", "csv"], key="str_x")
+        file_str_x = st.file_uploader(
+            "Bulk File de Amazon (Campaign Manager → Bulk Operations → Download)",
+            type=["xlsx"],
+            key="str_x",
+            help="El Bulk File completo, NO el Search Term Report standalone. "
+                 "Es el único archivo que trae los IDs numéricos que Amazon "
+                 "necesita para aplicar un bulk.",
+        )
     with col_sqp:
         file_sqp_x = st.file_uploader("SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="sqp_x")
 
     if file_str_x and file_sqp_x:
-        df_str = _load_str_file(file_str_x.getvalue(), file_str_x.name)
+        # ── Parseo del Bulk File ──────────────────────────────────────────
+        # Sin la hoja del STR no hay nada que cruzar: se corta acá con un
+        # mensaje que dice cómo bajar el archivo correcto. Degradar en
+        # silencio a "STR standalone" sería peor: el módulo parecería andar
+        # y produciría bulks que Amazon rechaza enteros (INV-5.4).
+        try:
+            df_str = _load_bulk_str(file_str_x.getvalue())
+        except ValueError:
+            st.error(
+                f"**El archivo no tiene la hoja `{SHEET_STR}`.**\n\n"
+                "Parece el Search Term Report standalone, que no trae los IDs "
+                "numéricos de Amazon y con el que no se puede generar ningún "
+                "bulk ejecutable.\n\n"
+                "**Cómo bajar el correcto:** Campaign Manager → **Bulk Operations** "
+                "→ en *Create & download custom spreadsheet* elegí un rango de "
+                "**30 días o más**, tildá **Sponsored Products** y, en las opciones "
+                "de datos, **Search term data** → Download."
+            )
+            return
+
+        # La hoja de campañas es opcional: sin ella el módulo funciona, pero
+        # los guards de INV-11 quedan inactivos y hay que decirlo (INV-10).
+        try:
+            df_campaigns = _load_bulk_campaigns(file_str_x.getvalue())
+        except ValueError:
+            df_campaigns = None
+            st.warning(
+                f"⚠️ El archivo no trae la hoja `{SHEET_CAMPAIGNS}`. El cruce "
+                "funciona igual, pero **los guards de seguridad quedan "
+                "inactivos**: no puedo marcar los términos que ya corren como "
+                "Exact activa, ni los de campañas en portfolio RANKING, ni "
+                "resolver los ASINs de la Tab 3. Bajá el Bulk File completo "
+                "para tenerlos."
+            )
+
         brand_name = extract_sqp_brand(file_sqp_x)
         df_sqp = read_sqp(file_sqp_x)
 
-        str_col = "Customer Search Term"
+        str_col = _COL_TERM
         sqp_col = "Search Query"
 
         if brand_name:
@@ -105,7 +252,10 @@ def render():
                 df_sqp["Tipo"] = "Genérica"
 
         if str_col not in df_str.columns:
-            st.error(f"El STR no tiene la columna '{str_col}'.")
+            st.error(
+                f"La hoja `{SHEET_STR}` no tiene la columna '{str_col}'. "
+                "Al bajar el Bulk File faltó tildar **Search term data**."
+            )
         elif sqp_col not in df_sqp.columns:
             st.error(f"El SQP no tiene la columna '{sqp_col}'.")
         else:
@@ -125,18 +275,126 @@ def render():
                 if c in df_sqp.columns:
                     df_sqp[c] = pd.to_numeric(df_sqp[c], errors="coerce").fillna(0)
 
+            # ── Diagnóstico de funnel: CVR propio vs CVR del mercado ──
+            # Es lo que separa un problema de LISTING de uno de TARGETING.
+            # Convertís en línea con el mercado y tenés poco share → te falta
+            # tráfico, y eso SÍ se ataca con PPC. Convertís por debajo → el
+            # problema está en el listing, el precio o las reviews, y subir
+            # bids ahí sólo compra clicks que no cierran.
+            #
+            # OJO con el denominador: "Clicks: Brand Count" mezcla orgánico y
+            # pago, así que el CVR que sale de acá es el de TU MARCA ENTERA en
+            # esa query, NO el de tus ads. Para el diagnóstico de listing eso
+            # es lo correcto (es el que compara contra el mercado), pero NO es
+            # comparable contra el CVR del STR ni contra el "CVR %" de Tab 3.
+            _clicks_tot_col = "Clicks: Total Count"
+            _clicks_br_col  = "Clicks: Brand Count"
+            _pur_br_col     = "Purchases: Brand Count"
+
+            for _c in [_clicks_br_col, _pur_br_col]:
+                if _c in df_sqp.columns:
+                    df_sqp[_c] = pd.to_numeric(df_sqp[_c], errors="coerce")
+
+            _tiene_mercado = all(c in df_sqp.columns for c in [pur_col, _clicks_tot_col])
+            _tiene_marca   = all(c in df_sqp.columns for c in [_pur_br_col, _clicks_br_col])
+
+            if _tiene_mercado:
+                df_sqp["_cvr_mercado"] = [
+                    calc_cvr(p, c)
+                    for p, c in zip(df_sqp[pur_col], df_sqp[_clicks_tot_col])
+                ]
+            if _tiene_marca:
+                df_sqp["_cvr_marca"] = [
+                    calc_cvr(p, c)
+                    for p, c in zip(df_sqp[_pur_br_col], df_sqp[_clicks_br_col])
+                ]
+
+            if _tiene_mercado and _tiene_marca:
+                def _diag_funnel(fila):
+                    mercado = fila["_cvr_mercado"]
+                    marca = fila["_cvr_marca"]
+                    if pd.isna(mercado) or pd.isna(marca):
+                        return "Sin datos"
+                    if marca >= mercado * _CVR_PARIDAD_MERCADO:
+                        return "Convertís como el mercado"
+                    return "Convertís por debajo"
+
+                df_sqp["_diagnostico_funnel"] = df_sqp.apply(_diag_funnel, axis=1)
+
+            # Si TODOS los valores salen None la columna queda dtype object y
+            # Arrow revienta al renderizar. to_numeric la fuerza a float+NaN.
+            for _c in ["_cvr_mercado", "_cvr_marca"]:
+                if _c in df_sqp.columns:
+                    df_sqp[_c] = pd.to_numeric(df_sqp[_c], errors="coerce").round(2)
+
+            _cols_funnel = [
+                c for c in ["_cvr_mercado", "_cvr_marca", "_diagnostico_funnel"]
+                if c in df_sqp.columns
+            ]
+
+            # ── Guards de INV-11, sobre el Bulk File ──────────────────────
+            # Las tres son columnas INFORMATIVAS: marcan el término, no lo
+            # filtran ni cambian su acción. Hoy M6 no genera negativos, así que
+            # no hay nada que bloquear todavía; el día que se agregue NEGATIVAR,
+            # estas tres son la condición previa para que sea seguro hacerlo.
+            _exact_activas: set[str] = set()
+            _portfolios: dict[str, str] = {}
+            _asin_por_ag: dict[str, str] = {}
+            if df_campaigns is not None:
+                _exact_activas = get_exact_activas(df_campaigns)
+                _portfolios = get_portfolio_por_campaign(df_campaigns)
+                _asin_por_ag = _asin_por_ad_group(df_campaigns)
+
+            # INV-11.1 — origen del término. Lo que viene de una campaña Exact o
+            # de Product Targeting NO es candidato a cortar tráfico: si una
+            # keyword Exact rinde mal, la acción es bajar bid o pausar.
+            if "_origen_match_type" in df_str.columns:
+                df_str["_no_negativizable"] = (
+                    df_str["_origen_match_type"].astype(str).str.strip().str.lower().eq("exact")
+                    | df_str.get("_es_product_targeting", False)
+                )
+            else:
+                df_str["_no_negativizable"] = False
+
+            # INV-11.3 — portfolio de la campaña de origen.
+            if _portfolios and _COL_CAMP_ID in df_str.columns:
+                df_str["_portfolio"] = (
+                    df_str[_COL_CAMP_ID].astype(str).str.strip().map(_portfolios).fillna("")
+                )
+                df_str["_es_ranking_kw"] = (
+                    df_str["_portfolio"].str.upper().str.contains(_PORTFOLIO_RANKING, na=False)
+                )
+            else:
+                df_str["_portfolio"] = ""
+                df_str["_es_ranking_kw"] = False
+
+            # INV-11.2 — el término ya corre como keyword Exact activa.
+            if _exact_activas:
+                df_str["_ya_en_exact"] = (
+                    df_str[str_col].astype(str).str.strip().str.lower().isin(_exact_activas)
+                )
+            else:
+                df_str["_ya_en_exact"] = False
+
             cruzado_tab1, cruzado_tab2, cruzado_tab3 = st.tabs(["🔗 Análisis Cruzado", "🎯 Plan de Acción", "📊 PPC Insights por ASIN"])
 
             # ══════════════════════════════════════════════════════════════
             # TAB 1 — Análisis Cruzado (contenido original)
             # ══════════════════════════════════════════════════════════════
             with cruzado_tab1:
+                # INV-8: la tab trabaja sobre su propia copia. Antes cada tab
+                # mutaba el df compartido (convertia columnas, agregaba _asin_ext,
+                # deshacia el fillna del bloque de arriba) y el resultado dependia
+                # del orden en que se habian renderizado las tabs.
+                df_sqp_t1 = df_sqp.copy()
+                df_str_t1 = df_str.copy()
+
                 c1, c2, c3 = st.columns(3)
                 c1.metric("En ambos", len(in_both))
                 c2.metric("Solo en STR (no en SQP)", len(only_str))
                 c3.metric("Solo en SQP (oportunidades)", len(only_sqp))
 
-                opp_sqp = df_sqp[df_sqp[sqp_col].str.lower().str.strip().isin(only_sqp)]
+                opp_sqp = df_sqp_t1[df_sqp_t1[sqp_col].str.lower().str.strip().isin(only_sqp)]
                 n_marca    = (opp_sqp["Tipo"] == "Marca").sum()
                 n_generica = (opp_sqp["Tipo"] == "Genérica").sum()
                 m1, m2 = st.columns(2)
@@ -147,34 +405,34 @@ def render():
                 # M4 NO filtra por Match Type — pero si el STR llega filtrado
                 # upstream (M2 Winners view o export Amazon recortado), AUTO/PT
                 # se pierden. Este panel muestra cuánto spend queda fuera.
-                if df_str is not None and "Match Type" in df_str.columns:
+                if df_str_t1 is not None and "Match Type" in df_str_t1.columns:
                     with st.expander("📊 Diagnóstico cobertura STR (BUG-1)", expanded=False):
                         spend_col = None
                         for c in ["Spend", "spend", "Cost"]:
-                            if c in df_str.columns:
+                            if c in df_str_t1.columns:
                                 spend_col = c
                                 break
                         if spend_col is None:  # fallback substring
                             spend_col = next(
-                                (c for c in df_str.columns
+                                (c for c in df_str_t1.columns
                                  if "spend" in c.lower() or "cost" in c.lower()),
                                 None,
                             )
 
                         if spend_col is None:
                             st.info("No detecté columna 'Spend' — omito % spend.")
-                            _cov = df_str.groupby(
-                                df_str["Match Type"].astype(str).str.upper()
+                            _cov = df_str_t1.groupby(
+                                df_str_t1["Match Type"].astype(str).str.upper()
                             ).size().reset_index(name="rows")
                             st.dataframe(_cov, use_container_width=True)
                         else:
                             _spend_num = pd.to_numeric(
-                                df_str[spend_col].astype(str).str.replace(
+                                df_str_t1[spend_col].astype(str).str.replace(
                                     r"[MX$,%]", "", regex=True
                                 ),
                                 errors="coerce",
                             ).fillna(0)
-                            _mt = df_str["Match Type"].astype(str).str.upper()
+                            _mt = df_str_t1["Match Type"].astype(str).str.upper()
                             cov = pd.DataFrame({"Match Type": _mt, "_spend": _spend_num})
                             cov = cov.groupby("Match Type").agg(
                                 rows=("_spend", "size"), spend=("_spend", "sum")
@@ -226,17 +484,31 @@ def render():
 
                 # ── Tabla 1: en ambos ────────────────────────────────────
                 st.markdown("#### Términos en ambos reportes")
-                sqp_cols_merge = [sqp_col] + [c for c in [score_col, imp_col, "Clicks: Total Count", pur_col] if c in df_sqp.columns]
-                sqp_subset = df_sqp[sqp_cols_merge].copy()
+                sqp_cols_merge = [sqp_col] + [c for c in [score_col, imp_col, "Clicks: Total Count", pur_col] if c in df_sqp_t1.columns] + _cols_funnel
+                sqp_subset = df_sqp_t1[sqp_cols_merge].copy()
                 sqp_subset[sqp_col] = sqp_subset[sqp_col].str.lower().str.strip()
-                merged = df_str[df_str[str_col].str.lower().str.strip().isin(in_both)].copy()
+                merged = df_str_t1[df_str_t1[str_col].str.lower().str.strip().isin(in_both)].copy()
                 merged[str_col] = merged[str_col].str.lower().str.strip()
                 merged = merged.merge(sqp_subset, left_on=str_col, right_on=sqp_col, how="left", suffixes=("_STR", "_SQP"))
                 st.dataframe(apply_filters(merged), use_container_width=True)
+                if _cols_funnel:
+                    st.caption(
+                        "**Cómo leer `_diagnostico_funnel`.** "
+                        "*Convertís como el mercado* + share bajo = problema de **tráfico**: "
+                        "no aparecés lo suficiente, y eso se ataca con PPC (subir bid, "
+                        "agregar la keyword). "
+                        "*Convertís por debajo* = problema de **listing, precio o reviews**: "
+                        "subir bids acá compra clicks que no cierran. "
+                        f"El umbral de paridad es {_CVR_PARIDAD_MERCADO:.0%} del CVR del mercado "
+                        "y no tiene respaldo empírico — ajustalo por categoría. "
+                        "Ojo: `_cvr_marca` sale de *Clicks: Brand Count*, que mezcla orgánico "
+                        "y pago, así que es el CVR de tu marca entera en esa query, **no el de "
+                        "tus ads** — no lo compares contra el CVR del STR ni contra el de Tab 3."
+                    )
 
                 # ── Tabla 2: solo en SQP (oportunidades) ─────────────────
                 st.markdown("#### Términos solo en SQP (sin campaña activa — posibles oportunidades)")
-                df_oportunidades = df_sqp[df_sqp[sqp_col].str.lower().str.strip().isin(only_sqp)].copy()
+                df_oportunidades = df_sqp_t1[df_sqp_t1[sqp_col].str.lower().str.strip().isin(only_sqp)].copy()
 
                 score_norm_cols = [c for c in [imp_col, "Clicks: Total Count", prate_col] if c in df_oportunidades.columns]
                 if score_norm_cols:
@@ -261,13 +533,19 @@ def render():
 
                 # ── Tabla 3: solo en STR ─────────────────────────────────
                 st.markdown("#### Términos solo en STR (sin datos de búsqueda orgánica)")
-                df_solo_str = df_str[df_str[str_col].str.lower().str.strip().isin(only_str)].copy()
+                df_solo_str = df_str_t1[df_str_t1[str_col].str.lower().str.strip().isin(only_str)].copy()
                 st.dataframe(df_solo_str, use_container_width=True)
 
             # ══════════════════════════════════════════════════════════════
             # TAB 2 — Plan de Acción
             # ══════════════════════════════════════════════════════════════
             with cruzado_tab2:
+                # INV-8: la tab trabaja sobre su propia copia. Antes cada tab
+                # mutaba el df compartido (convertia columnas, agregaba _asin_ext,
+                # deshacia el fillna del bloque de arriba) y el resultado dependia
+                # del orden en que se habian renderizado las tabs.
+                df_sqp_t2 = df_sqp.copy()
+                df_str_t2 = df_str.copy()
                 st.markdown("### 🎯 Plan de Acción")
                 st.caption("Resumen ejecutivo accionable. Cada término clasificado con una acción concreta.")
 
@@ -312,38 +590,59 @@ def render():
                 str_col_pa   = str_col
 
                 for c in [pur_brand, pur_share, clicks_col]:
-                    if c in df_sqp.columns:
+                    if c in df_sqp_t2.columns:
                         # NO .fillna(0) acá — NaN = sin data ≠ 0 = data confirmada cero.
                         # El classifier diferencia NaN para no falsear DEFENDER (BUG-7).
                         # clicks_col / pur_col ya vienen filleados arriba (L99 del bloque
                         # compartido); pur_brand y pur_share quedan NaN-preserving.
-                        df_sqp[c] = pd.to_numeric(df_sqp[c], errors="coerce")
+                        df_sqp_t2[c] = pd.to_numeric(df_sqp_t2[c], errors="coerce")
 
-                # ── Recuperar columnas STR para cruce ─────────────────────
-                spend_col_pa  = next((c for c in df_str.columns if "spend" in c.lower()), None)
-                sales_col_pa  = next((c for c in df_str.columns if "sales" in c.lower()
-                                      and "other" not in c.lower() and "advertised" not in c.lower()), None)
-                orders_col_pa = next((c for c in df_str.columns if "orders" in c.lower()), None)
+                # ── Columnas del Bulk File ────────────────────────────────
+                # Nombres fijos, no detección por substring: la difusa agarraba
+                # "Product" (= "Sponsored Products") como si fuera un ASIN.
+                spend_col_pa  = _COL_SPEND if _COL_SPEND in df_str_t2.columns else None
+                sales_col_pa  = _COL_SALES if _COL_SALES in df_str_t2.columns else None
+                orders_col_pa = _COL_ORDERS if _COL_ORDERS in df_str_t2.columns else None
 
                 for c in [spend_col_pa, sales_col_pa, orders_col_pa]:
-                    if c and c in df_str.columns:
-                        df_str[c] = pd.to_numeric(df_str[c], errors="coerce").fillna(0)
+                    if c:
+                        df_str_t2[c] = pd.to_numeric(df_str_t2[c], errors="coerce").fillna(0)
 
-                # Agrupar STR por término
+                # ── Agrupar preservando los IDs ───────────────────────────
+                # aggregate_str_with_top_campaign hereda del row de MAYOR SPEND:
+                # si un término corre en N campañas, gana la que más invirtió, y
+                # "_n_campaigns" queda como flag de que fue una elección. Los IDs
+                # salen de ESE mismo row, así que campaign/ad group/keyword son
+                # consistentes entre sí — sin eso, el bulk no es ejecutable.
                 str_agg = None
                 if spend_col_pa and orders_col_pa:
-                    agg_dict = {spend_col_pa: "sum", orders_col_pa: "sum"}
+                    _extra_agg = {orders_col_pa: "sum"}
                     if sales_col_pa:
-                        agg_dict[sales_col_pa] = "sum"
-                    str_agg = (
-                        df_str.groupby(str_col_pa, as_index=False)
-                        .agg(agg_dict)
+                        _extra_agg[sales_col_pa] = "sum"
+
+                    str_agg = aggregate_str_with_top_campaign(
+                        df_str_t2,
+                        term_col=str_col_pa,
+                        spend_col=spend_col_pa,
+                        campaign_col=_COL_CAMP_NAME,
+                        ad_group_col=_COL_AG_NAME,
+                        match_type_col=_COL_MATCH,
+                        extra_agg=_extra_agg,
+                        extra_inherit=[
+                            _COL_CAMP_ID, _COL_AG_ID, _COL_KW_ID, _COL_PORTFOLIO,
+                            "_origen_match_type", "_es_product_targeting",
+                            "_no_negativizable", "_es_ranking_kw", "_ya_en_exact",
+                        ],
                     )
-                    str_agg["_term_lower"] = str_agg[str_col_pa].str.lower().str.strip()
+                    str_agg["_term_lower"] = str_agg[str_col_pa].astype(str).str.lower().str.strip()
                     if sales_col_pa:
-                        str_agg["_acos"] = (
-                            str_agg[spend_col_pa] / str_agg[sales_col_pa].replace(0, float("nan")) * 100
-                        ).fillna(0)
+                        # INV-7: NaN donde no hubo ventas, NUNCA 0. El .fillna(0)
+                        # que estaba acá hacía que el término que gastó sin vender
+                        # se leyera como el más eficiente de la tabla, y dejaba
+                        # muerta la regla de BAJAR BID justo para esos términos.
+                        str_agg["_acos"] = acos_series(
+                            str_agg[spend_col_pa], str_agg[sales_col_pa]
+                        )
 
                 # ── Función de acción sugerida ────────────────────────────
                 def _accion_sugerida(row, terms_str_set, str_agg_df, target_acos):
@@ -402,6 +701,11 @@ def render():
 
                     acos_str   = str_row["_acos"] if str_row is not None and "_acos" in str_row else None
                     orders_str = str_row[orders_col_pa] if str_row is not None and orders_col_pa else 0
+                    # Spend y sales crudos: con INV-7 el ACoS es NaN cuando no hubo
+                    # ventas, así que ninguna regla basada en acos_str puede ver el
+                    # caso "gastó y no vendió". Hace falta mirar los dos números.
+                    spend_str  = str_row[spend_col_pa] if (str_row is not None and spend_col_pa) else 0
+                    sales_str  = str_row[sales_col_pa] if (str_row is not None and sales_col_pa) else 0
 
                     # Relevancia CONFIRMADA para ESCALAR (BUG-6, caso edge): exige señal
                     # POSITIVA (BS > 0 o brand purchases > 0). NaN NO basta — sin data ≠
@@ -414,7 +718,7 @@ def render():
                         or (pd.notna(purch_br) and purch_br > 0)
                     )
                     if (
-                        en_str and acos_str is not None
+                        en_str and pd.notna(acos_str)
                         and acos_str <= target_acos * 0.7
                         and orders_str >= 2
                         and tiene_relevancia_confirmada
@@ -426,21 +730,27 @@ def render():
                         return "🚫 NO ATACAR"
                     if opp_score > 40 and (pd.isna(br_share) or br_share < 5) and purch_tot < 300:
                         return "🔍 INVESTIGAR"
-                    if en_str and acos_str is not None and acos_str > target_acos * 2:
+                    # Gasto sin ventas (INV-6: no puede caer en un bucket silencioso).
+                    # Va ANTES de la regla de ACoS porque su ACoS es NaN y ninguna
+                    # comparación numérica lo alcanza. Misma acción que BAJAR BID:
+                    # negativizar acá violaría INV-11 sin el cruce contra el Bulk File.
+                    if en_str and spend_str > 0 and sales_str <= 0:
+                        return "⬇️ BAJAR BID"
+                    if en_str and pd.notna(acos_str) and acos_str > target_acos * 2:
                         return "⬇️ BAJAR BID"
                     return "👁️ MONITOREAR"
 
                 # ── Construir tabla de plan de acción ─────────────────────
-                terms_str_set_pa = set(df_str[str_col_pa].dropna().str.lower().str.strip())
+                terms_str_set_pa = set(df_str_t2[str_col_pa].dropna().str.lower().str.strip())
 
                 # ── Dedupe SQP por search query (BUG-2 → BUG-3 cae solo) ──
                 # El SQP multi-mes puede traer la misma query en N filas. Sin
                 # dedupe, el bulk repite KWs (BUG-2) y la misma query cae en 2
                 # buckets de acción distintos (BUG-3). Suma volúmenes, promedia
                 # share (preserva NaN), toma 'first' para el resto.
-                if sqp_col_pa in df_sqp.columns:
+                if sqp_col_pa in df_sqp_t2.columns:
                     agg_dict = {}
-                    for c in df_sqp.columns:
+                    for c in df_sqp_t2.columns:
                         if c == sqp_col_pa:
                             continue
                         if c in [imp_col, pur_col, pur_brand, clicks_col]:
@@ -449,9 +759,9 @@ def render():
                             agg_dict[c] = "mean"
                         else:
                             agg_dict[c] = "first"
-                    df_sqp_dedup = df_sqp.groupby(sqp_col_pa, as_index=False).agg(agg_dict)
+                    df_sqp_dedup = df_sqp_t2.groupby(sqp_col_pa, as_index=False).agg(agg_dict)
                 else:
-                    df_sqp_dedup = df_sqp
+                    df_sqp_dedup = df_sqp_t2
 
                 df_plan = df_sqp_dedup.copy()
 
@@ -476,6 +786,32 @@ def render():
                     {True: "✅ Sí", False: "❌ No"}
                 )
 
+                # ── Traer IDs y guards al plan ────────────────────────────
+                # df_plan viene del SQP, que NO tiene IDs. El merge con str_agg
+                # es lo que hace ejecutable el bulk: un término que existe en el
+                # Bulk File se lleva los IDs de su campaña de mayor spend; uno
+                # que sólo está en el SQP los recibe NaN y no llegará al bulk.
+                _cols_desde_str = [
+                    c for c in [
+                        _COL_CAMP_ID, _COL_AG_ID, _COL_KW_ID, _COL_CAMP_NAME,
+                        _COL_AG_NAME, _COL_PORTFOLIO, _COL_MATCH,
+                        "_origen_match_type", "_es_product_targeting",
+                        "_no_negativizable", "_es_ranking_kw", "_ya_en_exact",
+                        "_n_campaigns",
+                    ]
+                    if str_agg is not None and c in str_agg.columns
+                ]
+                if _cols_desde_str:
+                    df_plan["_term_lower"] = df_plan[sqp_col_pa].astype(str).str.lower().str.strip()
+                    df_plan = df_plan.merge(
+                        str_agg[["_term_lower"] + _cols_desde_str],
+                        on="_term_lower", how="left",
+                    )
+                    for _c in ["_no_negativizable", "_es_ranking_kw", "_ya_en_exact",
+                               "_es_product_targeting"]:
+                        if _c in df_plan.columns:
+                            df_plan[_c] = df_plan[_c].fillna(False).astype(bool)
+
                 # ── KPIs por acción ───────────────────────────────────────
                 accion_counts = df_plan["Acción"].value_counts()
                 st.markdown("#### Resumen de acciones")
@@ -493,7 +829,12 @@ def render():
 
                 # ── Tabla plan de acción ──────────────────────────────────
                 plan_cols = ["Acción", sqp_col_pa, "Tipo", "En STR",
-                             pur_col, pur_brand, pur_share, opp_col, imp_col]
+                             pur_col, pur_brand, pur_share, opp_col, imp_col,
+                             # Guards INV-11 + ambigüedad de campaña. Informativas:
+                             # marcan el término, no cambian su acción.
+                             "_origen_match_type", "_no_negativizable",
+                             "_es_ranking_kw", "_ya_en_exact",
+                             _COL_PORTFOLIO, "_n_campaigns"]
                 plan_cols = [c for c in plan_cols if c in df_plan_show.columns]
 
                 rename_plan = {
@@ -502,6 +843,12 @@ def render():
                     pur_share: "Brand Share %",
                     opp_col:   "Opp. Score",
                     imp_col:   "Impresiones",
+                    "_origen_match_type": "Origen",
+                    "_no_negativizable":  "🛑 No negativizable",
+                    "_es_ranking_kw":     "🏅 Ranking KW",
+                    "_ya_en_exact":       "♻️ Ya en Exact",
+                    _COL_PORTFOLIO:       "Portfolio",
+                    "_n_campaigns":       "N campañas",
                 }
 
                 df_plan_tabla = (
@@ -531,91 +878,275 @@ def render():
                 styled_plan = df_plan_tabla.style.map(_color_accion, subset=["Acción"])
                 st.dataframe(styled_plan, use_container_width=True, height=500)
 
-                # ── Export bulk — solo accionables ────────────────────────
-                # Whitelist intacta = contrato con M10 (campaign_builder acciones_incluir).
-                # ⚔️ CONQUEST queda como clasificación UI (cumple BUG-8: ya no se confunde
-                # con DEFENDER) pero NO se auto-exporta: targetear marcas competidoras como
-                # keyword es decisión deliberada del AM (riesgo trademark). Si en el futuro
-                # se quiere fluir CONQUEST → M10, agregar la acción a acciones_incluir (L906
-                # de campaign_builder.py) en la misma sesión. ⚫ ASIN (PT) y ❔ SIN DATA
-                # quedan fuera por no estar en la whitelist.
-                df_exportable = df_plan[
-                    df_plan["Acción"].isin(["➕ AGREGAR keyword", "⚡ ESCALAR", "🛡️ DEFENDER marca"])
+                # ── Cómo leer las columnas de guarda (INV-11) ─────────────
+                if df_campaigns is not None:
+                    st.caption(
+                        "**Columnas de guarda.** "
+                        "**Origen** = de qué match type vino el término. "
+                        "**🛑 No negativizable**: viene de una campaña Exact o de "
+                        "Product Targeting — si rinde mal la acción es bajar bid o "
+                        "pausar, nunca negativizar. "
+                        "**🏅 Ranking KW**: la campaña está en portfolio "
+                        f"{_PORTFOLIO_RANKING}; cortarle tráfico cuesta posición "
+                        "orgánica, que no se recupera ajustando bids. "
+                        "**♻️ Ya en Exact**: el término ya corre como keyword Exact "
+                        "activa — volver a harvestearlo lo hace competir contra su "
+                        "propia campaña. "
+                        "Hoy las tres son informativas: este módulo no genera "
+                        "negativos y ninguna filtra el export."
+                    )
+                    if "_n_campaigns" in df_plan_show.columns:
+                        _ambiguos = int((pd.to_numeric(
+                            df_plan_show["_n_campaigns"], errors="coerce"
+                        ).fillna(1) > 1).sum())
+                        if _ambiguos:
+                            st.warning(
+                                f"⚠️ **{_ambiguos} términos corren en más de una "
+                                "campaña.** Heredan los IDs de la de **mayor spend**, "
+                                "así que la acción se va a aplicar sobre esa y no "
+                                "sobre las demás. Es una elección del módulo, no un "
+                                "dato del archivo: revisá esas filas (columna *N "
+                                "campañas*) antes de subir el bulk."
+                            )
+                else:
+                    st.caption(
+                        "⚠️ Sin la hoja de campañas del Bulk File, las columnas de "
+                        "guarda (Exact activa, portfolio RANKING, origen del término) "
+                        "no se pueden calcular y quedan vacías."
+                    )
+
+                # ── Export ────────────────────────────────────────────────
+                # INV-9: la base es df_plan_show, o sea lo que el selectbox de
+                # arriba esta mostrando. Antes el export ignoraba ese filtro y
+                # mandaba siempre las mismas 3 acciones sin decirlo.
+                st.markdown("---")
+                st.markdown("#### 📦 Export")
+
+                # Que acciones tienen sentido como fila de bulk y con que
+                # operacion. El resto se clasifica igual pero va SOLO a la hoja
+                # Metadata: "monitorear" o "no atacar" no son filas de Amazon.
+                #
+                # ⚔️ CONQUEST queda deliberadamente afuera del bulk: targetear la
+                # marca de un competidor es decision explicita del AM por el
+                # riesgo de trademark, no un default. Contrato con M10.
+                _ACCIONES_CREATE = ("➕ AGREGAR keyword", "🛡️ DEFENDER marca")
+                _ACCIONES_UPDATE = ("⚡ ESCALAR", "⬇️ BAJAR BID")
+                _MATCH_POR_ACCION = {
+                    "➕ AGREGAR keyword": "Phrase",
+                    "🛡️ DEFENDER marca": "Exact",
+                    "⚡ ESCALAR": "Exact",
+                    "⬇️ BAJAR BID": "Exact",
+                }
+
+                df_visible = df_plan_show.copy()
+                df_bulkeable = df_visible[
+                    df_visible["Acción"].isin(_ACCIONES_CREATE + _ACCIONES_UPDATE)
                 ].copy()
 
-                if not df_exportable.empty:
-                    st.markdown("---")
-                    st.markdown(f"#### 📦 Export bulk — {len(df_exportable)} términos accionables")
-                    st.caption("Solo AGREGAR keyword, ESCALAR y DEFENDER marca. Campaign Name y Ad Group Name vacíos — el AM los completa antes de subir.")
-
-                    # ── Inputs para cálculo Max Bid (BUG-9) ──────────────
-                    st.markdown("##### Inputs para cálculo Max Bid")
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        precio_promedio = st.number_input(
-                            "Precio promedio producto (USD)",
-                            min_value=0.0, value=0.0, step=0.5,
-                            help="Max Bid = (CVR/100) × precio × (target ACoS/100). "
-                                 "Dejá en 0 si no querés poblar Max Bid (bulk sigue funcional).",
-                            key="ac_precio_prom",
-                        )
-                    with col_b:
-                        cvr_default = st.number_input(
-                            "CVR default (%) — fallback si no hay data por KW",
-                            min_value=0.0, max_value=100.0, value=10.0, step=0.5,
-                            help="Se aplica a todas las KWs (no calculamos CVR por KW aún).",
-                            key="ac_cvr_default",
-                        )
-
-                    df_bulk_export = pd.DataFrame({
-                        "Product":          "",
-                        "Entity":           "Keyword",
-                        "Operation":        "Create",
-                        "Campaign Name":    "",
-                        "Ad Group Name":    "",
-                        "Keyword":          df_exportable[sqp_col_pa].values,
-                        "Match Type":       "exact",
-                        "Max Bid":          "",
-                        "Acción sugerida":  df_exportable["Acción"].values,
-                        "Brand Share %":    df_exportable[pur_share].values if pur_share in df_exportable.columns else "",
-                        "Purchases mercado": df_exportable[pur_col].values if pur_col in df_exportable.columns else "",
-                    })
-
-                    # ── Max Bid (BUG-9): CVR × precio × target ACoS ──────
-                    # target_acos_pa está en escala % (ej. 18) → /100. Setex 18% +
-                    # precio $12 + CVR 10% → bid ≈ 0.22 USD. Si precio=0, queda vacío.
-                    if precio_promedio > 0:
-                        max_bid_value = round(
-                            (cvr_default / 100) * precio_promedio * (target_acos_pa / 100), 2
-                        )
-                        df_bulk_export["Max Bid"] = max_bid_value
-
-                    # ── Match Type variable según acción (no hardcode "exact") ──
-                    match_type_map = {
-                        "⚡ ESCALAR":         "exact",
-                        "➕ AGREGAR keyword": "phrase",
-                        "🛡️ DEFENDER marca":  "exact",
-                    }
-                    df_bulk_export["Match Type"] = df_bulk_export["Acción sugerida"].map(
-                        match_type_map
-                    ).fillna("exact")
-
-                    st.dataframe(df_bulk_export, use_container_width=True)
-
-                    buf_plan = io.BytesIO()
-                    df_bulk_export.to_excel(buf_plan, index=False)
-                    st.download_button(
-                        label=f"⬇️ Descargar Plan de Acción bulk ({len(df_exportable)} términos)",
-                        data=buf_plan.getvalue(),
-                        file_name="plan_accion_bulk.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="download_plan_accion"
+                # ── Inputs para el bid ────────────────────────────────────
+                st.markdown("##### Inputs para el bid")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    precio_promedio = st.number_input(
+                        "Precio promedio producto (USD)",
+                        min_value=0.0, value=0.0, step=0.5,
+                        help="Bid = (CVR/100) x precio x (target ACoS/100). "
+                             "Sin precio no se puede calcular el bid y las filas "
+                             "quedan fuera del bulk.",
+                        key="ac_precio_prom",
                     )
+                with col_b:
+                    cvr_default = st.number_input(
+                        "CVR default (%) — fallback si no hay data por KW",
+                        min_value=0.0, max_value=100.0, value=10.0, step=0.5,
+                        help="Se aplica a todas las KWs (no calculamos CVR por KW aún).",
+                        key="ac_cvr_default",
+                    )
+
+                # INV-1: el techo lo garantiza la formula (CVR <= 100%), pero el
+                # PISO hay que aplicarlo a mano: 0.10 es el minimo que acepta la
+                # subasta de Amazon. Un bid por debajo no es "barato", es invalido.
+                bid_calculado = None
+                if precio_promedio > 0:
+                    _bid_bruto = (cvr_default / 100) * precio_promedio * (target_acos_pa / 100)
+                    bid_calculado = max(_BID_MINIMO_AMAZON, round(_bid_bruto, 2))
+                    if _bid_bruto < _BID_MINIMO_AMAZON:
+                        st.warning(
+                            "El bid que sale de la formula es "
+                            f"{_bid_bruto:.4f} USD, por debajo del minimo de Amazon "
+                            f"({_BID_MINIMO_AMAZON:.2f} USD). Se exporta al minimo, "
+                            "**pero eso rompe tu target**: con un CVR de "
+                            f"{cvr_default:.1f}% y un precio de {precio_promedio:.2f} USD "
+                            "estos terminos no son rentables a ningun bid que Amazon "
+                            "acepte. Revisa precio, CVR o target antes de subir el archivo."
+                        )
+
+                # ── Armar las filas para los constructores ────────────────
+                # Los IDs vienen del Bulk File, heredados de la campaña de MAYOR
+                # SPEND del término (ver _n_campaigns). Un término que sólo está
+                # en el SQP llega con los IDs en NaN: no se inventa nada, la fila
+                # queda inválida con su motivo. Inventar un ID produciría un
+                # archivo que Amazon rechaza entero (INV-5.4).
+                def _id(valor) -> str:
+                    return "" if pd.isna(valor) else str(valor).strip()
+
+                filas_create, filas_update = [], []
+                for _, _r in df_bulkeable.iterrows():
+                    _accion = _r["Acción"]
+                    _fila = {
+                        "campaign_id": _id(_r.get(_COL_CAMP_ID)),
+                        "ad_group_id": _id(_r.get(_COL_AG_ID)),
+                        "campaign_name": _id(_r.get(_COL_CAMP_NAME)),
+                        "ad_group_name": _id(_r.get(_COL_AG_NAME)),
+                        "keyword_text": str(_r.get(sqp_col_pa, "")).strip(),
+                        "bid": bid_calculado,
+                    }
+                    if _accion in _ACCIONES_UPDATE:
+                        # Un Update apunta a una keyword que YA existe: hay que
+                        # respetar su match type real, no el que sugiere la acción.
+                        # Y sin Keyword ID no hay a qué apuntar — pasa con los
+                        # términos de campañas Auto y de Product Targeting, donde
+                        # Amazon deja esa columna vacía. Esas filas no se fuerzan.
+                        _fila["keyword_id"] = _id(_r.get(_COL_KW_ID))
+                        _mt_real = _id(_r.get("_origen_match_type"))
+                        _fila["match_type"] = _mt_real or _MATCH_POR_ACCION.get(_accion, "Exact")
+                        filas_update.append(_fila)
+                    else:
+                        _fila["match_type"] = _MATCH_POR_ACCION.get(_accion, "Exact")
+                        filas_create.append(_fila)
+
+                bulk_create, inval_create = build_keyword_create(filas_create)
+                bulk_update, inval_update = build_bid_update(filas_update)
+
+                _partes_ok = [d for d in (bulk_create, bulk_update) if not d.empty]
+                bulk_df = pd.concat(_partes_ok, ignore_index=True) if _partes_ok else bulk_create
+                _partes_mal = [d for d in (inval_create, inval_update) if not d.empty]
+                invalid_df = pd.concat(_partes_mal, ignore_index=True) if _partes_mal else inval_create
+
+                # ── Hoja Metadata: TODO lo visible, con su motivo ──────────
+                # INV-5.5: las columnas de analisis van aca, nunca en la hoja del
+                # bulk. Amazon rechaza el archivo si le metes columnas propias.
+                _meta_cols = [c for c in [
+                    sqp_col_pa, "Acción", "Tipo", "En STR", pur_col, pur_brand,
+                    pur_share, opp_col, imp_col,
+                    "_cvr_mercado", "_cvr_marca", "_diagnostico_funnel",
+                ] if c in df_visible.columns]
+                metadata_df = df_visible[_meta_cols].rename(columns={
+                    pur_col: "Purchases mercado",
+                    pur_brand: "Purchases marca",
+                    pur_share: "Brand Share %",
+                    opp_col: "Opp. Score",
+                    imp_col: "Impresiones",
+                    "_cvr_mercado": "CVR mercado %",
+                    "_cvr_marca": "CVR marca %",
+                    "_diagnostico_funnel": "Diagnóstico funnel",
+                }).copy()
+
+                _no_bulkeables = sorted(
+                    df_visible.loc[
+                        ~df_visible["Acción"].isin(_ACCIONES_CREATE + _ACCIONES_UPDATE),
+                        "Acción",
+                    ].unique().tolist()
+                )
+                metadata_df["Motivo exclusión del bulk"] = [
+                    "" if a in _ACCIONES_CREATE + _ACCIONES_UPDATE
+                    else "Acción no accionable como fila de bulk"
+                    for a in df_visible["Acción"]
+                ]
+
+                # ── INV-9: decir exactamente que entra y que no ────────────
+                _n_vis, _n_bulk = len(df_visible), len(bulk_df)
+                _motivos = []
+                if _no_bulkeables:
+                    _motivos.append(
+                        f"{len(df_visible) - len(df_bulkeable)} por acción no "
+                        f"accionable ({', '.join(_no_bulkeables)})"
+                    )
+                if not invalid_df.empty:
+                    _motivos.append(f"{len(invalid_df)} por datos faltantes")
+                _txt_motivos = f" ({'; '.join(_motivos)})" if _motivos else ""
+                st.info(
+                    f"Exportando **{_n_bulk} de {_n_vis}** filas visibles a la hoja del "
+                    f"bulk{_txt_motivos}. Las {_n_vis} van completas a la hoja Metadata."
+                )
+
+                # ── Gate INV-5.4: Amazon hace rollback total ───────────────
+                if bulk_df.empty:
+                    st.error(
+                        "**Ninguna fila visible se puede subir a Amazon.** "
+                        "Con el filtro actual no quedó ninguna acción bulkeable, o a "
+                        "todas les falta algún ID. Lo más común: términos que sólo "
+                        "aparecen en el SQP (no están en ninguna campaña todavía, así "
+                        "que no tienen Campaign ID), o términos de campañas Auto y de "
+                        "Product Targeting, donde Amazon deja el Keyword ID vacío y por "
+                        "eso no se les puede cambiar el bid. El detalle está abajo."
+                    )
+                    if not invalid_df.empty:
+                        with st.expander(
+                            f"Ver el detalle de las {len(invalid_df)} filas rechazadas",
+                            expanded=False,
+                        ):
+                            st.dataframe(
+                                invalid_df[["Keyword Text", "Match Type", "_invalid_reason"]],
+                                use_container_width=True, hide_index=True,
+                            )
+                    if not metadata_df.empty:
+                        st.caption(
+                            "Mientras tanto podés bajar el análisis. **No es un bulk**: no se "
+                            "sube a Amazon, es la tabla de decisiones para trabajarla a mano."
+                        )
+                        _buf_meta = io.BytesIO()
+                        metadata_df.to_excel(_buf_meta, index=False)
+                        st.download_button(
+                            label=f"⬇️ Descargar análisis ({len(metadata_df)} términos, NO subible)",
+                            data=_buf_meta.getvalue(),
+                            file_name="plan_accion_analisis.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="download_plan_accion_meta",
+                        )
+                else:
+                    _errores_bulk = [
+                        e for e in validate_bulk(bulk_df) if e.severidad == "error"
+                    ]
+                    if _errores_bulk:
+                        st.error(
+                            f"**El bulk tiene {len(_errores_bulk)} errores y no se puede "
+                            "descargar.** Amazon rechaza el archivo COMPLETO si una sola "
+                            "fila está mal: una fila mala y las otras tampoco se aplican."
+                        )
+                        st.dataframe(
+                            pd.DataFrame([
+                                {
+                                    "Fila": e.fila if e.fila >= 0 else "—",
+                                    "Columna": e.columna,
+                                    "Valor": e.valor,
+                                    "Qué hacer": e.mensaje,
+                                }
+                                for e in _errores_bulk
+                            ]),
+                            use_container_width=True, hide_index=True,
+                        )
+                    else:
+                        st.dataframe(bulk_df, use_container_width=True)
+                        _xlsx = write_bulk_excel(bulk_df, metadata_df)
+                        st.download_button(
+                            label=f"⬇️ Descargar Plan de Acción bulk ({_n_bulk} filas)",
+                            data=_xlsx,
+                            file_name="plan_accion_bulk.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="download_plan_accion",
+                        )
 
             # ══════════════════════════════════════════════════════════════
             # TAB 3 — PPC Insights por ASIN
             # ══════════════════════════════════════════════════════════════
             with cruzado_tab3:
+                # INV-8: la tab trabaja sobre su propia copia. Antes cada tab
+                # mutaba el df compartido (convertia columnas, agregaba _asin_ext,
+                # deshacia el fillna del bloque de arriba) y el resultado dependia
+                # del orden en que se habian renderizado las tabs.
+                df_sqp_t3 = df_sqp.copy()
+                df_str_t3 = df_str.copy()
                 st.markdown("### 📊 PPC Insights por ASIN")
                 st.caption("Resumen de performance STR + market share SQP por ASIN. Subí el BR by ASIN para enriquecer.")
 
@@ -656,48 +1187,47 @@ def render():
                 st.markdown("---")
 
                 # ── Detectar ASINs del STR (multi-columna + fallback, BUG-10) ──
-                camp_col_str = next((c for c in df_str.columns if "campaign name" in c.lower()), None)
-                spend_col_str = next((c for c in df_str.columns if "spend" in c.lower()), None)
-                sales_col_str = next((c for c in df_str.columns if "sales" in c.lower()
-                                      and "other" not in c.lower() and "advertised" not in c.lower()), None)
-                orders_col_str = next((c for c in df_str.columns if "orders" in c.lower()), None)
-                clicks_col_str = next((c for c in df_str.columns if "clicks" in c.lower()), None)
+                # Columnas del Bulk File: nombres fijos (ver constantes del módulo).
+                camp_col_str   = _COL_CAMP_NAME if _COL_CAMP_NAME in df_str_t3.columns else None
+                spend_col_str  = _COL_SPEND if _COL_SPEND in df_str_t3.columns else None
+                sales_col_str  = _COL_SALES if _COL_SALES in df_str_t3.columns else None
+                orders_col_str = _COL_ORDERS if _COL_ORDERS in df_str_t3.columns else None
+                clicks_col_str = _COL_CLICKS if _COL_CLICKS in df_str_t3.columns else None
 
-                # Probar columnas ASIN explícitas antes del regex sobre Campaign Name.
-                asin_cols_candidates = [
-                    "Advertised ASIN", "ASIN", "SKU", "Product",
-                    "advertised asin", "asin", "sku", "product",
-                ]
-                asin_col_str = next(
-                    (c for c in df_str.columns if "advertised asin" in c.lower()), None
-                )
-                if asin_col_str is None:
-                    for cand in asin_cols_candidates:
-                        if cand in df_str.columns:
-                            asin_col_str = cand
-                            break
-
-                if asin_col_str is None and camp_col_str:
-                    df_str["_asin_ext"] = df_str[camp_col_str].astype(str).str.extract(
-                        r"(B0[A-Z0-9]{8})", expand=False
+                # ── ASIN: sale de la hoja de campañas, NUNCA de esta hoja ──
+                # La hoja del Search Term Report tiene una columna "Product" que
+                # vale "Sponsored Products" en TODAS las filas. La detección
+                # difusa anterior la tomaba como columna de ASIN y armaba un ASIN
+                # fantasma llamado "Sponsored Products" con el 100% del spend:
+                # falla silenciosa, el AM no tenía cómo notarla. El ASIN real
+                # está en las filas Entity == "Product Ad" de la otra hoja,
+                # atado al Ad Group ID.
+                asin_col_str = None
+                if _asin_por_ag and _COL_AG_ID in df_str_t3.columns:
+                    df_str_t3["_asin_ext"] = (
+                        df_str_t3[_COL_AG_ID].astype(str).str.strip().map(_asin_por_ag)
                     )
                     asin_col_str = "_asin_ext"
+
+                if asin_col_str is None:
                     st.warning(
-                        "⚠️ No se detectó columna 'Advertised ASIN'/'ASIN' explícita. "
-                        "Extrayendo ASIN del Campaign Name vía regex. "
-                        "Cobertura PARCIAL si tu naming no incluye ASIN."
+                        "⚠️ **No puedo resolver los ASINs.** El análisis por ASIN "
+                        "necesita las filas `Product Ad` de la hoja "
+                        f"`{SHEET_CAMPAIGNS}` del Bulk File, que son las que atan "
+                        "cada ad group a su ASIN. Bajá el Bulk File completo "
+                        "(Campaign Manager → Bulk Operations) y volvé a subirlo."
                     )
 
                 # Cobertura de ASINs (BUG-10): cuántas filas quedan dentro del análisis.
-                rows_total = len(df_str)
-                rows_con_asin = int(df_str[asin_col_str].notna().sum()) if asin_col_str else 0
-                if asin_col_str and spend_col_str and spend_col_str in df_str.columns:
+                rows_total = len(df_str_t3)
+                rows_con_asin = int(df_str_t3[asin_col_str].notna().sum()) if asin_col_str else 0
+                if asin_col_str and spend_col_str and spend_col_str in df_str_t3.columns:
                     _sp_cov = pd.to_numeric(
-                        df_str[spend_col_str].astype(str).str.replace(r"[MX$,%]", "", regex=True),
+                        df_str_t3[spend_col_str].astype(str).str.replace(r"[MX$,%]", "", regex=True),
                         errors="coerce",
                     ).fillna(0)
                     spend_total = _sp_cov.sum()
-                    spend_con_asin = _sp_cov[df_str[asin_col_str].notna()].sum()
+                    spend_con_asin = _sp_cov[df_str_t3[asin_col_str].notna()].sum()
                     cobertura_pct = (spend_con_asin / spend_total * 100) if spend_total > 0 else 0
                 else:
                     cobertura_pct = (rows_con_asin / rows_total * 100) if rows_total > 0 else 0
@@ -710,7 +1240,15 @@ def render():
                     )
 
                 if not asin_col_str or rows_con_asin == 0:
-                    st.warning("⚠️ No se detectó ASIN en el STR. Necesitás 'Advertised ASIN'/'ASIN' o ASIN en el Campaign Name.")
+                    # Sin ASINs no se muestra el análisis: no hay fallback que
+                    # inventar. Si asin_col_str es None ya salió el warning de
+                    # arriba; acá se cubre el caso "hay columna pero 0 matches".
+                    if asin_col_str:
+                        st.warning(
+                            "⚠️ Ningún ad group del Search Term Report matcheó con una "
+                            f"fila `Product Ad` de la hoja `{SHEET_CAMPAIGNS}`. Sin ese "
+                            "cruce no puedo decir qué ASIN corresponde a cada término."
+                        )
                 else:
                     # Limpiar numéricos del STR
                     def _to_num_cr(series):
@@ -720,8 +1258,8 @@ def render():
                         ).fillna(0)
 
                     for c in [spend_col_str, sales_col_str, orders_col_str, clicks_col_str]:
-                        if c and c in df_str.columns:
-                            df_str[c] = _to_num_cr(df_str[c])
+                        if c and c in df_str_t3.columns:
+                            df_str_t3[c] = _to_num_cr(df_str_t3[c])
 
                     # Agrupar STR por ASIN
                     agg_map_str = {}
@@ -731,9 +1269,9 @@ def render():
                     if clicks_col_str: agg_map_str[clicks_col_str] = "sum"
 
                     if agg_map_str:
-                        df_asin_str = df_str.groupby(asin_col_str, as_index=False).agg(agg_map_str)
+                        df_asin_str = df_str_t3.groupby(asin_col_str, as_index=False).agg(agg_map_str)
                     else:
-                        df_asin_str = df_str[[asin_col_str]].drop_duplicates()
+                        df_asin_str = df_str_t3[[asin_col_str]].drop_duplicates()
 
                     asins = sorted(df_asin_str[asin_col_str].dropna().unique())
 
@@ -747,12 +1285,12 @@ def render():
                         br_click_col = "Clicks: Brand Count"
                         br_pur_col = "Purchases: Brand Count"
                         for sqp_c in [br_imp_col, br_click_col, br_pur_col]:
-                            if sqp_c in df_sqp.columns:
-                                df_sqp[sqp_c] = pd.to_numeric(df_sqp[sqp_c], errors="coerce").fillna(0)
+                            if sqp_c in df_sqp_t3.columns:
+                                df_sqp_t3[sqp_c] = pd.to_numeric(df_sqp_t3[sqp_c], errors="coerce").fillna(0)
 
                         # Calcular share totales del SQP
-                        total_sqp_imps = df_sqp[imp_col].sum() if imp_col in df_sqp.columns else 0
-                        brand_sqp_imps = df_sqp[br_imp_col].sum() if br_imp_col in df_sqp.columns else 0
+                        total_sqp_imps = df_sqp_t3[imp_col].sum() if imp_col in df_sqp_t3.columns else 0
+                        brand_sqp_imps = df_sqp_t3[br_imp_col].sum() if br_imp_col in df_sqp_t3.columns else 0
                         imp_share_global = (brand_sqp_imps / total_sqp_imps * 100) if total_sqp_imps > 0 else 0
 
                         # ── Resumen por ASIN ──────────────────────────────────
@@ -767,8 +1305,11 @@ def render():
                             sales_a = ar.get(sales_col_str, 0) if sales_col_str else 0
                             orders_a = ar.get(orders_col_str, 0) if orders_col_str else 0
                             clicks_a = ar.get(clicks_col_str, 0) if clicks_col_str else 0
-                            acos_a = (spend_a / sales_a * 100) if sales_a > 0 else 0
-                            cvr_a = (orders_a / clicks_a * 100) if clicks_a > 0 else 0
+                            # INV-7: mismo helper que el classifier de Tab 2. None
+                            # cuando no hubo ventas — la columna queda numérica con
+                            # NaN, que Arrow renderiza como celda vacía.
+                            acos_a = calc_acos(spend_a, sales_a)
+                            cvr_a = calc_cvr(orders_a, clicks_a)
 
                             # BR data
                             br_info = br_asin_data.get(asin, {})
@@ -779,9 +1320,9 @@ def render():
                                 "Producto": title if title else asin,
                                 "Ad Spend": round(spend_a, 2),
                                 "Ad Sales": round(sales_a, 2),
-                                "ACoS %": round(acos_a, 1),
+                                "ACoS %": round(acos_a, 1) if acos_a is not None else None,
                                 "Orders": int(orders_a),
-                                "CVR %": round(cvr_a, 1),
+                                "CVR %": round(cvr_a, 1) if cvr_a is not None else None,
                                 "Sessions (BR)": int(br_info.get("Sessions", 0)),
                                 "Total Sales (BR)": round(br_info.get("Sales", 0), 2),
                             })
@@ -798,6 +1339,9 @@ def render():
                             i3.metric("ACoS promedio", f"{total_ad_spend / total_ad_sales * 100:.1f}%" if total_ad_sales > 0 else "—")
 
                             def _color_acos_insight(val):
+                                # NaN = sin ventas (INV-7). Sin color: pintarlo de
+                                # verde sería exactamente el error que el helper evita.
+                                if pd.isna(val): return ""
                                 if val <= 0: return ""
                                 if val < 25: return "background-color: #E8F5E9; color: #1B5E20"
                                 if val < 50: return "background-color: #FFF8E1; color: #F57F17"
@@ -805,6 +1349,10 @@ def render():
 
                             styled_ins = df_insights.style.map(_color_acos_insight, subset=["ACoS %"])
                             st.dataframe(styled_ins, use_container_width=True, hide_index=True)
+                            st.caption(
+                                "ACoS y CVR vacíos = el ASIN no registró ventas (o clicks) "
+                                "en el período. No es un 0: es ausencia de dato."
+                            )
 
                             # ── Top 5 keywords por ASIN (expanders) ──────────
                             st.markdown("---")
@@ -812,7 +1360,7 @@ def render():
 
                             search_term_col = str_col
                             for asin in asins[:15]:  # Limitar a 15 ASINs para no saturar
-                                asin_df = df_str[df_str[asin_col_str] == asin].copy()
+                                asin_df = df_str_t3[df_str_t3[asin_col_str] == asin].copy()
                                 if asin_df.empty:
                                     continue
 
@@ -827,9 +1375,12 @@ def render():
                                 label = f"{asin} — {title_label}" if title_label else asin
                                 asin_spend = asin_df[spend_col_str].sum() if spend_col_str else 0
                                 asin_sales_v = asin_df[sales_col_str].sum() if sales_col_str else 0
-                                asin_acos = (asin_spend / asin_sales_v * 100) if asin_sales_v > 0 else 0
+                                asin_acos = calc_acos(asin_spend, asin_sales_v)
+                                # Título del expander: string, no número. "s/d" en vez
+                                # de un 0.0% que se leería como eficiencia perfecta.
+                                asin_acos_txt = f"{asin_acos:.1f}%" if asin_acos is not None else "s/d"
 
-                                with st.expander(f"{label} | ACoS {asin_acos:.1f}% | ${asin_spend:,.2f} spend"):
+                                with st.expander(f"{label} | ACoS {asin_acos_txt} | ${asin_spend:,.2f} spend"):
                                     show_kw_cols = [search_term_col]
                                     if spend_col_str: show_kw_cols.append(spend_col_str)
                                     if sales_col_str: show_kw_cols.append(sales_col_str)

@@ -1,19 +1,23 @@
-"""Tests de core/bulk_export.py — helper de bulks Amazon Ads SP.
+"""Tests de core/bulk_export.py — los cuatro constructores de bulks SP.
 
-El módulo es código puro (sin Streamlit, sin I/O de disco salvo el Excel
-en memoria), así que se testea tal cual está.
+El módulo es código puro (sin Streamlit, sin I/O de disco salvo el Excel en
+memoria), así que se testea tal cual está.
 
-Dos secciones con intención distinta:
+Qué cambió respecto de la suite anterior: `build_amazon_bulk` dejó de existir.
+Producía Entity 'Negative keyword' con k minúscula, Match Type en camelCase y
+el NOMBRE de la campaña en la columna Campaign ID — tres cosas que Amazon
+rechaza, y con rollback total (INV-5.4) eso significa el archivo entero. En su
+lugar hay cuatro constructores con firmas incompatibles entre sí, uno por cada
+fila de la tabla de INV-5.2.
 
-  SECCIÓN A — INVARIANTES: si uno de estos falla, el código está mal.
-  Codifican el contrato duro con Amazon (schema, orden de columnas, reparto
-  válidas/inválidas). Ver `.claude/skills/ppc-business-invariants.md` INV-5.
+La sección de caracterización desapareció con él: congelaba el comportamiento
+de una función que producía archivos inválidos. Lo único que sobrevive de esa
+sección son los tests de `aggregate_str_with_top_campaign`, que no se tocó.
 
-  SECCIÓN B — CARACTERIZACIÓN: congelan el comportamiento ACTUAL, bugs
-  incluidos. Un fallo acá no significa "se rompió": significa "cambió".
-  Cada uno documenta en su docstring si lo que congela es deseado o es deuda.
+Datos sintéticos inline. Los IDs tienen la forma de los reales (~15 dígitos)
+pero no corresponden a ninguna cuenta.
 
-Datos sintéticos inline. No se lee ningún archivo de cliente.
+Contrato: `.claude/skills/ppc-business-invariants.md` — INV-5.
 """
 
 from __future__ import annotations
@@ -29,254 +33,478 @@ from core.bulk_export import (
     _METADATA_SHEET_NAME,
     _coerce_str,
     aggregate_str_with_top_campaign,
-    build_amazon_bulk,
+    build_adgroup_negative,
+    build_bid_update,
+    build_campaign_negative,
+    build_keyword_create,
     write_bulk_excel,
 )
+from core.bulk_parser import validate_bulk
 
 
 # ---------------------------------------------------------------------
-# Helper de datos
+# Helpers de datos
 # ---------------------------------------------------------------------
-def _row(**kw) -> dict:
-    """Row válida por default. Cualquier clave se puede overridear.
 
-    Default apunta a entity="Keyword" (match_type "exact" + bid numérico).
-    Para Negative keyword hay que pasar match_type="negativeExact".
-    """
+CAMPAIGN_ID = "132313349237695"
+AD_GROUP_ID = "271884452900011"
+KEYWORD_ID = "375512123676480"
+
+
+def _cneg(**kw) -> dict:
+    """Row válida para build_campaign_negative."""
     base = {
-        "campaign_name": "Dermaglos - B0CYLMJJJC - SP - KW - EXACT - Core",
-        "ad_group_name": "AG - vitamin a cream",
-        "keyword_text": "vitamin a cream",
-        "match_type": "exact",
+        "campaign_id": CAMPAIGN_ID,
+        "keyword_text": "zapatos rojos",
+        "match_type": "Negative Exact",
+    }
+    base.update(kw)
+    return base
+
+
+def _agneg(**kw) -> dict:
+    """Row válida para build_adgroup_negative."""
+    base = {
+        "campaign_id": CAMPAIGN_ID,
+        "ad_group_id": AD_GROUP_ID,
+        "keyword_text": "zapatos rojos",
+        "match_type": "Negative Phrase",
+    }
+    base.update(kw)
+    return base
+
+
+def _kw(**kw) -> dict:
+    """Row válida para build_keyword_create."""
+    base = {
+        "campaign_id": CAMPAIGN_ID,
+        "ad_group_id": AD_GROUP_ID,
+        "keyword_text": "botas negras",
+        "match_type": "Exact",
         "bid": 1.25,
     }
     base.update(kw)
     return base
 
 
-def _sheets(xlsx_bytes: bytes) -> dict:
-    """Relee un xlsx en memoria -> {nombre_hoja: DataFrame}."""
-    return pd.read_excel(io.BytesIO(xlsx_bytes), sheet_name=None)
+def _upd(**kw) -> dict:
+    """Row válida para build_bid_update."""
+    base = {
+        "campaign_id": CAMPAIGN_ID,
+        "ad_group_id": AD_GROUP_ID,
+        "keyword_id": KEYWORD_ID,
+        "keyword_text": "botas negras",
+        "match_type": "Exact",
+        "bid": 0.90,
+    }
+    base.update(kw)
+    return base
 
 
-# =====================================================================
-# === SECCIÓN A: INVARIANTES (si fallan, el código está mal) ===========
-# =====================================================================
+_CONSTRUCTORES = [
+    (build_campaign_negative, _cneg, "Campaign Negative Keyword", "Create"),
+    (build_adgroup_negative, _agneg, "Negative Keyword", "Create"),
+    (build_keyword_create, _kw, "Keyword", "Create"),
+    (build_bid_update, _upd, "Keyword", "Update"),
+]
 
-def test_bulk_cols_orden_exacto():
-    """A1 — bulk_df expone las 12 cols de _BULK_COLS, en ese orden exacto."""
-    bulk_df, _ = build_amazon_bulk([_row()], entity="Keyword")
+_IDS_CONSTRUCTORES = [
+    "campaign_negative",
+    "adgroup_negative",
+    "keyword_create",
+    "bid_update",
+]
 
+
+def _sheets(xlsx_bytes: bytes) -> list[str]:
+    return pd.ExcelFile(io.BytesIO(xlsx_bytes)).sheet_names
+
+
+# ---------------------------------------------------------------------
+# Schema — las 26 columnas del template validado (INV-5.5)
+# ---------------------------------------------------------------------
+
+def test_bulk_cols_son_las_26_del_template():
+    assert len(_BULK_COLS) == 26
+    assert _BULK_COLS[:4] == ["Product", "Entity", "Operation", "Campaign ID"]
+    assert _BULK_COLS[-1] == "Sites"
+    assert "Keyword ID" in _BULK_COLS, "sin Keyword ID un update de bid es inexpresable"
+
+
+@pytest.mark.parametrize(
+    "constructor, row, entity, operation", _CONSTRUCTORES, ids=_IDS_CONSTRUCTORES
+)
+def test_bulk_df_tiene_las_26_columnas_en_orden(constructor, row, entity, operation):
+    bulk_df, _ = constructor([row()])
     assert list(bulk_df.columns) == _BULK_COLS
-    assert len(_BULK_COLS) == 12
 
 
-def test_claves_extra_no_se_cuelan_al_bulk():
-    """A2 — claves anexas del caller no aparecen como columnas del bulk."""
-    fila = _row(**{
-        "Prioridad": "Alta",
-        "Regla": "R2 — Sin conversion (CVR)",
-        "Customer Search Term": "vitamin a cream",
-    })
-
-    bulk_df, _ = build_amazon_bulk([fila], entity="Keyword")
-
-    assert list(bulk_df.columns) == _BULK_COLS
-    for anexa in ("Prioridad", "Regla", "Customer Search Term"):
-        assert anexa not in bulk_df.columns
+@pytest.mark.parametrize(
+    "constructor, row, entity, operation", _CONSTRUCTORES, ids=_IDS_CONSTRUCTORES
+)
+def test_invalid_df_tiene_las_26_columnas_mas_el_motivo(
+    constructor, row, entity, operation
+):
+    _, invalid_df = constructor([row(keyword_text="")])
+    assert list(invalid_df.columns) == _BULK_COLS + ["_invalid_reason"]
+    assert len(invalid_df) == 1
 
 
-def test_negative_keyword_fuerza_bid_vacio():
-    """A3 — entity="Negative keyword" descarta el bid aunque venga poblado."""
-    bulk_df, invalid_df = build_amazon_bulk(
-        [_row(match_type="negativeExact", bid=5.0)],
-        entity="Negative keyword",
-    )
+# ---------------------------------------------------------------------
+# Valores canónicos — casing exacto (INV-5.3)
+# ---------------------------------------------------------------------
 
+@pytest.mark.parametrize(
+    "constructor, row, entity, operation", _CONSTRUCTORES, ids=_IDS_CONSTRUCTORES
+)
+def test_entity_y_operation_con_casing_canonico(constructor, row, entity, operation):
+    bulk_df, _ = constructor([row()])
+    fila = bulk_df.iloc[0]
+    assert fila["Entity"] == entity
+    assert fila["Operation"] == operation
+    assert fila["Product"] == "Sponsored Products"
+    assert fila["State"] == "enabled"
+
+
+@pytest.mark.parametrize("match_type", ["Negative Exact", "Negative Phrase"])
+def test_negativos_aceptan_los_dos_match_types_title_case(match_type):
+    bulk_df, invalid_df = build_campaign_negative([_cneg(match_type=match_type)])
     assert len(bulk_df) == 1
     assert invalid_df.empty
+    assert bulk_df.iloc[0]["Match Type"] == match_type
+
+
+@pytest.mark.parametrize("match_type", ["Exact", "Phrase", "Broad"])
+def test_keywords_aceptan_los_tres_match_types_title_case(match_type):
+    bulk_df, invalid_df = build_keyword_create([_kw(match_type=match_type)])
+    assert len(bulk_df) == 1
+    assert invalid_df.empty
+
+
+@pytest.mark.parametrize("match_type", ["negativeExact", "negativePhrase", "campaignNegativeExact"])
+def test_camelcase_en_negativos_es_invalido(match_type):
+    """Los camelCase no tienen validación empírica; el Title Case sí."""
+    bulk_df, invalid_df = build_campaign_negative([_cneg(match_type=match_type)])
+    assert bulk_df.empty
+    assert "Match Type" in invalid_df.iloc[0]["_invalid_reason"]
+
+
+@pytest.mark.parametrize("match_type", ["exact", "phrase", "broad"])
+def test_camelcase_en_keywords_es_invalido(match_type):
+    bulk_df, invalid_df = build_keyword_create([_kw(match_type=match_type)])
+    assert bulk_df.empty
+    assert "Title Case" in invalid_df.iloc[0]["_invalid_reason"]
+
+
+def test_match_type_positivo_en_negativo_es_invalido():
+    bulk_df, invalid_df = build_adgroup_negative([_agneg(match_type="Exact")])
+    assert bulk_df.empty
+    assert len(invalid_df) == 1
+
+
+def test_match_type_negativo_en_keyword_es_invalido():
+    bulk_df, invalid_df = build_keyword_create([_kw(match_type="Negative Exact")])
+    assert bulk_df.empty
+    assert len(invalid_df) == 1
+
+
+# ---------------------------------------------------------------------
+# Campos obligatorios por Entity (INV-5.2)
+# ---------------------------------------------------------------------
+
+def test_campaign_negative_deja_ad_group_id_vacio():
+    bulk_df, _ = build_campaign_negative([_cneg()])
+    assert bulk_df.iloc[0]["Ad Group ID"] == ""
+    assert bulk_df.iloc[0]["Campaign ID"] == CAMPAIGN_ID
+
+
+def test_campaign_negative_con_ad_group_id_es_error_de_nivel():
+    """El negativo a nivel campaña no pertenece a ningún ad group."""
+    bulk_df, invalid_df = build_campaign_negative([_cneg(ad_group_id=AD_GROUP_ID)])
+    assert bulk_df.empty
+    motivo = invalid_df.iloc[0]["_invalid_reason"]
+    assert "Ad Group ID" in motivo
+    assert "build_adgroup_negative" in motivo, "el motivo dice qué constructor usar"
+
+
+def test_adgroup_negative_lleva_los_dos_ids():
+    bulk_df, _ = build_adgroup_negative([_agneg()])
+    fila = bulk_df.iloc[0]
+    assert fila["Campaign ID"] == CAMPAIGN_ID
+    assert fila["Ad Group ID"] == AD_GROUP_ID
+
+
+def test_adgroup_negative_sin_ad_group_id_es_invalido():
+    bulk_df, invalid_df = build_adgroup_negative([_agneg(ad_group_id="")])
+    assert bulk_df.empty
+    assert "Missing Parent ID" in invalid_df.iloc[0]["_invalid_reason"]
+
+
+def test_bid_update_sin_keyword_id_es_invalido():
+    """Sin Keyword ID Amazon no sabe qué keyword modificar."""
+    bulk_df, invalid_df = build_bid_update([_upd(keyword_id="")])
+    assert bulk_df.empty
+    assert "keyword_id" in invalid_df.iloc[0]["_invalid_reason"]
+
+
+def test_bid_update_escribe_el_keyword_id():
+    bulk_df, _ = build_bid_update([_upd()])
+    assert bulk_df.iloc[0]["Keyword ID"] == KEYWORD_ID
+
+
+def test_keyword_create_deja_keyword_id_vacio():
+    bulk_df, _ = build_keyword_create([_kw()])
+    assert bulk_df.iloc[0]["Keyword ID"] == ""
+
+
+def test_keyword_create_con_keyword_id_es_invalido():
+    bulk_df, invalid_df = build_keyword_create([_kw(keyword_id=KEYWORD_ID)])
+    assert bulk_df.empty
+    assert "Keyword ID" in invalid_df.iloc[0]["_invalid_reason"]
+
+
+@pytest.mark.parametrize(
+    "constructor, row, entity, operation", _CONSTRUCTORES, ids=_IDS_CONSTRUCTORES
+)
+def test_sin_campaign_id_la_fila_es_invalida(constructor, row, entity, operation):
+    bulk_df, invalid_df = constructor([row(campaign_id="")])
+    assert bulk_df.empty
+    assert "campaign_id" in invalid_df.iloc[0]["_invalid_reason"]
+
+
+@pytest.mark.parametrize(
+    "constructor, row, entity, operation", _CONSTRUCTORES, ids=_IDS_CONSTRUCTORES
+)
+def test_sin_keyword_text_la_fila_es_invalida(constructor, row, entity, operation):
+    bulk_df, invalid_df = constructor([row(keyword_text="")])
+    assert bulk_df.empty
+    assert "Keyword Text" in invalid_df.iloc[0]["_invalid_reason"]
+
+
+# ---------------------------------------------------------------------
+# Bid
+# ---------------------------------------------------------------------
+
+def test_campaign_negative_no_lleva_bid():
+    """Amazon rechaza un negativo que traiga bid: no puja por nada."""
+    bulk_df, _ = build_campaign_negative([_cneg()])
     assert bulk_df.iloc[0]["Bid"] == ""
 
 
-def test_entity_invalido_levanta_valueerror():
-    """A4 — un entity fuera de los dos válidos aborta con ValueError."""
-    with pytest.raises(ValueError, match="entity invalido"):
-        build_amazon_bulk([_row()], entity="Campaign")
+def test_adgroup_negative_no_lleva_bid():
+    bulk_df, _ = build_adgroup_negative([_agneg()])
+    assert bulk_df.iloc[0]["Bid"] == ""
 
 
-def test_match_type_exact_invalido_para_negative_keyword():
-    """A5 — "exact" no es match type válido en Negative keyword."""
-    bulk_df, invalid_df = build_amazon_bulk(
-        [_row(match_type="exact")],
-        entity="Negative keyword",
-    )
-
-    assert len(bulk_df) == 0
-    assert len(invalid_df) == 1
-    assert "Match Type invalido" in invalid_df.iloc[0]["_invalid_reason"]
-
-
-def test_match_type_negative_invalido_para_keyword():
-    """A6 — "negativeExact" no es match type válido en Keyword."""
-    bulk_df, invalid_df = build_amazon_bulk(
-        [_row(match_type="negativeExact")],
-        entity="Keyword",
-    )
-
-    assert len(bulk_df) == 0
-    assert len(invalid_df) == 1
-    assert "Match Type invalido" in invalid_df.iloc[0]["_invalid_reason"]
-
-
-def test_row_sin_campaign_name_va_a_invalid():
-    """A7 — sin Campaign Name la fila es inválida (Amazon: Missing Parent ID)."""
-    bulk_df, invalid_df = build_amazon_bulk(
-        [_row(campaign_name="")],
-        entity="Keyword",
-        drop_invalid=True,
-    )
-
-    assert len(bulk_df) == 0
-    assert len(invalid_df) == 1
-    assert invalid_df.iloc[0]["_invalid_reason"] != ""
-    assert "Campaign Name" in invalid_df.iloc[0]["_invalid_reason"]
-
-
-def test_row_sin_ad_group_name_va_a_invalid():
-    """A8 — sin Ad Group Name la fila es inválida (Amazon: Missing Parent ID)."""
-    bulk_df, invalid_df = build_amazon_bulk(
-        [_row(ad_group_name="")],
-        entity="Keyword",
-        drop_invalid=True,
-    )
-
-    assert len(bulk_df) == 0
-    assert len(invalid_df) == 1
-    assert invalid_df.iloc[0]["_invalid_reason"] != ""
-    assert "Ad Group Name" in invalid_df.iloc[0]["_invalid_reason"]
-
-
-def test_invalid_df_siempre_tiene_columna_invalid_reason():
-    """A9 — invalid_df expone "_invalid_reason" incluso con 0 filas.
-
-    El caller hace `invalid_df["_invalid_reason"]` sin chequear si está vacío;
-    si la columna desapareciera en el caso feliz, reventaría con KeyError.
-    """
-    bulk_df, invalid_df = build_amazon_bulk([_row()], entity="Keyword")
-
+def test_bid_pasado_a_un_negativo_se_ignora_no_se_escribe():
+    """El constructor fuerza Bid vacío aunque el caller mande uno."""
+    bulk_df, invalid_df = build_adgroup_negative([_agneg(bid=0.75)])
     assert len(bulk_df) == 1
+    assert bulk_df.iloc[0]["Bid"] == ""
     assert invalid_df.empty
-    assert "_invalid_reason" in invalid_df.columns
-    assert list(invalid_df.columns) == _BULK_COLS + ["_invalid_reason"]
 
+
+@pytest.mark.parametrize("constructor, row", [
+    (build_keyword_create, _kw),
+    (build_bid_update, _upd),
+])
+@pytest.mark.parametrize("bid_malo", ["abc", "$1.20", "1,25"])
+def test_bid_no_convertible_marca_la_fila_invalida(constructor, row, bid_malo):
+    """CAMBIO DE COMPORTAMIENTO respecto del test de caracterización B1 viejo.
+
+    Antes `_coerce_bid` convertía la basura en "" y la fila entraba igual al
+    bulk. Amazon rechazaba el archivo entero y el AM no tenía cómo saber cuál
+    fila lo había roto. Ahora la fila no entra y el motivo lo dice.
+    """
+    bulk_df, invalid_df = constructor([row(bid=bid_malo)])
+    assert bulk_df.empty
+    assert "Bid" in invalid_df.iloc[0]["_invalid_reason"]
+
+
+@pytest.mark.parametrize("bid_malo", ["", None, 0, -1.5])
+def test_bid_vacio_o_no_positivo_marca_la_fila_invalida(bid_malo):
+    bulk_df, invalid_df = build_keyword_create([_kw(bid=bid_malo)])
+    assert bulk_df.empty
+    assert len(invalid_df) == 1
+
+
+def test_bid_valido_se_redondea_a_dos_decimales():
+    bulk_df, _ = build_keyword_create([_kw(bid="1.2349")])
+    assert bulk_df.iloc[0]["Bid"] == 1.23
+
+
+# ---------------------------------------------------------------------
+# Formato de los IDs — nunca float, nunca notación científica
+# ---------------------------------------------------------------------
+
+def test_id_float_con_cola_decimal_se_normaliza_a_string():
+    """375512123676480.0 es el mismo número mal renderizado: se repara."""
+    bulk_df, invalid_df = build_bid_update([_upd(keyword_id="375512123676480.0")])
+    assert invalid_df.empty
+    valor = bulk_df.iloc[0]["Keyword ID"]
+    assert valor == KEYWORD_ID
+    assert isinstance(valor, str)
+    assert "." not in valor
+
+
+def test_id_pasado_como_float_python_sale_como_string_sin_punto():
+    bulk_df, _ = build_campaign_negative([_cneg(campaign_id=132313349237695.0)])
+    valor = bulk_df.iloc[0]["Campaign ID"]
+    assert valor == CAMPAIGN_ID
+    assert isinstance(valor, str)
+
+
+def test_id_en_notacion_cientifica_es_invalido_no_se_repara():
+    """float('4.42e+14') da 442000000000000: un ID plausible y equivocado.
+
+    Los dígitos ya se perdieron en el origen. Repararlo sería inventar un ID,
+    así que la fila se marca inválida.
+    """
+    bulk_df, invalid_df = build_campaign_negative([_cneg(campaign_id="4.42e+14")])
+    assert bulk_df.empty
+    motivo = invalid_df.iloc[0]["_invalid_reason"]
+    assert "cientifica" in motivo
+
+
+def test_alias_no_numerico_es_valido_en_keyword_create():
+    """INV-5.1 modo ALIAS: string arbitrario que linkea filas del mismo archivo."""
+    bulk_df, invalid_df = build_keyword_create([
+        _kw(campaign_id="SU-AGE-HARVEST-001", ad_group_id="SU-AGE-HARVEST-001-AG")
+    ])
+    assert invalid_df.empty
+    assert bulk_df.iloc[0]["Campaign ID"] == "SU-AGE-HARVEST-001"
+
+
+def test_nombres_opcionales_se_copian_a_las_columnas_informativas():
+    bulk_df, _ = build_adgroup_negative([
+        _agneg(campaign_name="LTD - SP - Auto", ad_group_name="AG Principal")
+    ])
+    fila = bulk_df.iloc[0]
+    assert fila["Campaign Name"] == "LTD - SP - Auto"
+    assert fila["Ad Group Name"] == "AG Principal"
+
+
+def test_sin_nombres_las_columnas_informativas_quedan_vacias():
+    bulk_df, _ = build_adgroup_negative([_agneg()])
+    assert bulk_df.iloc[0]["Campaign Name"] == ""
+
+
+# ---------------------------------------------------------------------
+# Segunda llave — la salida pasa por validate_bulk
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "constructor, row, entity, operation", _CONSTRUCTORES, ids=_IDS_CONSTRUCTORES
+)
+def test_la_salida_pasa_validate_bulk_sin_errores(constructor, row, entity, operation):
+    bulk_df, _ = constructor([row()])
+    errores = [e for e in validate_bulk(bulk_df) if e.severidad == "error"]
+    assert errores == [], [e.mensaje for e in errores]
+
+
+def test_filas_validas_e_invalidas_se_reparten_sin_perder_ninguna():
+    bulk_df, invalid_df = build_keyword_create([
+        _kw(keyword_text="botas negras"),
+        _kw(keyword_text="", bid=1.0),
+        _kw(keyword_text="mocasines", bid="abc"),
+        _kw(keyword_text="sandalias"),
+    ])
+    assert len(bulk_df) == 2
+    assert len(invalid_df) == 2
+    assert len(bulk_df) + len(invalid_df) == 4
+
+
+def test_lista_vacia_devuelve_dos_dataframes_vacios_con_schema():
+    bulk_df, invalid_df = build_campaign_negative([])
+    assert bulk_df.empty
+    assert invalid_df.empty
+    assert list(bulk_df.columns) == _BULK_COLS
+
+
+def test_acepta_dataframe_ademas_de_lista_de_dicts():
+    bulk_df, _ = build_campaign_negative(pd.DataFrame([_cneg(), _cneg(keyword_text="otro")]))
+    assert len(bulk_df) == 2
+
+
+# ---------------------------------------------------------------------
+# Los tres bulks que Amazon aceptó en la validación empírica del 2026-08-26
+# ---------------------------------------------------------------------
+
+def test_reproduce_los_bulks_que_amazon_acepto():
+    """Los tres archivos con Success confirmado, rearmados con la API nueva.
+
+    Fuentes (INV-5): F0-1_negativos (4/4), F0-2_fix_bid (1/1),
+    F2-1_campana_nueva (6/6). Del tercero se cubre la porción de keywords:
+    las filas Campaign / Ad Group / Product Ad todavía no tienen constructor,
+    y por eso el alias es lo único que las ata a este archivo.
+    """
+    # F0-1 — negativos sobre campañas que ya existen, modo REFERENCIA.
+    negativos, inv_neg = build_campaign_negative([
+        _cneg(keyword_text=termino)
+        for termino in ("zapatos usados", "zapatos gratis", "zapato roto", "zapatilla")
+    ])
+    assert len(negativos) == 4
+    assert inv_neg.empty
+
+    # F0-2 — update de bid, requiere Keyword ID.
+    fix_bid, inv_bid = build_bid_update([_upd(bid=0.55)])
+    assert len(fix_bid) == 1
+    assert inv_bid.empty
+
+    # F2-1 — campaña nueva: las keywords se atan por alias, no por ID numérico.
+    alias = "SU-AGE-HARVEST-001"
+    nuevas, inv_nuevas = build_keyword_create([
+        _kw(campaign_id=alias, ad_group_id=f"{alias}-AG", keyword_text=kw, bid=0.80)
+        for kw in ("botas de cuero", "botas negras mujer", "botines")
+    ])
+    assert len(nuevas) == 3
+    assert inv_nuevas.empty
+
+    for bulk in (negativos, fix_bid, nuevas):
+        errores = [e for e in validate_bulk(bulk) if e.severidad == "error"]
+        assert errores == [], [e.mensaje for e in errores]
+
+
+# ---------------------------------------------------------------------
+# write_bulk_excel — sin cambios de firma
+# ---------------------------------------------------------------------
 
 def test_write_bulk_excel_devuelve_bytes_releibles():
-    """A10 — el xlsx se relee y la hoja oficial trae las 12 cols."""
-    bulk_df, _ = build_amazon_bulk([_row()], entity="Keyword")
-
+    bulk_df, _ = build_campaign_negative([_cneg()])
     xlsx = write_bulk_excel(bulk_df)
 
-    assert isinstance(xlsx, bytes)
-    hojas = _sheets(xlsx)
-    assert _BULK_SHEET_NAME in hojas
-    assert _BULK_SHEET_NAME == "Sponsored Products Campaigns"
-    assert list(hojas[_BULK_SHEET_NAME].columns) == _BULK_COLS
+    assert isinstance(xlsx, bytes) and len(xlsx) > 0
+    releido = pd.read_excel(io.BytesIO(xlsx), sheet_name=_BULK_SHEET_NAME)
+    assert list(releido.columns) == _BULK_COLS
+    assert len(releido) == 1
 
 
 def test_write_bulk_excel_una_o_dos_hojas_segun_metadata():
-    """A11 — metadata_df=None => 1 hoja; metadata poblada => 2 hojas."""
-    bulk_df, _ = build_amazon_bulk([_row()], entity="Keyword")
+    bulk_df, _ = build_campaign_negative([_cneg()])
+    metadata_df = pd.DataFrame({"Search Term": ["zapatos rojos"], "Regla": ["R2"]})
 
-    solo_bulk = _sheets(write_bulk_excel(bulk_df, None))
-    assert list(solo_bulk.keys()) == [_BULK_SHEET_NAME]
-
-    metadata_df = pd.DataFrame({"Regla": ["R2"], "Prioridad": ["Alta"]})
-    con_meta = _sheets(write_bulk_excel(bulk_df, metadata_df))
-    assert list(con_meta.keys()) == [_BULK_SHEET_NAME, _METADATA_SHEET_NAME]
-    assert _METADATA_SHEET_NAME == "Metadata Capybaras"
-
-
-def test_bulk_mixto_reparte_validas_e_invalidas():
-    """A12 — 3 válidas + 2 inválidas se reparten 3 / 2 sin perder ninguna."""
-    filas = [
-        _row(keyword_text="kw ok 1"),
-        _row(keyword_text="kw ok 2"),
-        _row(keyword_text="kw ok 3"),
-        _row(keyword_text="kw mala 1", campaign_name=""),
-        _row(keyword_text="kw mala 2", ad_group_name=""),
+    assert _sheets(write_bulk_excel(bulk_df, None)) == [_BULK_SHEET_NAME]
+    assert _sheets(write_bulk_excel(bulk_df, metadata_df)) == [
+        _BULK_SHEET_NAME,
+        _METADATA_SHEET_NAME,
     ]
 
-    bulk_df, invalid_df = build_amazon_bulk(filas, entity="Keyword")
 
-    assert len(bulk_df) == 3
-    assert len(invalid_df) == 2
-    assert set(bulk_df["Keyword Text"]) == {"kw ok 1", "kw ok 2", "kw ok 3"}
-    assert set(invalid_df["Keyword Text"]) == {"kw mala 1", "kw mala 2"}
-
-
-# =====================================================================
-# === SECCIÓN B: CARACTERIZACIÓN ======================================
-# === (congelan comportamiento actual, incluye bugs conocidos) =========
-# =====================================================================
-
-def test_carac_bid_no_convertible_se_silencia():
-    """CARACTERIZACIÓN: bid basura se silencia. DEUDA — viola el espíritu de
-    INV-5 (fila llega a Amazon sin bid y rebota). Si este test falla porque
-    ahora marca la fila inválida, el cambio es CORRECTO: actualizá el test.
-
-    `_coerce_bid` atrapa el TypeError/ValueError y devuelve "" sin avisar, y
-    `_validate_row` ni siquiera mira el bid. La fila sale al bulk como válida.
-    """
-    bulk_df, invalid_df = build_amazon_bulk([_row(bid="abc")], entity="Keyword")
-
-    assert len(bulk_df) == 1
-    assert bulk_df.iloc[0]["Bid"] == ""
-    assert invalid_df.empty
-
-
-def test_carac_ids_se_llenan_con_los_nombres():
-    """CARACTERIZACIÓN: los campos ID se llenan con el NOMBRE. Válido para
-    CREATE de campañas nuevas (el ID actúa de etiqueta de linkeo interno),
-    SOSPECHOSO para agregar a campañas existentes, donde Amazon espera el ID
-    numérico. PENDIENTE de validar contra bulk real.
-    """
-    bulk_df, _ = build_amazon_bulk(
-        [_row(campaign_name="Camp X", ad_group_name="AG Y")],
-        entity="Keyword",
+def test_write_bulk_excel_preserva_el_id_como_texto():
+    """El ID no puede volver del Excel como 1.32313e+14."""
+    bulk_df, _ = build_campaign_negative([_cneg()])
+    xlsx = write_bulk_excel(bulk_df)
+    releido = pd.read_excel(
+        io.BytesIO(xlsx), sheet_name=_BULK_SHEET_NAME, dtype={"Campaign ID": str}
     )
-    fila = bulk_df.iloc[0]
-
-    assert fila["Campaign ID"] == fila["Campaign Name"] == "Camp X"
-    assert fila["Ad Group ID"] == fila["Ad Group Name"] == "AG Y"
-    assert fila["Portfolio ID"] == ""
-    assert fila["Product"] == "Sponsored Products"
+    assert releido.iloc[0]["Campaign ID"] == CAMPAIGN_ID
 
 
-def test_carac_drop_invalid_false_duplica_la_fila():
-    """CARACTERIZACIÓN: doble presencia. No sumar len() de ambos para
-    reportar totales.
+# ---------------------------------------------------------------------
+# Helpers que sobreviven del módulo anterior
+# ---------------------------------------------------------------------
 
-    Con drop_invalid=False la fila inválida se re-concatena al bulk PERO
-    sigue estando en invalid_df. len(bulk)+len(invalid) sobrecuenta.
-    """
-    bulk_df, invalid_df = build_amazon_bulk(
-        [_row(campaign_name="")],
-        entity="Keyword",
-        drop_invalid=False,
-    )
-
-    assert len(bulk_df) == 1
-    assert len(invalid_df) == 1
-    assert list(bulk_df.columns) == _BULK_COLS  # la col _invalid_reason no viaja
-
-
-def test_carac_coerce_str_normaliza_nulos():
-    """CARACTERIZACIÓN: None, NaN float y el string 'nan' colapsan a "".
-
-    El tercer caso importa: pandas serializa NaN a "nan" al pasar por
-    astype(str), y sin esta normalización un "nan" textual pasaría la
-    validación de no-vacío y llegaría a Amazon como nombre de campaña.
-    """
+def test_coerce_str_normaliza_nan_none_y_espacios():
     assert _coerce_str(None) == ""
     assert _coerce_str(float("nan")) == ""
     assert _coerce_str("nan") == ""
@@ -284,12 +512,12 @@ def test_carac_coerce_str_normaliza_nulos():
     assert _coerce_str("  Camp X  ") == "Camp X"
 
 
-def test_carac_aggregate_hereda_campaign_del_mayor_spend():
-    """CARACTERIZACIÓN: ante un término en N campañas gana la de MAYOR SPEND
-    (idxmax), y "_n_campaigns" queda como flag de ambigüedad para el AM.
+def test_aggregate_hereda_campaign_del_mayor_spend():
+    """Ante un término en N campañas gana la de MAYOR SPEND (idxmax), y
+    "_n_campaigns" queda como flag de ambigüedad para el AM.
 
-    Deseado: la decisión de bid va contra el contexto que más pesa
-    económicamente. El spend de salida es el SUM del grupo, no el del row top.
+    La decisión de bid va contra el contexto que más pesa económicamente.
+    El spend de salida es el SUM del grupo, no el del row top.
     """
     df_str = pd.DataFrame({
         "Customer Search Term": ["kw a", "kw a", "kw b"],
@@ -325,12 +553,12 @@ def test_carac_aggregate_hereda_campaign_del_mayor_spend():
         ("Customer Search Term", "NO EXISTE", "spend_col"),
     ],
 )
-def test_carac_aggregate_valida_columnas_requeridas(term_col, spend_col, esperado):
-    """CARACTERIZACIÓN: term_col y spend_col se validan con ValueError explícito.
+def test_aggregate_valida_columnas_requeridas(term_col, spend_col, esperado):
+    """term_col y spend_col se validan con ValueError explícito: falla ruidoso
+    en vez de KeyError opaco de pandas adentro del groupby.
 
-    Deseado: falla ruidoso en vez de KeyError opaco de pandas adentro del
-    groupby. Nótese la asimetría — campaign_col/ad_group_col NO se validan:
-    si no existen se ignoran en silencio y el bulk sale sin Campaign Name.
+    Nótese la asimetría — campaign_col/ad_group_col NO se validan: si no
+    existen se ignoran en silencio y el bulk sale sin Campaign Name.
     """
     df_str = pd.DataFrame({
         "Customer Search Term": ["kw a"],
@@ -345,3 +573,90 @@ def test_carac_aggregate_valida_columnas_requeridas(term_col, spend_col, esperad
             spend_col=spend_col,
             campaign_col="Campaign Name",
         )
+
+
+# ---------------------------------------------------------------------
+# aggregate_str_with_top_campaign — extra_inherit
+# ---------------------------------------------------------------------
+
+def _df_str_dos_campanas() -> pd.DataFrame:
+    """Un término en dos campañas: la de $40 gana el idxmax, la de $10 pierde."""
+    return pd.DataFrame({
+        "Customer Search Term": ["kw a", "kw a", "kw b"],
+        "Spend": [10.0, 40.0, 5.0],
+        "Campaign Name": ["Camp-Low", "Camp-High", "Camp-Solo"],
+        "Campaign ID": ["111111111111111", CAMPAIGN_ID, "333333333333333"],
+        "Ad Group ID": ["444444444444444", AD_GROUP_ID, "666666666666666"],
+        "Keyword ID": ["777777777777777", KEYWORD_ID, "999999999999999"],
+    })
+
+
+def test_extra_inherit_hereda_del_row_de_mayor_spend():
+    """Los IDs salen del MISMO row que la campaña: la de $40, no la de $10."""
+    out = aggregate_str_with_top_campaign(
+        _df_str_dos_campanas(),
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+        extra_inherit=["Campaign ID", "Ad Group ID", "Keyword ID"],
+    )
+    fila = out[out["Customer Search Term"] == "kw a"].iloc[0]
+
+    assert fila["Campaign Name"] == "Camp-High"
+    assert fila["Campaign ID"] == CAMPAIGN_ID
+    assert fila["Ad Group ID"] == AD_GROUP_ID
+    assert fila["Keyword ID"] == KEYWORD_ID
+    assert fila["_n_campaigns"] == 2, "sigue avisando que el término es ambiguo"
+
+
+def test_extra_inherit_con_columna_inexistente_no_rompe():
+    """El caller arma la lista sin saber qué trae el archivo del AM."""
+    out = aggregate_str_with_top_campaign(
+        _df_str_dos_campanas(),
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+        extra_inherit=["Campaign ID", "NO EXISTE", "Portfolio Name"],
+    )
+    assert "Campaign ID" in out.columns
+    assert "NO EXISTE" not in out.columns
+    assert "Portfolio Name" not in out.columns
+    assert len(out) == 2
+
+
+def test_extra_inherit_none_se_comporta_como_antes():
+    """El default no cambia nada para los callers que ya existían."""
+    df_str = _df_str_dos_campanas()
+    kwargs = dict(
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+    )
+    sin_param = aggregate_str_with_top_campaign(df_str, **kwargs)
+    con_none = aggregate_str_with_top_campaign(df_str, extra_inherit=None, **kwargs)
+
+    pd.testing.assert_frame_equal(sin_param, con_none)
+    assert "Campaign ID" not in sin_param.columns
+
+
+def test_extra_inherit_ignora_columna_ya_heredada():
+    """Pasar campaign_col otra vez en extra_inherit no duplica la columna."""
+    out = aggregate_str_with_top_campaign(
+        _df_str_dos_campanas(),
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+        extra_inherit=["Campaign Name", "Campaign ID"],
+    )
+    assert list(out.columns).count("Campaign Name") == 1
+
+
+def test_extra_inherit_lista_vacia_no_rompe():
+    out = aggregate_str_with_top_campaign(
+        _df_str_dos_campanas(),
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+        extra_inherit=[],
+    )
+    assert len(out) == 2
