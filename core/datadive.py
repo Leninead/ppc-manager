@@ -228,9 +228,14 @@ def _launch_score(sv: int, relevancy: float) -> float:
     support.datadive.tools/hc/en-us/articles/59878334218649-What-is-Launch-Score
     On suspected drift run scripts/check_launch_score_drift.py, which CI also
     runs weekly.
+
+    Below the gate the bundle's arrow function falls off its `if` and returns
+    undefined, which DataDive renders as an empty cell. NaN is that empty cell:
+    the score is a COST to rank, so a 0 would read as "cheapest keyword here" —
+    the opposite of "not computable".
     """
     if relevancy < 0.4 or not sv:
-        return 0.0
+        return math.nan
     return float(math.floor(sv * (1 / relevancy) * 0.003 + 0.5))
 
 

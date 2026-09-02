@@ -231,7 +231,7 @@ def _render_mkl_ai_result(result: dict, analysis, records: list, labels: dict) -
         # the judgement against their own table.
         metrics = [f"SV {rec['sv']:,}", f"rel {rec['relevance']:.1f}",
                    f"{rec['comps_rankeando']} comps"]
-        if rec.get("launch_score"):
+        if pd.notna(rec.get("launch_score")):
             metrics.append(f"launch {rec['launch_score']:.0f}")
         metrics.append(f"mi rank {rec['mi_rank']}" if rec.get("mi_rank")
                        else "no rankeo")
@@ -254,7 +254,30 @@ def _render_mkl_ai_result(result: dict, analysis, records: list, labels: dict) -
 # Style helpers
 # ═══════════════════════════════════════════════════════════════════════
 
+def _color_cost(val, cheap_thresh, mid_thresh):
+    """Colour a COST metric, where low is good — the mirror of _color_score.
+
+    Launch Score is "weekly sales needed to reach page one", so the green/yellow/red
+    of _color_score was backwards here: it painted the most expensive keywords to
+    rank green. Thresholds are weekly-sales rules of thumb, not DataDive's — they
+    are the one number in this file the team may want to tune per client.
+    """
+    if pd.isna(val):
+        return ""
+    try:
+        v = float(val)
+    except (ValueError, TypeError):
+        return ""
+    if v <= cheap_thresh:
+        return "background-color: #E8F5E9; color: #1B5E20"
+    if v <= mid_thresh:
+        return "background-color: #FFF8E1; color: #F57F17"
+    return "background-color: #FFEBEE; color: #B71C1C"
+
+
 def _color_score(val, green_thresh, yellow_thresh):
+    if pd.isna(val):
+        return ""  # missing data is not the worst value; float(nan) reaches the else
     try:
         v = float(val)
         if v >= green_thresh:
@@ -476,11 +499,11 @@ def render():
                         return "background-color: #FFEBEE; color: #B71C1C"
                     return ""
 
-                styled = df_show.style
+                styled = df_show.style.format(na_rep="", precision=2)
                 if "Relevance" in df_show.columns:
                     styled = styled.map(lambda v: _color_score(v, 3, 2), subset=["Relevance"])
                 if "Launch Score" in df_show.columns:
-                    styled = styled.map(lambda v: _color_score(v, 7, 4), subset=["Launch Score"])
+                    styled = styled.map(lambda v: _color_cost(v, 10, 50), subset=["Launch Score"])
                 if "Rankeado" in df_show.columns:
                     styled = styled.map(_color_ranked, subset=["Rankeado"])
                 st.dataframe(styled, use_container_width=True, height=min(38 + 35 * len(df_show), 600))
@@ -1352,7 +1375,9 @@ def render():
                         return "background:#FFF8E1;color:#F57F17"
                     return "background:#F5F5F5;color:#888"
 
-                styled_ci = df_show.reset_index(drop=True).style.map(_color_gap, subset=["Gap"])
+                styled_ci = (df_show.reset_index(drop=True).style
+                             .format(na_rep="", precision=2)
+                             .map(_color_gap, subset=["Gap"]))
                 st.dataframe(styled_ci, use_container_width=True, height=500)
 
                 # Export

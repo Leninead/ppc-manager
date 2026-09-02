@@ -20,9 +20,23 @@ SPEC_URL = "https://developer.datadive.tools/docs-json"
 APP_URL = "https://2.datadive.tools"
 TIMEOUT = 30
 
-# The formula as it lives in the minified bundle, plus its threshold.
+# The WHOLE expression as it lives in the minified bundle, not just the formula.
+# Pinning only the multiplication and the threshold used to miss the branch that
+# matters most: if DataDive ever returned 0 below the gate instead of `void 0`,
+# both of the old patterns would still match and this check would report OK while
+# our replica silently disagreed. The minifier's variable name is captured and
+# back-referenced, so a rename is tolerated but a semantic change is not.
+_EXPR = re.compile(
+    r"columnLaunchScore\s*:\s*\(\s*\w+\s*=>\s*\{"
+    r'\s*if\s*\(\s*"number"\s*==\s*typeof\s+\w+\.relevancy'
+    r"\s*&&\s*!\s*\(\s*\w+\.relevancy\s*<\s*\.4\s*\)\s*\)"
+    r"\s*return\s+\w+\.searchVolume\s*&&\s*\w+\.relevancy"
+    r"\s*\?\s*Math\.round\s*\(\s*\w+\.searchVolume\s*\*\s*\(\s*1\s*/\s*\w+\.relevancy\s*\)"
+    r"\s*\*\s*\.003\s*\)\s*:\s*void 0\s*\}\s*\)"
+)
+# Kept as a coarser probe: tells apart "they changed the formula" from "the whole
+# column is gone / the bundle was restructured", which need different responses.
 _FORMULA = re.compile(r"searchVolume\s*\*\s*\(1\s*/\s*\w+\.relevancy\)\s*\*\s*\.003")
-_GATE = re.compile(r"relevancy\s*<\s*\.4")
 
 
 def official_field_exists() -> bool | None:
@@ -47,10 +61,16 @@ def formula_still_in_bundle() -> tuple[bool | None, str]:
                 timeout=TIMEOUT).text
             chunks.update("/_next/" + p
                           for p in re.findall(r'"(static/[^"]+\.js)"', manifest))
+        partial = ""
         for path in sorted(chunks):
             js = requests.get(APP_URL + path, timeout=TIMEOUT).text
-            if _FORMULA.search(js) and _GATE.search(js):
+            if _EXPR.search(js):
                 return True, path.rsplit("/", 1)[-1]
+            if _FORMULA.search(js):
+                partial = path.rsplit("/", 1)[-1]
+        if partial:
+            print(f"  la fórmula sigue en {partial} pero la expresión completa "
+                  f"cambió: revisar el gate y qué devuelve por debajo de él.")
         return False, ""
     except Exception as e:
         print(f"  bundle no verificable: {e}")

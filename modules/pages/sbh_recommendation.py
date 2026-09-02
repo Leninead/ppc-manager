@@ -251,7 +251,7 @@ def render():
             return "background-color: #E8F5E9; color: #1B5E20"
         return ""
 
-    styled = df_show.style.map(_color_prio, subset=["Prioridad"])
+    styled = df_show.style.format(na_rep="", precision=2).map(_color_prio, subset=["Prioridad"])
     st.dataframe(styled, use_container_width=True, height=min(38 + 35 * len(df_show), 600))
 
     # ── Clusters breakdown ────────────────────────────────────────────

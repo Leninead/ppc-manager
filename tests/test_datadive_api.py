@@ -182,14 +182,68 @@ def test_keywords_to_mkl_df_null_suggested_bid_and_outlier_relevancy():
 
 
 def test_launch_score_replicates_datadive_frontend_formula():
-    # round(SV * 0.003 / relevancy) when relevancy >= 0.4, else 0 — the formula from
+    # round(SV * 0.003 / relevancy) when relevancy >= 0.4 — the formula from
     # DataDive's public bundle, validated 419/419 against a real export.
     kw_hi = dict(_KW, keyword="hair growth serum", searchVolume=287789,
                  relevancy=0.7777777777777778)
     kw_low = dict(_KW, keyword="poco relevante", relevancy=0.35)
     df, _ = keywords_to_mkl_df(_payload([kw_hi, kw_low]))
     assert df.iloc[0]["Launch Score"] == 1110.0
-    assert df.iloc[1]["Launch Score"] == 0.0
+    assert pd.isna(df.iloc[1]["Launch Score"])
+
+
+def test_launch_score_is_empty_not_zero_below_the_gate():
+    """The bundle's arrow function has no else: below the gate it returns undefined,
+    which DataDive renders as an empty cell. A 0 would read as "cheapest keyword
+    here" — the inverse of the truth, since the score is a cost to rank.
+
+    This branch is the one the 419/419 export check could NOT cover: that export's
+    lowest relevancy was 0.444, so every row was above the gate.
+    """
+    below = dict(_KW, keyword="apenas debajo", searchVolume=10000, relevancy=0.39)
+    at_gate = dict(_KW, keyword="justo en el borde", searchVolume=10000, relevancy=0.4)
+    outlier = dict(_KW, keyword="outlier", searchVolume=10000, relevancy="Outlier")
+    no_sv = dict(_KW, keyword="sin volumen", searchVolume=0, relevancy=0.9)
+    df, _ = keywords_to_mkl_df(_payload([below, at_gate, outlier, no_sv]))
+
+    assert pd.isna(df.iloc[0]["Launch Score"])          # 0.39 < 0.4
+    assert df.iloc[1]["Launch Score"] == 75.0           # 0.4 is inclusive
+    assert pd.isna(df.iloc[2]["Launch Score"])          # not a number
+    assert pd.isna(df.iloc[3]["Launch Score"])          # falsy searchVolume
+
+    # Never a zero: that is the whole point of the change.
+    assert not (df["Launch Score"] == 0).any()
+
+
+def test_launch_score_matches_real_export_values():
+    """Golden rows lifted from a real DataDive export (niche SAc3DGGJfI, 419
+    keywords, 2026-08-31): the export carries DataDive's OWN Launch Score, so
+    these pin the replica against the source of truth rather than against itself.
+
+    Sampled across the whole range the export covers — both extremes of Launch
+    Score, of SV and of relevancy, plus the quartiles. The export's lowest
+    relevancy is 0.4444, which is exactly why it can only certify the computed
+    branch; the empty branch is covered by the test above.
+    """
+    # (searchVolume, relevancy, Launch Score as DataDive exported it)
+    real_rows = [
+        (917, 1.0, 3.0),
+        (250, 1.0, 1.0),
+        (119293, 0.8888888888888888, 403.0),
+        (250, 0.8888888888888888, 1.0),
+        (287789, 0.7777777777777778, 1110.0),
+        (567, 0.6666666666666666, 3.0),
+        (1158, 0.5555555555555556, 6.0),
+        (250, 0.5555555555555556, 1.0),
+        (60321, 0.4444444444444444, 407.0),
+        (55118, 0.4444444444444444, 372.0),
+    ]
+    kws = [dict(_KW, keyword=f"kw {i}", searchVolume=sv, relevancy=rel)
+           for i, (sv, rel, _) in enumerate(real_rows)]
+    df, _ = keywords_to_mkl_df(_payload(kws))
+    got = list(df["Launch Score"])
+    expected = [ls for _, _, ls in real_rows]
+    assert got == expected
 
 
 def test_official_launch_score_wins_over_the_replica():
