@@ -6,7 +6,6 @@ import pandas as pd
 import plotly.express as px
 
 from core.helpers import kpi_card
-from core.bulk_export import build_amazon_bulk, write_bulk_excel
 
 
 @st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
@@ -775,58 +774,59 @@ def render():
                     height=min(38 + 35 * len(df_show), 800),
                 )
 
-                # Export bulk-ready formato Amazon — usa core.bulk_export
+                # Export de la tabla de candidatos
                 st.markdown("---")
-                st.markdown("**Export bulk-ready para Amazon**")
-                st.caption(
-                    "Schema Amazon Bulk SP (12 cols) + hoja Metadata con razones. "
-                    "Filas sin Campaign Name o Ad Group quedan en la hoja Metadata, no en el bulk."
-                )
+                st.markdown("**Export de candidatos**")
                 df_export = df_show.copy()
                 if not df_export.empty:
-                    # Pre-flag de invalidez por row (sin colisiones por texto duplicado).
-                    # Mismo criterio que aplica el helper para "Missing Parent ID".
+                    # Que le falta a cada candidato para poder ejecutarse. Sin
+                    # Campaign Name o Ad Group el termino no se puede aplicar ni
+                    # a mano: el AM tiene que completar el dato primero.
                     def _row_invalid_reason(r):
                         if not str(r.get("Campaign", "")).strip():
-                            return "Campaign Name vacio (Amazon: Missing Parent ID)"
+                            return "Sin Campaign Name"
                         if not str(r.get("Ad Group", "")).strip():
-                            return "Ad Group Name vacio (Amazon: Missing Parent ID)"
+                            return "Sin Ad Group"
                         return ""
-                    df_export["_invalid_reason"] = df_export.apply(_row_invalid_reason, axis=1)
+                    df_export["Falta dato"] = df_export.apply(_row_invalid_reason, axis=1)
 
-                    # Build rows para el helper (1 row por candidato del STR)
-                    bulk_rows = [
-                        {
-                            "campaign_name": str(r.get("Campaign", "")).strip(),
-                            "ad_group_name": str(r.get("Ad Group", "")).strip(),
-                            "keyword_text":  str(r.get("Search Term", "")).strip(),
-                            "match_type":    str(r.get("Match Type", "")).strip(),
-                        }
-                        for _, r in df_export.iterrows()
-                    ]
-                    bulk_df, invalid_df = build_amazon_bulk(bulk_rows, entity="Negative keyword")
-
-                    # Warning si hay invalidas
-                    if not invalid_df.empty:
-                        st.warning(
-                            f"{len(invalid_df)} terminos sin Campaign Name o Ad Group en el STR — "
-                            "quedan en la hoja Metadata para que los completes manualmente. "
-                            f"Bulk subible: {len(bulk_df)} filas."
-                        )
-
-                    # Hoja Metadata Capybaras (_invalid_reason ya pre-flaggeado por row)
                     metadata_df = df_export[
                         ["Search Term", "Campaign", "Ad Group", "Clicks", "Impressions",
                          "Spend", "Orders", "ACoS", "Match Type", "Regla", "Prioridad",
-                         "_invalid_reason"]
+                         "Falta dato"]
                     ].copy()
 
-                    st.dataframe(bulk_df, use_container_width=True)
-                    xlsx_bytes = write_bulk_excel(bulk_df, metadata_df)
+                    _n_incompletos = int((metadata_df["Falta dato"] != "").sum())
+                    if _n_incompletos:
+                        st.caption(
+                            f"{_n_incompletos} de {len(metadata_df)} candidatos no traen "
+                            "Campaign Name o Ad Group en el STR. Mira la columna "
+                            "**Falta dato**: sin ese campo el termino no se puede "
+                            "aplicar en Amazon, ni siquiera a mano."
+                        )
+
+                    # TODO(M2-bulkfile): restaurar la descarga cuando el modulo lea el Bulk
+                    # File. Los constructores ya existen en core.bulk_export; lo que falta
+                    # son los IDs, que salen de core.bulk_parser.parse_bulk_str().
+                    st.warning(
+                        "**La descarga de bulk esta temporalmente deshabilitada.** "
+                        "Para que Amazon acepte un bulk hacen falta los IDs numericos "
+                        "de campana y ad group, y el Search Term Report standalone no "
+                        "los trae: por eso los archivos de negativos que este modulo "
+                        "generaba antes rebotaban al subirlos. "
+                        "El modulo esta migrando al Bulk File de Amazon, que si los trae. "
+                        "Mientras tanto, la tabla de arriba se puede seguir usando para "
+                        "revisar los candidatos y armar el bulk a mano."
+                    )
+
+                    from datetime import date as _date_neg
+                    _neg_today = _date_neg.today().isoformat()
+                    _buf_neg = io.BytesIO()
+                    metadata_df.to_excel(_buf_neg, index=False)
                     st.download_button(
-                        "Descargar negativos bulk (.xlsx)",
-                        data=xlsx_bytes,
-                        file_name="negatives_bulk.xlsx",
+                        "Descargar candidatos a negativo (.xlsx)",
+                        data=_buf_neg.getvalue(),
+                        file_name=f"negativos_candidatos_{_neg_today}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True, key="neg_dl",
                     )
@@ -1016,50 +1016,57 @@ def render():
                     df_harv_export = df_harv
                     st.caption("Campaign Name y Ad Group Name vacios — el AM los completa antes de subir.")
 
-                # Bulk-ready — usa core.bulk_export
-                # Pre-flag de invalidez por row (sin colisiones por texto duplicado).
+                # Export de la tabla de candidatos
+                # Que le falta a cada candidato para poder ejecutarse. Sin
+                # Campaign Name o Ad Group el termino no se puede aplicar ni
+                # a mano: el AM tiene que completar el dato primero.
                 def _row_invalid_reason(r):
                     if not str(r.get("Campaign", "")).strip():
-                        return "Campaign Name vacio (Amazon: Missing Parent ID)"
+                        return "Sin Campaign Name"
                     if not str(r.get("Ad Group", "")).strip():
-                        return "Ad Group Name vacio (Amazon: Missing Parent ID)"
+                        return "Sin Ad Group"
                     return ""
                 df_harv_export = df_harv_export.copy()
-                df_harv_export["_invalid_reason"] = df_harv_export.apply(_row_invalid_reason, axis=1)
+                df_harv_export["Falta dato"] = df_harv_export.apply(_row_invalid_reason, axis=1)
 
-                bulk_rows = [
-                    {
-                        "campaign_name": str(r.get("Campaign", "")).strip(),
-                        "ad_group_name": str(r.get("Ad Group", "")).strip(),
-                        "keyword_text":  str(r.get("Search Term", "")).strip(),
-                        "match_type":    "exact",
-                        "bid":           r.get("Bid Sugerido", ""),
-                    }
-                    for _, r in df_harv_export.iterrows()
-                ]
-                bulk_df, invalid_df = build_amazon_bulk(bulk_rows, entity="Keyword")
-
-                if not invalid_df.empty:
-                    st.warning(
-                        f"{len(invalid_df)} terminos sin Campaign Name o Ad Group en el STR — "
-                        "quedan en la hoja Metadata para que los completes manualmente. "
-                        f"Bulk subible: {len(bulk_df)} filas."
-                    )
-
-                # Hoja Metadata Capybaras (_invalid_reason ya pre-flaggeado por row)
                 metadata_cols = ["Search Term", "Campaign", "Ad Group", "Clicks", "Orders",
                                  "ACoS", "CVR%", "Bid Sugerido", "Regla", "Prioridad"]
                 if "Ya en Exact" in df_harv_export.columns:
                     metadata_cols.append("Ya en Exact")
-                metadata_cols.append("_invalid_reason")
+                metadata_cols.append("Falta dato")
                 metadata_df = df_harv_export[metadata_cols].copy()
 
-                st.dataframe(bulk_df, use_container_width=True)
-                xlsx_bytes = write_bulk_excel(bulk_df, metadata_df)
+                _n_incompletos = int((metadata_df["Falta dato"] != "").sum())
+                if _n_incompletos:
+                    st.caption(
+                        f"{_n_incompletos} de {len(metadata_df)} candidatos no traen "
+                        "Campaign Name o Ad Group en el STR. Mira la columna "
+                        "**Falta dato**: sin ese campo el termino no se puede "
+                        "aplicar en Amazon, ni siquiera a mano."
+                    )
+
+                # TODO(M2-bulkfile): restaurar la descarga cuando el modulo lea el Bulk
+                # File. Los constructores ya existen en core.bulk_export; lo que falta
+                # son los IDs, que salen de core.bulk_parser.parse_bulk_str().
+                st.warning(
+                    "**La descarga de bulk esta temporalmente deshabilitada.** "
+                    "Para que Amazon acepte un bulk hacen falta los IDs numericos "
+                    "de campana y ad group, y el Search Term Report standalone no "
+                    "los trae: por eso los archivos de harvest que este modulo "
+                    "generaba antes rebotaban al subirlos. "
+                    "El modulo esta migrando al Bulk File de Amazon, que si los trae. "
+                    "Mientras tanto, la tabla de arriba se puede seguir usando para "
+                    "revisar los candidatos y armar el bulk a mano."
+                )
+
+                from datetime import date as _date_harv
+                _harv_today = _date_harv.today().isoformat()
+                _buf_harv = io.BytesIO()
+                metadata_df.to_excel(_buf_harv, index=False)
                 st.download_button(
-                    "Descargar Harvest Bulk (formato Amazon)",
-                    data=xlsx_bytes,
-                    file_name="harvest_exact_bulk.xlsx",
+                    "Descargar candidatos de harvest (.xlsx)",
+                    data=_buf_harv.getvalue(),
+                    file_name=f"harvest_candidatos_{_harv_today}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True, key="harv_dl",
                 )
