@@ -51,7 +51,7 @@ def test_ask_followup_sends_datadive_tools_profile(monkeypatch):
     text, sid = runtime.ask_followup(
         "datadive", "11111111-1111-1111-1111-111111111111", "hola")
     assert captured["tools"] == ["datadive"]
-    assert captured["max_turns"] > 1  # el loop agéntico necesita turnos de tools
+    assert captured["max_turns"] > 1  # the agentic loop needs turns for tools
     assert text == "ok" and sid == "s2"
 
 
@@ -76,7 +76,7 @@ def test_ask_followup_without_session_opens_a_fresh_one(monkeypatch):
 
     monkeypatch.setattr(ai_client.requests, "post", fake_post)
     text, sid = runtime.ask_followup("datadive", None, "que cuota queda?")
-    assert "session_id" not in captured  # sesión nueva, no resume
+    assert "session_id" not in captured  # a fresh session, not a resume
     assert captured["tools"] == ["datadive"]
     assert sid == "nueva" and "166" in text
 
@@ -99,7 +99,7 @@ def test_keywords_doc_carries_row_ids_and_caps_rows():
     csv = docs[1]["content"]
     lines = csv.strip().splitlines()
     assert lines[0].startswith("row_id,")
-    assert len(lines) == MAX_KEYWORDS + 1  # header + filas capadas
+    assert len(lines) == MAX_KEYWORDS + 1  # header plus the capped rows
     assert lines[1].startswith("K01,")
 
 
@@ -138,9 +138,9 @@ def test_select_keywords_reserves_slots_for_the_long_tail():
     })
     out = select_keywords(df)
     assert len(out) == _SV_SLOTS + _TAIL_SLOTS
-    assert out.iloc[0]["SV"] == 200                    # la cabeza sigue primero
+    assert out.iloc[0]["SV"] == 200                    # the head still comes first
     cola = out.iloc[_SV_SLOTS:]
-    assert (cola["Relevance"] == 9.0).all()            # la cola entra por relevancia
+    assert (cola["Relevance"] == 9.0).all()            # the tail gets in on relevance
     assert cola["SV"].max() < out.iloc[_SV_SLOTS - 1]["SV"]
 
 

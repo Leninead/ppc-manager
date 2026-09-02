@@ -10,8 +10,8 @@ import pandas as pd
 
 KW_PREFIX = "K"
 MAX_KEYWORDS = 120
-_SV_SLOTS = 90     # núcleo: la cabeza del niche por volumen
-_TAIL_SLOTS = 30   # cola: lo más relevante por debajo del corte de SV
+_SV_SLOTS = 90     # core: the head of the niche, by volume
+_TAIL_SLOTS = 30   # tail: the most relevant rows below the SV cut
 # Canonical MKL columns, kept local on purpose: ai/ never imports from modules/
 # (the agent must not depend on the parser layer).
 _COL_SV = "SV"

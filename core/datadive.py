@@ -290,7 +290,7 @@ def keywords_to_mkl_df(payload: dict) -> tuple[pd.DataFrame, list[str]]:
             COL_LAUNCH_SCORE: _launch_score_of(kw, sv, relevancy),
         }
         ranks = kw.get("asinRanks")
-        if not isinstance(ranks, dict):  # tolerar drift spec-vs-payload, como el envelope
+        if not isinstance(ranks, dict):  # tolerate spec-vs-payload drift, same as the envelope
             ranks = {}
         for asin_raw, rank in ranks.items():
             asin = str(asin_raw).strip().upper()

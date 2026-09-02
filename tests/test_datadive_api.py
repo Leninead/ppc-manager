@@ -134,7 +134,7 @@ def test_list_niches_dedupes_when_server_repeats_pages():
     client, session, _ = _client([FakeResponse(200, full), FakeResponse(200, full)])
     niches = client.list_niches()
     assert [n["nicheId"] for n in niches] == ["a" * 10, "b" * 10]
-    assert len(session.calls) == 2  # corta al ver que la página 2 no aporta nada
+    assert len(session.calls) == 2  # stops once page 2 adds nothing new
 
 
 # ── normalizer: canonical shape ──────────────────────────────────────────────
@@ -160,9 +160,9 @@ def test_keywords_to_mkl_df_canonical_shape():
     row = df.iloc[0]
     assert row["Search Term"] == "hair serum"
     assert row["SV"] == 119293
-    assert row["Relevance"] == pytest.approx(8.0)      # 0.8 × 10 → escala UI
-    assert row["Sugg. Bid"] == pytest.approx(2.38)     # centavos → dólares
-    assert row["Launch Score"] == 447.0                # round(SV × 0.003 / rel)
+    assert row["Relevance"] == pytest.approx(8.0)      # 0.8 * 10 -> UI scale
+    assert row["Sugg. Bid"] == pytest.approx(2.38)     # cents -> dollars
+    assert row["Launch Score"] == 447.0                # round(SV * 0.003 / rel)
     assert pd.isna(row["B07814LBR9"]) and row["B0BJZ9GT1J"] == 1
     assert asins == ["B07814LBR9", "B0BJZ9GT1J"]
 
@@ -196,7 +196,7 @@ def test_official_launch_score_wins_over_the_replica():
     """The day DataDive exposes the field, the official one wins with no migration."""
     kw = dict(_KW, launchScore=999)
     df, _ = keywords_to_mkl_df(_payload([kw]))
-    assert df.iloc[0]["Launch Score"] == 999.0   # no el 1110 de la fórmula
+    assert df.iloc[0]["Launch Score"] == 999.0   # not the formula's 1110
 
 
 def test_launch_score_drift_detector():
@@ -239,7 +239,7 @@ def test_keywords_to_mkl_df_unions_asins_across_keywords():
     kw2 = dict(_KW, keyword="otra kw", asinRanks={"B0BBB00002": None})
     df, asins = keywords_to_mkl_df(_payload([kw1, kw2]))
     assert asins == ["B0AAA00001", "B0BBB00002"]
-    assert pd.isna(df.iloc[0]["B0BBB00002"])  # kw1 no trae ese ASIN → NaN
+    assert pd.isna(df.iloc[0]["B0BBB00002"])  # kw1 does not carry that ASIN -> NaN
 
 
 def test_latest_research_date_reads_both_envelopes():
@@ -271,7 +271,7 @@ def test_rank_radar_to_df_builds_date_columns_and_median():
          "ranks": []},
     ]
     df, date_cols, agg = rank_radar_to_df(kws)
-    assert date_cols == ["2026-08-11", "2026-08-12"]  # el día todo-null no cuenta
+    assert date_cols == ["2026-08-11", "2026-08-12"]  # the all-null day does not count
     row = df.iloc[0]
     assert row["Search Term"] == "water based lube"
     assert row["SV"] == 71783
@@ -326,7 +326,7 @@ def test_competitors_to_df_emits_export_labels():
     assert row["30d Sales"] == 54635
     assert row["30d Revenue"] == 1311240
     assert row["KWs on P1"] == 386
-    assert row["KWs on P1 Percentage"] == pytest.approx(92.1)  # fracción → 0-100
+    assert row["KWs on P1 Percentage"] == pytest.approx(92.1)  # fraction -> 0-100
     assert medians["Price"] == 30.0 and medians["30d Sales"] == 20000
 
 
