@@ -150,7 +150,11 @@ _STR_LABELS = {
            "table_neg": "Candidatos a negativizar (Alta/Media) — lectura IA",
            "table_harv": "Candidatos a harvest — lectura IA",
            "table_camp": "Diagnóstico por campaña",
-           "col_item": "Candidato",
+           "col_item": "Candidato", "col_campaign": "Campaña",
+           "title": "Análisis IA",
+           "no_rows": "No hay candidatos a negativizar ni a harvest con los "
+                      "criterios actuales; no hay nada que analizar.",
+           "already_exact": "ya en exact",
            "cat_dudosa": "revisar categoría",
            "neg_word": "negativos", "harv_word": "harvest",
            "camp_word": "campañas"},
@@ -161,7 +165,11 @@ _STR_LABELS = {
            "table_neg": "Negative candidates (High/Med) — AI read",
            "table_harv": "Harvest candidates — AI read",
            "table_camp": "Campaign diagnosis",
-           "col_item": "Candidate",
+           "col_item": "Candidate", "col_campaign": "Campaign",
+           "title": "AI Analysis",
+           "no_rows": "No negative or harvest candidates under the current "
+                      "criteria; nothing to analyze.",
+           "already_exact": "already in exact",
            "cat_dudosa": "check category",
            "neg_word": "negatives", "harv_word": "harvest",
            "camp_word": "campaigns"},
@@ -183,7 +191,7 @@ def _str_neg_metrics(rec):
             f"{int(rec.get('Impressions', 0))} impr"]
 
 
-def _str_harv_metrics(rec):
+def _str_harv_metrics(rec, already_exact_label="ya en exact"):
     metrics = [f"{int(rec.get('Clicks', 0))} clicks",
                f"{int(rec.get('Orders', 0))} ord",
                f"ACoS {float(rec.get('ACoS', 0)):.1f}%"]
@@ -191,8 +199,9 @@ def _str_harv_metrics(rec):
         metrics.append(f"CVR {float(rec['CVR%']):.1f}%")
     if rec.get("Bid Sugerido") is not None:
         metrics.append(f"bid ${float(rec['Bid Sugerido']):.2f}")
-    if str(rec.get("Ya en Exact", "")).strip().lower().startswith("s"):
-        metrics.append("ya en exact")
+    # Tab 3 fills the column with "Ya en Exact activo" or "", never a yes/no.
+    if str(rec.get("Ya en Exact", "")).strip():
+        metrics.append(already_exact_label)
     return metrics
 
 
@@ -287,12 +296,13 @@ def _render_str_ai_result(result, analysis, neg_records, harv_records,
     if harv_records:
         st.markdown(ai_tab.opinion_table_html(
             _str_ai_rows(harv_records, harvs, HARV_PREFIX, brand_terms, labels,
-                         _str_harv_metrics),
+                         lambda rec: _str_harv_metrics(rec, labels["already_exact"])),
             labels["table_harv"], labels, badge_colors), unsafe_allow_html=True)
     if campaigns:
         st.markdown(ai_tab.opinion_table_html(
-            _str_campaign_rows(campaigns), labels["table_camp"], labels,
-            badge_colors), unsafe_allow_html=True)
+            _str_campaign_rows(campaigns), labels["table_camp"],
+            {**labels, "col_item": labels["col_campaign"]}, badge_colors),
+            unsafe_allow_html=True)
 
 
 def render():
@@ -1056,15 +1066,12 @@ def render():
             else:
                 st.info("No se encontraron candidatos de harvest con los criterios actuales.")
 
-    # ══════════════════════════════════════════════════════════════
-    # TAB 4: Analisis IA (SIN CAMBIOS)
-    # ══════════════════════════════════════════════════════════════
-    # ── TAB 4: Análisis IA — capa core/ai_tab sobre el agente ai/agents/str ──
+    # Tab 4 consumes core/ai_tab over the ai/agents/str agent.
     with tab4:
-        st.subheader("Analisis IA")
-        # Language comes from the app-wide selector in the sidebar (app_lang).
-        ai_lang = "en" if st.session_state.get("app_lang") == "English" else "es"
+        from core import ai_tab
+        ai_lang = ai_tab.app_language()
         str_labels = _STR_LABELS.get(ai_lang, _STR_LABELS["es"])
+        st.subheader(str_labels["title"])
         st.caption(str_labels["caption"])
 
         from ai.config import AI_ENABLED
@@ -1072,7 +1079,6 @@ def render():
             st.caption(str_labels["disabled"])
         else:
             from core import ai_tab
-            from ai import runtime as ai_runtime
             from ai.agents.str.context import StrData
 
             # Same aggregate tab5 shows; the AI receives it as-is.
@@ -1100,6 +1106,9 @@ def render():
             df_harv_ai = df_harv.head(60)
             neg_records = df_neg_ai.to_dict("records")
             harv_records = df_harv_ai.to_dict("records")
+            has_candidates = bool(neg_records or harv_records)
+            if not has_candidates:
+                st.info(str_labels["no_rows"])
 
             ai_data = StrData(
                 cliente="no declarado",
@@ -1120,22 +1129,13 @@ def render():
             )
             ai_labels_str = ai_tab.ai_labels(ai_lang, str_labels)
             st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
-            analysis = ai_tab.resolve_analysis(
+            analysis = None if not has_candidates else ai_tab.resolve_analysis(
                 slug="str", payload=ai_data,
                 file_signature=hashlib.sha256(file_str.getvalue()).hexdigest()[:16],
                 labels=ai_labels_str)
             if analysis is not None:
-                # A STALE analysis cites row_ids from ITS payload, not this
-                # rerun's: records are kept per digest so the positional join
-                # never crosses the wrong terms.
-                rec_store = st.session_state.setdefault("str_ai_records_store", {})
-                current = ai_runtime.peek("str", ai_data)
-                if current is not None and current.digest == analysis.digest:
-                    rec_store[analysis.digest] = (neg_records, harv_records)
-                    for old_digest in list(rec_store)[:-8]:
-                        del rec_store[old_digest]
-                render_neg, render_harv = rec_store.get(
-                    analysis.digest, (neg_records, harv_records))
+                render_neg, render_harv = ai_tab.records_for_render(
+                    "str", analysis, ai_data, (neg_records, harv_records))
 
                 def _render_result(result, a, _n=render_neg, _h=render_harv,
                                    _bt=list(brand_terms), _lab=ai_labels_str):

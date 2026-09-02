@@ -25,7 +25,7 @@ Cómo leer las columnas:
 <lectura>
 Quien lee la síntesis puede ser un AM junior que todavía no abrió la tabla. Reglas para todo texto de síntesis (situation, week_actions, mid_term y el detail de los riesgos):
 - La primera oración de la situación se entiende sin cifras y sin haber leído la tabla: dice qué pasa en lenguaje llano.
-- Un concepto técnico se traduce la primera vez que aparece ("de cada 1,000 impresiones de la categoría, la marca se lleva menos de una"). Los nombres internos del sistema (rollup, shares ponderados, etapa dominante de fuga, cobertura, materialidad, gate, pre-flag, percentil, umbral) no se escriben nunca.
+- Un concepto técnico se traduce la primera vez que aparece ("de cada 1,000 impresiones de la categoría, la marca se lleva menos de una"). Los nombres internos del sistema (rollup, shares ponderados, etapa dominante de fuga, cobertura, materialidad, gate, pre-flag, percentil, umbral) no se escriben como tales: si el concepto hace falta, se dice en llano ("el mínimo de clicks que exige la regla", "la cuarta parte peor del archivo").
 - Una o dos cifras por oración, cada una con su nombre llano. Si un dato del sistema está vacío (por ejemplo, no hay etapa de fuga dominante), no lo menciones: la ausencia no es una cifra.
 - Sin metáforas ni frases hechas ("fuera del juego", "sangría"): decí el hecho.
 - Si el agente emite un executive_summary, ese texto es la excepción: es para pegar en Slack y ahí mandan las cifras primero. Esa regla no aplica a la situación.

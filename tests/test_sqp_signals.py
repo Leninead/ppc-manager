@@ -26,7 +26,7 @@ from modules.pages.search_query_performance import (
     _safe_div,
     _sqp_ai_rows,
     _SQP_FIELD_NAMES,
-    _humanize_synthesis,
+    _sqp_synthesis_for_display,
     _TOP_ROWS,
 )
 
@@ -418,9 +418,11 @@ class TestSqpFieldNames:
     @pytest.mark.parametrize("lang", ["es", "en"])
     def test_glossary_covers_every_signal_column(self, lang):
         from ai.agents.sqp.context import _ROW_COLS
-        missing = [c for c in _ROW_COLS if c != "query"
+        # "volume" is an ordinary word inside query texts: never rewritten.
+        missing = [c for c in _ROW_COLS if c not in ("query", "volume")
                    and not _SQP_FIELD_NAMES[lang].get(c)]
         assert missing == []
+        assert "volume" not in _SQP_FIELD_NAMES[lang]
         # A human name must never be another column name (would re-leak).
         assert not set(_SQP_FIELD_NAMES[lang].values()) & set(_ROW_COLS)
 
@@ -450,10 +452,11 @@ class TestSqpFieldNames:
                  "risks": [{"type": "DEFENSA_MARCA_ROTA", "urgency": "ALTA",
                             "detail": "defense_breach_share 61.0 en 11 filas"}],
                  "executive_summary": "pur_t 1753; opp_usd $23,797.20."}
-        out = _humanize_synthesis(synth, _SQP_FIELD_NAMES["es"])
+        out = _sqp_synthesis_for_display(synth, _SQP_FIELD_NAMES["es"],
+                                         {"Q01": "brita jug"})
         assert out["situation"] == "share de impresiones 0.0 ponderado."
         assert out["week_actions"] == [
-            "Abrir Q01 (oportunidad 23797.2, compras del mercado 8400)."]
+            "Abrir Q01 (brita jug) (oportunidad 23797.2, compras del mercado 8400)."]
         assert out["mid_term"] == ["Re-chequear gema oculta Q04."]
         assert out["risks"][0]["type"] == "DEFENSA_MARCA_ROTA"
         assert out["risks"][0]["detail"] == \
@@ -461,7 +464,8 @@ class TestSqpFieldNames:
         assert out["executive_summary"] == \
             "compras del mercado 1753; oportunidad $23,797.20."
         assert synth["situation"].startswith("imp_share")  # input untouched
-        assert _humanize_synthesis(synth, None) is synth
+        bare = _sqp_synthesis_for_display(synth, None, {})
+        assert bare["situation"] == synth["situation"]
 
 
 class TestSqpAiRows:
@@ -501,3 +505,155 @@ def test_row_labels_map_positional_ids_to_queries():
     assert _sqp_row_labels(records) == {"Q01": "brita jug",
                                         "Q02": "water filter"}
     assert _sqp_row_labels([]) == {}
+
+
+def test_sqp_result_renders_glossary_ids_and_headings():
+    """The visible output: leaked column names rewritten, ids ahead of the
+    queries and annotated in the actions, the synthesis headings present."""
+    from streamlit.testing.v1 import AppTest
+
+    script = '''
+import streamlit as st
+from core import ai_tab
+from modules.pages.search_query_performance import _render_sqp_ai_result, _SQP_LABELS
+
+class A:
+    elapsed = 9
+
+records = [{"query": "brita jug", "imp_share": 1.0, "click_share": 2.0,
+            "cart_share": 0.5, "purchase_share": 0.0, "opp_usd": 23797.2}]
+result = {"queries": [{"row_id": "Q01", "reasoning": "pur_t 1753 sin imp_b",
+                       "query_type": "GENERICA", "funnel_diagnosis": "SIN_VISIBILIDAD",
+                       "price_causality": "INDETERMINADO", "action": "AGREGAR_EXACT",
+                       "confidence": "ALTA", "warning": None}],
+          "synthesis": {"situation": "imp_share 0.0 ponderado.",
+                        "week_actions": ["Abrir Q01 ya"], "mid_term": [],
+                        "risks": [], "executive_summary": "e"}}
+labels = ai_tab.ai_labels("es", _SQP_LABELS["es"])
+_render_sqp_ai_result(result, A(), records, labels)
+'''
+    at = AppTest.from_string(script)
+    at.run(timeout=30)
+    assert not at.exception
+    html = " ".join(str(m.value) for m in at.markdown)
+    assert "compras del mercado 1753 sin impresiones de la marca" in html
+    assert "share de impresiones 0.0 ponderado" in html
+    assert "Abrir Q01 (brita jug) ya" in html
+    assert html.index("Q01") < html.index("brita jug")
+    assert "ACCIONES SUGERIDAS PARA ESTA SEMANA" in html.upper()
+    assert "pur_t" not in html and "imp_share" not in html
+
+
+class TestSignalsBehindTheVerdict:
+    """The columns the prompt anchors its diagnosis on (leak_is_own, indices,
+    market_buys, share_state, price gaps and drift), hand-derived."""
+
+    def test_own_leak_index_and_market_buys_on_the_cascade_fixture(self):
+        signals, _ = _signals(TestCascadeLeak()._rows())
+        # r5 leaks at pdp: cart_index = (15/25) / ((100-15)/(100-25)) = 0.6/1.1333 = 0.53
+        assert signals.loc["r5", "cart_index"] == pytest.approx(0.53, abs=0.005)
+        assert bool(signals.loc["r5", "leak_is_own"]) is True
+        assert bool(signals.loc["r1", "leak_is_own"]) is False  # no leak at all
+        # positive market purchases [100,100,100,100,10] -> median 100
+        assert bool(signals.loc["r1", "market_buys"]) is True
+        assert bool(signals.loc["r5", "market_buys"]) is False
+
+    def test_share_state_thresholds(self):
+        # 35% > 30 -> dominando; 10% -> competitivo (>=10); 5% -> oportunidad
+        signals, _ = _signals([
+            dict(q="dom", it=1000, ib=350, ct=100, cb=35, pt=10, pb=3),
+            dict(q="comp", it=1000, ib=100, ct=100, cb=10, pt=10, pb=1),
+            dict(q="opp", it=1000, ib=50, ct=100, cb=5, pt=10, pb=1),
+        ])
+        assert signals.loc["dom", "share_state"] == "dominando"
+        assert signals.loc["comp", "share_state"] == "competitivo"
+        assert signals.loc["opp", "share_state"] == "oportunidad"
+
+    def test_price_gap_is_brand_against_market_and_drift_is_purchase_minus_click(self):
+        # click: (11-10)/10 = +10.0 ; purchase: (13-10)/10 = +30.0 ; drift = 20.0
+        signals, _ = _signals([dict(q="a", it=1000, ib=100, ct=100, cb=20,
+                                    at=50, ab=10, pt=20, pb=5,
+                                    pc=10.0, pbc=11.0, pa=10.0, pba=12.0,
+                                    pp=10.0, pbp=13.0)])
+        row = signals.loc["a"]
+        assert row["gap_click"] == pytest.approx(10.0)
+        assert row["gap_purchase"] == pytest.approx(30.0)
+        assert row["price_trend"] == pytest.approx(20.0)
+        assert row["price_band"] == "PREMIUM_RIESGO"  # gap_purchase 30 > 25
+
+    def test_gate_and_gem(self):
+        # imp shares 1/5/10/20 -> pandas q25 = 1 + 0.75*(5-1) = 4.0: only "gem" is below
+        signals, _ = _signals([
+            dict(q="gem", it=1000, ib=10, ct=100, cb=10, at=40, ab=15, pt=50, pb=10),
+            dict(q="b", it=1000, ib=50, ct=100, cb=15, at=40, ab=6, pt=10, pb=1),
+            dict(q="thin", it=1000, ib=100, ct=100, cb=5, at=40, ab=5, pt=10, pb=1),
+            dict(q="d", it=1000, ib=200, ct=100, cb=3, at=40, ab=3, pt=10, pb=1),
+        ])
+        # gem: purchase share 20 >= 1.3*1.0, imp 1.0 < 4.0, pur_b 10 >= 2, gate ok
+        assert bool(signals.loc["gem", "hidden_gem"]) is True
+        # b: purchase 10 >= 1.3*5 but imp 5.0 is not below the file's q25 (4.0)
+        assert bool(signals.loc["b", "hidden_gem"]) is False
+        assert bool(signals.loc["thin", "sufficient_data"]) is False  # 5 brand clicks
+        assert bool(signals.loc["gem", "sufficient_data"]) is True
+        assert bool(signals.loc["gem", "is_invisible"]) is False  # 1.0% is not < 1.0
+
+    def test_invisibility(self):
+        signals, _ = _signals([
+            dict(q="ghost", it=1000, ib=0, ct=100, cb=0, at=40, ab=0, pt=20, pb=0),
+            dict(q="faint", it=10000, ib=50, ct=100, cb=2, at=10, ab=1, pt=5, pb=1),
+            dict(q="seen", it=1000, ib=10, ct=100, cb=10, at=40, ab=15, pt=50, pb=10),
+        ])
+        assert bool(signals.loc["ghost", "is_invisible"]) is True   # imp_b == 0
+        assert bool(signals.loc["faint", "is_invisible"]) is True   # 0.5% and 1 purchase
+        assert bool(signals.loc["seen", "is_invisible"]) is False   # 1.0% is not < 1.0
+
+
+class TestRollupPreFlags:
+    """Each risk pre-flag asserted TRUE and FALSE on fixtures whose
+    percentages are hand-derived."""
+
+    def _rollup(self, rows):
+        df = _mk_df(rows)
+        signals, th = _compute_funnel_signals(df, "Search Query", [])
+        return _compute_account_rollup(signals, th), signals
+
+    def test_gems_and_low_coverage(self):
+        gem_rows = [
+            dict(q="gem", it=1000, ib=10, ct=100, cb=10, at=40, ab=15, pt=50, pb=10),
+            dict(q="b", it=1000, ib=50, ct=100, cb=15, at=40, ab=6, pt=10, pb=1),
+            dict(q="c", it=1000, ib=100, ct=100, cb=5, at=40, ab=5, pt=10, pb=1),
+            dict(q="d", it=1000, ib=200, ct=100, cb=3, at=40, ab=3, pt=10, pb=1),
+        ]
+        rollup, signals = self._rollup(gem_rows)
+        assert rollup["pre_flags"]["GEMAS_OCULTAS"] is True
+        assert rollup["gems"] == {"rows": 1, "top_queries": ["gem"]}
+        # brand present in all 4; gate passes for gem and b -> 2/4 = 50.0, not < 50
+        assert rollup["pct_rows_with_data"] == 50.0
+        assert rollup["pre_flags"]["COBERTURA_BAJA"] is False
+        gem_rows[1] = dict(q="b", it=1000, ib=50, ct=100, cb=5, at=40, ab=5, pt=10, pb=1)
+        rollup, _ = self._rollup(gem_rows)  # now 1/4 = 25.0 -> low coverage
+        assert rollup["pct_rows_with_data"] == 25.0
+        assert rollup["pre_flags"]["COBERTURA_BAJA"] is True
+        assert rollup["pre_flags"]["GEMAS_OCULTAS"] is True
+
+    def test_no_price_data_and_export_integrity(self):
+        base = [dict(q=f"q{i}", it=1000, ib=100 * (i + 1), ct=100, cb=20,
+                     at=40, ab=8, pt=20, pb=4) for i in range(4)]
+        rollup, _ = self._rollup(base)  # no price columns at all
+        assert rollup["pct_no_price_data"] == 100.0
+        assert rollup["pre_flags"]["SIN_DATO_PRECIO_MASIVO"] is True
+        priced = [dict(r, pc=10.0, pbc=10.0, pp=10.0, pbp=10.0) for r in base]
+        rollup, _ = self._rollup(priced)
+        assert rollup["pct_no_price_data"] == 0.0
+        assert rollup["pre_flags"]["SIN_DATO_PRECIO_MASIVO"] is False
+        # Amazon's own share column agrees on 3 rows and is 5 pts off on one
+        audited = [dict(r, exp_imp_share=10.0 * (i + 1)) for i, r in enumerate(base)]
+        audited[2]["exp_imp_share"] = 35.0  # computed 30.0 -> off by 5 > 0.6 tolerance
+        rollup, signals = self._rollup(audited)
+        assert rollup["pct_integrity_ok"] == 75.0
+        assert rollup["pre_flags"]["INTEGRIDAD_EXPORT"] is True  # 25% > 2
+        assert bool(signals.set_index("query").loc["q2", "integrity_ok"]) is False
+
+    def test_dominant_leak_stage_comes_from_gated_rows(self):
+        rollup, _ = self._rollup(TestCascadeLeak()._rows())
+        assert rollup["dominant_leak_stage"] == "pdp"

@@ -29,6 +29,11 @@ duplicar cuando el modelo ya lo escribió: `annotate_row_ids(text, {id: término
 sobre `map_synthesis_text`, y `mount_analysis_chat(..., annotate=)` para el
 chat. Cada módulo expone su mapa (`_str_row_labels`, `_sqp_row_labels`,
 `_dd_row_labels`) a partir de los records guardados por digest.
+Los records por digest los guarda `ai_tab.records_for_render(slug, analysis,
+payload, records)` (un análisis STALE cruza contra SU payload; se conservan
+los últimos 8 digests) y el idioma sale de `ai_tab.app_language()` (radio
+`app_lang` del sidebar): ningún módulo reimplementa esas dos cosas. `make_ids`
+vive una sola vez en `ai/agents/__init__.py` y cada `context.py` lo re-exporta.
 
 **Reglas de lectura compartidas (2026-09-02).** Los tres prompts (`str`, `sqp`,
 `datadive`) llevan un bloque `<lectura>` idéntico: la primera oración de la

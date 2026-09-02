@@ -228,3 +228,14 @@ class TestRuntimeStateMachine:
     def test_max_rows_constant_matches_module_cap(self):
         from modules.pages.search_query_performance import _TOP_ROWS
         assert MAX_ROWS == _TOP_ROWS
+
+
+def test_digest_includes_the_system_prompt():
+    """A prompt edit changes the digest, so the platform shows the STALE
+    banner instead of silently reusing an analysis built on the old rules."""
+    from ai.runtime import _digest
+    docs = [{"title": "t", "content": "c"}]
+    a = _digest("sqp", "system v1", "input", docs, "opus", None)
+    b = _digest("sqp", "system v2", "input", docs, "opus", None)
+    assert a != b
+    assert a == _digest("sqp", "system v1", "input", docs, "opus", None)

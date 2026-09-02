@@ -59,3 +59,10 @@ def isolated_data_root(tmp_path, monkeypatch):
     _reset()
     yield tmp_data
     _reset()
+
+
+@pytest.fixture(autouse=True)
+def _ai_log_in_tmp(tmp_path, monkeypatch):
+    """Keep the AI call log (ai/client._log) out of the developer's data/."""
+    import ai.config as ai_config
+    monkeypatch.setattr(ai_config, "LOG_DIR", str(tmp_path / "ai-log"))

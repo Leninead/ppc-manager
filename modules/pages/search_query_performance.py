@@ -417,10 +417,11 @@ def _compute_account_rollup(signals, thresholds):
 # SQP-only UI strings; everything shared comes from core/ai_tab's label base.
 # Human names for the signal columns the AI receives (ai/agents/sqp/context.py
 # _ROW_COLS). The prompt forbids column names in prose; this is the
-# deterministic safety net applied to everything the AM reads.
+# deterministic safety net applied to everything the AM reads. "volume" is
+# left out on purpose: it is an ordinary word inside query texts.
 _SQP_FIELD_NAMES = {
     "es": {
-        "volume": "volumen de búsqueda", "volume_tier": "tier de volumen",
+        "volume_tier": "tier de volumen",
         "imp_b": "impresiones de la marca", "imp_t": "impresiones del mercado",
         "clk_b": "clics de la marca", "clk_t": "clics del mercado",
         "cart_b": "cart adds de la marca", "cart_t": "cart adds del mercado",
@@ -447,9 +448,10 @@ _SQP_FIELD_NAMES = {
         "hidden_gem": "gema oculta", "is_invisible": "marca sin visibilidad",
         "market_buys": "el mercado compra", "share_state": "estado de share",
         "speed_premium": "premium de entrega rápida", "opp_usd": "oportunidad",
+        "integrity_ok": "integridad del export",
     },
     "en": {
-        "volume": "search volume", "volume_tier": "volume tier",
+        "volume_tier": "volume tier",
         "imp_b": "brand impressions", "imp_t": "market impressions",
         "clk_b": "brand clicks", "clk_t": "market clicks",
         "cart_b": "brand cart adds", "cart_t": "market cart adds",
@@ -475,6 +477,7 @@ _SQP_FIELD_NAMES = {
         "hidden_gem": "hidden gem", "is_invisible": "brand not visible",
         "market_buys": "the market buys", "share_state": "share state",
         "speed_premium": "fast-delivery premium", "opp_usd": "opportunity",
+        "integrity_ok": "export integrity",
     },
 }
 
@@ -491,6 +494,7 @@ _SQP_LABELS = {
                          "de defensa y la clasificación BRANDED. Prefill: marca "
                          "detectada en el archivo.",
            "table_title": "Lectura IA por query (top por prioridad)",
+           "title": "Análisis IA",
            "col_item": "Query",
            "field_names": _SQP_FIELD_NAMES["es"]},
     "en": {"chat": "AI Analysis — SQP",
@@ -505,6 +509,7 @@ _SQP_LABELS = {
                          "defense floor and the BRANDED classification. "
                          "Prefill: brand detected in the file.",
            "table_title": "AI read per query (top by priority)",
+           "title": "AI Analysis",
            "col_item": "Query",
            "field_names": _SQP_FIELD_NAMES["en"]},
 }
@@ -534,14 +539,15 @@ def _share_pill(label, value):
     return f"{label} —" if pd.isna(value) else f"{label} {value}%"
 
 
-def _humanize_synthesis(synthesis, field_names):
-    """Copy of the canonical synthesis with every prose field passed through
-    the field glossary. Structure and non-text values are untouched."""
-    from core.ai_tab import humanize_fields, map_synthesis_text
-    if not field_names:
-        return synthesis
+def _sqp_synthesis_for_display(synthesis, field_names, row_labels):
+    """Copy of the canonical synthesis ready to print: leaked column names
+    rewritten through the glossary, then the cited row ids annotated with
+    their query. Structure and non-text values are untouched."""
+    from core.ai_tab import annotate_row_ids, humanize_fields, map_synthesis_text
     return map_synthesis_text(
-        synthesis, lambda text: humanize_fields(text, field_names))
+        synthesis,
+        lambda text: annotate_row_ids(humanize_fields(text, field_names),
+                                      row_labels))
 
 
 def _sqp_row_labels(signal_records):
@@ -589,10 +595,9 @@ def _sqp_ai_rows(signal_records, opinions, field_names=None):
 def _render_sqp_ai_result(result, analysis, signal_records, labels):
     from core import ai_tab
     field_names = labels.get("field_names")
-    row_labels = _sqp_row_labels(signal_records)
-    synthesis = ai_tab.map_synthesis_text(
-        _humanize_synthesis(result.get("synthesis") or {}, field_names),
-        lambda text: ai_tab.annotate_row_ids(text, row_labels))
+    synthesis = _sqp_synthesis_for_display(
+        result.get("synthesis") or {}, field_names,
+        _sqp_row_labels(signal_records))
     opinions = result.get("queries") or []
     n_warnings = sum(1 for o in opinions if o.get("warning"))
     with st.container(border=True):
@@ -771,10 +776,10 @@ def render():
 
     # ── TAB 4: Análisis IA — capa core/ai_tab sobre el agente ai/agents/sqp ──
     with tab4:
-        st.subheader("🤖 Análisis IA")
-        # Language comes from the app-wide selector in the sidebar (app_lang).
-        ai_lang = "en" if st.session_state.get("app_lang") == "English" else "es"
+        from core import ai_tab
+        ai_lang = ai_tab.app_language()
         sqp_labels = _SQP_LABELS.get(ai_lang, _SQP_LABELS["es"])
+        st.subheader(sqp_labels["title"])
         st.caption(sqp_labels["caption"])
 
         from ai.config import AI_ENABLED
@@ -784,7 +789,6 @@ def render():
             st.info(sqp_labels["no_cols"])
         else:
             from core import ai_tab
-            from ai import runtime as ai_runtime
             from ai.agents.sqp.context import SqpData
 
             brand_terms_raw = st.text_input(
@@ -821,16 +825,8 @@ def render():
                     file_signature=hashlib.sha256(file_sqp.getvalue()).hexdigest()[:16],
                     labels=ai_labels_sqp)
                 if analysis is not None:
-                    # A STALE analysis cites row_ids from ITS payload, not this
-                    # rerun's: records are kept per digest so the positional
-                    # join never crosses the wrong queries.
-                    rec_store = st.session_state.setdefault("sqp_ai_records_store", {})
-                    current = ai_runtime.peek("sqp", ai_data)
-                    if current is not None and current.digest == analysis.digest:
-                        rec_store[analysis.digest] = signal_records
-                        for old_digest in list(rec_store)[:-8]:
-                            del rec_store[old_digest]
-                    render_records = rec_store.get(analysis.digest, signal_records)
+                    render_records = ai_tab.records_for_render(
+                        "sqp", analysis, ai_data, signal_records)
 
                     def _render_result(result, a, _rec=render_records,
                                        _lab=ai_labels_sqp):
@@ -845,6 +841,8 @@ def render():
         from core import ai_tab
         chat_labels = _sqp_row_labels(st.session_state.get(
             "sqp_ai_records_store", {}).get(analysis.digest, []))
+        chat_field_names = ai_labels_sqp.get("field_names")
         ai_tab.mount_analysis_chat(
             "sqp", analysis, lang=ai_lang, labels=ai_labels_sqp,
-            annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels))
+            annotate=lambda text: ai_tab.annotate_row_ids(
+                ai_tab.humanize_fields(text, chat_field_names), chat_labels))

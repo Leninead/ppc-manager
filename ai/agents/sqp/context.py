@@ -3,7 +3,8 @@
 Serialization only: every number here was already computed by the module
 (_compute_funnel_signals / _compute_account_rollup in search_query_performance).
 """
-from dataclasses import dataclass, field
+from ai.agents import make_ids
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -27,11 +28,6 @@ class SqpData:
     signal_rows: list           # top-40 rows of the signals frame, module columns as-is
     language: str = "es"        # output language: "es" | "en"
     defense_floor: float = 80.0
-    extra: dict = field(default_factory=dict)
-
-
-def make_ids(prefix: str, n: int) -> list[str]:
-    return [f"{prefix}{i + 1:02d}" for i in range(n)]
 
 
 # reasoning comes before every verdict on purpose: autoregressive generation
@@ -102,9 +98,11 @@ OUTPUT_SCHEMA = {
             "type": "object",
             "properties": {
                 "situation": {"type": "string",
-                              "description": "2-3 oraciones: salud de la semana anclada "
-                                             "en los shares ponderados y la etapa "
-                                             "dominante de fuga del rollup"},
+                              "description": "tres oraciones: qué pasa en lenguaje llano "
+                                             "y sin cifras; la evidencia con una o dos "
+                                             "cifras nombradas en llano; qué tipo de "
+                                             "problema es (exposición, conversión, "
+                                             "precio o datos insuficientes)"},
                 "week_actions": {"type": "array", "items": {"type": "string"},
                                  "description": "3 a 7 bullets ordenados por opp_usd: "
                                                 "verbo + row_ids + cifra + qué se decide"},
@@ -136,7 +134,7 @@ _ROW_COLS = [
     "price_self_diluted", "is_own_brand",
     "defense_breach_stage", "defense_breach_share",
     "sufficient_data", "hidden_gem", "is_invisible", "market_buys", "share_state",
-    "speed_premium", "opp_usd",
+    "speed_premium", "opp_usd", "integrity_ok",
 ]
 
 

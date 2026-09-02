@@ -299,6 +299,24 @@ def render_analysis(analysis, *, slug: str, labels: dict, render_result) -> None
     _poll()
 
 
+def app_language() -> str:
+    """Output language of the AI tabs, from the sidebar radio (app_lang)."""
+    return "en" if st.session_state.get("app_lang") == "English" else "es"
+
+
+def records_for_render(slug: str, analysis, payload, records, keep: int = 8):
+    """Keeps the rows an analysis was built from and returns the rows to
+    render for it. A STALE analysis cites row ids from ITS payload, never the
+    current rerun's, so records are stored per digest (the last `keep`)."""
+    store = st.session_state.setdefault(f"{slug}_ai_records_store", {})
+    current = ai_runtime.peek(slug, payload)
+    if current is not None and current.digest == analysis.digest:
+        store[analysis.digest] = records
+        for old_digest in list(store)[:-keep]:
+            del store[old_digest]
+    return store.get(analysis.digest, records)
+
+
 def mount_analysis_chat(slug: str, analysis, *, lang: str,
                         labels: dict, annotate=None) -> None:
     """Mounts the floating chat as soon as an analysis exists. Call it at the
@@ -352,7 +370,7 @@ def synthesis_section_title(text: str, hint: str = "") -> str:
     """Section heading shared by the synthesis blocks: small uppercase label
     over a hairline, clearly distinct from the 16-17px body text. The optional
     hint is a native tooltip, so the heading stays a label and not a caption."""
-    safe_hint = escape_ai_text(hint).replace('"', "&quot;") if hint else ""
+    safe_hint = escape_ai_text(hint) if hint else ""
     title_attr = f' title="{safe_hint}"' if safe_hint else ""
     return (f'<div{title_attr} style="margin:18px 0 6px 0;padding-top:12px;'
             f'border-top:1px solid #EFEBE4;font-size:13px;font-weight:600;'

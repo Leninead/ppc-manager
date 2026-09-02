@@ -22,13 +22,11 @@ import pytest
 import ai.client as ai_client
 import ai.runtime as ai_runtime
 from ai.agents.str.context import (
-    HARV_PREFIX,
     MAX_CAMPAIGNS,
     NEG_PREFIX,
     OUTPUT_SCHEMA,
     StrData,
     build_context,
-    make_ids,
 )
 from modules.pages.search_term_report import (
     _str_ai_rows,
@@ -62,7 +60,7 @@ def _harv(term="soap bar", orders=4):
     return {"Search Term": term, "Campaign": "C2 - Exact", "Ad Group": "AG2",
             "Clicks": 30, "Orders": orders, "ACoS": 22.0, "CVR%": 13.3,
             "Bid Sugerido": 1.25, "Regla": "principal", "Prioridad": "Alta",
-            "Ya en Exact": "Sí"}
+            "Ya en Exact": "Ya en Exact activo"}
 
 
 def _data(idioma="es", cost_detected=True, campanas=None, brand_terms=None):
@@ -294,3 +292,43 @@ def test_row_labels_map_positional_ids_to_terms():
         "N01": "alpha soap", "N02": "cat litter",
         "H01": "serrated knife sharpener"}
     assert _str_row_labels([], None) == {}
+
+
+def test_str_result_renders_ids_headings_and_campaign_header():
+    """The visible output: row ids ahead of the terms, the synthesis headings,
+    the annotated id in the actions, the campaign table titled by campaign."""
+    from streamlit.testing.v1 import AppTest
+
+    script = '''
+import streamlit as st
+from core import ai_tab
+from modules.pages.search_term_report import _render_str_ai_result, _STR_LABELS
+
+class A:
+    elapsed = 4
+
+negs = [{"Search Term": "alpha soap", "Campaign": "C1 - Broad", "Clicks": 20,
+         "Impressions": 1000, "Spend": 5.0, "Orders": 0, "Regla": "R2"}]
+harvs = [{"Search Term": "soap bar", "Campaign": "C2 - Exact", "Clicks": 30,
+          "Orders": 4, "ACoS": 22.0, "CVR%": 13.3, "Bid Sugerido": 1.25,
+          "Regla": "principal", "Ya en Exact": "Ya en Exact activo"}]
+result = {"negativos": [{"row_id": "N01", "razon": "r1", "categoria": "generico",
+                         "advertencia": None}],
+          "harvest": [{"row_id": "H01", "razon": "r2", "categoria": "atributo",
+                       "advertencia": "w"}],
+          "campanas": [{"campaign": "C1 - Broad", "diagnostico": "d"}],
+          "synthesis": {"situation": "s", "week_actions": ["Cortar N01 hoy"],
+                        "mid_term": [], "risks": []}}
+labels = ai_tab.ai_labels("en", _STR_LABELS["en"])
+_render_str_ai_result(result, A(), negs, harvs, ["alpha"], labels)
+'''
+    at = AppTest.from_string(script)
+    at.run(timeout=30)
+    assert not at.exception
+    html = " ".join(str(m.value) for m in at.markdown)
+    assert "SUGGESTED ACTIONS FOR THIS WEEK" in html.upper()
+    assert "Cortar N01 (alpha soap) hoy" in html
+    assert html.index("N01") < html.index("alpha soap")
+    assert html.index("H01") < html.index("soap bar")
+    assert "already in exact" in html
+    assert "<th class=\"c-item\">Campaign</th>" in html

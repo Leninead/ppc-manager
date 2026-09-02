@@ -119,6 +119,8 @@ def _chat_header(title: str, subtitle: str, copy_text: str, copy_title: str,
                  f'style="{close_margin}background:transparent;border:none;'
                  'color:#FADFD3;cursor:pointer;padding:8px;border-radius:8px;'
                  f'display:flex;align-items:center">{_X_SVG}</button>')
+    # "</" would close the <script> early: keep it out of the JSON literal.
+    safe_copy = json.dumps(copy_text).replace("</", "<\/")
     components.html(f"""
 <div style="display:flex;align-items:center;gap:10px;background:{_ACCENT};
   border-radius:12px;padding:10px 14px;margin:0;
@@ -152,7 +154,7 @@ if (x) {{
 }}
 const b = document.getElementById('cp');
 if (b) {{
-  const t = {json.dumps(copy_text)};
+  const t = {safe_copy};
   const clip = {json.dumps(_CLIP_SVG)};
   const check = {json.dumps(_CHECK_SVG)};
   b.addEventListener('mouseenter', () => b.style.color = '#fff');

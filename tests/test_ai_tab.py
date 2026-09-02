@@ -3,8 +3,8 @@
 Scope: the pure lifecycle decision (full matrix), label merging, the render
 kit in both languages (incl. the $-escape gotcha), and an AppTest smoke of
 resolve_analysis + render_analysis over a fake agent and fake transport.
-Excluded: STR/SQP modules (not migrated yet by design) and core/ai_chat
-internals (covered by its consumers).
+Excluded: the STR/SQP/DataDive consumers (their own test files) and
+core/ai_chat internals beyond the annotate path.
 
 Design rules:
 - Anti-placebo rule: expected values hand-derived, never copied from the
@@ -272,3 +272,62 @@ class TestLifecycleSmoke:
         at.run(timeout=15)
         assert not at.exception
         assert calls["n"] == 1  # idempotent digest: one paid run
+
+
+class TestSessionHelpers:
+    def _fake_st(self, monkeypatch, state=None):
+        from core import ai_tab
+        fake = types.SimpleNamespace(session_state=state if state is not None else {})
+        monkeypatch.setattr(ai_tab, "st", fake)
+        return ai_tab, fake
+
+    def test_app_language_follows_the_sidebar_radio(self, monkeypatch):
+        ai_tab, fake = self._fake_st(monkeypatch, {"app_lang": "English"})
+        assert ai_tab.app_language() == "en"
+        fake.session_state.clear()
+        assert ai_tab.app_language() == "es"
+
+    def test_records_for_render_keeps_the_rows_of_each_digest(self, monkeypatch):
+        """A STALE analysis must join against the rows it was built from:
+        the store is keyed by digest and only refreshed when the current
+        payload digests to the analysis shown."""
+        ai_tab, fake = self._fake_st(monkeypatch)
+        peeked = {"digest": "d1"}
+        monkeypatch.setattr(ai_tab.ai_runtime, "peek",
+                            lambda slug, payload: types.SimpleNamespace(**peeked))
+        shown = types.SimpleNamespace(digest="d1")
+        assert ai_tab.records_for_render("x", shown, "p1", ["r1"]) == ["r1"]
+        peeked["digest"] = "d2"  # sliders changed: current payload is d2, d1 still shown
+        assert ai_tab.records_for_render("x", shown, "p2", ["r2"]) == ["r1"]
+        unknown = types.SimpleNamespace(digest="d9")  # nothing stored: current rows
+        assert ai_tab.records_for_render("x", unknown, "p9", ["r9"]) == ["r9"]
+        for i in range(10):
+            peeked["digest"] = f"e{i}"
+            ai_tab.records_for_render("x", types.SimpleNamespace(digest=f"e{i}"),
+                                      "p", [i], keep=3)
+        assert list(fake.session_state["x_ai_records_store"]) == ["e7", "e8", "e9"]
+
+
+def test_floating_chat_annotates_assistant_text_at_display_time():
+    """annotate is applied to the assistant bubbles when they render; the
+    stored history keeps the raw text and user bubbles are untouched."""
+    from streamlit.testing.v1 import AppTest
+
+    script = '''
+import streamlit as st
+from core.ai_chat import floating_chat
+
+st.session_state["aichat_t_hist"] = [
+    {"role": "user", "text": "que es H59"},
+    {"role": "assistant", "text": "Frenar H59 esta semana"}]
+floating_chat(chat_id="t", agent="str", session_id="s1", title="T",
+              annotate=lambda text: text.replace("H59", "H59 (press on nails)"))
+st.markdown("RAW:" + st.session_state["aichat_t_hist"][1]["text"])
+'''
+    at = AppTest.from_string(script)
+    at.run(timeout=30)
+    assert not at.exception
+    html = " ".join(str(m.value) for m in at.markdown)
+    assert "Frenar H59 (press on nails) esta semana" in html
+    assert "que es H59 (press" not in html
+    assert "RAW:Frenar H59 esta semana" in html

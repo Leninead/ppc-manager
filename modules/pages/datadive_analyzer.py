@@ -552,7 +552,7 @@ def render():
                         my_asin_en_niche=bool(my_asin) and my_asin in df_mkl.columns,
                     )
                     ai_labels_dd = ai_tab.ai_labels(
-                        "es", {"chat": "Análisis IA — DataDive"})
+                        ai_tab.app_language(), {"chat": "Análisis IA — DataDive"})
                     st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
                     ai_analysis = ai_tab.resolve_analysis(
                         slug="datadive", payload=payload,
@@ -561,15 +561,8 @@ def render():
                         # A STALE analysis cites row_ids from ITS payload, not from
                         # this rerun: keeping the records per digest stops the join
                         # from ever crossing the wrong keywords.
-                        from ai import runtime as ai_runtime
-                        rec_store = st.session_state.setdefault(
-                            "dd_ai_records_store", {})
-                        current = ai_runtime.peek("datadive", payload)
-                        if current is not None and current.digest == ai_analysis.digest:
-                            rec_store[ai_analysis.digest] = records
-                            for old_digest in list(rec_store)[:-8]:
-                                del rec_store[old_digest]
-                        render_records = rec_store.get(ai_analysis.digest, records)
+                        render_records = ai_tab.records_for_render(
+                            "datadive", ai_analysis, payload, records)
 
                         def _render_result(result, a, _rec=render_records,
                                            _lab=ai_labels_dd):
@@ -1380,5 +1373,5 @@ def render():
         chat_labels = _dd_row_labels(st.session_state.get(
             "dd_ai_records_store", {}).get(ai_analysis.digest, []))
         ai_tab.mount_analysis_chat(
-            "datadive", ai_analysis, lang="es", labels=ai_labels_dd,
+            "datadive", ai_analysis, lang=ai_tab.app_language(), labels=ai_labels_dd,
             annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels))

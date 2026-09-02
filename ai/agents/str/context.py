@@ -2,6 +2,7 @@
 
 Serialization only: every number here was already computed by the module.
 """
+from ai.agents import make_ids
 from dataclasses import dataclass
 
 import pandas as pd
@@ -28,10 +29,6 @@ class StrData:
     harvest: list               # df_harv records, module columns as-is
     idioma: str = "es"          # output language: "es" | "en"
     cost_detected: bool = True  # False when the STR cost column was not found
-
-
-def make_ids(prefix: str, n: int) -> list[str]:
-    return [f"{prefix}{i + 1:02d}" for i in range(n)]
 
 
 # razon comes before categoria on purpose: autoregressive generation
@@ -81,9 +78,11 @@ OUTPUT_SCHEMA = {
             "type": "object",
             "properties": {
                 "situation": {"type": "string",
-                              "description": "hasta 2 oraciones, salud contra el "
-                                             "target ACoS anclada en cifras del "
-                                             "documento KPIs"},
+                              "description": "2-3 oraciones: qué pasa con la cuenta en "
+                                             "lenguaje llano y sin cifras; después la "
+                                             "evidencia con una o dos cifras del "
+                                             "documento KPIs contra el target ACoS; "
+                                             "y qué tipo de problema es"},
                 "week_actions": {"type": "array", "items": {"type": "string"},
                                  "description": "2 a 4 bullets, cada uno con una "
                                                 "cifra ya existente en los "
@@ -163,7 +162,8 @@ def build_context(d: StrData) -> tuple[str, list, dict]:
         {"title": "Parámetros", "content": params},
         {"title": "KPIs de la cuenta (calculados por la app — usar tal cual)",
          "content": kpis},
-        {"title": f"Performance por campaña (top {len(campanas)} por spend)",
+        {"title": f"Performance por campaña (top {len(campanas)} por "
+                  f"{'spend' if d.cost_detected else 'clicks'})",
          "content": _csv(campanas)},
         {"title": f"Candidatos a negativizar ({len(d.negativos)} filas)",
          "content": _csv(negativos, NEG_PREFIX)},
