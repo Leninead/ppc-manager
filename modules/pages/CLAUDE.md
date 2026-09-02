@@ -28,7 +28,20 @@ determinista con el término detrás del id, primera mención por texto y sin
 duplicar cuando el modelo ya lo escribió: `annotate_row_ids(text, {id: término})`
 sobre `map_synthesis_text`, y `mount_analysis_chat(..., annotate=)` para el
 chat. Cada módulo expone su mapa (`_str_row_labels`, `_sqp_row_labels`,
-`_dd_row_labels`) a partir de los records guardados por digest. El contrato de uso
+`_dd_row_labels`) a partir de los records guardados por digest.
+
+**Reglas de lectura compartidas (2026-09-02).** Los tres prompts (`str`, `sqp`,
+`datadive`) llevan un bloque `<lectura>` idéntico: la primera oración de la
+situación se entiende sin cifras ni tabla, los conceptos técnicos se traducen
+la primera vez, los nombres internos del sistema (rollup, shares ponderados,
+etapa dominante de fuga, cobertura, materialidad, gate, pre-flag) nunca se
+escriben, una o dos cifras por oración, sin metáforas; el `executive_summary`
+(texto para Slack, cifras primero) es la única excepción. El runtime solo
+anexa `_shared/chat.md`, por eso el bloque se copia en cada prompt y
+`tests/test_agent_prompts.py` exige que las tres copias sean idénticas. La spec
+de `situation` del SQP pasó de "anclada en los shares ponderados y la etapa
+dominante del rollup" (siete cifras en tres oraciones) a tres oraciones con rol
+fijo: qué pasa, evidencia, tipo de problema. El contrato de uso
 completo está en el docstring del módulo; tests en `tests/test_ai_tab.py`.
 Keys de sesión: `<slug>_ai_*`. **Todo módulo con tab IA consume esta capa —
 no implementa el wiring a mano.** Los primeros consumidores (STR y SQP) se
