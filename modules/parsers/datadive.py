@@ -46,6 +46,32 @@ def _coerce_float_safe(raw, default: float = 0.0) -> float:
     return float(v)
 
 
+_MKL_HEADER_PATTERNS = [
+    (COL_SEARCH_TERM, re.compile(r"search.?term", re.IGNORECASE)),
+    (COL_SV, re.compile(r"^sv$", re.IGNORECASE)),
+    (COL_RELEVANCE, re.compile(r"^rel(ev|\.|$)", re.IGNORECASE)),
+    (COL_SUGG_BID, re.compile(r"sugg.*bid", re.IGNORECASE)),
+    (COL_LAUNCH_SCORE, re.compile(r"launch", re.IGNORECASE)),
+]
+
+_MKL_LEGACY_COLS = {COL_SEARCH_TERM: 1, COL_SV: 2, COL_RELEVANCE: 3,
+                    COL_SUGG_BID: 4, COL_LAUNCH_SCORE: 5}
+
+
+def _map_mkl_header(header_vals: list) -> dict[str, int]:
+    """Canonical column -> index by header name; first match per column wins."""
+    mapping: dict[str, int] = {}
+    for ci, val in enumerate(header_vals):
+        text = str(val).strip()
+        if not text or text.lower() == "nan":
+            continue
+        for canon, pat in _MKL_HEADER_PATTERNS:
+            if canon not in mapping and pat.search(text):
+                mapping[canon] = ci
+                break
+    return mapping
+
+
 def parse_mkl(data: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
     """Parse DataDive MKL (Master Keyword List) — niche-*-keywords.xlsx."""
     buf = io.BytesIO(data)
@@ -60,9 +86,22 @@ def parse_mkl(data: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
     if header_row is None:
         header_row = 1
 
+    # DataDive re-layouts the export over time (a "Type" column appeared 2026-08):
+    # headers are the contract; fixed positions are only the headerless fallback.
+    # With named headers present, a missing metric stays missing (defaults to 0)
+    # instead of reading a shifted column as silently-garbled data.
+    col_map = _map_mkl_header(raw.iloc[header_row].tolist())
+    if len(col_map) < 2:
+        col_map = dict(_MKL_LEGACY_COLS)
+    col_map.setdefault(COL_SEARCH_TERM, _MKL_LEGACY_COLS[COL_SEARCH_TERM])
+    term_col = col_map[COL_SEARCH_TERM]
+    metric_cols = set(col_map.values())
+
     asin_pattern = re.compile(r'B0[A-Z0-9]{8}', re.IGNORECASE)
     asin_cols = {}
-    for ci in range(6, raw.shape[1]):
+    for ci in range(term_col + 1, raw.shape[1]):
+        if ci in metric_cols:
+            continue
         for ri in range(min(3, len(raw))):
             val = str(raw.iloc[ri, ci]).strip()
             m = asin_pattern.search(val)
@@ -70,23 +109,28 @@ def parse_mkl(data: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
                 asin_cols[ci] = m.group(0).upper()
                 break
 
+    def _cell(ri: int, canon: str):
+        ci = col_map.get(canon)
+        return raw.iloc[ri, ci] if ci is not None and ci < raw.shape[1] else None
+
     data_start = header_row + 1
     rows = []
     for ri in range(data_start, len(raw)):
-        term = str(raw.iloc[ri, 1]).strip() if pd.notna(raw.iloc[ri, 1]) else ""
+        term_raw = _cell(ri, COL_SEARCH_TERM)
+        term = str(term_raw).strip() if pd.notna(term_raw) else ""
         if not term or term.lower() in ("nan", ""):
             continue
-        sv = _coerce_int_safe(str(raw.iloc[ri, 2]).replace(",", ""))
-        relevance = _coerce_float_safe(raw.iloc[ri, 3])
-        bid_raw = str(raw.iloc[ri, 4]).replace("$", "").replace(",", "").strip()
+        sv = _coerce_int_safe(str(_cell(ri, COL_SV)).replace(",", ""))
+        relevance = _coerce_float_safe(_cell(ri, COL_RELEVANCE))
+        bid_raw = str(_cell(ri, COL_SUGG_BID)).replace("$", "").replace(",", "").strip()
         bid_match = re.search(r'[\d.]+', bid_raw)
         sugg_bid = float(bid_match.group()) if bid_match else 0
-        launch_score = _coerce_float_safe(raw.iloc[ri, 5])
+        launch_score = _coerce_float_safe(_cell(ri, COL_LAUNCH_SCORE))
 
         row = {
             COL_SEARCH_TERM: term,
             COL_SV: sv,
-            COL_RELEVANCE: round(relevance, 2),
+            COL_RELEVANCE: relevance,  # rounded after the scale rescale below
             COL_SUGG_BID: round(sugg_bid, 2),
             COL_LAUNCH_SCORE: round(launch_score, 1),
         }
@@ -96,6 +140,11 @@ def parse_mkl(data: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
         rows.append(row)
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame()
+    if not df.empty:
+        if 0 < df[COL_RELEVANCE].max() <= 1.0:
+            # Fresh exports ship relevancy as a 0-1 fraction; the UI scale is 0-10.
+            df[COL_RELEVANCE] = df[COL_RELEVANCE] * 10
+        df[COL_RELEVANCE] = df[COL_RELEVANCE].round(2)
     competitor_asins = list(asin_cols.values())
     return df, competitor_asins
 

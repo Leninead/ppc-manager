@@ -1,10 +1,12 @@
+import hashlib
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 import streamlit as st
 import pandas as pd
 
+from core import datadive as dd_api
 from core.helpers import read_sqp, kpi_card
 from modules.parsers import datadive as _dd
 
@@ -18,6 +20,55 @@ def _parse_mkl(data, name):
     return _dd.parse_mkl(data, name)
 
 
+# Short retries in the UI: a persistent 429/500 must not hang the script thread
+# for minutes (st.cache_data never caches exceptions, so each rerun retries).
+def _api_client():
+    return dd_api.client_from_env(max_retries=3, retry_after_cap_s=5.0)
+
+
+@st.cache_data(ttl=3600, show_spinner="Listando niches de DataDive...")
+def _api_niches():
+    client = _api_client()
+    if client is None:
+        raise dd_api.DataDiveError("DATADIVE_API_KEY no configurada.")
+    return client.list_niches()
+
+
+@st.cache_data(ttl=3600, max_entries=6, show_spinner="Trayendo keywords de DataDive...")
+def _api_mkl(niche_id: str):
+    client = _api_client()
+    if client is None:
+        raise dd_api.DataDiveError("DATADIVE_API_KEY no configurada.")
+    payload = client.niche_keywords(niche_id)
+    df, asins = dd_api.keywords_to_mkl_df(payload)
+    return df, asins, dd_api.latest_research_date(payload)
+
+
+@st.cache_data(ttl=3600, max_entries=6, show_spinner="Trayendo competidores de DataDive...")
+def _api_competitors(niche_id: str):
+    client = _api_client()
+    if client is None:
+        raise dd_api.DataDiveError("DATADIVE_API_KEY no configurada.")
+    return dd_api.competitors_to_df(client.niche_competitors(niche_id))
+
+
+@st.cache_data(ttl=3600, show_spinner="Listando rank radars de DataDive...")
+def _api_rank_radars():
+    client = _api_client()
+    if client is None:
+        raise dd_api.DataDiveError("DATADIVE_API_KEY no configurada.")
+    return client.list_rank_radars()
+
+
+@st.cache_data(ttl=3600, max_entries=6, show_spinner="Trayendo rank radar de DataDive...")
+def _api_rank_radar(radar_id: str, start_date: str, end_date: str):
+    client = _api_client()
+    if client is None:
+        raise dd_api.DataDiveError("DATADIVE_API_KEY no configurada.")
+    return dd_api.rank_radar_to_df(
+        client.rank_radar_keywords(radar_id, start_date, end_date))
+
+
 @st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_competitors(data, name):
     return _dd.parse_competitors(data, name)
@@ -26,6 +77,167 @@ def _parse_competitors(data, name):
 @st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_rank_radar(data, name):
     return _dd.parse_rank_radar(data, name)
+
+
+def _parse_upload(parser, uploaded, what: str):
+    """Parse an upload behind a friendly error: a corrupt xlsx or the wrong
+    file must never dump a traceback into the tab."""
+    try:
+        return parser(uploaded.getvalue(), uploaded.name)
+    except Exception:
+        st.error(f"No se pudo leer «{uploaded.name}» como {what} de DataDive. "
+                 "Verificá que sea el export .xlsx correcto y volvé a subirlo.")
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# AI analysis (core/ai_tab layer over the ai/agents/datadive agent)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _mkl_ai_records(df_top: pd.DataFrame, competitor_asins: list,
+                    my_asin: str, nucleo_slots: int) -> list[dict]:
+    """Serialize the capped frame for the AI agent — native types only.
+
+    `bloque` records how the row got in (nucleo = by SV, cola = by relevance
+    below that cut): without it the document looks SV-ordered end to end and
+    the agent reads the tail as leftovers.
+    """
+    # Same rule as the tab's gap table: the own ASIN is not a competitor.
+    comp_cols = [a for a in competitor_asins
+                 if a in df_top.columns and a != my_asin]
+    records = []
+    for pos, (_, r) in enumerate(df_top.iterrows()):
+        mi_rank = r["Mi Ranking"] if "Mi Ranking" in df_top.columns else None
+        records.append({
+            "term": str(r["Search Term"]),
+            "sv": int(r["SV"]),
+            "relevance": float(r["Relevance"]),
+            "sugg_bid": float(r["Sugg. Bid"]) if "Sugg. Bid" in df_top.columns else 0.0,
+            "launch_score": float(r["Launch Score"]) if "Launch Score" in df_top.columns else 0.0,
+            "mi_rank": int(mi_rank) if pd.notna(mi_rank) else None,
+            "comps_rankeando": int(r[comp_cols].notna().sum()) if comp_cols else 0,
+            "bloque": "nucleo" if pos < nucleo_slots else "cola",
+        })
+    return records
+
+
+def _num(value) -> float:
+    x = pd.to_numeric(str(value).replace("$", "").replace(",", ""), errors="coerce")
+    return 0.0 if pd.isna(x) else float(x)
+
+
+def _mkl_ai_competitors(fuente: str):
+    """Competitor records for the AI context, or None when there is no data."""
+    try:
+        if fuente == "API DataDive":
+            active = st.session_state.get("dd_mkl_api_niche")
+            if not active:
+                return None
+            df_c, medians = _api_competitors(active)
+        else:
+            up = st.session_state.get("dd_comp")
+            if up is None:
+                return None
+            df_c, medians = _parse_competitors(up.getvalue(), up.name)
+        if df_c is None or df_c.empty:
+            return None
+        records = []
+        for _, r in df_c.head(30).iterrows():
+            records.append({
+                "asin": str(r.get("ASIN", "")),
+                "brand": str(r.get("Brand", "")),
+                "price": round(_num(r.get("Price")), 2),
+                "rating": round(_num(r.get("Rating")), 1),
+                "reviews": int(_num(r.get("Review Count"))),
+                "sales_30d": int(_num(r.get("30d Sales"))),
+                "revenue_30d": int(_num(r.get("30d Revenue"))),
+                "kws_p1": int(_num(r.get("KWs on P1"))),
+            })
+        records.append({
+            "asin": "MEDIANA_NICHE",
+            "brand": "(mediana del niche)",
+            "price": round(_num(medians.get("Price")), 2),
+            "rating": round(_num(medians.get("Rating")), 1),
+            "reviews": int(_num(medians.get("Review Count"))),
+            "sales_30d": int(_num(medians.get("30d Sales"))),
+            "revenue_30d": int(_num(medians.get("30d Revenue"))),
+            "kws_p1": int(_num(medians.get("KWs on P1"))),
+        })
+        return records
+    except Exception:
+        # the MKL analysis runs fine without competitors; this never kills the tab
+        return None
+
+
+_AI_BADGE_COLORS = {
+    "alta": "background-color:#FAECE7;color:#993C1D",
+    "media": "background-color:#FFF8E1;color:#9C5700",
+    "baja": "background-color:#F5F5F5;color:#616161",
+    "PPC_AHORA": "background-color:#E8F5E9;color:#1B5E20",
+    "LISTING_PRIMERO": "background-color:#FFF8E1;color:#9C5700",
+    "NO_ATACABLE": "background-color:#FFEBEE;color:#B71C1C",
+    "exact": "background-color:#EDE7F6;color:#4527A0",
+    "phrase": "background-color:#EDE7F6;color:#4527A0",
+    "broad": "background-color:#EDE7F6;color:#4527A0",
+    "product_targeting": "background-color:#EDE7F6;color:#4527A0",
+}
+
+
+def _render_mkl_ai_result(result: dict, analysis, records: list, labels: dict) -> None:
+    from core import ai_tab
+    ids = {f"K{i + 1:02d}": rec for i, rec in enumerate(records)}
+    clusters = result.get("clusters") or []
+    gaps = result.get("gaps") or []
+    warnings = sum(1 for g in gaps if g.get("advertencia"))
+    st.markdown(
+        ai_tab.ai_chips_html(warnings, f"{len(clusters)} clusters · {len(gaps)} gaps",
+                             analysis.elapsed, labels),
+        unsafe_allow_html=True)
+    st.markdown(ai_tab.synthesis_html(result.get("synthesis") or {}, labels),
+                unsafe_allow_html=True)
+
+    cluster_rows = []
+    for i, c in enumerate(clusters, 1):
+        matched = [ids[rid] for rid in c.get("row_ids", []) if rid in ids]
+        cluster_rows.append({
+            # The array order is the attack order; numbering makes that visible.
+            "item": f"{i}. {c.get('nombre', '')}",
+            "type_tag": f"{len(matched)} kws",
+            "metrics": [f"SV {sum(rec['sv'] for rec in matched):,}"],
+            "badges": [c.get("prioridad", ""), c.get("match_type", "")],
+            "reasoning": c.get("racional", ""),
+        })
+    if cluster_rows:
+        st.markdown(ai_tab.opinion_table_html(cluster_rows, "Clusters de intención",
+                                              labels, _AI_BADGE_COLORS),
+                    unsafe_allow_html=True)
+
+    gap_rows = []
+    for g in gaps:
+        rec = ids.get(str(g.get("row_id", "")))
+        if rec is None:
+            continue
+        # The metrics the reasons cite must be on screen, or the AM cannot audit
+        # the judgement against their own table.
+        metrics = [f"SV {rec['sv']:,}", f"rel {rec['relevance']:.1f}",
+                   f"{rec['comps_rankeando']} comps"]
+        if rec.get("launch_score"):
+            metrics.append(f"launch {rec['launch_score']:.0f}")
+        metrics.append(f"mi rank {rec['mi_rank']}" if rec.get("mi_rank")
+                       else "no rankeo")
+        gap_rows.append({
+            "item": rec["term"],
+            "type_tag": str(g.get("row_id", "")),
+            "metrics": metrics,
+            "badges": [g.get("via", "")],
+            "confidence": str(g.get("confianza", "")).upper(),
+            "warning": g.get("advertencia") or "",
+            "reasoning": g.get("razon", ""),
+        })
+    if gap_rows:
+        st.markdown(ai_tab.opinion_table_html(gap_rows, "Gaps priorizados",
+                                              labels, _AI_BADGE_COLORS),
+                    unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -82,6 +294,14 @@ def render():
             "5. Tab 5: subí tu MKL + MKL competidor → gap analysis unificado"
         )
 
+    ai_analysis = None
+    ai_labels_dd = None
+    api_niches_by_id = {}
+
+    def _niche_label(niche_id):
+        n = api_niches_by_id.get(niche_id, {})
+        return f"{n.get('nicheLabel') or niche_id} · {n.get('marketplace') or ''}"
+
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📖 MKL Keywords",
         "⚔️ Competitors",
@@ -95,15 +315,108 @@ def render():
     # ══════════════════════════════════════════════════════════════════
     with tab1:
         st.subheader("📖 Master Keyword List")
-        st.caption("Archivo: niche-*-keywords.xlsx de DataDive")
 
-        file_mkl = st.file_uploader("Sube tu MKL (.xlsx)", type=["xlsx"], key="dd_mkl")
-        if file_mkl:
-            df_mkl, competitor_asins = _parse_mkl(file_mkl.getvalue(), file_mkl.name)
+        df_mkl = None
+        competitor_asins = []
+        mkl_signature = ""
+        mkl_label = ""
+        mkl_marketplace = ""
+
+        fuente = "Archivo"
+        if dd_api.client_from_env() is not None:
+            fuente = st.radio("Fuente", ["API DataDive", "Archivo"],
+                              horizontal=True, key="dd_mkl_source")
+
+        if fuente == "API DataDive":
+            niches = None
+            try:
+                niches = _api_niches()
+            except dd_api.DataDiveError as e:
+                st.error(str(e))
+            if niches is not None and not niches:
+                st.caption("La organización no tiene niches en DataDive.")
+            elif niches:
+                ordered = sorted(niches,
+                                 key=lambda n: str(n.get("latestResearchDate") or ""),
+                                 reverse=True)
+                by_id = {n["nicheId"]: n for n in ordered if n.get("nicheId")}
+                api_niches_by_id = by_id  # compartido con tabs 2 y 5
+                sel_col, btn_col = st.columns([3, 1], vertical_alignment="bottom")
+                selected_id = sel_col.selectbox(
+                    "Niche",
+                    options=list(by_id),
+                    format_func=lambda i: (f"{by_id[i].get('nicheLabel') or i}"
+                                           f" · {by_id[i].get('marketplace') or ''}"),
+                    key="dd_mkl_niche",
+                )
+                if btn_col.button("Traer de DataDive", key="dd_mkl_fetch", type="primary"):
+                    _api_mkl.clear(selected_id)
+                    st.session_state["dd_mkl_api_niche"] = selected_id
+                active_id = st.session_state.get("dd_mkl_api_niche")
+                if active_id and active_id in by_id:
+                    try:
+                        df_mkl, competitor_asins, research_date = _api_mkl(active_id)
+                        niche = by_id[active_id]
+                        mkl_label = str(niche.get("nicheLabel") or active_id)
+                        mkl_marketplace = str(niche.get("marketplace") or "")
+                        # Content signature: a re-fetch with different keywords
+                        # re-fires the AI analysis even when the date is unchanged.
+                        content_hash = hashlib.sha1(
+                            df_mkl.to_csv(index=False).encode("utf-8")).hexdigest()[:16]
+                        mkl_signature = f"api:{active_id}:{content_hash}"
+                        fecha_dive = (research_date[:16].replace("T", " ") + " UTC"
+                                      if research_date else "s/f")
+                        st.caption(f"Niche {mkl_label} · último dive: {fecha_dive}")
+                    except dd_api.DataDiveError as e:
+                        st.error(str(e))
+                elif active_id:
+                    st.caption("El niche traído ya no aparece en la lista de "
+                               "DataDive — volvé a elegirlo.")
+                else:
+                    st.caption("Elegí un niche y presioná Traer de DataDive. "
+                               "El uploader de archivo sigue disponible en Fuente → Archivo.")
+        else:
+            st.caption("Archivo: niche-*-keywords.xlsx de DataDive")
+            file_mkl = st.file_uploader("Sube tu MKL (.xlsx)", type=["xlsx"], key="dd_mkl")
+            if file_mkl:
+                parsed_mkl = _parse_upload(_parse_mkl, file_mkl, "MKL Keywords")
+                if parsed_mkl is not None:
+                    df_mkl, competitor_asins = parsed_mkl
+                    mkl_label = file_mkl.name
+                    mkl_signature = "file:" + hashlib.sha1(file_mkl.getvalue()).hexdigest()[:16]
+            else:
+                st.markdown(
+                    "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                    "border-radius:12px;margin:1rem 0;'>"
+                    "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                    "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo niche-*-keywords.xlsx exportado desde DataDive.</div>"
+                    "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                    "Arrastrá o hacé click en el uploader de arriba</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+        if df_mkl is not None:
             if df_mkl.empty:
-                st.warning("No se pudieron extraer keywords del archivo.")
+                st.warning("No se pudieron extraer keywords del archivo."
+                           if fuente == "Archivo"
+                           else "El niche no devolvió keywords.")
             else:
                 st.success(f"✅ {len(df_mkl)} keywords · {len(competitor_asins)} competidores detectados")
+                if df_mkl["SV"].sum() == 0:
+                    st.warning("Ninguna keyword trae SV: puede que el archivo no "
+                               "sea un export MKL o que DataDive haya cambiado "
+                               "el formato. Verificá el archivo antes de seguir.")
+                # The export carries the real Launch Score, so every file audits
+                # the formula the API mode relies on.
+                elif fuente == "Archivo" and dd_api.launch_score_drifted(df_mkl):
+                    st.warning(
+                        "El Launch Score de este archivo ya no coincide con la "
+                        "fórmula que usa el modo API: DataDive probablemente la "
+                        "recalibró. Avisale al equipo técnico — los valores por "
+                        "API quedaron desactualizados (el resto del módulo no "
+                        "se ve afectado)."
+                    )
 
                 my_asin = st.text_input(
                     "Tu ASIN (para detectar gaps)", placeholder="B0XXXXXXXXX", key="dd_mkl_asin",
@@ -198,28 +511,104 @@ def render():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dd_mkl_dl",
                 )
-        else:
-            st.markdown(
-                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
-                "border-radius:12px;margin:1rem 0;'>"
-                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
-                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo niche-*-keywords.xlsx exportado desde DataDive.</div>"
-                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
-                "Arrastrá o hacé click en el uploader de arriba</div>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
+
+                st.markdown("---")
+                st.subheader("Análisis IA")
+                from ai.config import AI_ENABLED
+                if not AI_ENABLED:
+                    st.caption("Análisis IA deshabilitado (AI_ENABLED=0).")
+                elif df_filtered.empty:
+                    st.caption("Sin keywords tras el filtro — nada para analizar.")
+                else:
+                    from core import ai_tab
+                    from ai.agents.datadive import context as dd_ctx
+
+                    df_top = dd_ctx.select_keywords(df_filtered)
+                    records = _mkl_ai_records(df_top, competitor_asins, my_asin,
+                                              dd_ctx._SV_SLOTS)
+                    payload = dd_ctx.MklData(
+                        niche_label=mkl_label,
+                        fuente=fuente,
+                        marketplace=mkl_marketplace,
+                        my_asin=my_asin,
+                        min_sv=int(min_sv),
+                        min_rel=float(min_rel),
+                        total_keywords=len(df_filtered),
+                        competitor_asins=list(competitor_asins),
+                        keywords=records,
+                        competitors=_mkl_ai_competitors(fuente),
+                        # A typed ASIN absent from the dive leaves mi_rank empty in
+                        # EVERY row: that is missing data, not a set of gaps.
+                        my_asin_en_niche=bool(my_asin) and my_asin in df_mkl.columns,
+                    )
+                    ai_labels_dd = ai_tab.ai_labels(
+                        "es", {"chat": "Análisis IA — DataDive"})
+                    st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
+                    ai_analysis = ai_tab.resolve_analysis(
+                        slug="datadive", payload=payload,
+                        file_signature=mkl_signature, labels=ai_labels_dd)
+                    if ai_analysis is not None:
+                        # A STALE analysis cites row_ids from ITS payload, not from
+                        # this rerun: keeping the records per digest stops the join
+                        # from ever crossing the wrong keywords.
+                        from ai import runtime as ai_runtime
+                        rec_store = st.session_state.setdefault(
+                            "dd_ai_records_store", {})
+                        current = ai_runtime.peek("datadive", payload)
+                        if current is not None and current.digest == ai_analysis.digest:
+                            rec_store[ai_analysis.digest] = records
+                            for old_digest in list(rec_store)[:-8]:
+                                del rec_store[old_digest]
+                        render_records = rec_store.get(ai_analysis.digest, records)
+
+                        def _render_result(result, a, _rec=render_records,
+                                           _lab=ai_labels_dd):
+                            _render_mkl_ai_result(result, a, _rec, _lab)
+
+                        ai_tab.render_analysis(
+                            ai_analysis, slug="datadive", labels=ai_labels_dd,
+                            render_result=_render_result)
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 2 — Competitors
     # ══════════════════════════════════════════════════════════════════
     with tab2:
         st.subheader("⚔️ Competitor Analysis")
-        st.caption("Archivo: niche-*-competitors.xlsx de DataDive")
 
-        file_comp = st.file_uploader("Sube tu Competitors (.xlsx)", type=["xlsx"], key="dd_comp")
-        if file_comp:
-            df_comp, median_data = _parse_competitors(file_comp.getvalue(), file_comp.name)
+        df_comp = None
+        median_data = {}
+        if fuente == "API DataDive":
+            active_comp_id = st.session_state.get("dd_mkl_api_niche")
+            if active_comp_id and active_comp_id in api_niches_by_id:
+                try:
+                    df_comp, median_data = _api_competitors(active_comp_id)
+                    st.caption(f"Competidores del niche {_niche_label(active_comp_id)} "
+                               "· vía API DataDive")
+                except dd_api.DataDiveError as e:
+                    st.error(str(e))
+            else:
+                st.caption("Traé primero un niche en el tab MKL Keywords — "
+                           "los competidores salen del mismo niche.")
+        else:
+            st.caption("Archivo: niche-*-competitors.xlsx de DataDive")
+            file_comp = st.file_uploader("Sube tu Competitors (.xlsx)", type=["xlsx"], key="dd_comp")
+            if file_comp:
+                parsed_comp = _parse_upload(_parse_competitors, file_comp, "Competitors")
+                if parsed_comp is not None:
+                    df_comp, median_data = parsed_comp
+            else:
+                st.markdown(
+                    "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                    "border-radius:12px;margin:1rem 0;'>"
+                    "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                    "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo niche-*-competitors.xlsx exportado desde DataDive.</div>"
+                    "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                    "Arrastrá o hacé click en el uploader de arriba</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+        if df_comp is not None:
             if df_comp.empty:
                 st.warning("No se pudieron extraer datos de competidores.")
             else:
@@ -277,28 +666,82 @@ def render():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dd_comp_dl",
                 )
-        else:
-            st.markdown(
-                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
-                "border-radius:12px;margin:1rem 0;'>"
-                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
-                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo niche-*-competitors.xlsx exportado desde DataDive.</div>"
-                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
-                "Arrastrá o hacé click en el uploader de arriba</div>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 3 — Rank Radar
     # ══════════════════════════════════════════════════════════════════
     with tab3:
         st.subheader("📡 Rank Radar")
-        st.caption("Archivo: [product-name].xlsx de DataDive Rank Radar")
 
-        file_rr = st.file_uploader("Sube tu Rank Radar (.xlsx)", type=["xlsx"], key="dd_rr")
-        if file_rr:
-            df_rr, date_cols_rr, agg_data = _parse_rank_radar(file_rr.getvalue(), file_rr.name)
+        df_rr = None
+        date_cols_rr = []
+        agg_data = {}
+        rr_source_name = None
+        if fuente == "API DataDive":
+            radars = None
+            try:
+                radars = _api_rank_radars()
+            except dd_api.DataDiveError as e:
+                st.error(str(e))
+            if radars is not None and not radars:
+                st.caption("La organización no tiene rank radars en DataDive.")
+            elif radars:
+                by_radar = {r["id"]: r for r in radars if r.get("id")}
+
+                def _radar_label(radar_id):
+                    r = by_radar.get(radar_id, {})
+                    title = str(r.get("title") or radar_id)
+                    title = title[:60] + ("…" if len(title) > 60 else "")
+                    return (f"{title} · {r.get('marketplace') or ''} · "
+                            f"{r.get('keywordCount') or 0} kws")
+
+                sel_col, days_col, btn_col = st.columns([4, 1, 1],
+                                                        vertical_alignment="bottom")
+                radar_sel = sel_col.selectbox(
+                    "Rank radar", options=list(by_radar),
+                    format_func=_radar_label, key="dd_rr_radar")
+                days_sel = days_col.selectbox(
+                    "Rango", [30, 60, 90],
+                    format_func=lambda d: f"{d} días", key="dd_rr_days")
+                if btn_col.button("Traer de DataDive", key="dd_rr_fetch", type="primary"):
+                    end_d = datetime.now().date()
+                    start_d = end_d - timedelta(days=days_sel)
+                    _api_rank_radar.clear(radar_sel, start_d.isoformat(), end_d.isoformat())
+                    st.session_state["dd_rr_api_sel"] = (
+                        radar_sel, start_d.isoformat(), end_d.isoformat())
+                rr_sel = st.session_state.get("dd_rr_api_sel")
+                if rr_sel and rr_sel[0] in by_radar:
+                    try:
+                        df_rr, date_cols_rr, agg_data = _api_rank_radar(*rr_sel)
+                        st.caption(f"Radar: {_radar_label(rr_sel[0])} · "
+                                   f"{rr_sel[1]} → {rr_sel[2]} · vía API DataDive")
+                    except dd_api.DataDiveError as e:
+                        st.error(str(e))
+                elif rr_sel:
+                    st.caption("El radar traído ya no aparece en la lista — volvé a elegirlo.")
+                else:
+                    st.caption("Elegí un rank radar y presioná Traer de DataDive.")
+        else:
+            st.caption("Archivo: [product-name].xlsx de DataDive Rank Radar")
+            file_rr = st.file_uploader("Sube tu Rank Radar (.xlsx)", type=["xlsx"], key="dd_rr")
+            if file_rr:
+                parsed_rr = _parse_upload(_parse_rank_radar, file_rr, "Rank Radar")
+                if parsed_rr is not None:
+                    df_rr, date_cols_rr, agg_data = parsed_rr
+                    rr_source_name = file_rr.name
+            else:
+                st.markdown(
+                    "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+                    "border-radius:12px;margin:1rem 0;'>"
+                    "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+                    "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo de Rank Radar exportado desde DataDive.</div>"
+                    "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+                    "Arrastrá o hacé click en el uploader de arriba</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+        if df_rr is not None:
             if df_rr.empty:
                 st.warning("No se pudieron extraer datos del Rank Radar.")
             else:
@@ -348,13 +791,15 @@ def render():
                 if not rr_rank_cols and "Median Rank" in df_rr.columns:
                     rr_rank_cols = ["Median Rank"]
 
-                if rr_kw_col and rr_rank_cols:
+                # Cross-upload history is for files only: over the API the history
+                # is already server-side (the date range is a parameter).
+                if rr_source_name and rr_kw_col and rr_rank_cols:
                     rr_rank_col = rr_rank_cols[0]
                     existing_names = [s["filename"] for s in st.session_state[_RANK_HISTORY_KEY]]
-                    if file_rr.name not in existing_names:
+                    if rr_source_name not in existing_names:
                         st.session_state[_RANK_HISTORY_KEY].append({
                             "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            "filename": file_rr.name,
+                            "filename": rr_source_name,
                             "data": df_rr[[rr_kw_col, rr_rank_col]].copy().rename(
                                 columns={rr_rank_col: "Rank"}
                             ),
@@ -511,17 +956,6 @@ def render():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dd_rr_dl",
                 )
-        else:
-            st.markdown(
-                "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
-                "border-radius:12px;margin:1rem 0;'>"
-                "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
-                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el archivo de Rank Radar exportado desde DataDive.</div>"
-                "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
-                "Arrastrá o hacé click en el uploader de arriba</div>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 4 — Ranking Volatility + PPC Impression Share
@@ -530,25 +964,44 @@ def render():
         st.subheader("📊 Ranking Volatility + PPC Impression Share")
         st.caption("Cruzá el Rank Radar (ranking orgánico diario) con SQP (impression share) para detectar riesgos y oportunidades.")
 
-        vc1, vc2 = st.columns(2)
-        with vc1:
-            file_rr_v = st.file_uploader("Rank Radar (.xlsx)", type=["xlsx"], key="dd_vol_rr")
-        with vc2:
-            file_sqp_v = st.file_uploader("SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="dd_vol_sqp")
+        df_v = None
+        date_cols_v = []
+        if fuente == "API DataDive":
+            rr_sel_v = st.session_state.get("dd_rr_api_sel")
+            if rr_sel_v:
+                try:
+                    df_v, date_cols_v, _ = _api_rank_radar(*rr_sel_v)
+                    st.caption("Usando el rank radar traído en el tab Rank Radar "
+                               "· vía API DataDive")
+                except dd_api.DataDiveError as e:
+                    st.error(str(e))
+            else:
+                st.caption("Traé primero un rank radar en el tab Rank Radar.")
+            file_sqp_v = st.file_uploader("SQP (.xlsx o .csv)", type=["xlsx", "csv"],
+                                          key="dd_vol_sqp")
+        else:
+            vc1, vc2 = st.columns(2)
+            with vc1:
+                file_rr_v = st.file_uploader("Rank Radar (.xlsx)", type=["xlsx"], key="dd_vol_rr")
+            with vc2:
+                file_sqp_v = st.file_uploader("SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="dd_vol_sqp")
+            if file_rr_v:
+                parsed_v = _parse_upload(_parse_rank_radar, file_rr_v, "Rank Radar")
+                if parsed_v is not None:
+                    df_v, date_cols_v, _ = parsed_v
 
-        if not file_rr_v:
+        if df_v is None:
             st.markdown(
                 "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
                 "border-radius:12px;margin:1rem 0;'>"
                 "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
-                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el Rank Radar de DataDive y opcionalmente el SQP de Amazon.</div>"
+                "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Subí el Rank Radar de DataDive — o traelo por API en el tab Rank Radar — y opcionalmente el SQP de Amazon.</div>"
                 "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
                 "Arrastrá o hacé click en el uploader de arriba</div>"
                 "</div>",
                 unsafe_allow_html=True,
             )
         else:
-            df_v, date_cols_v, _ = _parse_rank_radar(file_rr_v.getvalue(), file_rr_v.name)
             if df_v.empty:
                 st.warning("No se pudieron extraer datos del Rank Radar.")
             else:
@@ -710,32 +1163,65 @@ def render():
             "Opcionalmente agregá Cerebro de H10."
         )
 
-        col_u1, col_u2 = st.columns(2)
-        with col_u1:
-            my_mkl = st.file_uploader("Tu MKL Keywords (.xlsx)", type=["xlsx"], key="dd_ci_my_mkl")
-        with col_u2:
-            comp_mkl = st.file_uploader("MKL Competidor (.xlsx)", type=["xlsx"], key="dd_ci_comp_mkl")
+        df_my = None
+        df_comp = None
+        if fuente == "API DataDive":
+            if not api_niches_by_id:
+                st.caption("Cargá la lista de niches en el tab MKL Keywords "
+                           "(Fuente → API DataDive).")
+            else:
+                col_n1, col_n2 = st.columns(2)
+                ci_my_id = col_n1.selectbox(
+                    "Tu niche", options=list(api_niches_by_id),
+                    format_func=_niche_label, key="dd_ci_my_niche")
+                ci_comp_id = col_n2.selectbox(
+                    "Niche competidor", options=list(api_niches_by_id),
+                    format_func=_niche_label, key="dd_ci_comp_niche")
+                if st.button("Traer ambos de DataDive", key="dd_ci_fetch", type="primary"):
+                    st.session_state["dd_ci_api_pair"] = (ci_my_id, ci_comp_id)
+                ci_pair = st.session_state.get("dd_ci_api_pair")
+                if ci_pair and all(p in api_niches_by_id for p in ci_pair):
+                    try:
+                        df_my, _, _ = _api_mkl(ci_pair[0])
+                        df_comp, _, _ = _api_mkl(ci_pair[1])
+                        st.caption(f"{_niche_label(ci_pair[0])} vs "
+                                   f"{_niche_label(ci_pair[1])} · vía API DataDive")
+                    except dd_api.DataDiveError as e:
+                        st.error(str(e))
+            h10_file = st.file_uploader(
+                "Cerebro H10 del competidor (opcional)", type=["xlsx"], key="dd_ci_h10",
+            )
+        else:
+            col_u1, col_u2 = st.columns(2)
+            with col_u1:
+                my_mkl = st.file_uploader("Tu MKL Keywords (.xlsx)", type=["xlsx"], key="dd_ci_my_mkl")
+            with col_u2:
+                comp_mkl = st.file_uploader("MKL Competidor (.xlsx)", type=["xlsx"], key="dd_ci_comp_mkl")
 
-        h10_file = st.file_uploader(
-            "Cerebro H10 del competidor (opcional)", type=["xlsx"], key="dd_ci_h10",
-        )
+            h10_file = st.file_uploader(
+                "Cerebro H10 del competidor (opcional)", type=["xlsx"], key="dd_ci_h10",
+            )
 
-        if not my_mkl or not comp_mkl:
+            if my_mkl and comp_mkl:
+                parsed_my_ci = _parse_upload(_parse_mkl, my_mkl, "MKL Keywords")
+                parsed_comp_ci = _parse_upload(_parse_mkl, comp_mkl, "MKL Keywords")
+                if parsed_my_ci is not None and parsed_comp_ci is not None:
+                    # parse_mkl returns (df, asins); only the df is used here
+                    df_my, _ = parsed_my_ci
+                    df_comp, _ = parsed_comp_ci
+
+        if df_my is None or df_comp is None:
             st.markdown(
                 "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:2rem;"
                 "text-align:center;background:#FFF3E0;margin-top:1rem;'>"
                 "<div style='font-size:1.5rem;'>🏆</div>"
-                "<div style='font-weight:600;margin-top:0.5rem;'>Subí ambos MKL para comparar</div>"
+                "<div style='font-weight:600;margin-top:0.5rem;'>Subí ambos MKL — o traé dos niches por API — para comparar</div>"
                 "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
                 "DataDive → Niche → Keywords → Export para tu ASIN y el competidor</div>"
                 "</div>",
                 unsafe_allow_html=True,
             )
         else:
-            # Parse both MKL files
-            df_my = _parse_mkl(my_mkl.getvalue(), my_mkl.name)
-            df_comp = _parse_mkl(comp_mkl.getvalue(), comp_mkl.name)
-
             if df_my.empty or df_comp.empty:
                 st.error("❌ No se pudo parsear uno de los MKL. Verificá el formato.")
             else:
@@ -752,6 +1238,7 @@ def render():
                     df_my, df_comp,
                     on=kw_col, how="outer",
                     suffixes=("_mine", "_comp"),
+                    indicator=True,
                 )
 
                 # Detect rank columns
@@ -768,8 +1255,18 @@ def render():
 
                 # Classify gap
                 def _classify_gap(row):
-                    has_mine = pd.notna(row.get(rank_mine)) and row.get(rank_mine, 0) > 0 if rank_mine else False
-                    has_comp = pd.notna(row.get(rank_comp)) and row.get(rank_comp, 0) > 0 if rank_comp else False
+                    # The MKL shape has no "rank" columns (ranks are per ASIN):
+                    # without them the outer join itself decides presence in each
+                    # niche.
+                    if not rank_mine or not rank_comp:
+                        side = row.get("_merge")
+                        if side == "both":
+                            return "🤝 Ambos rankean"
+                        if side == "left_only":
+                            return "✅ Solo yo"
+                        return "🔴 Solo competidor"
+                    has_mine = pd.notna(row.get(rank_mine)) and row.get(rank_mine, 0) > 0
+                    has_comp = pd.notna(row.get(rank_comp)) and row.get(rank_comp, 0) > 0
                     if has_mine and has_comp:
                         return "🤝 Ambos rankean"
                     elif has_mine and not has_comp:
@@ -779,6 +1276,7 @@ def render():
                     return "⚫ Ninguno"
 
                 df_merged["Gap"] = df_merged.apply(_classify_gap, axis=1)
+                df_merged = df_merged.drop(columns=["_merge"])
 
                 # If H10 Cerebro provided, add extra columns
                 if h10_file:
@@ -835,7 +1333,7 @@ def render():
                 gap_filter = st.multiselect(
                     "Filtrar por gap",
                     options=gap_options,
-                    default=["🔴 Solo competidor"],
+                    default=[o for o in gap_options if o == "🔴 Solo competidor"],
                     key="dd_ci_gap_filter",
                 )
 
@@ -865,3 +1363,9 @@ def render():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dd_ci_dl",
                 )
+
+    # Outside st.tabs so the bubble shows on every tab of the module.
+    if ai_analysis is not None:
+        from core import ai_tab
+        ai_tab.mount_analysis_chat("datadive", ai_analysis, lang="es",
+                                   labels=ai_labels_dd)

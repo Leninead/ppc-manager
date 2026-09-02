@@ -185,10 +185,15 @@ if (b) {{
 def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                   title: str = "Análisis IA",
                   lang: str = "es",
-                  pending_text: str | None = None) -> None:
+                  pending_text: str | None = None,
+                  standalone: bool = False) -> None:
     """session_id=None mounts the chat before the analysis is ready: questions
     stay in the thread and are answered locally with pending_text until a real
-    session arrives on a later mount."""
+    session arrives on a later mount.
+
+    standalone=True instead lets those early questions open their own provider
+    session and be answered for real — for agents whose tools can answer without
+    the analysis. The analysis session takes over as soon as it exists."""
     L = _L.get(lang, _L["es"])
     subtitle = L["subtitle"]
     anchor = f"aichat_{chat_id}_anchor"
@@ -266,12 +271,15 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                                          key=f"aichat_{chat_id}_q")
                 if question:
                     sid = st.session_state.get(sid_key)
-                    if not sid:
+                    if not sid and not standalone:
                         # Analysis not ready: answer locally, spend nothing.
                         history.append({"role": "user", "text": question})
                         history.append({"role": "assistant",
                                         "text": pending_text or L["error"]})
                         st.rerun(scope="fragment")
+                    # standalone: sid may be None — the turn opens its own
+                    # session so a tool-answerable question never waits for
+                    # the analysis. The analysis session takes over once ready.
                     with live:
                         st.markdown(_user_bubble(question) + _TYPING,
                                     unsafe_allow_html=True)

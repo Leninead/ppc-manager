@@ -158,14 +158,31 @@ _CHAT_RULES = (_CHAT_RULES_PATH.read_text(encoding="utf-8")
                if _CHAT_RULES_PATH.exists() else "")
 
 
-def ask_followup(slug: str, session_id: str, question: str) -> tuple[str, str]:
-    """One chat turn over an existing analysis conversation. Synchronous."""
+def agent_tools(slug: str) -> list:
+    """Provider tool profiles declared in the agent's frontmatter (`tools:`)."""
+    meta = _agent(slug)["meta"]
+    return [t.strip() for t in str(meta.get("tools") or "").split(",") if t.strip()]
+
+
+def ask_followup(slug: str, session_id: str | None,
+                 question: str) -> tuple[str, str]:
+    """One chat turn. Synchronous.
+
+    session_id=None opens a fresh conversation instead of resuming one, so a
+    tool-capable agent can answer before its analysis exists.
+
+    An agent whose prompt frontmatter declares `tools:` gets those provider
+    tool profiles on chat turns only — the analysis itself stays deterministic.
+    """
     agent = _agent(slug)
     system = agent["system"] + ("\n\n" + _CHAT_RULES if _CHAT_RULES else "")
+    tools = agent_tools(slug) or None
     resp = client.ask(system=system, input_text=question, context=[],
                       model=agent["meta"].get("model", "opus"),
                       effort=agent["meta"].get("effort") or None,
-                      session_id=session_id, timeout_s=600, tag=f"{slug}-chat")
+                      session_id=session_id, timeout_s=600,
+                      max_turns=8 if tools else 1, tools=tools,
+                      tag=f"{slug}-chat")
     return resp.get("text", ""), resp.get("session_id") or session_id
 
 

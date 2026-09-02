@@ -46,7 +46,7 @@ def _log(record: dict) -> None:
 def ask(*, system: str, input_text: str, context: list, model: str,
         effort: str | None = None, output_schema: dict | None = None,
         session_id: str | None = None, timeout_s: int = 900,
-        max_turns: int = 1, tag: str = "") -> dict:
+        max_turns: int = 1, tools: list | None = None, tag: str = "") -> dict:
     """POST /v1/answer and return the provider's response body."""
     payload: dict = {"system": system, "input": input_text, "model": model,
                      "max_turns": max_turns, "context": context}
@@ -56,6 +56,8 @@ def ask(*, system: str, input_text: str, context: list, model: str,
         payload["output_schema"] = output_schema
     if session_id:
         payload["session_id"] = session_id
+    if tools:
+        payload["tools"] = tools
 
     t0 = time.time()
     base = {"ts": t0, "tag": tag, "model": model,
