@@ -573,3 +573,90 @@ def test_aggregate_valida_columnas_requeridas(term_col, spend_col, esperado):
             spend_col=spend_col,
             campaign_col="Campaign Name",
         )
+
+
+# ---------------------------------------------------------------------
+# aggregate_str_with_top_campaign — extra_inherit
+# ---------------------------------------------------------------------
+
+def _df_str_dos_campanas() -> pd.DataFrame:
+    """Un término en dos campañas: la de $40 gana el idxmax, la de $10 pierde."""
+    return pd.DataFrame({
+        "Customer Search Term": ["kw a", "kw a", "kw b"],
+        "Spend": [10.0, 40.0, 5.0],
+        "Campaign Name": ["Camp-Low", "Camp-High", "Camp-Solo"],
+        "Campaign ID": ["111111111111111", CAMPAIGN_ID, "333333333333333"],
+        "Ad Group ID": ["444444444444444", AD_GROUP_ID, "666666666666666"],
+        "Keyword ID": ["777777777777777", KEYWORD_ID, "999999999999999"],
+    })
+
+
+def test_extra_inherit_hereda_del_row_de_mayor_spend():
+    """Los IDs salen del MISMO row que la campaña: la de $40, no la de $10."""
+    out = aggregate_str_with_top_campaign(
+        _df_str_dos_campanas(),
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+        extra_inherit=["Campaign ID", "Ad Group ID", "Keyword ID"],
+    )
+    fila = out[out["Customer Search Term"] == "kw a"].iloc[0]
+
+    assert fila["Campaign Name"] == "Camp-High"
+    assert fila["Campaign ID"] == CAMPAIGN_ID
+    assert fila["Ad Group ID"] == AD_GROUP_ID
+    assert fila["Keyword ID"] == KEYWORD_ID
+    assert fila["_n_campaigns"] == 2, "sigue avisando que el término es ambiguo"
+
+
+def test_extra_inherit_con_columna_inexistente_no_rompe():
+    """El caller arma la lista sin saber qué trae el archivo del AM."""
+    out = aggregate_str_with_top_campaign(
+        _df_str_dos_campanas(),
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+        extra_inherit=["Campaign ID", "NO EXISTE", "Portfolio Name"],
+    )
+    assert "Campaign ID" in out.columns
+    assert "NO EXISTE" not in out.columns
+    assert "Portfolio Name" not in out.columns
+    assert len(out) == 2
+
+
+def test_extra_inherit_none_se_comporta_como_antes():
+    """El default no cambia nada para los callers que ya existían."""
+    df_str = _df_str_dos_campanas()
+    kwargs = dict(
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+    )
+    sin_param = aggregate_str_with_top_campaign(df_str, **kwargs)
+    con_none = aggregate_str_with_top_campaign(df_str, extra_inherit=None, **kwargs)
+
+    pd.testing.assert_frame_equal(sin_param, con_none)
+    assert "Campaign ID" not in sin_param.columns
+
+
+def test_extra_inherit_ignora_columna_ya_heredada():
+    """Pasar campaign_col otra vez en extra_inherit no duplica la columna."""
+    out = aggregate_str_with_top_campaign(
+        _df_str_dos_campanas(),
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+        extra_inherit=["Campaign Name", "Campaign ID"],
+    )
+    assert list(out.columns).count("Campaign Name") == 1
+
+
+def test_extra_inherit_lista_vacia_no_rompe():
+    out = aggregate_str_with_top_campaign(
+        _df_str_dos_campanas(),
+        term_col="Customer Search Term",
+        spend_col="Spend",
+        campaign_col="Campaign Name",
+        extra_inherit=[],
+    )
+    assert len(out) == 2

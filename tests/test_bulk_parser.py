@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -365,3 +366,48 @@ def test_hoja_faltante_da_error_orientativo(tmp_path):
 
     with pytest.raises(ValueError, match="Bulk File"):
         parse_bulk_str(ruta)
+
+
+# ---------------------------------------------------------------------
+# M6 — la columna "Product" del Bulk File NO es una columna de ASIN
+# ---------------------------------------------------------------------
+
+def test_columna_product_no_se_toma_como_asin():
+    """La hoja "SP Search Term Report" trae una columna `Product` que vale
+    'Sponsored Products' en TODAS las filas.
+
+    La deteccion difusa que M6 usaba antes la tomaba como columna de ASIN y
+    armaba un ASIN fantasma llamado "Sponsored Products" con el 100% del
+    spend. Falla silenciosa: el analisis por ASIN parecia andar y estaba
+    agrupando toda la cuenta en una sola fila. El ASIN real sale de las filas
+    `Product Ad` de la hoja de campanas.
+    """
+    from modules.pages.analisis_cruzado import _asin_por_ad_group
+
+    df_str = parse_bulk_str(str(FIXTURE))
+    assert "Product" in df_str.columns
+    assert set(df_str["Product"].unique()) == {"Sponsored Products"}, (
+        "si el fixture cambia, este test deja de proteger lo que dice proteger"
+    )
+
+    df_campaigns = parse_bulk_campaigns(str(FIXTURE))
+    mapa = _asin_por_ad_group.__wrapped__(df_campaigns)
+
+    assert mapa, "la hoja de campanas tiene filas Product Ad con ASIN"
+    assert "Sponsored Products" not in mapa.values()
+    for asin in mapa.values():
+        # El fixture usa ASINs sinteticos, asi que se valida la forma general
+        # (prefijo B0 + alfanumerico), no el largo exacto de un ASIN real.
+        assert re.fullmatch(r"B0[A-Z0-9]+", asin), f"{asin!r} no parece un ASIN"
+
+
+def test_asin_por_ad_group_sin_filas_product_ad_devuelve_vacio():
+    """Sin el dato no se inventa un fallback: Tab 3 avisa y no muestra nada."""
+    from modules.pages.analisis_cruzado import _asin_por_ad_group
+
+    df = pd.DataFrame({
+        "Entity": ["Campaign", "Keyword"],
+        "Ad Group ID": ["111", "222"],
+        "ASIN": ["", ""],
+    })
+    assert _asin_por_ad_group.__wrapped__(df) == {}

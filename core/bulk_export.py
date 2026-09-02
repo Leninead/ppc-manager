@@ -526,6 +526,7 @@ def aggregate_str_with_top_campaign(
     ad_group_col: str | None = None,
     match_type_col: str | None = None,
     extra_agg: dict | None = None,
+    extra_inherit: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Agrupa STR por termino preservando Campaign Name / Ad Group / Match Type
@@ -543,6 +544,13 @@ def aggregate_str_with_top_campaign(
         match_type_col: nombre columna Match Type (None = no se preserva)
         extra_agg: dict {col: agg_func} para sumar otras metricas
                    (ej {"_sales": "sum", "_orders": "sum"})
+        extra_inherit: columnas adicionales que se heredan del row de mayor
+                   spend, igual que campaign_col / ad_group_col / match_type_col.
+                   Pensado para los IDs del Bulk File (Campaign ID, Ad Group ID,
+                   Keyword ID), que son lo que hace ejecutable un bulk.
+                   Una columna que no exista en df_str se ignora EN SILENCIO,
+                   igual que hace campaign_col. Es deliberado: el caller arma la
+                   lista sin saber que trae el archivo del AM.
 
     Returns:
         DataFrame agrupado por term_col con cols:
@@ -551,12 +559,16 @@ def aggregate_str_with_top_campaign(
           - campaign_col (si != None) — Campaign del row con max spend
           - ad_group_col (si != None) — Ad Group del row con max spend
           - match_type_col (si != None) — Match Type del row con max spend
+          - las de extra_inherit que existan — del mismo row con max spend
           - "_n_campaigns" (siempre, int) — cuantas campanas distintas tenia el term.
             N > 1 = ambiguo, AM debe revisar.
 
     Notas:
       - Si term_col tiene NaN, esas filas se descartan antes del groupby.
       - Si spend_col tiene NaN, se rellena con 0 para idxmax.
+      - Todo lo heredado sale del MISMO row (el de mayor spend), asi que los
+        IDs y el match type son consistentes entre si: no se mezclan campos de
+        campanas distintas en una misma fila del resultado.
     """
     if term_col not in df_str.columns:
         raise ValueError(f"term_col {term_col!r} no esta en df_str.columns")
@@ -578,6 +590,11 @@ def aggregate_str_with_top_campaign(
         inherit_cols.append(ad_group_col)
     if match_type_col and match_type_col in df.columns:
         inherit_cols.append(match_type_col)
+    for col in (extra_inherit or []):
+        # Se ignora la que no exista (contrato documentado) y la repetida, que
+        # romperia el .loc con un duplicado de columna.
+        if col in df.columns and col not in inherit_cols:
+            inherit_cols.append(col)
 
     top_rows = df.loc[top_idx, inherit_cols].reset_index(drop=True)
 
