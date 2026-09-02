@@ -1,3 +1,4 @@
+import hashlib
 import io
 
 import streamlit as st
@@ -140,6 +141,144 @@ def _build_str_excel(df_f, df_original, kpi_dict, brand_terms):
     return buf.getvalue()
 
 
+# STR-only UI strings; everything shared comes from core/ai_tab's label base.
+_STR_LABELS = {
+    "es": {"chat": "Análisis IA — STR",
+           "caption": "Análisis ejecutivo generado por IA sobre los "
+                      "candidatos detectados",
+           "disabled": "Análisis IA deshabilitado (AI_ENABLED=0).",
+           "table_neg": "Candidatos a negativizar (Alta/Media) — lectura IA",
+           "table_harv": "Candidatos a harvest — lectura IA",
+           "table_camp": "Diagnóstico por campaña",
+           "col_item": "Candidato",
+           "cat_dudosa": "revisar categoría",
+           "neg_word": "negativos", "harv_word": "harvest",
+           "camp_word": "campañas"},
+    "en": {"chat": "AI Analysis — STR",
+           "caption": "AI-generated executive analysis over the detected "
+                      "candidates",
+           "disabled": "AI analysis disabled (AI_ENABLED=0).",
+           "table_neg": "Negative candidates (High/Med) — AI read",
+           "table_harv": "Harvest candidates — AI read",
+           "table_camp": "Campaign diagnosis",
+           "col_item": "Candidate",
+           "cat_dudosa": "check category",
+           "neg_word": "negatives", "harv_word": "harvest",
+           "camp_word": "campaigns"},
+}
+
+_STR_BADGE_COLORS = {
+    "marca_propia": "background-color:#FFF3E0;color:#BF360C",
+    "competidor": "background-color:#EEEDFE;color:#3C3489",
+    "generico": "background-color:#F5F5F5;color:#616161",
+    "atributo": "background-color:#E1F5EE;color:#0F6E56",
+    "irrelevante": "background-color:#FFEBEE;color:#9C0006",
+}
+
+
+def _str_neg_metrics(rec):
+    return [f"{int(rec.get('Clicks', 0))} clicks",
+            f"{int(rec.get('Orders', 0))} ord",
+            f"${float(rec.get('Spend', 0)):.2f}",
+            f"{int(rec.get('Impressions', 0))} impr"]
+
+
+def _str_harv_metrics(rec):
+    metrics = [f"{int(rec.get('Clicks', 0))} clicks",
+               f"{int(rec.get('Orders', 0))} ord",
+               f"ACoS {float(rec.get('ACoS', 0)):.1f}%"]
+    if rec.get("CVR%") is not None:
+        metrics.append(f"CVR {float(rec['CVR%']):.1f}%")
+    if rec.get("Bid Sugerido") is not None:
+        metrics.append(f"bid ${float(rec['Bid Sugerido']):.2f}")
+    if str(rec.get("Ya en Exact", "")).strip().lower().startswith("s"):
+        metrics.append("ya en exact")
+    return metrics
+
+
+def _str_ai_rows(records, opinions, prefix, brand_terms, labels, metrics_fn):
+    """Display rows for core/ai_tab.opinion_table_html.
+
+    Positional row_id join against the SAME records that were serialized into
+    the analysis payload — never against a recomputed frame. The category
+    hint is deterministic and never a gate: it only flags a disagreement
+    between the AI's category and the declared brand terms.
+    """
+    from ai.agents.str.context import make_ids
+    ops = {o.get("row_id"): o for o in opinions}
+    rows = []
+    for rid, rec in zip(make_ids(prefix, len(records)), records):
+        o = ops.get(rid, {})
+        cat = o.get("categoria", "")
+        term_l = str(rec.get("Search Term", "")).lower()
+        dudosa = bool(brand_terms) and bool(cat) and (
+            (cat == "marca_propia"
+             and not any(b in term_l for b in brand_terms))
+            or (cat != "marca_propia"
+                and any(b in term_l for b in brand_terms)))
+        metrics = metrics_fn(rec)
+        campaign = str(rec.get("Campaign", "")).strip()
+        if campaign:
+            metrics.append(f"@ {campaign[:40]}")
+        rows.append({
+            "item": rec.get("Search Term", ""),
+            "type_tag": rec.get("Regla", ""),
+            "metrics": metrics,
+            "badges": [cat] + ([labels["cat_dudosa"]] if dudosa else []),
+            "warning": o.get("advertencia") or "",
+            "reasoning": o.get("razon", ""),
+        })
+    return rows
+
+
+def _str_campaign_rows(campaigns):
+    return [{"item": c.get("campaign", ""), "reasoning": c.get("diagnostico", "")}
+            for c in campaigns]
+
+
+def _render_str_ai_result(result, analysis, neg_records, harv_records,
+                          brand_terms, labels):
+    from core import ai_tab
+    from ai.agents.str.context import NEG_PREFIX, HARV_PREFIX
+    synthesis = result.get("synthesis") or {}
+    negs = result.get("negativos") or []
+    harvs = result.get("harvest") or []
+    campaigns = result.get("campanas") or []
+    n_warnings = sum(1 for o in negs + harvs if o.get("advertencia"))
+    with st.container(border=True):
+        head_l, head_r = st.columns([5, 1])
+        with head_l:
+            st.markdown(ai_tab.ai_chips_html(
+                n_warnings,
+                f"{len(negs)} {labels['neg_word']} · "
+                f"{len(harvs)} {labels['harv_word']} · "
+                f"{len(campaigns)} {labels['camp_word']}",
+                analysis.elapsed, labels), unsafe_allow_html=True)
+        with head_r:
+            with st.popover(labels["copy_btn"], use_container_width=True):
+                situation = synthesis.get("situation", "")
+                actions = "\n".join(f"- {a}" for a in synthesis.get("week_actions", []))
+                st.code(f"{situation}\n{actions}".strip(), language=None)
+        st.markdown(ai_tab.synthesis_html(synthesis, labels),
+                    unsafe_allow_html=True)
+    badge_colors = {**_STR_BADGE_COLORS,
+                    labels["cat_dudosa"]: "background-color:#FFF8E1;color:#9C5700"}
+    if neg_records:
+        st.markdown(ai_tab.opinion_table_html(
+            _str_ai_rows(neg_records, negs, NEG_PREFIX, brand_terms, labels,
+                         _str_neg_metrics),
+            labels["table_neg"], labels, badge_colors), unsafe_allow_html=True)
+    if harv_records:
+        st.markdown(ai_tab.opinion_table_html(
+            _str_ai_rows(harv_records, harvs, HARV_PREFIX, brand_terms, labels,
+                         _str_harv_metrics),
+            labels["table_harv"], labels, badge_colors), unsafe_allow_html=True)
+    if campaigns:
+        st.markdown(ai_tab.opinion_table_html(
+            _str_campaign_rows(campaigns), labels["table_camp"], labels,
+            badge_colors), unsafe_allow_html=True)
+
+
 def render():
     st.header("Search Term Report")
     st.caption("Analisis de terminos de busqueda con metricas de ACoS, gasto y ventas totales.")
@@ -211,6 +350,8 @@ def render():
     # Pre-init for tab4 (IA) scope
     df_neg = pd.DataFrame()
     df_harv = pd.DataFrame()
+    analysis = None  # AI run; the chat mount after the tabs reads it
+    ai_labels_str = None
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "Vista General",
@@ -902,55 +1043,91 @@ def render():
     # ══════════════════════════════════════════════════════════════
     # TAB 4: Analisis IA (SIN CAMBIOS)
     # ══════════════════════════════════════════════════════════════
+    # ── TAB 4: Análisis IA — capa core/ai_tab sobre el agente ai/agents/str ──
     with tab4:
-        st.subheader("Analisis IA — PPC Senior")
-        st.caption("Analisis ejecutivo generado por Claude basado en los candidatos detectados")
+        st.subheader("Analisis IA")
+        # Language comes from the app-wide selector in the sidebar (app_lang).
+        ai_lang = "en" if st.session_state.get("app_lang") == "English" else "es"
+        str_labels = _STR_LABELS.get(ai_lang, _STR_LABELS["es"])
+        st.caption(str_labels["caption"])
 
-        client_name_str = st.text_input(
-            "Nombre del cliente",
-            placeholder="Ej: Love To Dream MX",
-            key="str_client_ai",
-        )
+        from ai.config import AI_ENABLED
+        if not AI_ENABLED:
+            st.caption(str_labels["disabled"])
+        else:
+            from core import ai_tab
+            from ai import runtime as ai_runtime
+            from ai.agents.str.context import StrData
 
-        ai_c1, ai_c2 = st.columns(2)
-        with ai_c1:
-            str_target_acos = st.slider("Target ACoS (%)", 10, 80, 30, key="str_ai_acos")
-        with ai_c2:
-            str_precio = st.number_input("Precio promedio ($)", min_value=1.0, value=30.0, step=1.0, key="str_ai_precio")
-
-        if st.button("Generar analisis", key="btn_str_ai", use_container_width=True):
-            if not client_name_str:
-                st.warning("Ingresa el nombre del cliente primero.")
+            # Same aggregate tab5 shows; the AI receives it as-is.
+            camp_col_ai = cols["campaign"]
+            if camp_col_ai and camp_col_ai in df.columns:
+                df_camp_ai = df.groupby(camp_col_ai).agg(
+                    Impressions=("_imps", "sum"), Clicks=("_clicks", "sum"),
+                    Spend=("_spend", "sum"), Sales=("_sales", "sum"),
+                    Orders=("_orders", "sum"),
+                ).reset_index().rename(columns={camp_col_ai: "Campaign"})
+                df_camp_ai["ACoS"] = (
+                    df_camp_ai["Spend"] / df_camp_ai["Sales"].replace(0, float("nan")) * 100
+                ).fillna(0).round(1)
+                # Without a cost column, ranking by Spend is meaningless (all
+                # zeros) and can drop the worst bleeders; clicks is the proxy.
+                rank_col = "Spend" if cols["spend"] else "Clicks"
+                df_camp_ai = df_camp_ai.sort_values(rank_col, ascending=False).round(2)
             else:
-                with st.spinner("Analizando con Claude..."):
-                    from core.ai_analyze import _claude_analyze, _build_str_prompt
+                df_camp_ai = pd.DataFrame()
 
-                    # CVR promedio del STR
-                    t_clicks = df["_clicks"].sum()
-                    t_orders = df["_orders"].sum()
-                    cvr_val = (t_orders / t_clicks * 100) if t_clicks > 0 else 10.0
+            # Same default view tab2 shows (Alta/Media), capped so Opus answers
+            # in minutes; both frames are already sorted by priority + spend.
+            df_neg_ai = (df_neg[df_neg["Prioridad"].isin(["Alta", "Media"])].head(120)
+                         if not df_neg.empty else df_neg)
+            df_harv_ai = df_harv.head(60)
+            neg_records = df_neg_ai.to_dict("records")
+            harv_records = df_harv_ai.to_dict("records")
 
-                    prompt = _build_str_prompt(
-                        df_neg, df_harv,
-                        client_name_str, cvr_val, str_target_acos,
-                    )
-                    analisis = _claude_analyze(prompt)
+            ai_data = StrData(
+                cliente="no declarado",
+                brand_terms=brand_terms,
+                target_acos=float(target_acos),
+                precio=float(precio_producto),
+                cvr=float(cvr_avg),
+                umbral_clicks=int(clicks_threshold),
+                umbral_spend=float(spend_threshold),
+                harvest_target_acos=float(harv_target_acos),
+                harvest_precio=float(harv_precio),
+                kpis=kpi_dict,
+                campanas=df_camp_ai.to_dict("records"),
+                negativos=neg_records,
+                harvest=harv_records,
+                idioma=ai_lang,
+                cost_detected=bool(cols["spend"]),
+            )
+            ai_labels_str = ai_tab.ai_labels(ai_lang, str_labels)
+            st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
+            analysis = ai_tab.resolve_analysis(
+                slug="str", payload=ai_data,
+                file_signature=hashlib.sha256(file_str.getvalue()).hexdigest()[:16],
+                labels=ai_labels_str)
+            if analysis is not None:
+                # A STALE analysis cites row_ids from ITS payload, not this
+                # rerun's: records are kept per digest so the positional join
+                # never crosses the wrong terms.
+                rec_store = st.session_state.setdefault("str_ai_records_store", {})
+                current = ai_runtime.peek("str", ai_data)
+                if current is not None and current.digest == analysis.digest:
+                    rec_store[analysis.digest] = (neg_records, harv_records)
+                    for old_digest in list(rec_store)[:-8]:
+                        del rec_store[old_digest]
+                render_neg, render_harv = rec_store.get(
+                    analysis.digest, (neg_records, harv_records))
 
-                st.markdown("---")
-                st.markdown(analisis)
-                st.markdown("---")
+                def _render_result(result, a, _n=render_neg, _h=render_harv,
+                                   _bt=list(brand_terms), _lab=ai_labels_str):
+                    _render_str_ai_result(result, a, _n, _h, _bt, _lab)
 
-                col_dl_a, col_dl_b = st.columns(2)
-                with col_dl_a:
-                    st.download_button(
-                        "Descargar analisis (.txt)",
-                        data=analisis,
-                        file_name=f"analisis_str_{client_name_str.replace(' ', '_')}.txt",
-                        mime="text/plain",
-                        use_container_width=True, key="dl_str_ai",
-                    )
-                with col_dl_b:
-                    st.code(analisis, language=None)
+                ai_tab.render_analysis(analysis, slug="str",
+                                       labels=ai_labels_str,
+                                       render_result=_render_result)
 
     # ══════════════════════════════════════════════════════════════
     # TAB 5: Por Campana (NUEVO)
@@ -1092,3 +1269,9 @@ def render():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True, key="str_camp_dl",
             )
+
+    # Outside st.tabs so the bubble shows on every tab of the module.
+    if analysis is not None:
+        from core import ai_tab
+        ai_tab.mount_analysis_chat("str", analysis, lang=ai_lang,
+                                   labels=ai_labels_str)

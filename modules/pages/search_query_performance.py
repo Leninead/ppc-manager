@@ -1,5 +1,8 @@
+import hashlib
 import io
+import unicodedata
 
+import numpy as np
 import streamlit as st
 import pandas as pd
 
@@ -121,6 +124,404 @@ def _compute_gaps(df, query_col):
     return df_gap.sort_values(["_sort", "Total Impressions"], ascending=[True, False]).drop(columns=["_sort"])
 
 
+# AI-only signal layer; UI tabs never read these. Spec + thresholds rationale:
+# notes/modules/m3-sqp-ai-signals-spec.md.
+_DEFENSE_FLOOR = 80.0
+_TOP_ROWS = 40
+_GATE_MIN_BRAND_CLICKS = 10
+_GATE_MIN_MARKET_PURCHASES = 5
+_GEM_RATIO = 1.3
+_GEM_MIN_BRAND_PURCHASES = 2
+_AUTODILUTION_SHARE = 40.0
+_INTEGRITY_TOL_PTS = 0.6
+_SPEED_TIER_MIN_CLICKS = 20
+# Brand View only lists queries the brand touched, so imp_b==0 barely exists;
+# under 1% share with no own purchases the brand is effectively absent.
+_INVISIBLE_SHARE = 1.0
+_TIER_TARGET_SHARE = {"HEAD": 10.0, "TORSO": 15.0, "LONG_TAIL": 20.0, "SIN_DATO": 15.0}
+
+
+def _norm_query(s):
+    s = unicodedata.normalize("NFKD", str(s))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return " ".join(s.lower().split())
+
+
+def _safe_div(num, den):
+    """num/den with NaN wherever den is 0/NaN — never inf, never silent 0."""
+    den = den.astype(float).mask(den == 0)
+    return (num.astype(float) / den).astype(float)
+
+
+def _to_num_na(df, col):
+    """Like _to_num but NaN-preserving: a missing column is unknown, not 0."""
+    if col and col in df.columns:
+        return pd.to_numeric(
+            df[col].astype(str).str.replace(r"[MX$,%]", "", regex=True).str.replace(",", ""),
+            errors="coerce")
+    return pd.Series(np.nan, index=df.index, dtype="float64")
+
+
+def _price_band(gap):
+    if pd.isna(gap):
+        return "SIN_DATO_PRECIO"
+    if gap <= -15:
+        return "DESCUENTO_AGRESIVO"
+    if gap <= -5:
+        return "VALUE"
+    if gap < 5:
+        return "PARIDAD"
+    if gap <= 25:
+        return "PREMIUM_NO_VERIFICADO"
+    return "PREMIUM_RIESGO"
+
+
+def _minmax_norm(s):
+    s = s.astype(float).fillna(0)
+    rng = s.max() - s.min()
+    if not rng or pd.isna(rng):
+        return pd.Series(0.0, index=s.index)
+    return (s - s.min()) / rng
+
+
+def _compute_funnel_signals(df, query_col, brand_terms):
+    """Per-query engineered signals for the AI payload. Pure — does not mutate df.
+
+    Returns (signals_df sorted by priority desc, thresholds dict) or
+    (None, None) when the export lacks query + impression columns.
+    Counts are ground truth (shares recomputed from them); the export's own
+    Brand Share % columns act only as integrity oracle.
+    """
+    imp_t_c = _find_col(df, ["impression", "total"], ["share", "rate"])
+    imp_b_c = _find_col(df, ["impression", "brand"], ["share", "rate"])
+    if not (query_col and imp_t_c and imp_b_c):
+        return None, None
+
+    def cnt(stage_kw, side_kw):
+        return _to_num(df, _find_col(df, [stage_kw, side_kw],
+                                     ["share", "rate", "price", "shipping"]))
+
+    imp_t, imp_b = cnt("impression", "total"), cnt("impression", "brand")
+    clk_t, clk_b = cnt("click", "total"), cnt("click", "brand")
+    cart_t, cart_b = cnt("cart add", "total"), cnt("cart add", "brand")
+    pur_t, pur_b = cnt("purchase", "total"), cnt("purchase", "brand")
+
+    imp_share = _safe_div(imp_b, imp_t) * 100
+    click_share = _safe_div(clk_b, clk_t) * 100
+    cart_share = _safe_div(cart_b, cart_t) * 100
+    purchase_share = _safe_div(pur_b, pur_t) * 100
+
+    # Integrity oracle: Amazon's own precomputed % vs our recomputation.
+    integ_ok = pd.Series(True, index=df.index)
+    for ours, stage_kw in [(imp_share, "impression"), (click_share, "click"),
+                           (cart_share, "cart add"), (purchase_share, "purchase")]:
+        exp = _to_num_na(df, _find_col(df, [stage_kw, "brand", "share"]))
+        both = ours.notna() & exp.notna()
+        integ_ok &= ~(both & ((ours - exp).abs() > _INTEGRITY_TOL_PTS))
+
+    d1, d2, d3 = click_share - imp_share, cart_share - click_share, purchase_share - cart_share
+    p25_d1, p25_d2, p25_d3 = d1.quantile(0.25), d2.quantile(0.25), d3.quantile(0.25)
+    m1 = (d1 < 0) & (d1 < p25_d1)
+    m2 = (d2 < 0) & (d2 < p25_d2)
+    m3 = (d3 < 0) & (d3 < p25_d3)
+    leak_stage = np.select([m1.fillna(False), m2.fillna(False), m3.fillna(False)],
+                           ["ctr", "pdp", "checkout"], default="")
+
+    # Brand vs market-without-the-brand: index < 1 = the problem is OURS.
+    ctr_index = _safe_div(_safe_div(clk_b, imp_b), _safe_div(clk_t - clk_b, imp_t - imp_b))
+    cart_index = _safe_div(_safe_div(cart_b, clk_b), _safe_div(cart_t - cart_b, clk_t - clk_b))
+    purchase_index = _safe_div(_safe_div(pur_b, cart_b), _safe_div(pur_t - pur_b, cart_t - cart_b))
+    idx_at_leak = pd.Series(np.select(
+        [leak_stage == "ctr", leak_stage == "pdp", leak_stage == "checkout"],
+        [ctr_index, cart_index, purchase_index], default=np.nan), index=df.index)
+    leak_is_own = idx_at_leak < 1  # NaN comparison yields False: unknown is never "ours"
+
+    def gap(stage_kw):
+        mkt = _to_num_na(df, _find_col(df, [stage_kw, "price"], ["brand"]))
+        own = _to_num_na(df, _find_col(df, [stage_kw, "brand", "price"]))
+        return _safe_div(own - mkt, mkt) * 100
+
+    gap_click, gap_cart, gap_purchase = gap("click"), gap("cart add"), gap("purchase")
+    price_trend = gap_purchase - gap_click
+    gap_base = gap_purchase.fillna(gap_click)
+    price_band = gap_base.map(_price_band)
+    price_self_diluted = (purchase_share > _AUTODILUTION_SHARE).fillna(False)
+
+    queries = df[query_col].astype(str).str.strip()
+    terms = [_norm_query(t) for t in (brand_terms or []) if str(t).strip()]
+    qnorm = queries.map(_norm_query)
+    is_brand = qnorm.map(lambda q: any(t in q for t in terms)) if terms \
+        else pd.Series(False, index=df.index)
+
+    breach_stage = pd.Series(np.select(
+        [imp_share < _DEFENSE_FLOOR, click_share < _DEFENSE_FLOOR,
+         cart_share < _DEFENSE_FLOOR, purchase_share < _DEFENSE_FLOOR],
+        ["impresiones", "clicks", "cart adds", "purchases"], default=""),
+        index=df.index).where(is_brand, "")
+    breach_share = pd.Series(np.select(
+        [imp_share < _DEFENSE_FLOOR, click_share < _DEFENSE_FLOOR,
+         cart_share < _DEFENSE_FLOOR, purchase_share < _DEFENSE_FLOOR],
+        [imp_share, click_share, cart_share, purchase_share], default=np.nan),
+        index=df.index).where(is_brand)
+
+    volume = _to_num_na(df, _find_col(df, ["query", "volume"]))
+    vol_q90, vol_q50 = volume.quantile(0.90), volume.quantile(0.50)
+    volume_tier = pd.Series(np.select(
+        [volume.isna(), volume >= vol_q90, volume < vol_q50],
+        ["SIN_DATO", "HEAD", "LONG_TAIL"], default="TORSO"), index=df.index)
+
+    gate = (clk_b >= _GATE_MIN_BRAND_CLICKS) & (pur_t >= _GATE_MIN_MARKET_PURCHASES)
+
+    p25_imp_share = imp_share.quantile(0.25)
+    hidden_gem = ((purchase_share >= _GEM_RATIO * imp_share)
+                  & (imp_share < p25_imp_share)
+                  & (pur_b >= _GEM_MIN_BRAND_PURCHASES)
+                  & gate).fillna(False)
+
+    pos_pur = pur_t[pur_t > 0]
+    p50_market_purchases = pos_pur.quantile(0.50) if len(pos_pur) else np.nan
+    market_buys = (pur_t >= p50_market_purchases).fillna(False) if len(pos_pur) \
+        else pd.Series(False, index=df.index)
+
+    is_invisible = ((imp_b == 0)
+                    | ((imp_share < _INVISIBLE_SHARE)
+                       & (pur_b < _GEM_MIN_BRAND_PURCHASES))).fillna(False)
+
+    share_state = pd.Series(np.select(
+        [imp_share > 30, imp_share >= 10],
+        ["dominando", "competitivo"], default="oportunidad"), index=df.index)
+
+    target_share = pd.Series(np.where(
+        is_brand, _DEFENSE_FLOOR, volume_tier.map(_TIER_TARGET_SHARE)),
+        index=df.index).astype(float)
+    pur_price = _to_num_na(df, _find_col(df, ["purchase", "price"], ["brand"]))
+    opp_usd = ((target_share - purchase_share.fillna(0)).clip(lower=0) / 100
+               * pur_t * pur_price).fillna(0).round(2)
+    priority = 0.7 * _minmax_norm(opp_usd) + 0.3 * _minmax_norm(volume)
+
+    def ship(stage_kw, tier_kw):
+        return _to_num(df, _find_col(df, [stage_kw, tier_kw]))
+
+    clk_same, clk_2d = ship("click", "same day"), ship("click", "2d")
+    pur_same, pur_2d = ship("purchase", "same day"), ship("purchase", "2d")
+    cvr_same = _safe_div(pur_same, clk_same.mask(clk_same < _SPEED_TIER_MIN_CLICKS))
+    cvr_2d = _safe_div(pur_2d, clk_2d.mask(clk_2d < _SPEED_TIER_MIN_CLICKS))
+    speed_premium = _safe_div(cvr_same, cvr_2d)
+
+    signals = pd.DataFrame({
+        "query": queries, "volume": volume, "volume_tier": volume_tier,
+        "imp_t": imp_t.astype(int), "imp_b": imp_b.astype(int),
+        "clk_t": clk_t.astype(int), "clk_b": clk_b.astype(int),
+        "cart_t": cart_t.astype(int), "cart_b": cart_b.astype(int),
+        "pur_t": pur_t.astype(int), "pur_b": pur_b.astype(int),
+        "imp_share": imp_share.round(2), "click_share": click_share.round(2),
+        "cart_share": cart_share.round(2), "purchase_share": purchase_share.round(2),
+        "d1": d1.round(2), "d2": d2.round(2), "d3": d3.round(2),
+        "leak_stage": leak_stage, "leak_is_own": leak_is_own,
+        "ctr_index": ctr_index.round(2), "cart_index": cart_index.round(2),
+        "purchase_index": purchase_index.round(2),
+        "gap_click": gap_click.round(1), "gap_cart": gap_cart.round(1),
+        "gap_purchase": gap_purchase.round(1), "price_trend": price_trend.round(1),
+        "price_band": price_band, "price_self_diluted": price_self_diluted,
+        "is_own_brand": is_brand,
+        "defense_breach_stage": breach_stage, "defense_breach_share": breach_share.round(1),
+        "sufficient_data": gate, "hidden_gem": hidden_gem,
+        "is_invisible": is_invisible,
+        "market_buys": market_buys, "share_state": share_state,
+        "speed_premium": speed_premium.round(2),
+        "opp_usd": opp_usd, "priority": priority.round(4),
+        "integrity_ok": integ_ok,
+    })
+    thresholds = {
+        "p25_d1": _r2(p25_d1), "p25_d2": _r2(p25_d2), "p25_d3": _r2(p25_d3),
+        "p25_imp_share": _r2(p25_imp_share),
+        "p50_market_purchases": _r2(p50_market_purchases),
+        "vol_q90": _r2(vol_q90), "vol_q50": _r2(vol_q50),
+    }
+    return signals.sort_values("priority", ascending=False).reset_index(drop=True), thresholds
+
+
+def _r2(v):
+    return None if pd.isna(v) else round(float(v), 2)
+
+
+def _compute_account_rollup(signals, thresholds):
+    """Account-level aggregates + warning pre-flags. The AI never sums anything:
+    every number and every warning trigger in the report exists here first."""
+    def wshare(b, t):
+        tot = signals[t].sum()
+        return round(signals[b].sum() / tot * 100, 2) if tot else None
+
+    ws = {"imp": wshare("imp_b", "imp_t"), "click": wshare("clk_b", "clk_t"),
+          "cart": wshare("cart_b", "cart_t"), "purchase": wshare("pur_b", "pur_t")}
+    stages = ["imp", "click", "cart", "purchase"]
+    wd = {f"d_{a}_{b}": round(ws[b] - ws[a], 2)
+          if ws[a] is not None and ws[b] is not None else None
+          for a, b in zip(stages, stages[1:])}
+
+    gated = signals[signals["sufficient_data"]]
+    leaks = gated[gated["leak_stage"] != ""]["leak_stage"]
+    dominant_leak = leaks.mode().iloc[0] if len(leaks) else None
+
+    n = len(signals)
+    pct = lambda mask: round(float(mask.mean()) * 100, 1) if n else 0.0
+    total_opp = float(signals["opp_usd"].sum())
+    invisible_rows = signals[signals["is_invisible"]]
+    invisible_opp = float(invisible_rows["opp_usd"].sum())
+    # Coverage is judged only where the brand shows up: an absent brand is a
+    # SIN_VISIBILIDAD diagnosis, not a thin-sample problem.
+    brand_present = signals[~signals["is_invisible"]]
+    pct_con_datos = (round(float(brand_present["sufficient_data"].mean()) * 100, 1)
+                     if len(brand_present) else 0.0)
+    gems = signals[signals["hidden_gem"]]
+    breaches = signals[signals["defense_breach_stage"] != ""]
+    premium_cluster = signals[(signals["price_band"] == "PREMIUM_RIESGO")
+                          & signals["leak_stage"].isin(["pdp", "checkout"])
+                          & signals["sufficient_data"]]
+
+    tail = signals.iloc[_TOP_ROWS:]
+    flags = {
+        "DEFENSA_MARCA_ROTA": len(breaches) > 0,
+        "GEMAS_OCULTAS": len(gems) > 0,
+        "FUGA_CHECKOUT_HEAD_TERM": bool(((gated["volume_tier"] == "HEAD")
+                                         & (gated["leak_stage"] == "checkout")).any()),
+        "CLUSTER_PREMIUM_RIESGO": len(premium_cluster) >= 3,
+        "VOLUMEN_SIN_VISIBILIDAD": total_opp > 0 and invisible_opp > 0.25 * total_opp,
+        "COBERTURA_BAJA": pct_con_datos < 50,
+        "SIN_DATO_PRECIO_MASIVO": pct(signals["price_band"] == "SIN_DATO_PRECIO") > 40,
+        "INTEGRIDAD_EXPORT": pct(~signals["integrity_ok"]) > 2,
+    }
+    return {
+        "n_queries": n,
+        "weighted_shares": ws, "weighted_deltas": wd,
+        "dominant_leak_stage": dominant_leak,
+        "pct_rows_with_data": pct_con_datos,
+        "pct_invisible": pct(signals["is_invisible"]),
+        "pct_no_price_data": pct(signals["price_band"] == "SIN_DATO_PRECIO"),
+        "pct_integrity_ok": pct(signals["integrity_ok"]),
+        "total_opp_usd": round(total_opp, 2),
+        "invisible": {"rows": len(invisible_rows), "opp_usd": round(invisible_opp, 2)},
+        "gems": {"rows": len(gems),
+                  "top_queries": gems.nlargest(5, "opp_usd")["query"].tolist()},
+        "defense_broken": {"rows": len(breaches),
+                         "queries": breaches["query"].head(5).tolist()},
+        "premium_risk_leaking": len(premium_cluster),
+        "tail": {"rows": len(tail), "opp_usd": round(float(tail["opp_usd"].sum()), 2),
+                 "gems": int(tail["hidden_gem"].sum()),
+                 "invisible": int(tail["is_invisible"].sum())},
+        "thresholds": thresholds,
+        "pre_flags": flags,
+    }
+
+
+# SQP-only UI strings; everything shared comes from core/ai_tab's label base.
+_SQP_LABELS = {
+    "es": {"chat": "Análisis IA — SQP",
+           "caption": "Diagnóstico de funnel, precio y oportunidad por query, "
+                      "generado por IA sobre las señales calculadas",
+           "disabled": "Análisis IA deshabilitado (AI_ENABLED=0).",
+           "no_cols": "Necesitás columnas de Search Query e Impressions "
+                      "Total/Brand en el SQP.",
+           "no_rows": "El archivo no tiene filas con señales analizables.",
+           "brand_terms": "Brand terms (separados por coma)",
+           "brand_help": "Definen qué queries son de TU marca: activan el piso "
+                         "de defensa y la clasificación BRANDED. Prefill: marca "
+                         "detectada en el archivo.",
+           "table_title": "Lectura IA por query (top por prioridad)",
+           "col_item": "Query"},
+    "en": {"chat": "AI Analysis — SQP",
+           "caption": "Per-query funnel, price and opportunity diagnosis, "
+                      "AI-generated over the computed signals",
+           "disabled": "AI analysis disabled (AI_ENABLED=0).",
+           "no_cols": "The SQP file needs Search Query and Impressions "
+                      "Total/Brand columns.",
+           "no_rows": "The file has no analyzable signal rows.",
+           "brand_terms": "Brand terms (comma separated)",
+           "brand_help": "Define which queries are YOUR brand: they enable the "
+                         "defense floor and the BRANDED classification. "
+                         "Prefill: brand detected in the file.",
+           "table_title": "AI read per query (top by priority)",
+           "col_item": "Query"},
+}
+
+_BADGE_COLORS = {
+    "SIN_VISIBILIDAD": "background-color:#E3F2FD;color:#0D47A1",
+    "FUGA_CTR": "background-color:#FFEBEE;color:#9C0006",
+    "FUGA_PDP": "background-color:#FFEBEE;color:#9C0006",
+    "FUGA_CHECKOUT": "background-color:#FFEBEE;color:#9C0006",
+    "MERCADO_DEBIL": "background-color:#F5F5F5;color:#616161",
+    "FUNNEL_SANO": "background-color:#E8F5E9;color:#2E7D32",
+    "DOMINANTE": "background-color:#E1F5EE;color:#0F6E56",
+    "DATOS_INSUFICIENTES": "background-color:#FAFAFA;color:#9E9E9E",
+    "ESCALAR_BID": "background-color:#E8F5E9;color:#2E7D32",
+    "AGREGAR_EXACT": "background-color:#E8F5E9;color:#2E7D32",
+    "DEFENDER_MARCA": "background-color:#FFF3E0;color:#BF360C",
+    "ARREGLAR_CREATIVO_SERP": "background-color:#FFF8E1;color:#9C5700",
+    "ARREGLAR_PDP": "background-color:#FFF8E1;color:#9C5700",
+    "REVISAR_PRECIO_OFERTA": "background-color:#FFF8E1;color:#9C5700",
+    "REVISAR_LOGISTICA_BUYBOX": "background-color:#FFF8E1;color:#9C5700",
+    "MONITOREAR": "background-color:#F5F5F5;color:#616161",
+    "IGNORAR": "background-color:#FAFAFA;color:#9E9E9E",
+}
+
+
+def _share_pill(label, value):
+    return f"{label} —" if pd.isna(value) else f"{label} {value}%"
+
+
+def _sqp_ai_rows(signal_records, opinions):
+    """Display rows for core/ai_tab.opinion_table_html.
+
+    Positional row_id join against the SAME records that were serialized into
+    the analysis payload — never against a recomputed frame.
+    """
+    from ai.agents.sqp.context import QUERY_PREFIX, make_ids
+    ops = {o.get("row_id"): o for o in opinions}
+    rows = []
+    for rid, rec in zip(make_ids(QUERY_PREFIX, len(signal_records)),
+                        signal_records):
+        o = ops.get(rid, {})
+        rows.append({
+            "item": rec["query"],
+            "type_tag": o.get("query_type", ""),
+            "metrics": [
+                _share_pill("imp", rec["imp_share"]),
+                _share_pill("clk", rec["click_share"]),
+                _share_pill("cart", rec["cart_share"]),
+                _share_pill("pur", rec["purchase_share"]),
+                f"opp ${rec['opp_usd']:,.0f}",
+            ],
+            "badges": [o.get("funnel_diagnosis", ""), o.get("action", "")],
+            "confidence": str(o.get("confidence", "")),
+            "warning": o.get("warning") or "",
+            "reasoning": o.get("reasoning", ""),
+        })
+    return rows
+
+
+def _render_sqp_ai_result(result, analysis, signal_records, labels):
+    from core import ai_tab
+    synthesis = result.get("synthesis") or {}
+    opinions = result.get("queries") or []
+    n_warnings = sum(1 for o in opinions if o.get("warning"))
+    with st.container(border=True):
+        head_l, head_r = st.columns([5, 1])
+        with head_l:
+            st.markdown(ai_tab.ai_chips_html(
+                n_warnings,
+                f"{len(opinions)} queries · "
+                f"{len(synthesis.get('risks', []))} {labels['risks_title'].lower()}",
+                analysis.elapsed, labels), unsafe_allow_html=True)
+        with head_r:
+            with st.popover(labels["copy_btn"], use_container_width=True):
+                st.code(synthesis.get("executive_summary", ""), language=None)
+        st.markdown(ai_tab.synthesis_html(synthesis, labels),
+                    unsafe_allow_html=True)
+    st.markdown(ai_tab.opinion_table_html(
+        _sqp_ai_rows(signal_records, opinions), labels["table_title"],
+        labels, _BADGE_COLORS), unsafe_allow_html=True)
+
+
 def render():
     st.header("🔍 Search Query Performance")
     st.caption("Datos de rendimiento de búsqueda orgánica exportados desde Amazon Brand Analytics.")
@@ -176,6 +577,7 @@ def render():
     has_cols = bool(imp_total and imp_brand and query_col)
     df_ms  = None
     df_gap = None
+    analysis = None  # AI run; the floating chat mount after the tabs reads it
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Vista General", "📈 Market Share", "🕳️ Gap Analysis", "🤖 Análisis IA",
@@ -276,51 +678,79 @@ def render():
             else:
                 st.info("No se encontraron gaps con los criterios actuales.")
 
-    # ── TAB 4: Análisis IA ──────────────────────────────────────────
+    # ── TAB 4: Análisis IA — capa core/ai_tab sobre el agente ai/agents/sqp ──
     with tab4:
-        st.subheader("🤖 Análisis IA — PPC Senior")
-        st.caption("Análisis ejecutivo generado por Claude basado en tus datos reales")
+        st.subheader("🤖 Análisis IA")
+        # Language comes from the app-wide selector in the sidebar (app_lang).
+        ai_lang = "en" if st.session_state.get("app_lang") == "English" else "es"
+        sqp_labels = _SQP_LABELS.get(ai_lang, _SQP_LABELS["es"])
+        st.caption(sqp_labels["caption"])
 
-        if df_ms is None and df_gap is None:
-            st.info("Completá los tabs Market Share y Gap Analysis primero "
-                    "(necesitás columnas de Impressions Total/Brand en el SQP).")
+        from ai.config import AI_ENABLED
+        if not AI_ENABLED:
+            st.caption(sqp_labels["disabled"])
+        elif not has_cols:
+            st.info(sqp_labels["no_cols"])
         else:
-            col_ai1, col_ai2 = st.columns([3, 1])
-            with col_ai1:
-                client_name_ai = st.text_input(
-                    "Nombre del cliente",
-                    value="", placeholder="Ej: Dermaglos",
-                    key="sqp_client_ai",
+            from core import ai_tab
+            from ai import runtime as ai_runtime
+            from ai.agents.sqp.context import SqpData
+
+            brand_terms_raw = st.text_input(
+                sqp_labels["brand_terms"], value=brand or "",
+                help=sqp_labels["brand_help"], key="sqp_ai_brand_terms",
+            )
+            ai_brand_terms = [t.strip() for t in brand_terms_raw.split(",") if t.strip()]
+
+            signals, thresholds = _compute_funnel_signals(df, query_col, ai_brand_terms)
+            if signals is None or signals.empty:
+                st.info(sqp_labels["no_rows"])
+            else:
+                rollup = _compute_account_rollup(signals, thresholds)
+                signal_records = signals.head(_TOP_ROWS).to_dict("records")
+
+                week_col = _find_col(df, ["reporting date"])
+                report_week = (str(df[week_col].dropna().iloc[0])
+                               if week_col is not None and df[week_col].notna().any()
+                               else "no declarada")
+
+                ai_data = SqpData(
+                    brand=brand or "no detectada",
+                    brand_terms=ai_brand_terms,
+                    week=report_week,
+                    rollup=rollup,
+                    signal_rows=signal_records,
+                    language=ai_lang,
+                    defense_floor=_DEFENSE_FLOOR,
                 )
-            with col_ai2:
-                st.write("")
-                st.write("")
-                generar = st.button("🤖 Generar análisis", key="btn_sqp_ai", use_container_width=True)
+                ai_labels_sqp = ai_tab.ai_labels(ai_lang, sqp_labels)
+                st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
+                analysis = ai_tab.resolve_analysis(
+                    slug="sqp", payload=ai_data,
+                    file_signature=hashlib.sha256(file_sqp.getvalue()).hexdigest()[:16],
+                    labels=ai_labels_sqp)
+                if analysis is not None:
+                    # A STALE analysis cites row_ids from ITS payload, not this
+                    # rerun's: records are kept per digest so the positional
+                    # join never crosses the wrong queries.
+                    rec_store = st.session_state.setdefault("sqp_ai_records_store", {})
+                    current = ai_runtime.peek("sqp", ai_data)
+                    if current is not None and current.digest == analysis.digest:
+                        rec_store[analysis.digest] = signal_records
+                        for old_digest in list(rec_store)[:-8]:
+                            del rec_store[old_digest]
+                    render_records = rec_store.get(analysis.digest, signal_records)
 
-            if generar:
-                if not client_name_ai:
-                    st.warning("Ingresá el nombre del cliente primero.")
-                else:
-                    with st.spinner("Analizando con Claude..."):
-                        from core.ai_analyze import _claude_analyze, _build_sqp_prompt
-                        ms_for_ai  = df_ms  if df_ms is not None  else pd.DataFrame()
-                        gap_for_ai = df_gap if df_gap is not None else pd.DataFrame()
-                        prompt = _build_sqp_prompt(ms_for_ai, gap_for_ai,
-                                                   client_name_ai, brand or "la marca")
-                        analisis = _claude_analyze(prompt)
+                    def _render_result(result, a, _rec=render_records,
+                                       _lab=ai_labels_sqp):
+                        _render_sqp_ai_result(result, a, _rec, _lab)
 
-                    st.markdown("---")
-                    st.markdown(analisis)
-                    st.markdown("---")
+                    ai_tab.render_analysis(analysis, slug="sqp",
+                                           labels=ai_labels_sqp,
+                                           render_result=_render_result)
 
-                    col_dl_a, col_dl_b = st.columns(2)
-                    with col_dl_a:
-                        st.download_button(
-                            "⬇️ Descargar análisis (.txt)",
-                            data=analisis,
-                            file_name=f"analisis_sqp_{client_name_ai}.txt",
-                            mime="text/plain",
-                            use_container_width=True, key="ai_dl_txt",
-                        )
-                    with col_dl_b:
-                        st.code(analisis, language=None)
+    # Outside st.tabs so the bubble shows on every tab of the module.
+    if analysis is not None:
+        from core import ai_tab
+        ai_tab.mount_analysis_chat("sqp", analysis, lang=ai_lang,
+                                   labels=ai_labels_sqp)
