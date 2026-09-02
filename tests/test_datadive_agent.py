@@ -198,3 +198,45 @@ def test_schema_emits_canonical_synthesis_shape():
 def test_make_ids_are_stable_and_positional():
     assert make_ids("K", 3) == ["K01", "K02", "K03"]
     assert make_ids("K", 101)[-1] == "K101"
+
+
+def test_gap_rows_print_the_row_id_ahead_of_the_term():
+    """The synthesis cites gaps as K07: the gaps table must show that id next
+    to the term, otherwise the AM cannot find the row it refers to."""
+    from streamlit.testing.v1 import AppTest
+
+    script = '''
+import streamlit as st
+from core import ai_tab
+from modules.pages.datadive_analyzer import _render_mkl_ai_result
+
+class A:
+    elapsed = 3
+
+records = [{"term": "dog vitamins", "sv": 1200, "relevance": 3.1,
+            "comps_rankeando": 4, "launch_score": 12, "mi_rank": None},
+           {"term": "senior dog joint chews", "sv": 800, "relevance": 4.0,
+            "comps_rankeando": 6, "launch_score": 0, "mi_rank": 31}]
+result = {"clusters": [], "gaps": [
+    {"row_id": "K02", "via": "PPC_AHORA", "confianza": "alta",
+     "razon": "r", "advertencia": None}],
+    "synthesis": {"situation": "s", "week_actions": ["Atacar K02 primero"],
+                  "mid_term": [], "risks": []}}
+_render_mkl_ai_result(result, A(), records, ai_tab.ai_labels("es"))
+'''
+    at = AppTest.from_string(script)
+    at.run(timeout=30)
+    assert not at.exception
+    html = " ".join(str(m.value) for m in at.markdown)
+    assert "K02" in html
+    assert html.index("K02") < html.index("senior dog joint chews")
+    assert "K01" not in html  # only rows the AI named are listed as gaps
+    # The synthesis cites K02: the term is appended so the prose reads alone.
+    assert "K02 (senior dog joint chews) primero" in html
+
+
+def test_row_labels_map_positional_ids_to_terms():
+    from modules.pages.datadive_analyzer import _dd_row_labels
+    assert _dd_row_labels([{"term": "a"}, {"term": " b "}]) == {"K01": "a",
+                                                                 "K02": "b"}
+    assert _dd_row_labels([]) == {}

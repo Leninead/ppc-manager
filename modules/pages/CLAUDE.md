@@ -11,8 +11,42 @@ gateway al ai-provider): ciclo de vida del análisis (`decide_analysis_action`
 pura + `resolve_analysis` con staleness de dos velocidades: archivo nuevo
 re-dispara solo, cambio de parámetro pide click), polling (`render_analysis`),
 kit de render localizado (`ai_labels`, `opinion_table_html`, `synthesis_html`,
-`ai_chips_html`, `ai_notice_html`, `escape_ai_text`, `AI_CSS`) y chat con
-espera (`mount_analysis_chat` sobre `core/ai_chat.py`). El contrato de uso
+`ai_chips_html`, `ai_notice_html`, `escape_ai_text`, `humanize_fields`,
+`AI_CSS`) y chat con espera (`mount_analysis_chat` sobre `core/ai_chat.py`).
+`synthesis_html` titula cada bloque con `synthesis_section_title` (labels
+`actions_title` "Acciones sugeridas para esta semana", `mid_term_title`
+"Mediano plazo · 2 a 4 semanas", `risks_title`; los `*_hint` van como tooltip):
+la lista numerada son sugerencias de corto plazo a validar por el AM, nunca
+acciones ejecutadas. `humanize_fields(text, glossary)` es la red determinista
+contra nombres técnicos de columna en la prosa de la IA (el módulo declara el
+glosario es/en; ver M3). Las filas de `opinion_table_html` llevan `row_id`
+(N07 / Q03 / K12) y la tabla lo imprime delante del ítem: la síntesis cita
+esos ids y sin verlos el AM no puede ubicar la fila. Todo módulo que arme
+filas de opinión pasa el id que ya usa para el join posicional. Además, la
+prosa (síntesis, resumen ejecutivo y respuestas del chat) se anota de forma
+determinista con el término detrás del id, primera mención por texto y sin
+duplicar cuando el modelo ya lo escribió: `annotate_row_ids(text, {id: término})`
+sobre `map_synthesis_text`, y `mount_analysis_chat(..., annotate=)` para el
+chat. Cada módulo expone su mapa (`_str_row_labels`, `_sqp_row_labels`,
+`_dd_row_labels`) a partir de los records guardados por digest.
+Los records por digest los guarda `ai_tab.records_for_render(slug, analysis,
+payload, records)` (un análisis STALE cruza contra SU payload; se conservan
+los últimos 8 digests) y el idioma sale de `ai_tab.app_language()` (radio
+`app_lang` del sidebar): ningún módulo reimplementa esas dos cosas. `make_ids`
+vive una sola vez en `ai/agents/__init__.py` y cada `context.py` lo re-exporta.
+
+**Reglas de lectura compartidas (2026-09-02).** Los tres prompts (`str`, `sqp`,
+`datadive`) llevan un bloque `<lectura>` idéntico: la primera oración de la
+situación se entiende sin cifras ni tabla, los conceptos técnicos se traducen
+la primera vez, los nombres internos del sistema (rollup, shares ponderados,
+etapa dominante de fuga, cobertura, materialidad, gate, pre-flag) nunca se
+escriben, una o dos cifras por oración, sin metáforas; el `executive_summary`
+(texto para Slack, cifras primero) es la única excepción. El runtime solo
+anexa `_shared/chat.md`, por eso el bloque se copia en cada prompt y
+`tests/test_agent_prompts.py` exige que las tres copias sean idénticas. La spec
+de `situation` del SQP pasó de "anclada en los shares ponderados y la etapa
+dominante del rollup" (siete cifras en tres oraciones) a tres oraciones con rol
+fijo: qué pasa, evidencia, tipo de problema. El contrato de uso
 completo está en el docstring del módulo; tests en `tests/test_ai_tab.py`.
 Keys de sesión: `<slug>_ai_*`. **Todo módulo con tab IA consume esta capa —
 no implementa el wiring a mano.** Los primeros consumidores (STR y SQP) se
@@ -53,7 +87,14 @@ Dashboard de estado del Agency OS. Muestra 26 módulos agrupados por sección, W
 Analizar search terms de campañas SP: negativizar, harvestear, clasificar por tipo y estado. Es el módulo más usado — punto de partida del flujo semanal.
 
 ### Arquitectura
-5 tabs: Dashboard (12 KPIs + filtros + charts) | Negatives Mining (tiers dinámicos) | Harvest Candidates (anti-canibalización) | Análisis IA (Claude API) | Por Campaña (groupby)
+5 tabs: Dashboard (12 KPIs + filtros + charts) | Negatives Mining (tiers dinámicos) | Harvest Candidates (anti-canibalización) | Análisis IA (capa `core/ai_tab` + agente `ai/agents/str`) | Por Campaña (groupby)
+
+### Capa IA (2026-09-01 — consumidor de `core/ai_tab`)
+- Tab 4 es un consumidor de la plataforma: `ai_tab.resolve_analysis` (auto-fire al cargar, staleness de dos velocidades por hash del archivo) → `ai_tab.render_analysis` (polling, fallo → Reintentar) → `_render_str_ai_result` con el kit (`ai_chips_html`, `synthesis_html`, `opinion_table_html`) → `ai_tab.mount_analysis_chat` fuera de tabs. NO hay wiring propio ni sliders duplicados: el payload usa los valores reales de tabs 1-3.
+- Payload `StrData` (`ai/agents/str/context.py`): kpi_dict, agregado por campaña (mismo groupby de tab5, top 40 por spend — o por clicks si no hay columna de costo), `df_neg` Alta/Media top 120, `df_harv` top 60, sliders, brand terms, `cost_detected`. La IA nunca recalcula: opiniones por `row_id` posicional (`N01…`/`H01…`) sobre los MISMOS records serializados — guardados por digest en `str_ai_records_store` para que un análisis stale no cruce filas.
+- Schema de salida: `negativos[]`/`harvest[]` (`razon` → `categoria` → `advertencia`), `campanas[]` y `synthesis` en la forma canónica de la plataforma `{situation, week_actions, mid_term, risks[{type, detail, urgency}]}`.
+- Filas de display (`_str_ai_rows`, puras y testeadas): pills de métricas + campaña, badge de categoría y pista determinista "revisar categoría" cuando la categoría contradice los brand terms.
+- Tests: `tests/test_str_ai_context.py` (contrato del agente, digest, runtime con fake transport, filas de display).
 
 ### Reglas de negocio
 - ACoS = Spend / Sales × 100
@@ -85,19 +126,30 @@ Analizar search terms de campañas SP: negativizar, harvestear, clasificar por t
 Analizar el mercado total desde Brand Analytics: impression share, click share, purchase share por query.
 
 ### Arquitectura
-4 tabs: Vista General | Market Share | Gap Analysis | Análisis IA
+4 tabs: Vista General | Market Share | Gap Analysis | Análisis IA (capa `core/ai_tab` + agente `ai/agents/sqp`)
+
+### Capa IA (2026-09-01 — consumidor de `core/ai_tab`)
+- Señales deterministas ADITIVAS solo para la IA: `_compute_funnel_signals(df, query_col, brand_terms)` (cascada de shares en 4 etapas con Cart Adds, índices marca-vs-mercado-sin-marca, gaps de precio por etapa con bandas fijas, gate de datos, `is_invisible`, gemas, breach de defensa BRANDED 80%, `opp_usd` sobre compras reales, prioridad) + `_compute_account_rollup` (agregados ponderados + pre-flags de riesgos). Las tabs 1-3 y `_compute_market_share`/`_compute_gaps` no las usan ni cambiaron. Spec de dominio: `notes/modules/m3-sqp-ai-signals-spec.md` (vault).
+- Tab 4 consume la plataforma igual que M2: `resolve_analysis` → `render_analysis` → `_render_sqp_ai_result` → `mount_analysis_chat`. Input propio: brand terms (prefill = marca detectada; en CSV puede venir vacío). Records top-40 guardados por digest en `sqp_ai_records_store`.
+- Agente `ai/agents/sqp/`: `SqpData`, row_ids `Q01…`, taxonomías cerradas (`funnel_diagnosis` ×8 incl. MERCADO_DEBIL, `price_causality` ×4, `action` ×9, `confidence`) y `synthesis` canónica con `risks` = exactamente los pre-flags true + 2 standing.
+- Nombres legibles (2026-09-02): el prompt lleva un bloque `<glosario>` (columna → nombre llano es/en, formato de conteos con miles y shares con %) y PROHÍBE nombres de columna en la prosa; los ejemplos del prompt ya no usan `imp_share`/`clk_b`. Red determinista: `_SQP_FIELD_NAMES` (es/en, cubre todo `_ROW_COLS`; test lo exige) viaja en `labels["field_names"]` y `_sqp_ai_rows`/`_humanize_synthesis` reescriben cualquier fuga con `core.ai_tab.humanize_fields` antes de imprimir. Medido en la corrida real previa al glosario: 200+ tokens crudos (`opp_usd`, `pur_t`, `is_invisible`…) en 40 filas.
+- Tests: `tests/test_sqp_signals.py` (anti-placebo, bordes, oráculo de integridad vs los % del export, filas de display) + `tests/test_sqp_ai_context.py` (contrato, digest, runtime con fake transport).
 
 ### Reglas de negocio
 - read_sqp() con skiprows=1
-- Brand extraída con extract_sqp_brand() desde row 0
+- Brand extraída con extract_sqp_brand() desde row 0 (frágil en CSV: puede devolver None)
 - IS > 30% = Dominando | 10-30% = Competitivo | <10% = Oportunidad
 - Gap: Total Impressions > 1000 AND Brand Impressions = 0
+- CVR en las señales IA = purchases/impressions (≠ CVR por clicks del STR); purchases con ventana de atribución 24h
 
 ### Inputs
-- SQP .xlsx
+- SQP .xlsx/.csv (Brand View, Simple View semanal)
+- Brand terms (input en tab IA)
 
 ### Anti-patterns
 - No usar skiprows=1 → headers mal detectados
+- NO volver al patrón botón + `core/ai_analyze._build_sqp_prompt` (legacy reemplazado; la función quedó dead code re-exportada por `core/__init__`)
+- No mandar el `Revenue Potencial` (inflado por impresiones) al payload IA — la IA prioriza por `opp_usd`
 
 ---
 

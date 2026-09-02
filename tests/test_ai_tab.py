@@ -3,8 +3,8 @@
 Scope: the pure lifecycle decision (full matrix), label merging, the render
 kit in both languages (incl. the $-escape gotcha), and an AppTest smoke of
 resolve_analysis + render_analysis over a fake agent and fake transport.
-Excluded: STR/SQP modules (not migrated yet by design) and core/ai_chat
-internals (covered by its consumers).
+Excluded: the STR/SQP/DataDive consumers (their own test files) and
+core/ai_chat internals beyond the annotate path.
 
 Design rules:
 - Anti-placebo rule: expected values hand-derived, never copied from the
@@ -31,6 +31,9 @@ from core.ai_tab import (
     escape_ai_text,
     opinion_table_html,
     synthesis_html,
+    humanize_fields,
+    annotate_row_ids,
+    map_synthesis_text,
 )
 
 _FAKE_SLUG = "_layer_test"
@@ -112,9 +115,90 @@ class TestRenderKit:
         notice = ai_notice_html(labels["stale_title"], labels["stale_body"])
         assert labels["stale_title"] in notice
 
+    @pytest.mark.parametrize("lang", ["es", "en"])
+    def test_synthesis_sections_carry_visible_headings(self, lang):
+        """The numbered actions were printed without a heading, so the AM
+        could not tell suggestions from the situation text: every list block
+        now opens with its labelled section title, and the actions heading
+        carries the "AM decides" hint as a tooltip."""
+        labels = ai_labels(lang)
+        synth = synthesis_html(self._SYNTH, labels)
+        for key in ("actions_title", "mid_term_title", "risks_title"):
+            assert labels[key].upper() in synth.upper()
+        assert f'title="{labels["actions_hint"]}"' in synth
+        assert synth.index(labels["actions_title"]) < synth.index("a1")
+        assert synth.index("a1") < synth.index(labels["mid_term_title"])
+        assert synth.index("m1") < synth.index(labels["risks_title"])
+
+    def test_synthesis_omits_headings_of_empty_sections(self):
+        labels = ai_labels("es")
+        synth = synthesis_html({"situation": "s", "week_actions": [],
+                                "mid_term": [], "risks": []}, labels)
+        for key in ("actions_title", "mid_term_title", "risks_title"):
+            assert labels[key] not in synth
+
+    def test_row_id_is_printed_ahead_of_the_item(self):
+        """The synthesis cites rows by id (N07, Q03): the table must show
+        that id next to the term or the AM cannot find the row."""
+        table = opinion_table_html([{**self._ROW, "row_id": "Q07"}], "T",
+                                   ai_labels("es"), {})
+        assert "Q07" in table
+        assert table.index("Q07") < table.index("brita jug")
+        # Rows without an id (campaign diagnoses) render exactly as before.
+        plain = opinion_table_html([self._ROW], "T", ai_labels("es"), {})
+        assert "monospace;font-size:13px;background:#F1EFE8" not in plain
+
     def test_dollar_signs_escaped_against_latex(self):
         table = opinion_table_html([self._ROW], "T", ai_labels("es"), {})
         assert "&#36;23,797.20" in table
+
+    def test_humanize_fields_rewrites_whole_tokens_only(self):
+        g = {"imp_b": "impresiones de la marca", "imp_share": "share de "
+             "impresiones", "pur_t": "compras del mercado",
+             "is_invisible": "marca sin visibilidad", "d1": "caída 1"}
+        text = ("pur_t 1753: imp_b 21, imp_share 0.0 marcan is_invisible; "
+                "x.imp_b y imp_bx quedan; d1 -3.2, id1 no")
+        out = humanize_fields(text, g)
+        assert out.startswith("compras del mercado 1753: impresiones de la "
+                              "marca 21, share de impresiones 0.0 marcan "
+                              "marca sin visibilidad")
+        assert "x.imp_b" in out and "imp_bx" in out and "id1" in out
+        assert "caída 1 -3.2" in out
+        assert "imp_share" not in out.replace("share de impresiones", "")
+
+    def test_annotate_row_ids_appends_the_item_once(self):
+        m = {"H59": "press on nails short almond", "H5": "x",
+             "Q01": "brita water pitcher"}
+        out = annotate_row_ids("Frenar H59 hasta validar; H5 no; H590 tampoco",
+                               m)
+        assert out == ("Frenar H59 (press on nails short almond) hasta "
+                       "validar; H5 (x) no; H590 tampoco")
+        # Only the first mention of an id in a text gets the item.
+        assert annotate_row_ids("H59 sube; H59 baja", m) == \
+            "H59 (press on nails short almond) sube; H59 baja"
+        # The model already wrote the term next to the id: left untouched.
+        same = "Decidir Q01 (brita water pitcher, $23,797.20 de oportunidad)"
+        assert annotate_row_ids(same, m) == same
+        assert annotate_row_ids("N01", {"N01": "a" * 60}) == \
+            "N01 (" + "a" * 39 + "…)"
+        assert annotate_row_ids("", m) == ""
+        assert annotate_row_ids("H59", {}) == "H59"
+
+    def test_map_synthesis_text_touches_only_prose(self):
+        s = {"situation": "s", "week_actions": ["a", "b"], "mid_term": [],
+             "risks": [{"type": "T", "urgency": "ALTA", "detail": "d"}],
+             "executive_summary": "e"}
+        out = map_synthesis_text(s, str.upper)
+        assert out["situation"] == "S" and out["week_actions"] == ["A", "B"]
+        assert out["risks"] == [{"type": "T", "urgency": "ALTA", "detail": "D"}]
+        assert out["executive_summary"] == "E"
+        assert s["situation"] == "s"  # input not mutated
+
+    def test_humanize_fields_is_a_no_op_without_leaks_or_glossary(self):
+        assert humanize_fields("$23,797.20 en juego", {"imp_b": "x"}) == \
+            "$23,797.20 en juego"
+        assert humanize_fields("imp_b 3", {}) == "imp_b 3"
+        assert humanize_fields(None, {"imp_b": "x"}) == ""
 
     def test_unknown_badge_gets_the_default_style(self):
         table = opinion_table_html([self._ROW], "T", ai_labels("es"), {})
@@ -188,3 +272,62 @@ class TestLifecycleSmoke:
         at.run(timeout=15)
         assert not at.exception
         assert calls["n"] == 1  # idempotent digest: one paid run
+
+
+class TestSessionHelpers:
+    def _fake_st(self, monkeypatch, state=None):
+        from core import ai_tab
+        fake = types.SimpleNamespace(session_state=state if state is not None else {})
+        monkeypatch.setattr(ai_tab, "st", fake)
+        return ai_tab, fake
+
+    def test_app_language_follows_the_sidebar_radio(self, monkeypatch):
+        ai_tab, fake = self._fake_st(monkeypatch, {"app_lang": "English"})
+        assert ai_tab.app_language() == "en"
+        fake.session_state.clear()
+        assert ai_tab.app_language() == "es"
+
+    def test_records_for_render_keeps_the_rows_of_each_digest(self, monkeypatch):
+        """A STALE analysis must join against the rows it was built from:
+        the store is keyed by digest and only refreshed when the current
+        payload digests to the analysis shown."""
+        ai_tab, fake = self._fake_st(monkeypatch)
+        peeked = {"digest": "d1"}
+        monkeypatch.setattr(ai_tab.ai_runtime, "peek",
+                            lambda slug, payload: types.SimpleNamespace(**peeked))
+        shown = types.SimpleNamespace(digest="d1")
+        assert ai_tab.records_for_render("x", shown, "p1", ["r1"]) == ["r1"]
+        peeked["digest"] = "d2"  # sliders changed: current payload is d2, d1 still shown
+        assert ai_tab.records_for_render("x", shown, "p2", ["r2"]) == ["r1"]
+        unknown = types.SimpleNamespace(digest="d9")  # nothing stored: current rows
+        assert ai_tab.records_for_render("x", unknown, "p9", ["r9"]) == ["r9"]
+        for i in range(10):
+            peeked["digest"] = f"e{i}"
+            ai_tab.records_for_render("x", types.SimpleNamespace(digest=f"e{i}"),
+                                      "p", [i], keep=3)
+        assert list(fake.session_state["x_ai_records_store"]) == ["e7", "e8", "e9"]
+
+
+def test_floating_chat_annotates_assistant_text_at_display_time():
+    """annotate is applied to the assistant bubbles when they render; the
+    stored history keeps the raw text and user bubbles are untouched."""
+    from streamlit.testing.v1 import AppTest
+
+    script = '''
+import streamlit as st
+from core.ai_chat import floating_chat
+
+st.session_state["aichat_t_hist"] = [
+    {"role": "user", "text": "que es H59"},
+    {"role": "assistant", "text": "Frenar H59 esta semana"}]
+floating_chat(chat_id="t", agent="str", session_id="s1", title="T",
+              annotate=lambda text: text.replace("H59", "H59 (press on nails)"))
+st.markdown("RAW:" + st.session_state["aichat_t_hist"][1]["text"])
+'''
+    at = AppTest.from_string(script)
+    at.run(timeout=30)
+    assert not at.exception
+    html = " ".join(str(m.value) for m in at.markdown)
+    assert "Frenar H59 (press on nails) esta semana" in html
+    assert "que es H59 (press" not in html
+    assert "RAW:Frenar H59 esta semana" in html

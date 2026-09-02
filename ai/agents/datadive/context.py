@@ -4,6 +4,7 @@ Serialization only: every number here was already computed by the module
 (parse_mkl / keywords_to_mkl_df + the tab's filters). The AI judges, the
 module keeps the math.
 """
+from ai.agents import make_ids
 from dataclasses import dataclass
 
 import pandas as pd
@@ -54,10 +55,6 @@ class MklData:
     my_asin_en_niche: bool = True    # False = the declared ASIN has no rank
                                      # column in this dive, so an empty mi_rank
                                      # is missing data, not a missing ranking
-
-
-def make_ids(prefix: str, n: int) -> list[str]:
-    return [f"{prefix}{i + 1:02d}" for i in range(n)]
 
 
 def _keywords_csv(records: list) -> str:

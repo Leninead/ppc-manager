@@ -183,6 +183,13 @@ _AI_BADGE_COLORS = {
 }
 
 
+def _dd_row_labels(records: list) -> dict:
+    """row_id -> keyword for the rows sent to the AI, so the ids the synthesis
+    and the chat cite (K12) can be annotated with their term."""
+    return {f"K{i + 1:02d}": str(rec.get("term", "")).strip()
+            for i, rec in enumerate(records or [])}
+
+
 def _render_mkl_ai_result(result: dict, analysis, records: list, labels: dict) -> None:
     from core import ai_tab
     ids = {f"K{i + 1:02d}": rec for i, rec in enumerate(records)}
@@ -193,8 +200,11 @@ def _render_mkl_ai_result(result: dict, analysis, records: list, labels: dict) -
         ai_tab.ai_chips_html(warnings, f"{len(clusters)} clusters · {len(gaps)} gaps",
                              analysis.elapsed, labels),
         unsafe_allow_html=True)
-    st.markdown(ai_tab.synthesis_html(result.get("synthesis") or {}, labels),
-                unsafe_allow_html=True)
+    row_labels = _dd_row_labels(records)
+    synthesis = ai_tab.map_synthesis_text(
+        result.get("synthesis") or {},
+        lambda text: ai_tab.annotate_row_ids(text, row_labels))
+    st.markdown(ai_tab.synthesis_html(synthesis, labels), unsafe_allow_html=True)
 
     cluster_rows = []
     for i, c in enumerate(clusters, 1):
@@ -226,8 +236,8 @@ def _render_mkl_ai_result(result: dict, analysis, records: list, labels: dict) -
         metrics.append(f"mi rank {rec['mi_rank']}" if rec.get("mi_rank")
                        else "no rankeo")
         gap_rows.append({
+            "row_id": str(g.get("row_id", "")),
             "item": rec["term"],
-            "type_tag": str(g.get("row_id", "")),
             "metrics": metrics,
             "badges": [g.get("via", "")],
             "confidence": str(g.get("confianza", "")).upper(),
@@ -542,7 +552,7 @@ def render():
                         my_asin_en_niche=bool(my_asin) and my_asin in df_mkl.columns,
                     )
                     ai_labels_dd = ai_tab.ai_labels(
-                        "es", {"chat": "Análisis IA — DataDive"})
+                        ai_tab.app_language(), {"chat": "Análisis IA — DataDive"})
                     st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
                     ai_analysis = ai_tab.resolve_analysis(
                         slug="datadive", payload=payload,
@@ -551,15 +561,8 @@ def render():
                         # A STALE analysis cites row_ids from ITS payload, not from
                         # this rerun: keeping the records per digest stops the join
                         # from ever crossing the wrong keywords.
-                        from ai import runtime as ai_runtime
-                        rec_store = st.session_state.setdefault(
-                            "dd_ai_records_store", {})
-                        current = ai_runtime.peek("datadive", payload)
-                        if current is not None and current.digest == ai_analysis.digest:
-                            rec_store[ai_analysis.digest] = records
-                            for old_digest in list(rec_store)[:-8]:
-                                del rec_store[old_digest]
-                        render_records = rec_store.get(ai_analysis.digest, records)
+                        render_records = ai_tab.records_for_render(
+                            "datadive", ai_analysis, payload, records)
 
                         def _render_result(result, a, _rec=render_records,
                                            _lab=ai_labels_dd):
@@ -1367,5 +1370,8 @@ def render():
     # Outside st.tabs so the bubble shows on every tab of the module.
     if ai_analysis is not None:
         from core import ai_tab
-        ai_tab.mount_analysis_chat("datadive", ai_analysis, lang="es",
-                                   labels=ai_labels_dd)
+        chat_labels = _dd_row_labels(st.session_state.get(
+            "dd_ai_records_store", {}).get(ai_analysis.digest, []))
+        ai_tab.mount_analysis_chat(
+            "datadive", ai_analysis, lang=ai_tab.app_language(), labels=ai_labels_dd,
+            annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels))

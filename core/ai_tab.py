@@ -42,6 +42,7 @@ builds display rows for opinion_table_html. The canonical synthesis shape is
 executive_summary} — new agents must emit it; synthesis_html renders it.
 """
 import html
+import re
 from enum import Enum
 
 import streamlit as st
@@ -64,8 +65,14 @@ _BASE_LABELS = {
            "fail_prefix": "El análisis IA falló",
            "retry": "Reintentar",
            "warnings": "advertencias", "no_warnings": "Sin advertencias",
-           "risks_title": "Riesgos", "actions_title": "Acciones de la semana",
-           "mid_term_title": "Mediano plazo",
+           "risks_title": "Riesgos",
+           "actions_title": "Acciones sugeridas para esta semana",
+           "actions_hint": "Corto plazo, en orden de prioridad. Son sugerencias "
+                           "de la IA: el AM decide.",
+           "mid_term_title": "Mediano plazo · 2 a 4 semanas",
+           "mid_term_hint": "Oportunidades que no se resuelven esta semana: "
+                            "gemas a re-validar, re-chequeos que confirman o "
+                            "descartan hipótesis.",
            "col_item": "Ítem", "col_diag": "Diagnóstico", "col_read": "Lectura IA",
            "conf_label": "confianza", "copy_btn": "Copiar",
            "chat": "Análisis IA",
@@ -88,8 +95,14 @@ _BASE_LABELS = {
            "fail_prefix": "The AI analysis failed",
            "retry": "Retry",
            "warnings": "warnings", "no_warnings": "No warnings",
-           "risks_title": "Risks", "actions_title": "This week's actions",
-           "mid_term_title": "Mid term",
+           "risks_title": "Risks",
+           "actions_title": "Suggested actions for this week",
+           "actions_hint": "Short term, in priority order. AI suggestions: "
+                           "the AM decides.",
+           "mid_term_title": "Mid term · 2 to 4 weeks",
+           "mid_term_hint": "Opportunities that do not close this week: gems to "
+                            "re-validate, re-checks that confirm or kill a "
+                            "hypothesis.",
            "col_item": "Item", "col_diag": "Diagnosis", "col_read": "AI read",
            "conf_label": "confidence", "copy_btn": "Copy",
            "chat": "AI Analysis",
@@ -125,6 +138,67 @@ def ai_labels(lang: str, overrides: dict | None = None) -> dict:
 def escape_ai_text(text) -> str:
     """HTML-safe AI text; $ escaped so Streamlit never parses it as LaTeX."""
     return html.escape(str(text)).replace("$", "&#36;")
+
+
+def humanize_fields(text, glossary: dict) -> str:
+    """Deterministic safety net for AI prose: replaces leaked technical field
+    names (imp_share, pur_t, is_invisible) with the human names a module
+    declares in its glossary. Whole-token matches only, longest names first,
+    so `imp_share` is never rewritten through `imp_b` or `share`."""
+    if not text or not glossary:
+        return str(text or "")
+    names = sorted(glossary, key=len, reverse=True)
+    pattern = re.compile(r"(?<![\w.])(" + "|".join(re.escape(n) for n in names)
+                         + r")(?!\w)")
+    return pattern.sub(lambda m: glossary[m.group(1)], str(text))
+
+
+def annotate_row_ids(text, labels_by_id: dict, max_len: int = 40) -> str:
+    """Appends the item behind every row id the AI cites, so the prose reads
+    without the table: "Frenar H59" -> "Frenar H59 (press on nails short)".
+    Whole tokens only, first mention of each id per text. Skipped when the
+    item already follows the id within a short window, which is how the model
+    sometimes writes it itself."""
+    if not text or not labels_by_id:
+        return str(text or "")
+    src = str(text)
+    ids = sorted(labels_by_id, key=len, reverse=True)
+    pattern = re.compile(r"(?<!\w)(" + "|".join(re.escape(i) for i in ids)
+                         + r")(?!\w)")
+    seen = set()
+
+    def _sub(match):
+        rid = match.group(1)
+        full = str(labels_by_id[rid]).strip()
+        if not full or rid in seen:
+            return rid
+        seen.add(rid)
+        window = src[match.end():match.end() + len(full) + 24].lower()
+        if full.lower() in window:
+            return rid
+        shown = full if len(full) <= max_len else \
+            full[:max_len - 1].rstrip() + "…"
+        return f"{rid} ({shown})"
+
+    return pattern.sub(_sub, src)
+
+
+def map_synthesis_text(synthesis: dict, fn) -> dict:
+    """Copy of the canonical synthesis with fn applied to every prose field
+    (situation, week_actions, mid_term, risks[].detail, executive_summary).
+    Structure and non-text values are untouched; the input is not mutated."""
+    out = dict(synthesis or {})
+    for key in ("situation", "executive_summary"):
+        if isinstance(out.get(key), str):
+            out[key] = fn(out[key])
+    for key in ("week_actions", "mid_term"):
+        if isinstance(out.get(key), list):
+            out[key] = [fn(x) if isinstance(x, str) else x for x in out[key]]
+    if isinstance(out.get("risks"), list):
+        out["risks"] = [
+            {**r, "detail": fn(r.get("detail", ""))} if isinstance(r, dict)
+            else r for r in out["risks"]]
+    return out
 
 
 class AnalysisAction(Enum):
@@ -225,8 +299,26 @@ def render_analysis(analysis, *, slug: str, labels: dict, render_result) -> None
     _poll()
 
 
+def app_language() -> str:
+    """Output language of the AI tabs, from the sidebar radio (app_lang)."""
+    return "en" if st.session_state.get("app_lang") == "English" else "es"
+
+
+def records_for_render(slug: str, analysis, payload, records, keep: int = 8):
+    """Keeps the rows an analysis was built from and returns the rows to
+    render for it. A STALE analysis cites row ids from ITS payload, never the
+    current rerun's, so records are stored per digest (the last `keep`)."""
+    store = st.session_state.setdefault(f"{slug}_ai_records_store", {})
+    current = ai_runtime.peek(slug, payload)
+    if current is not None and current.digest == analysis.digest:
+        store[analysis.digest] = records
+        for old_digest in list(store)[:-keep]:
+            del store[old_digest]
+    return store.get(analysis.digest, records)
+
+
 def mount_analysis_chat(slug: str, analysis, *, lang: str,
-                        labels: dict) -> None:
+                        labels: dict, annotate=None) -> None:
     """Mounts the floating chat as soon as an analysis exists. Call it at the
     END of render(), outside st.tabs.
 
@@ -241,7 +333,8 @@ def mount_analysis_chat(slug: str, analysis, *, lang: str,
                   session_id=analysis.session_id if ready else None,
                   title=labels["chat"], lang=lang,
                   pending_text=None if ready else pending,
-                  standalone=bool(ai_runtime.agent_tools(slug)))
+                  standalone=bool(ai_runtime.agent_tools(slug)),
+                  annotate=annotate)
 
 
 def ai_notice_html(title: str, body: str) -> str:
@@ -273,25 +366,44 @@ def ai_chips_html(n_warnings: int, counts_text: str, elapsed_s: int,
             f'</div>')
 
 
+def synthesis_section_title(text: str, hint: str = "") -> str:
+    """Section heading shared by the synthesis blocks: small uppercase label
+    over a hairline, clearly distinct from the 16-17px body text. The optional
+    hint is a native tooltip, so the heading stays a label and not a caption."""
+    safe_hint = escape_ai_text(hint) if hint else ""
+    title_attr = f' title="{safe_hint}"' if safe_hint else ""
+    return (f'<div{title_attr} style="margin:18px 0 6px 0;padding-top:12px;'
+            f'border-top:1px solid #EFEBE4;font-size:13px;font-weight:600;'
+            f'letter-spacing:.06em;text-transform:uppercase;color:#6B6660">'
+            f'{escape_ai_text(text)}</div>')
+
+
 def synthesis_html(synthesis: dict, labels: dict) -> str:
     """Renders the canonical synthesis shape: situation, week_actions[],
-    mid_term[], risks[{type, detail, urgency}]."""
+    mid_term[], risks[{type, detail, urgency}]. Every list is introduced by
+    a section heading, so the numbered actions read as the AI's suggestions
+    for the week and never as a continuation of the situation paragraph."""
     situation = escape_ai_text(synthesis.get("situation", ""))
-    actions = "".join(
-        f'<div style="display:flex;gap:12px;margin:11px 0;font-size:16px;'
-        f'line-height:1.55;color:#1F1F1F">'
-        f'<span style="background:#FAECE7;color:#993C1D;border-radius:8px;'
-        f'min-width:26px;height:26px;display:flex;align-items:center;'
-        f'justify-content:center;font-weight:500;font-size:14px">{i}</span>'
-        f'<span>{escape_ai_text(a)}</span></div>'
-        for i, a in enumerate(synthesis.get("week_actions", []), 1))
+    actions = ""
+    if synthesis.get("week_actions"):
+        rows = "".join(
+            f'<div style="display:flex;gap:12px;margin:11px 0;font-size:16px;'
+            f'line-height:1.55;color:#1F1F1F">'
+            f'<span style="background:#FAECE7;color:#993C1D;border-radius:8px;'
+            f'min-width:26px;height:26px;display:flex;align-items:center;'
+            f'justify-content:center;font-weight:500;font-size:14px">{i}</span>'
+            f'<span>{escape_ai_text(a)}</span></div>'
+            for i, a in enumerate(synthesis["week_actions"], 1))
+        actions = synthesis_section_title(
+            labels["actions_title"], labels.get("actions_hint", "")) + rows
     mid_term = ""
     if synthesis.get("mid_term"):
         items = "".join(f'<li style="margin:4px 0">{escape_ai_text(m)}</li>'
                         for m in synthesis["mid_term"])
-        mid_term = (f'<div style="margin-top:12px;font-size:15px;color:#1F1F1F">'
-                    f'<span style="font-weight:500">{labels["mid_term_title"]}:'
-                    f'</span><ul style="margin:6px 0 0 4px">{items}</ul></div>')
+        mid_term = (synthesis_section_title(labels["mid_term_title"],
+                                            labels.get("mid_term_hint", ""))
+                    + f'<ul style="margin:0 0 0 4px;font-size:15px;'
+                      f'line-height:1.55;color:#1F1F1F">{items}</ul>')
     risks = ""
     if synthesis.get("risks"):
         cards = "".join(
@@ -301,9 +413,7 @@ def synthesis_html(synthesis: dict, labels: dict) -> str:
             f'{" · " + escape_ai_text(r["urgency"]) if r.get("urgency") else ""}:'
             f'</span> {escape_ai_text(r.get("detail", ""))}</div>'
             for r in synthesis["risks"])
-        risks = (f'<div style="margin-top:14px"><span style="font-weight:500;'
-                 f'font-size:15px;color:#1F1F1F">{labels["risks_title"]}</span>'
-                 f'{cards}</div>')
+        risks = synthesis_section_title(labels["risks_title"]) + cards
     return (f'<div style="padding:4px 2px 6px 2px">'
             f'<div style="font-size:17px;line-height:1.65;color:#1F1F1F">'
             f'{situation}</div>{actions}{mid_term}{risks}</div>')
@@ -313,8 +423,9 @@ def opinion_table_html(rows: list, title: str, labels: dict,
                        badge_colors: dict) -> str:
     """Custom table for per-row AI opinions: wrapping text, mobile stacking.
 
-    Row contract: {item, type_tag, metrics[], badges[], confidence,
-    warning, reasoning} — badges are looked up in badge_colors.
+    Row contract: {row_id, item, type_tag, metrics[], badges[], confidence,
+    warning, reasoning} — badges are looked up in badge_colors; row_id is
+    optional and, when given, is printed ahead of the item.
     """
     header = (f'<thead><tr><th class="c-item">{labels["col_item"]}</th>'
               f'<th class="c-diag">{labels["col_diag"]}</th>'
@@ -355,10 +466,17 @@ def opinion_table_html(rows: list, title: str, labels: dict,
                     f'font-weight:500;white-space:nowrap">'
                     f'{escape_ai_text(r["type_tag"])}</span>'
                     if r.get("type_tag") else "")
+        # The id the AI cites (N07, Q03, K12) printed ahead of the item, so
+        # the AM can find a row named in the synthesis without counting.
+        row_id = (f'<span style="font-family:monospace;font-size:13px;'
+                  f'background:#F1EFE8;color:#444441;border-radius:6px;'
+                  f'padding:2px 7px;margin-right:8px;white-space:nowrap;'
+                  f'vertical-align:middle">{escape_ai_text(r["row_id"])}'
+                  f'</span>' if r.get("row_id") else "")
         body.append(
             f'<tr><td class="c-item">'
             f'<div style="font-size:16px;font-weight:600;color:#1F1F1F">'
-            f'{escape_ai_text(r.get("item", ""))}</div>'
+            f'{row_id}{escape_ai_text(r.get("item", ""))}</div>'
             f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;'
             f'align-items:center">{type_tag}{pills}</div>'
             f'</td><td class="c-diag">{badges}</td>'

@@ -295,6 +295,10 @@ with st.sidebar:
         st.button("🛒 Mercado Libre", use_container_width=True, on_click=_nav,
                   args=("🛒 Mercado Libre",), key="nav_🛒 Mercado Libre")
 
+    # App-wide language — single source of truth (st.session_state["app_lang"]).
+    # Modules read it instead of rolling their own toggle.
+    st.radio("Idioma", ["Español", "English"], horizontal=True, key="app_lang")
+
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
     _pe_label = (
         f"🧬 {_n_pe_parents} parents"
