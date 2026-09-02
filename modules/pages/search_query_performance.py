@@ -571,6 +571,7 @@ def _sqp_ai_rows(signal_records, opinions, field_names=None):
                         signal_records):
         o = ops.get(rid, {})
         rows.append({
+            "row_id": rid,
             "item": rec["query"],
             "type_tag": o.get("query_type", ""),
             "metrics": [

@@ -221,6 +221,7 @@ def _str_ai_rows(records, opinions, prefix, brand_terms, labels, metrics_fn):
         if campaign:
             metrics.append(f"@ {campaign[:40]}")
         rows.append({
+            "row_id": rid,
             "item": rec.get("Search Term", ""),
             "type_tag": rec.get("Regla", ""),
             "metrics": metrics,

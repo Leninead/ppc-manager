@@ -226,8 +226,8 @@ def _render_mkl_ai_result(result: dict, analysis, records: list, labels: dict) -
         metrics.append(f"mi rank {rec['mi_rank']}" if rec.get("mi_rank")
                        else "no rankeo")
         gap_rows.append({
+            "row_id": str(g.get("row_id", "")),
             "item": rec["term"],
-            "type_tag": str(g.get("row_id", "")),
             "metrics": metrics,
             "badges": [g.get("via", "")],
             "confidence": str(g.get("confianza", "")).upper(),

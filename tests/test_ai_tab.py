@@ -135,6 +135,17 @@ class TestRenderKit:
         for key in ("actions_title", "mid_term_title", "risks_title"):
             assert labels[key] not in synth
 
+    def test_row_id_is_printed_ahead_of_the_item(self):
+        """The synthesis cites rows by id (N07, Q03): the table must show
+        that id next to the term or the AM cannot find the row."""
+        table = opinion_table_html([{**self._ROW, "row_id": "Q07"}], "T",
+                                   ai_labels("es"), {})
+        assert "Q07" in table
+        assert table.index("Q07") < table.index("brita jug")
+        # Rows without an id (campaign diagnoses) render exactly as before.
+        plain = opinion_table_html([self._ROW], "T", ai_labels("es"), {})
+        assert "monospace;font-size:13px;background:#F1EFE8" not in plain
+
     def test_dollar_signs_escaped_against_latex(self):
         table = opinion_table_html([self._ROW], "T", ai_labels("es"), {})
         assert "&#36;23,797.20" in table

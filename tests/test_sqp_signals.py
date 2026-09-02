@@ -478,6 +478,7 @@ class TestSqpAiRows:
                      "action": "AGREGAR_EXACT", "confidence": "ALTA",
                      "warning": None, "reasoning": "r2"}]
         rows = _sqp_ai_rows(self._RECORDS, opinions)
+        assert [r["row_id"] for r in rows] == ["Q01", "Q02"]
         assert rows[0]["item"] == "brita jug" and rows[0]["reasoning"] == ""
         assert rows[1]["item"] == "water filter"
         assert rows[1]["badges"] == ["SIN_VISIBILIDAD", "AGREGAR_EXACT"]

@@ -356,8 +356,9 @@ def opinion_table_html(rows: list, title: str, labels: dict,
                        badge_colors: dict) -> str:
     """Custom table for per-row AI opinions: wrapping text, mobile stacking.
 
-    Row contract: {item, type_tag, metrics[], badges[], confidence,
-    warning, reasoning} — badges are looked up in badge_colors.
+    Row contract: {row_id, item, type_tag, metrics[], badges[], confidence,
+    warning, reasoning} — badges are looked up in badge_colors; row_id is
+    optional and, when given, is printed ahead of the item.
     """
     header = (f'<thead><tr><th class="c-item">{labels["col_item"]}</th>'
               f'<th class="c-diag">{labels["col_diag"]}</th>'
@@ -398,10 +399,17 @@ def opinion_table_html(rows: list, title: str, labels: dict,
                     f'font-weight:500;white-space:nowrap">'
                     f'{escape_ai_text(r["type_tag"])}</span>'
                     if r.get("type_tag") else "")
+        # The id the AI cites (N07, Q03, K12) printed ahead of the item, so
+        # the AM can find a row named in the synthesis without counting.
+        row_id = (f'<span style="font-family:monospace;font-size:13px;'
+                  f'background:#F1EFE8;color:#444441;border-radius:6px;'
+                  f'padding:2px 7px;margin-right:8px;white-space:nowrap;'
+                  f'vertical-align:middle">{escape_ai_text(r["row_id"])}'
+                  f'</span>' if r.get("row_id") else "")
         body.append(
             f'<tr><td class="c-item">'
             f'<div style="font-size:16px;font-weight:600;color:#1F1F1F">'
-            f'{escape_ai_text(r.get("item", ""))}</div>'
+            f'{row_id}{escape_ai_text(r.get("item", ""))}</div>'
             f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;'
             f'align-items:center">{type_tag}{pills}</div>'
             f'</td><td class="c-diag">{badges}</td>'

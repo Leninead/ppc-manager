@@ -251,6 +251,8 @@ class TestStrDisplayRows:
                     {"row_id": "N99", "razon": "ghost"}]
         rows = _str_ai_rows(self._records(), opinions, NEG_PREFIX, ["alpha"],
                             self._LABELS, _str_neg_metrics)
+        # The id the synthesis cites travels with the row so the table prints it.
+        assert [r["row_id"] for r in rows] == ["N01", "N02"]
         assert rows[0]["reasoning"] == "" and rows[1]["reasoning"] == "r2"
         assert rows[1]["badges"] == ["irrelevante"]
 

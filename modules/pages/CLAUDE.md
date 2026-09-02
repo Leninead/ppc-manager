@@ -19,7 +19,10 @@ kit de render localizado (`ai_labels`, `opinion_table_html`, `synthesis_html`,
 la lista numerada son sugerencias de corto plazo a validar por el AM, nunca
 acciones ejecutadas. `humanize_fields(text, glossary)` es la red determinista
 contra nombres técnicos de columna en la prosa de la IA (el módulo declara el
-glosario es/en; ver M3). El contrato de uso
+glosario es/en; ver M3). Las filas de `opinion_table_html` llevan `row_id`
+(N07 / Q03 / K12) y la tabla lo imprime delante del ítem: la síntesis cita
+esos ids y sin verlos el AM no puede ubicar la fila. Todo módulo que arme
+filas de opinión pasa el id que ya usa para el join posicional. El contrato de uso
 completo está en el docstring del módulo; tests en `tests/test_ai_tab.py`.
 Keys de sesión: `<slug>_ai_*`. **Todo módulo con tab IA consume esta capa —
 no implementa el wiring a mano.** Los primeros consumidores (STR y SQP) se
