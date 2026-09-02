@@ -143,6 +143,55 @@ def test_parse_mkl_garbage_input_raises():
         parse_mkl(b"not an xlsx", "garbage.bin")
 
 
+# ── parse_mkl — 2026-08 layout ("Type" column plus renamed headers) ──────────
+
+_MKL_HEADER_2026 = [None, "Search Terms", "Type", "SV", "Relev.",
+                    "Sugg. bid & range", "Launch Score", "B0AAA00001", "B0BBB00002"]
+
+
+def test_parse_mkl_maps_columns_by_header_name_new_layout():
+    """The fresh export inserted "Type" and shifted the whole layout: mapping by
+    header name must still pull the right columns."""
+    rows = [
+        _MKL_HEADER_2026,
+        [None, "hair serum", None, 119293, 0.888889, "$0.06 | $0.04 - $0.08", 403, 1, None],
+        [None, "hair syrum", None, 250, 1, "$0.01 | $0.00 - $0.01", 1, 1, 5],
+    ]
+    df, asins = parse_mkl(_sheet_bytes(rows), "niche-XXX-keywords.xlsx")
+    assert asins == ["B0AAA00001", "B0BBB00002"]
+    serum = df[df["Search Term"] == "hair serum"].iloc[0]
+    assert serum["SV"] == 119293
+    assert serum["Sugg. Bid"] == pytest.approx(0.06)
+    assert serum["Launch Score"] == 403
+    assert serum["B0AAA00001"] == 1
+    assert pd.isna(serum["B0BBB00002"])
+
+
+def test_parse_mkl_rescales_fraction_relevance_to_ui_scale():
+    """Fractional 0-1 relevancy (the new format) is rescaled to the UI's 0-10."""
+    rows = [
+        _MKL_HEADER_2026,
+        [None, "kw uno", None, 500, 0.444444, "$0.50 | $0.40 - $0.60", 3, 1, None],
+        [None, "kw dos", None, 300, 1.0, "$0.30 | $0.20 - $0.40", 2, None, 4],
+    ]
+    df, _ = parse_mkl(_sheet_bytes(rows), "niche-XXX-keywords.xlsx")
+    uno = df[df["Search Term"] == "kw uno"].iloc[0]
+    dos = df[df["Search Term"] == "kw dos"].iloc[0]
+    assert uno["Relevance"] == pytest.approx(4.44, abs=0.001)
+    assert dos["Relevance"] == pytest.approx(10.0)
+
+
+def test_parse_mkl_legacy_scale_relevance_not_rescaled():
+    """Any value above 1 means the file is already 0-10, so leave it alone."""
+    data = _mkl_bytes([
+        [1, "kw a", 500, 5.5, 1.0, 7.0, 3],
+        [2, "kw b", 300, 0.5, 0.8, 6.0, 1],
+    ])
+    df, _ = parse_mkl(data, "legacy.xlsx")
+    assert df[df["Search Term"] == "kw a"].iloc[0]["Relevance"] == 5.5
+    assert df[df["Search Term"] == "kw b"].iloc[0]["Relevance"] == 0.5
+
+
 # ── parse_competitors (E2) ───────────────────────────────────────────────────
 
 def test_parse_competitors_extracts_median_and_asin_rows():

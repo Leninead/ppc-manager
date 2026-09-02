@@ -227,9 +227,12 @@ def render_analysis(analysis, *, slug: str, labels: dict, render_result) -> None
 
 def mount_analysis_chat(slug: str, analysis, *, lang: str,
                         labels: dict) -> None:
-    """Mounts the floating chat as soon as an analysis exists: questions asked
-    before completion get labels['chat_wait'] (or chat_failed) locally. Call it
-    at the END of render(), outside st.tabs."""
+    """Mounts the floating chat as soon as an analysis exists. Call it at the
+    END of render(), outside st.tabs.
+
+    An agent with provider tools answers early questions for real (its tools do
+    not need the analysis); one without them replies labels['chat_wait'] (or
+    chat_failed) locally until the analysis session exists."""
     if analysis is None:
         return
     ready = analysis.done and analysis.session_id
@@ -237,7 +240,8 @@ def mount_analysis_chat(slug: str, analysis, *, lang: str,
     floating_chat(chat_id=f"{slug}_{analysis.digest}", agent=slug,
                   session_id=analysis.session_id if ready else None,
                   title=labels["chat"], lang=lang,
-                  pending_text=None if ready else pending)
+                  pending_text=None if ready else pending,
+                  standalone=bool(ai_runtime.agent_tools(slug)))
 
 
 def ai_notice_html(title: str, body: str) -> str:

@@ -9,7 +9,12 @@ pipeline {
 
   // Poll the repo every ~2 min and build on new HEAD — works behind NAT (no public IP).
   // For instant builds, swap for a GitHub webhook (github plugin).
-  triggers { pollSCM('H/2 * * * *') }
+  // The weekly cron exists so the Launch Score drift check runs even in a week
+  // with no pushes; it never deploys (the CD stages gate on SCMTrigger).
+  triggers {
+    pollSCM('H/2 * * * *')
+    cron('H 6 * * 1')
+  }
 
   parameters {
     booleanParam(name: 'DEPLOY', defaultValue: false,
@@ -46,6 +51,22 @@ pipeline {
           docker run --rm -v "$WORKSPACE":/w -w /w -e AGENCY_OS_LOCAL_MODE=1 python:3.11-slim \
             bash -c "apt-get update -qq && apt-get install -y -qq git >/dev/null && pip install --no-cache-dir -q -r requirements.txt pytest && python -m pytest -q $DESELECTS"
         '''
+      }
+    }
+
+    stage('Launch Score drift') {
+      // The Launch Score is not in DataDive's API: core/datadive.py replicates
+      // their frontend formula, and a replica breaks silently when the original
+      // changes. Both sources it checks are public, so this needs no secrets.
+      // Never blocks a deploy — a third party changing a formula is news, not a
+      // broken build, so it only marks the run UNSTABLE.
+      steps {
+        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+          sh '''
+            docker run --rm -v "$WORKSPACE":/w -w /w python:3.11-slim \
+              bash -c "pip install --no-cache-dir -q requests && python scripts/check_launch_score_drift.py"
+          '''
+        }
       }
     }
 

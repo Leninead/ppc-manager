@@ -603,27 +603,55 @@ Parser Bulk 5-hoja → 6 tabs Excel: KPIs, Auditoría Estructura, Performance Se
 ---
 
 ## M21 — DataDive Analyzer
-**Archivo:** modules/pages/datadive_analyzer.py (380+ líneas)
+**Archivo:** modules/pages/datadive_analyzer.py
 **Sección sidebar:** Research
-**Session state prefix:** datadive_
+**Session state prefix:** widgets `dd_*` · IA `datadive_ai_*` (capa ai_tab)
 
 ### Propósito
-Analizar exports DataDive (nicho, competidores, rank radar) para detectar oportunidades de mercado.
+Analizar niches de DataDive (keywords, competidores, rank radar) para detectar oportunidades de mercado. El tab 1 puede traer la MKL directo por API (sin export manual) y corre un análisis IA con chat de repreguntas.
 
 ### Arquitectura
-4 tabs (después 5 con Competitor Intel): MKL Keywords | Competitors | Rank Radar | Ranking Volatility+PPC IS | Competitor Intel
+5 tabs: MKL Keywords | Competitors | Rank Radar | Ranking Volatility+PPC IS | Competitor Intel.
+Parsers puros en `modules/parsers/datadive.py` (shape canónico COL_*); cliente API en `core/datadive.py`; agente IA en `ai/agents/datadive/` consumido vía `core/ai_tab` (nunca wiring a mano).
+
+### Fuente API — tabs 1-5 (2026-09-01)
+- Gate: presencia de `DATADIVE_API_KEY` (env → `st.secrets["datadive"].api_key`). Sin key el módulo es idéntico al flujo solo-archivo.
+- Tab 1: radio `API DataDive | Archivo` (API es el default con key) → selector de niche (label `nicheLabel · marketplace`, orden por `latestResearchDate` desc, key del widget = `nicheId`) + botón "Traer de DataDive" (refresh targeted `_api_mkl.clear(niche_id)`). Caption con fecha+hora UTC del último dive.
+- Tab 2: carga automática de los competidores del MISMO niche traído en tab 1 (`competitors_to_df` → labels del export; benchmark → medianas). Validado 9/9 ASINs idénticos al xlsx real; la API suma columnas que el export no numericiza (Fulfillment, Outliers, TOS Ads) y NO trae "Strength".
+- Tab 5: dos selectores de niche + "Traer ambos de DataDive"; el Gap se clasifica por el indicador del outer join (el shape MKL no tiene columnas "rank").
+- Tabs 3-4: selector de rank radar + rango 30/60/90 días (`rank_radar_to_df` → Search Term/SV/Relevance/Median Rank + columnas fecha con el rank orgánico diario). El historial es server-side (el bloque de snapshots en session_state queda solo para archivos); el tab 4 reusa el radar traído en el 3. La API no trae las columnas PPC/SQ Score del export — el tab las guarda con `if col in df`.
+- **`/v1/niches` devuelve el set completo en cada "página"** (paginación declarada pero no honrada, medido en vivo): `list_niches` dedupea por nicheId y corta cuando una página no aporta ids nuevos. Ante endpoints nuevos, asumir que la paginación puede mentir.
+- `keywords_to_mkl_df()` produce el MISMO DataFrame canónico que `parse_mkl` — el resto del tab no distingue la fuente. **Launch Score no viene en ningún endpoint v1, pero se CALCULA** con la fórmula del frontend de DataDive (bundle público): `round(SV × 0.003 / relevancy)` si relevancy ≥ 0.4, si no 0 — replicada en `core/datadive.py::_launch_score` y validada 419/419 contra el export real. `rankingJuice` de /roots NO es el Launch Score (verificado 0/419).
+- **Sostenibilidad del Launch Score, sin vigilancia manual** — la réplica se rompe en silencio si DataDive cambia su fórmula, así que hay tres redes, y la principal es automática:
+  1. **CI, sin credenciales** (la red que no depende de nadie): `scripts/check_launch_score_drift.py` verifica que la fórmula siga en el bundle público y si `launchScore` apareció en el spec oficial. Corre en el stage `Launch Score drift` del Jenkinsfile — en cada build y por cron semanal (`H 6 * * 1`, que NO deploya porque el CD gatea en `SCMTrigger`). Marca el build UNSTABLE, nunca lo rompe: que un tercero recalibre una fórmula es una noticia, no un build roto.
+  2. `_launch_score_of()` prefiere el campo oficial (`launchScore`/`launch_score`) si algún día aparece en el payload: el día que DataDive lo exponga, la réplica queda muerta sola, sin migración.
+  3. `launch_score_drifted()` audita la fórmula contra cada export por archivo que suba el AM (el xlsx trae el valor verdadero) y avisa en el tab. Es red de respaldo: con el modo API por default los archivos casi no se suben, así que NO alcanza por sí sola.
+  El fix permanente es que DataDive exponga el campo: no hay pedido público, y tienen canal de soporte y office hours.
+- Los GET de DataDive no consumen tokens facturables (solo dives/rank radars/copywriter los gastan); el cache `st.cache_data(ttl=3600)` es compartido entre usuarios del proceso y el botón Traer fuerza fetch fresco.
+- Smoke con key real: `scripts/smoke_datadive_api.py` (read-only; imprime distribución de relevancy y sondea /roots y /ranking-juices).
 
 ### Reglas de negocio
-- Tab 1: SV, Relevance, Launch Score, ranking competidores. Color: verde Rel ≥3, amarillo ≥2, rojo <2
+- Tab 1: SV, Relevance (escala UI 0-10), Launch Score, ranking competidores. Color: verde Rel ≥3, amarillo ≥2, rojo <2.
+- **Relevancy es fracción 0-1 en la API Y en los exports frescos (2026-08+)** — parser y normalizer la llevan a 0-10 (×10). El parser solo rescala si TODO el archivo está en 0-1.
+- **`parse_mkl` mapea columnas por nombre de header** (el export insertó "Type" en 2026-08 y rompió el layout posicional); el layout legacy queda como fallback.
 - Tab 3: tracking orgánico diario, tendencia ↑→↓, PPC coverage
 - Tab 4: volatilidad (std dev), clasifica ESTABLE/VOLÁTIL/MUY VOLÁTIL, flags riesgo/oportunidad
 - Tab 5: tu MKL + competidor, clasifica Ambos/Solo yo/Solo comp/Ninguno
 
+### Capa IA (tab 1)
+- Agente `datadive` (primer agente de `ai/` en main): recibe Parámetros + top 120 keywords por SV (row_ids K01…) + opcionalmente los competidores del niche con su mediana (de la API o del archivo del tab 2), y emite clusters de intención, gaps priorizados y la síntesis canónica de `core/ai_tab`. Chat flotante montado FUERA de st.tabs.
+- **Contrato del agente (v2, auditado contra output real)**: `launch_score` es COSTO de entrada (alto = caro), no puntaje; `relevance` se ancla en los cortes del tab (alta ≥3,0 — el grueso del niche vive bajo 3); `sugg_bid` no habilita a declarar bids/ACoS/presupuesto (no hay precio ni CVR del cliente en el payload). Los **gaps incluyen el ASIN enterrado** (mi_rank fuera de P1), no solo el ausente — son los más baratos. La **prioridad de cluster es atacabilidad, no tamaño**, y el orden del array es el orden de ataque. `select_keywords` manda 90 por SV + 30 por relevancia (la cola barata sesgaba a "niche caro" si se cortaba solo por SV) y marca cada fila con `bloque`. Si el ASIN declarado no está en el dive, Parámetros lo declara como CALIDAD DE DATOS y los gaps van vacíos.
+- **Chat con tools (fase 3)**: el frontmatter del agente declara `tools: datadive` → `runtime.ask_followup` manda `tools:["datadive"]` + `max_turns 8` al provider, que expone 5 tools MCP read-only in-process (list_niches, get_niche_keywords, get_niche_competitors, list_rank_radars, get_quota; resultados truncados). Solo el CHAT es agéntico — el análisis nunca lleva tools. Server-side vive en capybaras-ai-provider (`app/datadive_tools.py`, rama feat/datadive-mcp-tools) con `DATADIVE_API_KEY` en su .env.
+- La IA nunca recalcula cifras; el módulo joinea opiniones por row_id posicional contra los MISMOS records serializados.
+
 ### Inputs
-- DataDive exports (.xlsx)
+- DataDive exports (.xlsx) o niche vía API (tab 1)
 
 ### Anti-patterns
 - return-in-tabs bug — fijar con paréntesis en cada tab call
+- NO parsear el MKL por posición de columna — DataDive re-layouta el export; headers son el contrato
+- NO llamar a `ai/runtime` directo — todo por `core/ai_tab`
+- NO llamar POSTs de DataDive (dives/redive/rank radars/copywriter) — consumen tokens reales de la organización
 
 ---
 
