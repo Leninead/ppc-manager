@@ -183,6 +183,13 @@ _AI_BADGE_COLORS = {
 }
 
 
+def _dd_row_labels(records: list) -> dict:
+    """row_id -> keyword for the rows sent to the AI, so the ids the synthesis
+    and the chat cite (K12) can be annotated with their term."""
+    return {f"K{i + 1:02d}": str(rec.get("term", "")).strip()
+            for i, rec in enumerate(records or [])}
+
+
 def _render_mkl_ai_result(result: dict, analysis, records: list, labels: dict) -> None:
     from core import ai_tab
     ids = {f"K{i + 1:02d}": rec for i, rec in enumerate(records)}
@@ -193,8 +200,11 @@ def _render_mkl_ai_result(result: dict, analysis, records: list, labels: dict) -
         ai_tab.ai_chips_html(warnings, f"{len(clusters)} clusters · {len(gaps)} gaps",
                              analysis.elapsed, labels),
         unsafe_allow_html=True)
-    st.markdown(ai_tab.synthesis_html(result.get("synthesis") or {}, labels),
-                unsafe_allow_html=True)
+    row_labels = _dd_row_labels(records)
+    synthesis = ai_tab.map_synthesis_text(
+        result.get("synthesis") or {},
+        lambda text: ai_tab.annotate_row_ids(text, row_labels))
+    st.markdown(ai_tab.synthesis_html(synthesis, labels), unsafe_allow_html=True)
 
     cluster_rows = []
     for i, c in enumerate(clusters, 1):
@@ -1367,5 +1377,8 @@ def render():
     # Outside st.tabs so the bubble shows on every tab of the module.
     if ai_analysis is not None:
         from core import ai_tab
-        ai_tab.mount_analysis_chat("datadive", ai_analysis, lang="es",
-                                   labels=ai_labels_dd)
+        chat_labels = _dd_row_labels(st.session_state.get(
+            "dd_ai_records_store", {}).get(ai_analysis.digest, []))
+        ai_tab.mount_analysis_chat(
+            "datadive", ai_analysis, lang="es", labels=ai_labels_dd,
+            annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels))

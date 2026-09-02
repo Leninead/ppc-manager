@@ -22,7 +22,13 @@ contra nombres técnicos de columna en la prosa de la IA (el módulo declara el
 glosario es/en; ver M3). Las filas de `opinion_table_html` llevan `row_id`
 (N07 / Q03 / K12) y la tabla lo imprime delante del ítem: la síntesis cita
 esos ids y sin verlos el AM no puede ubicar la fila. Todo módulo que arme
-filas de opinión pasa el id que ya usa para el join posicional. El contrato de uso
+filas de opinión pasa el id que ya usa para el join posicional. Además, la
+prosa (síntesis, resumen ejecutivo y respuestas del chat) se anota de forma
+determinista con el término detrás del id, primera mención por texto y sin
+duplicar cuando el modelo ya lo escribió: `annotate_row_ids(text, {id: término})`
+sobre `map_synthesis_text`, y `mount_analysis_chat(..., annotate=)` para el
+chat. Cada módulo expone su mapa (`_str_row_labels`, `_sqp_row_labels`,
+`_dd_row_labels`) a partir de los records guardados por digest. El contrato de uso
 completo está en el docstring del módulo; tests en `tests/test_ai_tab.py`.
 Keys de sesión: `<slug>_ai_*`. **Todo módulo con tab IA consume esta capa —
 no implementa el wiring a mano.** Los primeros consumidores (STR y SQP) se

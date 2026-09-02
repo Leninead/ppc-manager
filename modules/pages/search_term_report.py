@@ -237,11 +237,26 @@ def _str_campaign_rows(campaigns):
             for c in campaigns]
 
 
+def _str_row_labels(neg_records, harv_records):
+    """row_id -> search term for the rows sent to the AI, so the ids the
+    synthesis and the chat cite (N07, H59) can be annotated with their term."""
+    from ai.agents.str.context import HARV_PREFIX, NEG_PREFIX, make_ids
+    labels = {}
+    for prefix, records in ((NEG_PREFIX, neg_records or []),
+                            (HARV_PREFIX, harv_records or [])):
+        for rid, rec in zip(make_ids(prefix, len(records)), records):
+            labels[rid] = str(rec.get("Search Term", "")).strip()
+    return labels
+
+
 def _render_str_ai_result(result, analysis, neg_records, harv_records,
                           brand_terms, labels):
     from core import ai_tab
     from ai.agents.str.context import NEG_PREFIX, HARV_PREFIX
-    synthesis = result.get("synthesis") or {}
+    row_labels = _str_row_labels(neg_records, harv_records)
+    synthesis = ai_tab.map_synthesis_text(
+        result.get("synthesis") or {},
+        lambda text: ai_tab.annotate_row_ids(text, row_labels))
     negs = result.get("negativos") or []
     harvs = result.get("harvest") or []
     campaigns = result.get("campanas") or []
@@ -1274,5 +1289,9 @@ def render():
     # Outside st.tabs so the bubble shows on every tab of the module.
     if analysis is not None:
         from core import ai_tab
-        ai_tab.mount_analysis_chat("str", analysis, lang=ai_lang,
-                                   labels=ai_labels_str)
+        chat_neg, chat_harv = st.session_state.get(
+            "str_ai_records_store", {}).get(analysis.digest, ([], []))
+        chat_labels = _str_row_labels(chat_neg, chat_harv)
+        ai_tab.mount_analysis_chat(
+            "str", analysis, lang=ai_lang, labels=ai_labels_str,
+            annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels))

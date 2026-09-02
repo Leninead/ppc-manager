@@ -32,6 +32,8 @@ from core.ai_tab import (
     opinion_table_html,
     synthesis_html,
     humanize_fields,
+    annotate_row_ids,
+    map_synthesis_text,
 )
 
 _FAKE_SLUG = "_layer_test"
@@ -163,6 +165,34 @@ class TestRenderKit:
         assert "x.imp_b" in out and "imp_bx" in out and "id1" in out
         assert "caída 1 -3.2" in out
         assert "imp_share" not in out.replace("share de impresiones", "")
+
+    def test_annotate_row_ids_appends_the_item_once(self):
+        m = {"H59": "press on nails short almond", "H5": "x",
+             "Q01": "brita water pitcher"}
+        out = annotate_row_ids("Frenar H59 hasta validar; H5 no; H590 tampoco",
+                               m)
+        assert out == ("Frenar H59 (press on nails short almond) hasta "
+                       "validar; H5 (x) no; H590 tampoco")
+        # Only the first mention of an id in a text gets the item.
+        assert annotate_row_ids("H59 sube; H59 baja", m) == \
+            "H59 (press on nails short almond) sube; H59 baja"
+        # The model already wrote the term next to the id: left untouched.
+        same = "Decidir Q01 (brita water pitcher, $23,797.20 de oportunidad)"
+        assert annotate_row_ids(same, m) == same
+        assert annotate_row_ids("N01", {"N01": "a" * 60}) == \
+            "N01 (" + "a" * 39 + "…)"
+        assert annotate_row_ids("", m) == ""
+        assert annotate_row_ids("H59", {}) == "H59"
+
+    def test_map_synthesis_text_touches_only_prose(self):
+        s = {"situation": "s", "week_actions": ["a", "b"], "mid_term": [],
+             "risks": [{"type": "T", "urgency": "ALTA", "detail": "d"}],
+             "executive_summary": "e"}
+        out = map_synthesis_text(s, str.upper)
+        assert out["situation"] == "S" and out["week_actions"] == ["A", "B"]
+        assert out["risks"] == [{"type": "T", "urgency": "ALTA", "detail": "D"}]
+        assert out["executive_summary"] == "E"
+        assert s["situation"] == "s"  # input not mutated
 
     def test_humanize_fields_is_a_no_op_without_leaks_or_glossary(self):
         assert humanize_fields("$23,797.20 en juego", {"imp_b": "x"}) == \

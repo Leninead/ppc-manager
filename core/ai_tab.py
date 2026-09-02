@@ -153,6 +153,54 @@ def humanize_fields(text, glossary: dict) -> str:
     return pattern.sub(lambda m: glossary[m.group(1)], str(text))
 
 
+def annotate_row_ids(text, labels_by_id: dict, max_len: int = 40) -> str:
+    """Appends the item behind every row id the AI cites, so the prose reads
+    without the table: "Frenar H59" -> "Frenar H59 (press on nails short)".
+    Whole tokens only, first mention of each id per text. Skipped when the
+    item already follows the id within a short window, which is how the model
+    sometimes writes it itself."""
+    if not text or not labels_by_id:
+        return str(text or "")
+    src = str(text)
+    ids = sorted(labels_by_id, key=len, reverse=True)
+    pattern = re.compile(r"(?<!\w)(" + "|".join(re.escape(i) for i in ids)
+                         + r")(?!\w)")
+    seen = set()
+
+    def _sub(match):
+        rid = match.group(1)
+        full = str(labels_by_id[rid]).strip()
+        if not full or rid in seen:
+            return rid
+        seen.add(rid)
+        window = src[match.end():match.end() + len(full) + 24].lower()
+        if full.lower() in window:
+            return rid
+        shown = full if len(full) <= max_len else \
+            full[:max_len - 1].rstrip() + "…"
+        return f"{rid} ({shown})"
+
+    return pattern.sub(_sub, src)
+
+
+def map_synthesis_text(synthesis: dict, fn) -> dict:
+    """Copy of the canonical synthesis with fn applied to every prose field
+    (situation, week_actions, mid_term, risks[].detail, executive_summary).
+    Structure and non-text values are untouched; the input is not mutated."""
+    out = dict(synthesis or {})
+    for key in ("situation", "executive_summary"):
+        if isinstance(out.get(key), str):
+            out[key] = fn(out[key])
+    for key in ("week_actions", "mid_term"):
+        if isinstance(out.get(key), list):
+            out[key] = [fn(x) if isinstance(x, str) else x for x in out[key]]
+    if isinstance(out.get("risks"), list):
+        out["risks"] = [
+            {**r, "detail": fn(r.get("detail", ""))} if isinstance(r, dict)
+            else r for r in out["risks"]]
+    return out
+
+
 class AnalysisAction(Enum):
     USE = "use"
     AUTO_FIRE = "auto_fire"
@@ -252,7 +300,7 @@ def render_analysis(analysis, *, slug: str, labels: dict, render_result) -> None
 
 
 def mount_analysis_chat(slug: str, analysis, *, lang: str,
-                        labels: dict) -> None:
+                        labels: dict, annotate=None) -> None:
     """Mounts the floating chat as soon as an analysis exists. Call it at the
     END of render(), outside st.tabs.
 
@@ -267,7 +315,8 @@ def mount_analysis_chat(slug: str, analysis, *, lang: str,
                   session_id=analysis.session_id if ready else None,
                   title=labels["chat"], lang=lang,
                   pending_text=None if ready else pending,
-                  standalone=bool(ai_runtime.agent_tools(slug)))
+                  standalone=bool(ai_runtime.agent_tools(slug)),
+                  annotate=annotate)
 
 
 def ai_notice_html(title: str, body: str) -> str:

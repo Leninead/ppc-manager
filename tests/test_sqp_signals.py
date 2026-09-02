@@ -493,3 +493,11 @@ class TestSqpAiRows:
         opinions = [{"row_id": "Q99", "reasoning": "ghost"}]
         rows = _sqp_ai_rows(self._RECORDS, opinions)
         assert all(r["reasoning"] == "" for r in rows)
+
+
+def test_row_labels_map_positional_ids_to_queries():
+    from modules.pages.search_query_performance import _sqp_row_labels
+    records = [{"query": "brita jug"}, {"query": "water filter"}]
+    assert _sqp_row_labels(records) == {"Q01": "brita jug",
+                                        "Q02": "water filter"}
+    assert _sqp_row_labels([]) == {}

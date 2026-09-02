@@ -186,15 +186,21 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                   title: str = "Análisis IA",
                   lang: str = "es",
                   pending_text: str | None = None,
-                  standalone: bool = False) -> None:
+                  standalone: bool = False,
+                  annotate=None) -> None:
     """session_id=None mounts the chat before the analysis is ready: questions
     stay in the thread and are answered locally with pending_text until a real
     session arrives on a later mount.
 
     standalone=True instead lets those early questions open their own provider
     session and be answered for real — for agents whose tools can answer without
-    the analysis. The analysis session takes over as soon as it exists."""
+    the analysis. The analysis session takes over as soon as it exists.
+
+    annotate, when given, is applied to every assistant text at display time
+    (bubbles and the copied transcript), e.g. to append the item behind the
+    row ids the AI cites. History keeps the raw text."""
     L = _L.get(lang, _L["es"])
+    show = annotate or (lambda text: text)
     subtitle = L["subtitle"]
     anchor = f"aichat_{chat_id}_anchor"
     hist_key = f"aichat_{chat_id}_hist"
@@ -243,13 +249,14 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                 user_lbl = (st.session_state.get("name")
                             or st.session_state.get("username") or "AM")
                 plain = (title + "\n\n" + "\n\n".join(
-                    (f"{user_lbl}: " if t["role"] == "user" else "Capybaras AI: ")
-                    + t["text"] for t in history)) if history else ""
+                    (f"{user_lbl}: " + t["text"]) if t["role"] == "user"
+                    else ("Capybaras AI: " + show(t["text"]))
+                    for t in history)) if history else ""
                 _chat_header(title, subtitle, plain, L["copy"], L["close"])
                 if history:
                     thread = "".join(
                         _user_bubble(t["text"]) if t["role"] == "user"
-                        else _assistant_bubble(t["text"])
+                        else _assistant_bubble(show(t["text"]))
                         for t in history)
                     st.markdown(
                         '<div style="display:flex;flex-direction:column;'

@@ -536,24 +536,21 @@ def _share_pill(label, value):
 
 def _humanize_synthesis(synthesis, field_names):
     """Copy of the canonical synthesis with every prose field passed through
-    the field glossary (situation, week_actions, mid_term, risk details and
-    the executive summary). Structure and non-text values are untouched."""
-    from core.ai_tab import humanize_fields
+    the field glossary. Structure and non-text values are untouched."""
+    from core.ai_tab import humanize_fields, map_synthesis_text
     if not field_names:
         return synthesis
-    out = dict(synthesis)
-    for key in ("situation", "executive_summary"):
-        if isinstance(out.get(key), str):
-            out[key] = humanize_fields(out[key], field_names)
-    for key in ("week_actions", "mid_term"):
-        if isinstance(out.get(key), list):
-            out[key] = [humanize_fields(x, field_names) if isinstance(x, str)
-                        else x for x in out[key]]
-    if isinstance(out.get("risks"), list):
-        out["risks"] = [
-            {**r, "detail": humanize_fields(r.get("detail", ""), field_names)}
-            if isinstance(r, dict) else r for r in out["risks"]]
-    return out
+    return map_synthesis_text(
+        synthesis, lambda text: humanize_fields(text, field_names))
+
+
+def _sqp_row_labels(signal_records):
+    """row_id -> query for the rows sent to the AI, so the ids the synthesis
+    and the chat cite (Q03) can be annotated with their query."""
+    from ai.agents.sqp.context import QUERY_PREFIX, make_ids
+    return {rid: str(rec.get("query", "")).strip()
+            for rid, rec in zip(make_ids(QUERY_PREFIX, len(signal_records or [])),
+                                signal_records or [])}
 
 
 def _sqp_ai_rows(signal_records, opinions, field_names=None):
@@ -592,7 +589,10 @@ def _sqp_ai_rows(signal_records, opinions, field_names=None):
 def _render_sqp_ai_result(result, analysis, signal_records, labels):
     from core import ai_tab
     field_names = labels.get("field_names")
-    synthesis = _humanize_synthesis(result.get("synthesis") or {}, field_names)
+    row_labels = _sqp_row_labels(signal_records)
+    synthesis = ai_tab.map_synthesis_text(
+        _humanize_synthesis(result.get("synthesis") or {}, field_names),
+        lambda text: ai_tab.annotate_row_ids(text, row_labels))
     opinions = result.get("queries") or []
     n_warnings = sum(1 for o in opinions if o.get("warning"))
     with st.container(border=True):
@@ -843,5 +843,8 @@ def render():
     # Outside st.tabs so the bubble shows on every tab of the module.
     if analysis is not None:
         from core import ai_tab
-        ai_tab.mount_analysis_chat("sqp", analysis, lang=ai_lang,
-                                   labels=ai_labels_sqp)
+        chat_labels = _sqp_row_labels(st.session_state.get(
+            "sqp_ai_records_store", {}).get(analysis.digest, []))
+        ai_tab.mount_analysis_chat(
+            "sqp", analysis, lang=ai_lang, labels=ai_labels_sqp,
+            annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels))

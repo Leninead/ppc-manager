@@ -282,3 +282,15 @@ class TestStrDisplayRows:
         camp_rows = _str_campaign_rows([{"campaign": "Bleeder",
                                          "diagnostico": "sangra"}])
         assert camp_rows == [{"item": "Bleeder", "reasoning": "sangra"}]
+
+
+def test_row_labels_map_positional_ids_to_terms():
+    """The synthesis and the chat cite N07/H59: the module maps those ids back
+    to the term text so the platform can annotate them in the prose."""
+    from modules.pages.search_term_report import _str_row_labels
+    negs = [{"Search Term": "alpha soap"}, {"Search Term": " cat litter "}]
+    harvs = [{"Search Term": "serrated knife sharpener"}]
+    assert _str_row_labels(negs, harvs) == {
+        "N01": "alpha soap", "N02": "cat litter",
+        "H01": "serrated knife sharpener"}
+    assert _str_row_labels([], None) == {}
