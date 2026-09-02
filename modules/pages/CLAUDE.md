@@ -11,8 +11,15 @@ gateway al ai-provider): ciclo de vida del análisis (`decide_analysis_action`
 pura + `resolve_analysis` con staleness de dos velocidades: archivo nuevo
 re-dispara solo, cambio de parámetro pide click), polling (`render_analysis`),
 kit de render localizado (`ai_labels`, `opinion_table_html`, `synthesis_html`,
-`ai_chips_html`, `ai_notice_html`, `escape_ai_text`, `AI_CSS`) y chat con
-espera (`mount_analysis_chat` sobre `core/ai_chat.py`). El contrato de uso
+`ai_chips_html`, `ai_notice_html`, `escape_ai_text`, `humanize_fields`,
+`AI_CSS`) y chat con espera (`mount_analysis_chat` sobre `core/ai_chat.py`).
+`synthesis_html` titula cada bloque con `synthesis_section_title` (labels
+`actions_title` "Acciones sugeridas para esta semana", `mid_term_title`
+"Mediano plazo · 2 a 4 semanas", `risks_title`; los `*_hint` van como tooltip):
+la lista numerada son sugerencias de corto plazo a validar por el AM, nunca
+acciones ejecutadas. `humanize_fields(text, glossary)` es la red determinista
+contra nombres técnicos de columna en la prosa de la IA (el módulo declara el
+glosario es/en; ver M3). El contrato de uso
 completo está en el docstring del módulo; tests en `tests/test_ai_tab.py`.
 Keys de sesión: `<slug>_ai_*`. **Todo módulo con tab IA consume esta capa —
 no implementa el wiring a mano.** Los primeros consumidores (STR y SQP) se
@@ -98,6 +105,7 @@ Analizar el mercado total desde Brand Analytics: impression share, click share, 
 - Señales deterministas ADITIVAS solo para la IA: `_compute_funnel_signals(df, query_col, brand_terms)` (cascada de shares en 4 etapas con Cart Adds, índices marca-vs-mercado-sin-marca, gaps de precio por etapa con bandas fijas, gate de datos, `is_invisible`, gemas, breach de defensa BRANDED 80%, `opp_usd` sobre compras reales, prioridad) + `_compute_account_rollup` (agregados ponderados + pre-flags de riesgos). Las tabs 1-3 y `_compute_market_share`/`_compute_gaps` no las usan ni cambiaron. Spec de dominio: `notes/modules/m3-sqp-ai-signals-spec.md` (vault).
 - Tab 4 consume la plataforma igual que M2: `resolve_analysis` → `render_analysis` → `_render_sqp_ai_result` → `mount_analysis_chat`. Input propio: brand terms (prefill = marca detectada; en CSV puede venir vacío). Records top-40 guardados por digest en `sqp_ai_records_store`.
 - Agente `ai/agents/sqp/`: `SqpData`, row_ids `Q01…`, taxonomías cerradas (`funnel_diagnosis` ×8 incl. MERCADO_DEBIL, `price_causality` ×4, `action` ×9, `confidence`) y `synthesis` canónica con `risks` = exactamente los pre-flags true + 2 standing.
+- Nombres legibles (2026-09-02): el prompt lleva un bloque `<glosario>` (columna → nombre llano es/en, formato de conteos con miles y shares con %) y PROHÍBE nombres de columna en la prosa; los ejemplos del prompt ya no usan `imp_share`/`clk_b`. Red determinista: `_SQP_FIELD_NAMES` (es/en, cubre todo `_ROW_COLS`; test lo exige) viaja en `labels["field_names"]` y `_sqp_ai_rows`/`_humanize_synthesis` reescriben cualquier fuga con `core.ai_tab.humanize_fields` antes de imprimir. Medido en la corrida real previa al glosario: 200+ tokens crudos (`opp_usd`, `pur_t`, `is_invisible`…) en 40 filas.
 - Tests: `tests/test_sqp_signals.py` (anti-placebo, bordes, oráculo de integridad vs los % del export, filas de display) + `tests/test_sqp_ai_context.py` (contrato, digest, runtime con fake transport).
 
 ### Reglas de negocio

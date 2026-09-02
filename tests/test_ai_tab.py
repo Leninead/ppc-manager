@@ -31,6 +31,7 @@ from core.ai_tab import (
     escape_ai_text,
     opinion_table_html,
     synthesis_html,
+    humanize_fields,
 )
 
 _FAKE_SLUG = "_layer_test"
@@ -112,9 +113,51 @@ class TestRenderKit:
         notice = ai_notice_html(labels["stale_title"], labels["stale_body"])
         assert labels["stale_title"] in notice
 
+    @pytest.mark.parametrize("lang", ["es", "en"])
+    def test_synthesis_sections_carry_visible_headings(self, lang):
+        """The numbered actions were printed without a heading, so the AM
+        could not tell suggestions from the situation text: every list block
+        now opens with its labelled section title, and the actions heading
+        carries the "AM decides" hint as a tooltip."""
+        labels = ai_labels(lang)
+        synth = synthesis_html(self._SYNTH, labels)
+        for key in ("actions_title", "mid_term_title", "risks_title"):
+            assert labels[key].upper() in synth.upper()
+        assert f'title="{labels["actions_hint"]}"' in synth
+        assert synth.index(labels["actions_title"]) < synth.index("a1")
+        assert synth.index("a1") < synth.index(labels["mid_term_title"])
+        assert synth.index("m1") < synth.index(labels["risks_title"])
+
+    def test_synthesis_omits_headings_of_empty_sections(self):
+        labels = ai_labels("es")
+        synth = synthesis_html({"situation": "s", "week_actions": [],
+                                "mid_term": [], "risks": []}, labels)
+        for key in ("actions_title", "mid_term_title", "risks_title"):
+            assert labels[key] not in synth
+
     def test_dollar_signs_escaped_against_latex(self):
         table = opinion_table_html([self._ROW], "T", ai_labels("es"), {})
         assert "&#36;23,797.20" in table
+
+    def test_humanize_fields_rewrites_whole_tokens_only(self):
+        g = {"imp_b": "impresiones de la marca", "imp_share": "share de "
+             "impresiones", "pur_t": "compras del mercado",
+             "is_invisible": "marca sin visibilidad", "d1": "caída 1"}
+        text = ("pur_t 1753: imp_b 21, imp_share 0.0 marcan is_invisible; "
+                "x.imp_b y imp_bx quedan; d1 -3.2, id1 no")
+        out = humanize_fields(text, g)
+        assert out.startswith("compras del mercado 1753: impresiones de la "
+                              "marca 21, share de impresiones 0.0 marcan "
+                              "marca sin visibilidad")
+        assert "x.imp_b" in out and "imp_bx" in out and "id1" in out
+        assert "caída 1 -3.2" in out
+        assert "imp_share" not in out.replace("share de impresiones", "")
+
+    def test_humanize_fields_is_a_no_op_without_leaks_or_glossary(self):
+        assert humanize_fields("$23,797.20 en juego", {"imp_b": "x"}) == \
+            "$23,797.20 en juego"
+        assert humanize_fields("imp_b 3", {}) == "imp_b 3"
+        assert humanize_fields(None, {"imp_b": "x"}) == ""
 
     def test_unknown_badge_gets_the_default_style(self):
         table = opinion_table_html([self._ROW], "T", ai_labels("es"), {})

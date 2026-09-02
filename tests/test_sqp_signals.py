@@ -25,6 +25,8 @@ from modules.pages.search_query_performance import (
     _price_band,
     _safe_div,
     _sqp_ai_rows,
+    _SQP_FIELD_NAMES,
+    _humanize_synthesis,
     _TOP_ROWS,
 )
 
@@ -407,6 +409,60 @@ class TestAccountRollup:
 # display rows ──────────────────────────────────────────────────
 # The row builder joins AI opinions back to the payload records positionally;
 # a wrong join here puts an opinion under the wrong query on screen.
+
+class TestSqpFieldNames:
+    """The AI prose must never show the CSV column names to the AM: the
+    glossary covers every signal column in both languages and the display
+    path rewrites leaks deterministically."""
+
+    @pytest.mark.parametrize("lang", ["es", "en"])
+    def test_glossary_covers_every_signal_column(self, lang):
+        from ai.agents.sqp.context import _ROW_COLS
+        missing = [c for c in _ROW_COLS if c != "query"
+                   and not _SQP_FIELD_NAMES[lang].get(c)]
+        assert missing == []
+        # A human name must never be another column name (would re-leak).
+        assert not set(_SQP_FIELD_NAMES[lang].values()) & set(_ROW_COLS)
+
+    def test_rows_rewrite_leaked_names_in_reasoning_and_warning(self):
+        records = [{"query": "brita jug", "imp_share": 0.0, "click_share": 0.0,
+                    "cart_share": 0.0, "purchase_share": 0.0,
+                    "opp_usd": 23797.2}]
+        opinions = [{"row_id": "Q01", "reasoning": "El mercado mueve pur_t "
+                     "1753 y imp_b 21 sobre imp_t 2493569 marcan is_invisible.",
+                     "warning": "opp_usd alto con clk_b 3.",
+                     "funnel_diagnosis": "SIN_VISIBILIDAD",
+                     "action": "AGREGAR_EXACT", "confidence": "ALTA"}]
+        row = _sqp_ai_rows(records, opinions, _SQP_FIELD_NAMES["es"])[0]
+        assert row["reasoning"] == ("El mercado mueve compras del mercado 1753 "
+                                    "y impresiones de la marca 21 sobre "
+                                    "impresiones del mercado 2493569 marcan "
+                                    "marca sin visibilidad.")
+        assert row["warning"] == "oportunidad alto con clics de la marca 3."
+        # Without a glossary the rows are untouched (legacy callers).
+        raw = _sqp_ai_rows(records, opinions)[0]
+        assert "pur_t" in raw["reasoning"]
+
+    def test_synthesis_prose_fields_are_rewritten_and_structure_kept(self):
+        synth = {"situation": "imp_share 0.0 ponderado.",
+                 "week_actions": ["Abrir Q01 (opp_usd 23797.2, pur_t 8400)."],
+                 "mid_term": ["Re-chequear hidden_gem Q04."],
+                 "risks": [{"type": "DEFENSA_MARCA_ROTA", "urgency": "ALTA",
+                            "detail": "defense_breach_share 61.0 en 11 filas"}],
+                 "executive_summary": "pur_t 1753; opp_usd $23,797.20."}
+        out = _humanize_synthesis(synth, _SQP_FIELD_NAMES["es"])
+        assert out["situation"] == "share de impresiones 0.0 ponderado."
+        assert out["week_actions"] == [
+            "Abrir Q01 (oportunidad 23797.2, compras del mercado 8400)."]
+        assert out["mid_term"] == ["Re-chequear gema oculta Q04."]
+        assert out["risks"][0]["type"] == "DEFENSA_MARCA_ROTA"
+        assert out["risks"][0]["detail"] == \
+            "share con la defensa rota 61.0 en 11 filas"
+        assert out["executive_summary"] == \
+            "compras del mercado 1753; oportunidad $23,797.20."
+        assert synth["situation"].startswith("imp_share")  # input untouched
+        assert _humanize_synthesis(synth, None) is synth
+
 
 class TestSqpAiRows:
     _RECORDS = [

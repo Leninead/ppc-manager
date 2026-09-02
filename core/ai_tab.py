@@ -42,6 +42,7 @@ builds display rows for opinion_table_html. The canonical synthesis shape is
 executive_summary} — new agents must emit it; synthesis_html renders it.
 """
 import html
+import re
 from enum import Enum
 
 import streamlit as st
@@ -64,8 +65,14 @@ _BASE_LABELS = {
            "fail_prefix": "El análisis IA falló",
            "retry": "Reintentar",
            "warnings": "advertencias", "no_warnings": "Sin advertencias",
-           "risks_title": "Riesgos", "actions_title": "Acciones de la semana",
-           "mid_term_title": "Mediano plazo",
+           "risks_title": "Riesgos",
+           "actions_title": "Acciones sugeridas para esta semana",
+           "actions_hint": "Corto plazo, en orden de prioridad. Son sugerencias "
+                           "de la IA: el AM decide.",
+           "mid_term_title": "Mediano plazo · 2 a 4 semanas",
+           "mid_term_hint": "Oportunidades que no se resuelven esta semana: "
+                            "gemas a re-validar, re-chequeos que confirman o "
+                            "descartan hipótesis.",
            "col_item": "Ítem", "col_diag": "Diagnóstico", "col_read": "Lectura IA",
            "conf_label": "confianza", "copy_btn": "Copiar",
            "chat": "Análisis IA",
@@ -88,8 +95,14 @@ _BASE_LABELS = {
            "fail_prefix": "The AI analysis failed",
            "retry": "Retry",
            "warnings": "warnings", "no_warnings": "No warnings",
-           "risks_title": "Risks", "actions_title": "This week's actions",
-           "mid_term_title": "Mid term",
+           "risks_title": "Risks",
+           "actions_title": "Suggested actions for this week",
+           "actions_hint": "Short term, in priority order. AI suggestions: "
+                           "the AM decides.",
+           "mid_term_title": "Mid term · 2 to 4 weeks",
+           "mid_term_hint": "Opportunities that do not close this week: gems to "
+                            "re-validate, re-checks that confirm or kill a "
+                            "hypothesis.",
            "col_item": "Item", "col_diag": "Diagnosis", "col_read": "AI read",
            "conf_label": "confidence", "copy_btn": "Copy",
            "chat": "AI Analysis",
@@ -125,6 +138,19 @@ def ai_labels(lang: str, overrides: dict | None = None) -> dict:
 def escape_ai_text(text) -> str:
     """HTML-safe AI text; $ escaped so Streamlit never parses it as LaTeX."""
     return html.escape(str(text)).replace("$", "&#36;")
+
+
+def humanize_fields(text, glossary: dict) -> str:
+    """Deterministic safety net for AI prose: replaces leaked technical field
+    names (imp_share, pur_t, is_invisible) with the human names a module
+    declares in its glossary. Whole-token matches only, longest names first,
+    so `imp_share` is never rewritten through `imp_b` or `share`."""
+    if not text or not glossary:
+        return str(text or "")
+    names = sorted(glossary, key=len, reverse=True)
+    pattern = re.compile(r"(?<![\w.])(" + "|".join(re.escape(n) for n in names)
+                         + r")(?!\w)")
+    return pattern.sub(lambda m: glossary[m.group(1)], str(text))
 
 
 class AnalysisAction(Enum):
@@ -273,25 +299,44 @@ def ai_chips_html(n_warnings: int, counts_text: str, elapsed_s: int,
             f'</div>')
 
 
+def synthesis_section_title(text: str, hint: str = "") -> str:
+    """Section heading shared by the synthesis blocks: small uppercase label
+    over a hairline, clearly distinct from the 16-17px body text. The optional
+    hint is a native tooltip, so the heading stays a label and not a caption."""
+    safe_hint = escape_ai_text(hint).replace('"', "&quot;") if hint else ""
+    title_attr = f' title="{safe_hint}"' if safe_hint else ""
+    return (f'<div{title_attr} style="margin:18px 0 6px 0;padding-top:12px;'
+            f'border-top:1px solid #EFEBE4;font-size:13px;font-weight:600;'
+            f'letter-spacing:.06em;text-transform:uppercase;color:#6B6660">'
+            f'{escape_ai_text(text)}</div>')
+
+
 def synthesis_html(synthesis: dict, labels: dict) -> str:
     """Renders the canonical synthesis shape: situation, week_actions[],
-    mid_term[], risks[{type, detail, urgency}]."""
+    mid_term[], risks[{type, detail, urgency}]. Every list is introduced by
+    a section heading, so the numbered actions read as the AI's suggestions
+    for the week and never as a continuation of the situation paragraph."""
     situation = escape_ai_text(synthesis.get("situation", ""))
-    actions = "".join(
-        f'<div style="display:flex;gap:12px;margin:11px 0;font-size:16px;'
-        f'line-height:1.55;color:#1F1F1F">'
-        f'<span style="background:#FAECE7;color:#993C1D;border-radius:8px;'
-        f'min-width:26px;height:26px;display:flex;align-items:center;'
-        f'justify-content:center;font-weight:500;font-size:14px">{i}</span>'
-        f'<span>{escape_ai_text(a)}</span></div>'
-        for i, a in enumerate(synthesis.get("week_actions", []), 1))
+    actions = ""
+    if synthesis.get("week_actions"):
+        rows = "".join(
+            f'<div style="display:flex;gap:12px;margin:11px 0;font-size:16px;'
+            f'line-height:1.55;color:#1F1F1F">'
+            f'<span style="background:#FAECE7;color:#993C1D;border-radius:8px;'
+            f'min-width:26px;height:26px;display:flex;align-items:center;'
+            f'justify-content:center;font-weight:500;font-size:14px">{i}</span>'
+            f'<span>{escape_ai_text(a)}</span></div>'
+            for i, a in enumerate(synthesis["week_actions"], 1))
+        actions = synthesis_section_title(
+            labels["actions_title"], labels.get("actions_hint", "")) + rows
     mid_term = ""
     if synthesis.get("mid_term"):
         items = "".join(f'<li style="margin:4px 0">{escape_ai_text(m)}</li>'
                         for m in synthesis["mid_term"])
-        mid_term = (f'<div style="margin-top:12px;font-size:15px;color:#1F1F1F">'
-                    f'<span style="font-weight:500">{labels["mid_term_title"]}:'
-                    f'</span><ul style="margin:6px 0 0 4px">{items}</ul></div>')
+        mid_term = (synthesis_section_title(labels["mid_term_title"],
+                                            labels.get("mid_term_hint", ""))
+                    + f'<ul style="margin:0 0 0 4px;font-size:15px;'
+                      f'line-height:1.55;color:#1F1F1F">{items}</ul>')
     risks = ""
     if synthesis.get("risks"):
         cards = "".join(
@@ -301,9 +346,7 @@ def synthesis_html(synthesis: dict, labels: dict) -> str:
             f'{" · " + escape_ai_text(r["urgency"]) if r.get("urgency") else ""}:'
             f'</span> {escape_ai_text(r.get("detail", ""))}</div>'
             for r in synthesis["risks"])
-        risks = (f'<div style="margin-top:14px"><span style="font-weight:500;'
-                 f'font-size:15px;color:#1F1F1F">{labels["risks_title"]}</span>'
-                 f'{cards}</div>')
+        risks = synthesis_section_title(labels["risks_title"]) + cards
     return (f'<div style="padding:4px 2px 6px 2px">'
             f'<div style="font-size:17px;line-height:1.65;color:#1F1F1F">'
             f'{situation}</div>{actions}{mid_term}{risks}</div>')

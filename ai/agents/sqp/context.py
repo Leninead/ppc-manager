@@ -43,7 +43,7 @@ _QUERY_OPINION = {
                    "description": "id exacto de la fila, tal como figura en el documento"},
         "reasoning": {"type": "string",
                       "description": "una o dos oraciones con el juicio, citando >=2 "
-                                     "pares campo=valor de su fila que lo fundamentan"},
+                                     "cifras de su fila nombradas con el glosario, nunca por columna"},
         "query_type": {"enum": ["BRANDED", "COMPETIDOR", "COMPARATIVA", "GENERICA"],
                        "description": "is_own_brand=true fuerza BRANDED; el resto "
                                       "es juicio semántico sobre el texto de la query"},

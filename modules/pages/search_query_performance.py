@@ -415,6 +415,69 @@ def _compute_account_rollup(signals, thresholds):
 
 
 # SQP-only UI strings; everything shared comes from core/ai_tab's label base.
+# Human names for the signal columns the AI receives (ai/agents/sqp/context.py
+# _ROW_COLS). The prompt forbids column names in prose; this is the
+# deterministic safety net applied to everything the AM reads.
+_SQP_FIELD_NAMES = {
+    "es": {
+        "volume": "volumen de búsqueda", "volume_tier": "tier de volumen",
+        "imp_b": "impresiones de la marca", "imp_t": "impresiones del mercado",
+        "clk_b": "clics de la marca", "clk_t": "clics del mercado",
+        "cart_b": "cart adds de la marca", "cart_t": "cart adds del mercado",
+        "pur_b": "compras de la marca", "pur_t": "compras del mercado",
+        "imp_share": "share de impresiones", "click_share": "share de clics",
+        "cart_share": "share de cart adds", "purchase_share": "share de compras",
+        "d1": "caída de share impresiones→clics",
+        "d2": "caída de share clics→cart adds",
+        "d3": "caída de share cart adds→compras",
+        "leak_stage": "etapa de fuga", "leak_is_own": "fuga propia",
+        "ctr_index": "índice de CTR vs mercado",
+        "cart_index": "índice de cart adds vs mercado",
+        "purchase_index": "índice de compra vs mercado",
+        "gap_click": "brecha de precio al clic",
+        "gap_cart": "brecha de precio al agregar al carrito",
+        "gap_purchase": "brecha de precio al comprar",
+        "price_trend": "deriva de precio en el funnel",
+        "price_band": "banda de precio",
+        "price_self_diluted": "mediana de mercado diluida por la marca",
+        "is_own_brand": "query de marca propia",
+        "defense_breach_stage": "etapa con la defensa rota",
+        "defense_breach_share": "share con la defensa rota",
+        "sufficient_data": "evidencia mínima",
+        "hidden_gem": "gema oculta", "is_invisible": "marca sin visibilidad",
+        "market_buys": "el mercado compra", "share_state": "estado de share",
+        "speed_premium": "premium de entrega rápida", "opp_usd": "oportunidad",
+    },
+    "en": {
+        "volume": "search volume", "volume_tier": "volume tier",
+        "imp_b": "brand impressions", "imp_t": "market impressions",
+        "clk_b": "brand clicks", "clk_t": "market clicks",
+        "cart_b": "brand cart adds", "cart_t": "market cart adds",
+        "pur_b": "brand purchases", "pur_t": "market purchases",
+        "imp_share": "impression share", "click_share": "click share",
+        "cart_share": "cart-add share", "purchase_share": "purchase share",
+        "d1": "share drop impressions→clicks",
+        "d2": "share drop clicks→cart adds",
+        "d3": "share drop cart adds→purchases",
+        "leak_stage": "leak stage", "leak_is_own": "own leak",
+        "ctr_index": "CTR index vs market",
+        "cart_index": "cart-add index vs market",
+        "purchase_index": "purchase index vs market",
+        "gap_click": "price gap at click", "gap_cart": "price gap at cart",
+        "gap_purchase": "price gap at purchase",
+        "price_trend": "price drift through the funnel",
+        "price_band": "price band",
+        "price_self_diluted": "market median diluted by the brand",
+        "is_own_brand": "own-brand query",
+        "defense_breach_stage": "stage with the defense breached",
+        "defense_breach_share": "share with the defense breached",
+        "sufficient_data": "minimum evidence",
+        "hidden_gem": "hidden gem", "is_invisible": "brand not visible",
+        "market_buys": "the market buys", "share_state": "share state",
+        "speed_premium": "fast-delivery premium", "opp_usd": "opportunity",
+    },
+}
+
 _SQP_LABELS = {
     "es": {"chat": "Análisis IA — SQP",
            "caption": "Diagnóstico de funnel, precio y oportunidad por query, "
@@ -428,7 +491,8 @@ _SQP_LABELS = {
                          "de defensa y la clasificación BRANDED. Prefill: marca "
                          "detectada en el archivo.",
            "table_title": "Lectura IA por query (top por prioridad)",
-           "col_item": "Query"},
+           "col_item": "Query",
+           "field_names": _SQP_FIELD_NAMES["es"]},
     "en": {"chat": "AI Analysis — SQP",
            "caption": "Per-query funnel, price and opportunity diagnosis, "
                       "AI-generated over the computed signals",
@@ -441,7 +505,8 @@ _SQP_LABELS = {
                          "defense floor and the BRANDED classification. "
                          "Prefill: brand detected in the file.",
            "table_title": "AI read per query (top by priority)",
-           "col_item": "Query"},
+           "col_item": "Query",
+           "field_names": _SQP_FIELD_NAMES["en"]},
 }
 
 _BADGE_COLORS = {
@@ -469,13 +534,37 @@ def _share_pill(label, value):
     return f"{label} —" if pd.isna(value) else f"{label} {value}%"
 
 
-def _sqp_ai_rows(signal_records, opinions):
+def _humanize_synthesis(synthesis, field_names):
+    """Copy of the canonical synthesis with every prose field passed through
+    the field glossary (situation, week_actions, mid_term, risk details and
+    the executive summary). Structure and non-text values are untouched."""
+    from core.ai_tab import humanize_fields
+    if not field_names:
+        return synthesis
+    out = dict(synthesis)
+    for key in ("situation", "executive_summary"):
+        if isinstance(out.get(key), str):
+            out[key] = humanize_fields(out[key], field_names)
+    for key in ("week_actions", "mid_term"):
+        if isinstance(out.get(key), list):
+            out[key] = [humanize_fields(x, field_names) if isinstance(x, str)
+                        else x for x in out[key]]
+    if isinstance(out.get("risks"), list):
+        out["risks"] = [
+            {**r, "detail": humanize_fields(r.get("detail", ""), field_names)}
+            if isinstance(r, dict) else r for r in out["risks"]]
+    return out
+
+
+def _sqp_ai_rows(signal_records, opinions, field_names=None):
     """Display rows for core/ai_tab.opinion_table_html.
 
     Positional row_id join against the SAME records that were serialized into
-    the analysis payload — never against a recomputed frame.
+    the analysis payload — never against a recomputed frame. field_names, when
+    given, rewrites leaked column names in the AI prose (reasoning, warning).
     """
     from ai.agents.sqp.context import QUERY_PREFIX, make_ids
+    from core.ai_tab import humanize_fields
     ops = {o.get("row_id"): o for o in opinions}
     rows = []
     for rid, rec in zip(make_ids(QUERY_PREFIX, len(signal_records)),
@@ -493,15 +582,16 @@ def _sqp_ai_rows(signal_records, opinions):
             ],
             "badges": [o.get("funnel_diagnosis", ""), o.get("action", "")],
             "confidence": str(o.get("confidence", "")),
-            "warning": o.get("warning") or "",
-            "reasoning": o.get("reasoning", ""),
+            "warning": humanize_fields(o.get("warning") or "", field_names),
+            "reasoning": humanize_fields(o.get("reasoning", ""), field_names),
         })
     return rows
 
 
 def _render_sqp_ai_result(result, analysis, signal_records, labels):
     from core import ai_tab
-    synthesis = result.get("synthesis") or {}
+    field_names = labels.get("field_names")
+    synthesis = _humanize_synthesis(result.get("synthesis") or {}, field_names)
     opinions = result.get("queries") or []
     n_warnings = sum(1 for o in opinions if o.get("warning"))
     with st.container(border=True):
@@ -518,8 +608,8 @@ def _render_sqp_ai_result(result, analysis, signal_records, labels):
         st.markdown(ai_tab.synthesis_html(synthesis, labels),
                     unsafe_allow_html=True)
     st.markdown(ai_tab.opinion_table_html(
-        _sqp_ai_rows(signal_records, opinions), labels["table_title"],
-        labels, _BADGE_COLORS), unsafe_allow_html=True)
+        _sqp_ai_rows(signal_records, opinions, field_names),
+        labels["table_title"], labels, _BADGE_COLORS), unsafe_allow_html=True)
 
 
 def render():
