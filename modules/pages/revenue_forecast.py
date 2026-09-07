@@ -1717,6 +1717,80 @@ def _asin_parent_agg(model: dict) -> tuple[dict, dict]:
     return pagg, titles
 
 
+def _asin_forecast_for_export(model: dict, opts: dict,
+                              yoy_mode: str = "auto") -> dict:
+    """Corre `_forecast_single_asin` sobre CADA ASIN del modelo y agrega el
+    resultado a los dos niveles que consume el export: parent y cuenta.
+
+    Existe como fuente ÚNICA del forecast por-ASIN del deliverable. Si la tabla
+    parent y la tabla cuenta calcularan su propia proyección por separado,
+    podrían discrepar entre sí dentro del mismo documento — que es exactamente
+    el tipo de contradicción cliente-facing que el AM reportó.
+
+    Un ASIN con <2 meses COMPLETOS hace que `_forecast_single_asin` devuelva []:
+    ese ASIN se saltea EN SILENCIO. Un catálogo donde 3 de 40 ASINs son nuevos
+    igual tiene que exportar los 37 que sí proyectan.
+
+    Los períodos se normalizan a 'YYYY-MM' (el motor devuelve 'YYYY-MM-01'),
+    porque las tablas del export concatenan períodos reales — que vienen de
+    `node["history"]` en 'YYYY-MM' — con los proyectados en una sola fila de
+    headers: si los formatos no coinciden, el orden se rompe.
+
+    Complejidad: O(n_asins × horizonte). UN solo recorrido de `model.items()`
+    y, dentro, un recorrido de las filas proyectadas de ese ASIN — nada de
+    re-recorrer el modelo por período ni por parent. M31 ya agotó la RAM de la
+    VPS una vez por un for anidado sobre tabla grande; acá no se construye
+    ningún DataFrame, todo son dicts.
+
+    Args:
+        model: `{child_asin: {"parent_asin", "title", "history": [...]}}` tal
+            como lo devuelve `_accumulate_asin_snapshots`.
+        opts: los MISMOS opts de la proyección general (horizon, momWindow,
+            blend, useSeasonality) — un único set de parámetros para que la
+            vista por-ASIN sea reconciliable con la de cuenta.
+        yoy_mode: se propaga al motor tal cual.
+
+    Returns:
+        {"periods": [...], "parent": {par: {period: revenue}},
+         "cuenta": {period: {"revenue", "units", "sessions"}}}.
+        Si NINGÚN ASIN proyecta, el dict vacío canónico
+        `{"periods": [], "parent": {}, "cuenta": {}}` — nunca None, para que el
+        caller no tenga que chequear dos cosas distintas.
+
+    Nota: no se agrega CVR a nivel cuenta. El CVR de la cuenta NO es el promedio
+    de los CVR por ASIN; si se necesita, se deriva de units/sessions. Fuera de
+    scope acá.
+    """
+    parent: dict = {}
+    cuenta: dict = {}
+    periods: set = set()
+
+    for node in model.values():
+        fc = _forecast_single_asin(node.get("history") or [], opts, yoy_mode)
+        if not fc:
+            continue  # <2 meses completos — se saltea, no rompe al resto
+        par = node.get("parent_asin", "")
+        byp = parent.setdefault(par, {})
+        for r in fc:
+            period = str(r.get("date", ""))[:7]
+            if not period:
+                continue
+            periods.add(period)
+            rev = _js_number(r.get("revenue"))
+            byp[period] = byp.get(period, 0.0) + rev
+            acc = cuenta.get(period)
+            if acc is None:
+                acc = cuenta[period] = {"revenue": 0.0, "units": 0.0,
+                                        "sessions": 0.0}
+            acc["revenue"] += rev
+            acc["units"] += _js_number(r.get("units"))
+            acc["sessions"] += _js_number(r.get("sessions"))
+
+    if not periods:
+        return {"periods": [], "parent": {}, "cuenta": {}}
+    return {"periods": sorted(periods), "parent": parent, "cuenta": cuenta}
+
+
 def _build_asin_parent_df(model: dict, all_periods: list[str]) -> pd.DataFrame:
     """Una fila por parent_asin: columnas parent_asin, title, y una columna
     revenue por period (suma de los childs del parent).
@@ -5191,7 +5265,8 @@ _ASIN_TABLE_LEVELS = ("child", "parent", "cuenta")
 _NO_PARENT_LABEL = "Sin parent"
 
 
-def _asin_table_html(model: dict, level: str, currency: str = "USD") -> str:
+def _asin_table_html(model: dict, level: str, currency: str = "USD",
+                     forecast: dict | None = None) -> str:
     """Tabla HTML de la vista por-ASIN para el export (E7).
 
     Construida desde los DICTS del modelo, NO desde `_build_asin_child_df` /
@@ -5212,6 +5287,19 @@ def _asin_table_html(model: dict, level: str, currency: str = "USD") -> str:
         level: 'child' (fila por ASIN), 'parent' (fila por parent, revenue
             sumado) o 'cuenta' (fila por período, totales).
         currency: moneda de la cuenta; se propaga a `_fmt_currency`.
+        forecast: salida de `_asin_forecast_for_export`, o None. Con None el
+            output es BYTE-IDÉNTICO al de la llamada sin el parámetro — eso lo
+            blinda un test, porque todo caller previo depende de ello (el único
+            cambio de output frente a la versión anterior es el label de la
+            primera columna a nivel cuenta, que es un fix aparte).
+            Provisto, 'parent' suma una COLUMNA por período proyectado y
+            'cuenta' suma una FILA; 'child' lo IGNORA (ese nivel no lleva
+            forecast al export por E7).
+
+    Marca visual: cada período proyectado lleva el sufijo ' (fc)' — en el
+    header de la columna a nivel parent, en la celda de período a nivel cuenta.
+    El cliente no puede quedarse sin saber qué celda es real y cuál proyectada.
+    No se agregan clases ni CSS: `_SHELL_CSS` es compartido y no se toca acá.
 
     Returns:
         `<table>…</table>`, o `''` si no hay datos que mostrar.
@@ -5251,7 +5339,22 @@ def _asin_table_html(model: dict, level: str, currency: str = "USD") -> str:
             _fmt_num(_table_cell(t.get("units"))),
             _fmt_num(_table_cell(t.get("sessions"))),
         ] for t in totals]
-        return _tbl(["Período", "Revenue", "Units", "Sessions"], rows)
+        if forecast:
+            fc_cuenta = forecast.get("cuenta") or {}
+            for p in forecast.get("periods") or []:
+                c = fc_cuenta.get(p) or {}
+                rows.append([
+                    html.escape(f"{p} (fc)"),
+                    _fmt_currency(_table_cell(c.get("revenue")), currency),
+                    _fmt_num(_table_cell(c.get("units"))),
+                    _fmt_num(_table_cell(c.get("sessions"))),
+                ])
+        # "Período (ASINs cargados)" y no "Período" a secas: estos totales son
+        # de los ASINs que el AM subió, NO de la cuenta entera. Con el título
+        # genérico el cliente leía dos números distintos en el mismo documento
+        # (capa cuenta $20.589 vs esta tabla $686) etiquetados igual.
+        return _tbl(["Período (ASINs cargados)", "Revenue", "Units",
+                     "Sessions"], rows)
 
     if level == "parent":
         pagg, ptitles = _asin_parent_agg(model)
@@ -5262,12 +5365,17 @@ def _asin_table_html(model: dict, level: str, currency: str = "USD") -> str:
         # factura.
         latest = periods[-1]
         order = sorted(pagg, key=lambda par: pagg[par].get(latest, 0.0), reverse=True)
+        fc_periods = list(forecast.get("periods") or []) if forecast else []
+        fc_parent = (forecast.get("parent") or {}) if forecast else {}
         rows = [[
             html.escape(par) if par else _NO_PARENT_LABEL,
             html.escape(ptitles.get(par, "")),
             *[_fmt_currency(_table_cell(pagg[par].get(p)), currency) for p in periods],
+            *[_fmt_currency(_table_cell(fc_parent.get(par, {}).get(p)), currency)
+              for p in fc_periods],
         ] for par in order]
-        return _tbl(["Parent ASIN", "Título", *periods], rows)
+        return _tbl(["Parent ASIN", "Título", *periods,
+                     *[f"{p} (fc)" for p in fc_periods]], rows)
 
     # level == "child"
     rev_by_asin = {
