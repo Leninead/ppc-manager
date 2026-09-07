@@ -1,8 +1,9 @@
-"""M31 F6 — Tests del forecast por-ASIN aplicado al EXPORT (Bloque 1).
+"""M31 F6 — Tests del forecast por-ASIN aplicado al EXPORT.
 
 Cubre la capa PURA que le da forecast a la sección "Detalle por ASIN" del
 deliverable HTML: `_asin_forecast_for_export` (agregación del motor por ASIN a
-nivel parent y cuenta) y el parámetro `forecast` de `_asin_table_html`.
+nivel parent y cuenta), el parámetro `forecast` de `_asin_table_html` y su
+wiring en `_build_export_html`.
 
 Contexto del bug: el export mostraba sólo meses reales por ASIN mientras la capa
 cuenta sí proyectaba, porque `_forecast_single_asin` sólo se disparaba desde la
@@ -195,3 +196,82 @@ def test_export_fc_label_periodo_aclara_asins_cargados():
     """
     html_out = rf._asin_table_html(_model_hero(), "cuenta", "USD")
     assert "Período (ASINs cargados)" in html_out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _build_export_html — wiring del forecast por-ASIN (Bloque 2)
+#
+# Se prueba la función directo, sin session_state ni AppTest: `asin_forecast`
+# recibe el valor YA resuelto, igual que `show_yoy` y `custom_metrics`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LEGEND = "marcadas (fc) son proyección"
+
+
+def _cur() -> dict:
+    """`cur` mínimo que `_build_export_html` consume: name, currency, historical
+    y forecast (las únicas 4 keys que lee). Historial de 2 meses — alcanza para
+    que el documento no caiga al guard de "sin datos".
+    """
+    return {
+        "id": "c1",
+        "name": "Dermaglos",
+        "currency": "USD",
+        "historical": [
+            {"date": "2026-07-01", "revenue": 458.0, "units": 10.0,
+             "sessions": 400.0, "cvr": 2.5, "spend": 100.0, "ventasPPC": 200.0},
+            {"date": "2026-08-01", "revenue": 686.0, "units": 14.0,
+             "sessions": 520.0, "cvr": 2.7, "spend": 120.0, "ventasPPC": 260.0},
+        ],
+        "forecast": [
+            {"date": "2026-09-01", "revenue": 900.0, "units": 18.0,
+             "sessions": 600.0, "cvr": 3.0, "acos": 28.0, "tacos": 10.0},
+        ],
+    }
+
+
+def test_export_html_sin_asin_forecast_no_tiene_fc():
+    """Retrocompatibilidad: sin el parámetro, el reporte sale como siempre."""
+    out = rf._build_export_html(_cur(), asin_model=_model_hero())
+    assert "Detalle por ASIN" in out
+    assert "(fc)" not in out
+    assert _LEGEND not in out
+
+
+def test_export_html_con_asin_forecast_muestra_columnas_fc():
+    model = _model_hero()
+    fc = rf._asin_forecast_for_export(model, _OPTS)
+    out = rf._build_export_html(_cur(), asin_model=model, asin_forecast=fc)
+    assert "2026-09 (fc)" in out
+    # Los períodos reales no se pierden al sumar las columnas proyectadas.
+    assert "2026-07" in out and "2026-08" in out
+
+
+def test_export_html_h3_cuenta_dice_asins_cargados():
+    """El <h3> tenía que dejar de decir "Cuenta": esa tabla suma sólo los ASINs
+    cargados, no la cuenta entera — el label engañoso que abrió este frente.
+    """
+    out = rf._build_export_html(_cur(), asin_model=_model_hero())
+    assert "Total por mes (ASINs cargados)" in out
+    assert "Total por mes (Cuenta)" not in out
+
+
+def test_export_html_aclaracion_solo_con_forecast():
+    """La leyenda de (fc) aparece sólo si hay celdas marcadas que explicar."""
+    model = _model_hero()
+    fc = rf._asin_forecast_for_export(model, _OPTS)
+    assert _LEGEND in rf._build_export_html(
+        _cur(), asin_model=model, asin_forecast=fc)
+    assert _LEGEND not in rf._build_export_html(
+        _cur(), asin_model=model, asin_forecast=None)
+    vacio = {"periods": [], "parent": {}, "cuenta": {}}
+    assert _LEGEND not in rf._build_export_html(
+        _cur(), asin_model=model, asin_forecast=vacio)
+
+
+def test_export_html_sin_asin_model_ignora_forecast():
+    """El forecast sin modelo no puede inventar una sección donde ponerse."""
+    fc = rf._asin_forecast_for_export(_model_hero(), _OPTS)
+    out = rf._build_export_html(_cur(), asin_model=None, asin_forecast=fc)
+    assert "Detalle por ASIN" not in out
+    assert "(fc)" not in out

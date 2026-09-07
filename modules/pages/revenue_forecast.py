@@ -4812,6 +4812,13 @@ def _render_export_section(cur: dict) -> None:
             "Cargá reportes By-ASIN en la sección 'Por ASIN' para habilitar esta vista."
         ),
     )
+    inc_asin_fc = st.checkbox(
+        "Proyectar el detalle por ASIN",
+        value=True,
+        disabled=not (has_asin and inc_asin),
+        key=f"rf_export_inc_asin_fc_{cur['id']}",
+        help="Agrega los meses proyectados por producto, marcados (fc).",
+    )
     if not has_asin:
         st.caption(
             "El detalle por ASIN se habilita cuando cargás reportes By-ASIN "
@@ -4824,6 +4831,33 @@ def _render_export_section(cur: dict) -> None:
         st.warning("Seleccioná al menos una vista para exportar.")
         return
 
+    # Los MISMOS opts que la proyección general (mismo patrón que la sección
+    # Por-ASIN de la UI). Si el deliverable proyectara la capa cuenta con un set
+    # de parámetros y la capa por-ASIN con otro, las dos secciones del mismo
+    # documento serían irreconciliables.
+    _buf = _ensure_fc_buf()
+    _opts = {
+        "horizon": int(_buf.get("horizon", 3)),
+        "momWindow": int(_buf.get("momWindow", 3)),
+        "blend": int(_buf.get("blend", 50)),
+        "useSeasonality": bool(_buf.get("useSeasonality", False)),
+    }
+    # Sin cache a propósito: el canario del bloque anterior mide 2.2 ms con 60
+    # ASINs, y el modelo vive en session_state y se invalida por run — cachear
+    # encima de eso sólo agrega superficie para estado rancio.
+    asin_fc = None
+    if asin_model and inc_asin and inc_asin_fc:
+        asin_fc = _asin_forecast_for_export(asin_model, _opts)
+        if not asin_fc["periods"]:
+            # El AM pidió proyección y no salió ninguna: que entienda POR QUÉ el
+            # reporte sale sin (fc), en vez de pensar que se rompió. Mismo texto
+            # que usa la sección Por-ASIN para el caso equivalente.
+            st.caption(
+                "Ningún ASIN cargado tiene 2+ meses COMPLETOS, así que el "
+                "reporte sale sin proyección por producto (los meses parciales "
+                "se excluyen del cálculo)."
+            )
+
     # `actual` va CRUDO: `_build_export_html` resuelve el `partial` puertas
     # adentro (un solo punto de verdad, ver su docstring).
     html_str = _build_export_html(
@@ -4831,6 +4865,7 @@ def _render_export_section(cur: dict) -> None:
         actual_rows=cur.get("actual", []),
         asin_model=asin_model if inc_asin else None,
         include_general=inc_general,
+        asin_forecast=asin_fc,
     )
     fname_html = (
         f"forecast_{_cliente_slug(cur.get('name', ''))}_"
@@ -5419,6 +5454,7 @@ def _build_export_html(
     actual_rows: Optional[list] = None,
     asin_model: Optional[dict] = None,
     include_general: bool = True,
+    asin_forecast: Optional[dict] = None,
 ) -> str:
     """Reporte HTML self-contained del forecast: 7 charts Plotly + resumen + tabla.
 
@@ -5474,6 +5510,21 @@ def _build_export_html(
                   Con `False` el documento no lleva NINGÚN chart, así que
                   tampoco carga plotly.js — es el reporte más liviano de los
                   tres.
+
+        asin_forecast: salida YA CALCULADA de `_asin_forecast_for_export`, o
+                  None. NO se calcula acá adentro a propósito: mismo criterio
+                  que `show_yoy` y `custom_metrics` — la función recibe el
+                  valor resuelto en vez de leer `session_state`, para seguir
+                  siendo determinística y testeable sin runtime Streamlit. El
+                  caller la calcula con los MISMOS opts de la proyección
+                  general, para que las dos capas del documento sean
+                  reconciliables entre sí.
+                  None → el reporte sale EXACTAMENTE como antes de este bloque,
+                  sin ninguna columna ni fila `(fc)`: retrocompatible con todo
+                  caller viejo, igual que `actual_rows` y `asin_model`.
+                  Sólo tiene efecto junto a `asin_model`: sin modelo no se emite
+                  la sección "Detalle por ASIN", y por lo tanto no hay dónde
+                  poner la proyección.
 
     Returns:
         Documento HTML completo como string.
@@ -5568,15 +5619,31 @@ def _build_export_html(
     # modelo, o las tablas salen vacías, la sección no se emite.
     if asin_model:
         asin_parts = []
-        parent_tbl = _asin_table_html(asin_model, "parent", currency)
+        parent_tbl = _asin_table_html(asin_model, "parent", currency,
+                                      forecast=asin_forecast)
         if parent_tbl:
             asin_parts.append(f"<h3>Por producto (Parent)</h3>{parent_tbl}")
-        cuenta_tbl = _asin_table_html(asin_model, "cuenta", currency)
+        cuenta_tbl = _asin_table_html(asin_model, "cuenta", currency,
+                                      forecast=asin_forecast)
         if cuenta_tbl:
-            asin_parts.append(f"<h3>Total por mes (Cuenta)</h3>{cuenta_tbl}")
+            # "(ASINs cargados)" y no "(Cuenta)": este total suma SÓLO los ASINs
+            # que el AM subió, no la cuenta entera. Con el rótulo viejo el mismo
+            # documento mostraba $20.589 en la capa cuenta y $686 acá, los dos
+            # etiquetados "Cuenta" — que es el reporte que abrió este frente.
+            asin_parts.append(
+                f"<h3>Total por mes (ASINs cargados)</h3>{cuenta_tbl}")
         if asin_parts:
+            # La aclaración sólo si HAY proyección: un cartel explicando una
+            # marca que no aparece en ninguna celda confunde más de lo que aclara.
+            legend = ""
+            if asin_forecast and asin_forecast.get("periods"):
+                legend = (
+                    '<p class="meta">Las columnas y filas marcadas (fc) son '
+                    "proyección, no datos reales.</p>"
+                )
             parts.append(
-                f'<section><h2>Detalle por ASIN</h2>{"".join(asin_parts)}</section>'
+                f'<section><h2>Detalle por ASIN</h2>{"".join(asin_parts)}'
+                f"{legend}</section>"
             )
 
     parts.append(

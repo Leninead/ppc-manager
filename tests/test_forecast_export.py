@@ -656,7 +656,9 @@ def test_export_with_asin_model_adds_section():
     out = _build_export_html(_cur(), asin_model=_export_asin_model())
     assert "Detalle por ASIN" in out
     assert "Por producto (Parent)" in out
-    assert "Total por mes (Cuenta)" in out
+    # El <h3> decía "(Cuenta)" y se leía como el total de la cuenta entera; esta
+    # tabla suma SÓLO los ASINs cargados. Renombrado con el fix del label.
+    assert "Total por mes (ASINs cargados)" in out
 
 
 def test_export_asin_section_has_parent_and_account_data():
