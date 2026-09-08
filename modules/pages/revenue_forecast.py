@@ -1752,10 +1752,17 @@ def _asin_forecast_for_export(model: dict, opts: dict,
 
     Returns:
         {"periods": [...], "parent": {par: {period: revenue}},
-         "cuenta": {period: {"revenue", "units", "sessions"}}}.
+         "cuenta": {period: {"revenue", "units", "sessions"}},
+         "min_meses_base": int}.
         Si NINGÚN ASIN proyecta, el dict vacío canónico
-        `{"periods": [], "parent": {}, "cuenta": {}}` — nunca None, para que el
-        caller no tenga que chequear dos cosas distintas.
+        `{"periods": [], "parent": {}, "cuenta": {}, "min_meses_base": 0}` —
+        nunca None, para que el caller no tenga que chequear dos cosas distintas.
+
+        `min_meses_base` es el MÍNIMO de meses COMPLETOS entre los ASINs que sí
+        proyectaron — el eslabón más débil del documento, no el promedio: si 20
+        ASINs tienen 8 meses y uno tiene 2, ese uno arrastra la confiabilidad de
+        la fila de totales y el reporte tiene que avisarlo. Un promedio lo
+        escondería detrás de los ASINs buenos. Vale 0 cuando no proyectó nadie.
 
     Nota: no se agrega CVR a nivel cuenta. El CVR de la cuenta NO es el promedio
     de los CVR por ASIN; si se necesita, se deriva de units/sessions. Fuera de
@@ -1764,11 +1771,17 @@ def _asin_forecast_for_export(model: dict, opts: dict,
     parent: dict = {}
     cuenta: dict = {}
     periods: set = set()
+    min_base: int | None = None
 
     for node in model.values():
-        fc = _forecast_single_asin(node.get("history") or [], opts, yoy_mode)
+        history = node.get("history") or []
+        fc = _forecast_single_asin(history, opts, yoy_mode)
         if not fc:
             continue  # <2 meses completos — se saltea, no rompe al resto
+        # Mismo criterio de "mes completo" que usa el motor: si contáramos los
+        # parciales, el aviso del reporte diría más base de la que hubo.
+        n_completos = len([h for h in history if not h.get("partial")])
+        min_base = n_completos if min_base is None else min(min_base, n_completos)
         par = node.get("parent_asin", "")
         byp = parent.setdefault(par, {})
         for r in fc:
@@ -1787,8 +1800,9 @@ def _asin_forecast_for_export(model: dict, opts: dict,
             acc["sessions"] += _js_number(r.get("sessions"))
 
     if not periods:
-        return {"periods": [], "parent": {}, "cuenta": {}}
-    return {"periods": sorted(periods), "parent": parent, "cuenta": cuenta}
+        return {"periods": [], "parent": {}, "cuenta": {}, "min_meses_base": 0}
+    return {"periods": sorted(periods), "parent": parent, "cuenta": cuenta,
+            "min_meses_base": min_base or 0}
 
 
 def _build_asin_parent_df(model: dict, all_periods: list[str]) -> pd.DataFrame:
@@ -4857,6 +4871,18 @@ def _render_export_section(cur: dict) -> None:
                 "reporte sale sin proyección por producto (los meses parciales "
                 "se excluyen del cálculo)."
             )
+        else:
+            # El AM tiene que saber lo que va a leer el cliente ANTES de mandar
+            # el archivo: el HTML lleva el mismo aviso, pero enterarse después
+            # de haberlo mandado no sirve de nada.
+            _base = int(asin_fc.get("min_meses_base") or 0)
+            if _base and _base <= _ASIN_FC_BASE_MINIMA:
+                _u = "mes" if _base == 1 else "meses"
+                st.caption(
+                    f"⚠️ La proyección por ASIN se apoya en {_base} {_u} de "
+                    "historial completo: el reporte la marca como indicativa "
+                    "para el cliente. Se estabiliza cargando más meses."
+                )
 
     # `actual` va CRUDO: `_build_export_html` resuelve el `partial` puertas
     # adentro (un solo punto de verdad, ver su docstring).
@@ -5299,6 +5325,12 @@ _ASIN_TABLE_LEVELS = ("child", "parent", "cuenta")
 # "falta el dato" en vez de "no tiene padre".
 _NO_PARENT_LABEL = "Sin parent"
 
+# Con 2 meses completos el MoM ES la diferencia entre esos dos puntos: no hay
+# promedio ni suavizado posible, y un mes atípico (lanzamiento, quiebre de
+# stock) se proyecta como si fuera tendencia. A 3 meses de horizonte eso
+# compone hasta 3x. El documento lo dice en vez de callarlo.
+_ASIN_FC_BASE_MINIMA = 2
+
 
 def _asin_table_html(model: dict, level: str, currency: str = "USD",
                      forecast: dict | None = None) -> str:
@@ -5641,6 +5673,16 @@ def _build_export_html(
                     '<p class="meta">Las columnas y filas marcadas (fc) son '
                     "proyección, no datos reales.</p>"
                 )
+                # Segunda línea sólo con base pobre. El 0 (dict viejo sin la
+                # clave, o sin proyección) NO dispara el aviso: diría "0 meses".
+                _base = int(asin_forecast.get("min_meses_base") or 0)
+                if _base and _base <= _ASIN_FC_BASE_MINIMA:
+                    _u = "mes" if _base == 1 else "meses"
+                    legend += (
+                        f'<p class="meta">Proyección basada en {_base} {_u} de '
+                        "historial: tomar como indicativa. Se estabiliza con "
+                        "más meses cargados.</p>"
+                    )
             parts.append(
                 f'<section><h2>Detalle por ASIN</h2>{"".join(asin_parts)}'
                 f"{legend}</section>"
