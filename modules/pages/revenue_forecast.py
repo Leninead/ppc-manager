@@ -8,7 +8,7 @@ deliberado.
 
 Sección: Account Manager
 Página: 📈 Monthly Forecast
-Fase: 5 (MVP CERRADO — Estacionalidad UI + Export CSV). Consume el motor
+Fase: 6 (forecast por-ASIN + proyección en el export HTML). Consume el motor
 puro F3 (`auto_detect_seasonality`, `generate_forecast`) sin modificarlo.
 Cambiar la seasonality NO regenera el forecast automático (pisaría los
 overrides F4). El aviso "regenerá arriba" invita al AM a re-aplicar
@@ -22,10 +22,13 @@ Fases previas (acumuladas):
     F4: UI editable del forecast por-cuenta (controles + tabla + summary).
     F5: estacionalidad UI (toggle + 12 índices editables + auto-detect) +
         export CSV con 12 cols HTML + 6 cols de overrides manuales del AM.
+    F6: forecast por-ASIN (drill-down + parent rollup) + proyección en el
+        export HTML. Falta bulk generation desde la UI: en pantalla se
+        genera de a un ASIN.
 
 Pendiente (post-MVP):
-    F6: forecast por-ASIN (drill-down + bulk generation + parent rollup).
     Snapshots + persistencia activa + comparación vs Real (fin de mes).
+    Bulk generation del forecast por-ASIN en la UI.
 
 ──────────────────────────────────────────────────────────────────────────────
 Decisiones de diseño F1 (documentadas in-line)
@@ -186,8 +189,9 @@ visualiza, y proyecta N meses al futuro ajustando overrides manualmente.
 probar el flujo sin Business Report real.
 
 **Próximas fases:**
-- F5: exports (CSV/XLSX) + snapshots versionados + persistencia activa.
-- F6: forecast por-ASIN (drill-down + bulk).
+- Snapshots versionados + persistencia activa.
+- Bulk generation del forecast por-ASIN desde la UI (hoy se genera de a uno).
+- Comparación vs Real al cierre de mes.
 """
 
 
@@ -6054,11 +6058,12 @@ def render() -> None:
         if _try_persist():
             st.success("Guardado ✓")
 
-    # 4) Aviso de fase.
+    # 4) Aviso de estado del módulo.
     st.info(
-        "🚧 **Fase 5 — MVP cerrado.** Estacionalidad UI + Export CSV activos. "
-        "Falta forecast por-ASIN (F6) y snapshots/vs-Real (post-MVP). "
-        "Los clientes y su forecast se guardan en Supabase."
+        "✅ **Forecast por-ASIN activo.** Proyección por producto en pantalla "
+        "y en el reporte HTML (columnas marcadas `(fc)`). Necesita 2+ meses "
+        "COMPLETOS por ASIN; con base corta el reporte lo advierte. "
+        "Pendiente: snapshots y comparación vs Real al cierre de mes."
     )
 
     # 5) Sección DATOS — port del HTML L721-785.
