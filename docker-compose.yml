@@ -20,6 +20,13 @@ services:
     ports:
       - "127.0.0.1:8501:8501"
 
+    # Every variable the app needs is named here, one by one. Do NOT add
+    # `env_file: .env` back: Compose already reads .env to resolve ${...}
+    # without handing it to the container, and mounting it injected the whole
+    # file — POSTGRES_PASSWORD, PGRST_JWT_SECRET and INTEGRATIONS_WORKER_JWT
+    # included. That collapses the trust boundary the sealed-credential design
+    # rests on: with the JWT secret an attacker who owns Streamlit can mint a
+    # role=integ_worker token and read the very columns the GRANTs withhold.
     environment:
       AGENCY_OS_DATA_DIR: /app/data
       # Filesystem backend (phase 1). Supabase = flip these + SUPABASE_URL/KEY, no rebuild.
@@ -28,10 +35,14 @@ services:
       AGENCY_OS_INNOVATION_BACKEND: local
       # Do NOT set AGENCY_OS_LOCAL_MODE in prod — it disables login (app.py:166).
       CLAUDE_PROVIDER_URL: ${CLAUDE_PROVIDER_URL:-http://ai-provider:3111}  # AI gateway, over ai-net
-
-    env_file:
-      - path: .env            # ANTHROPIC_API_KEY etc. on the host; never in git/image.
-        required: false
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DATADIVE_API_KEY: ${DATADIVE_API_KEY:-}
+      # Portal: web_user JWT (never the worker's), the public half of the
+      # sealing key, and the consent redirect the connect dialog builds.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
+      INTEGRATIONS_PUBLIC_KEY: ${INTEGRATIONS_PUBLIC_KEY:-}
+      INTEGRATIONS_REDIRECT_URI: ${INTEGRATIONS_REDIRECT_URI:-}
 
     volumes:
       - agency_data:/app/data

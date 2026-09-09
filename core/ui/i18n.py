@@ -1,0 +1,850 @@
+"""Translation catalog for the screens migrated to i18n so far.
+
+The application is Spanish-first: Spanish is the source language, written by
+hand in the modules, and every English string here is a translation of it.
+Only a handful of surfaces have been migrated — the shell (login, sidebar,
+search, footer), the navigation labels, and the two Sistema screens (Cuentas
+conectadas and Integraciones). Every other page still carries its Spanish
+literals inline and is unaffected by the language toggle.
+
+That partial coverage is deliberate and visible: `t()` falls back to Spanish
+when an English translation is missing and to the key itself when the key is
+unknown, so a half-migrated screen degrades into readable Spanish instead of
+blank labels or a traceback.
+
+Three rules keep this catalog usable as more screens arrive:
+
+- One key per user-visible sentence, never per fragment. A sentence assembled
+  from bare nouns at the call site cannot be translated into a language whose
+  word order or agreement differs from Spanish.
+- Plurals live in the catalog as `<key>_one` / `<key>_other` and are read
+  through `tn()`. Appending an "s" at the call site is what produced the
+  ungrammatical "2 cuentas requiere reautorizar" this catalog replaces.
+- Interpolation is by name (`{provider}`, `{n}`), so a translation may reorder
+  the slots freely.
+
+The module imports Streamlit defensively and reads nothing at import time, so
+it can be imported by tests and scripts with no Streamlit runtime present.
+"""
+from __future__ import annotations
+
+try:  # pragma: no cover - exercised only where Streamlit is installed
+    import streamlit as st
+except Exception:  # pragma: no cover - import-safe outside the app
+    st = None  # type: ignore[assignment]
+
+DEFAULT_LANG = "es"
+LANGS = ("es", "en")
+
+# The sidebar radio stores its own option label, not a language code.
+_RADIO_TO_LANG = {"Español": "es", "English": "en"}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# CATALOG
+# ══════════════════════════════════════════════════════════════════════════
+
+_ES: dict[str, str] = {
+    # ── Shell: login, sidebar, footer, local mode ─────────────────────────
+    "shell.local_mode.sidebar_caption": "🔓 Modo local — sin login",
+    "shell.auth.secrets_missing": (
+        "❌ Falta `.streamlit/secrets.toml` o sus claves `credentials`/`cookie`. "
+        "Copiá `secrets.toml.example` → `secrets.toml` y completá tus "
+        "credenciales, o corré en modo local con la variable de entorno "
+        "`AGENCY_OS_LOCAL_MODE=1`."
+    ),
+    "shell.login.form_name": "🦫 Agency OS",
+    "shell.login.username": "Usuario",
+    "shell.login.password": "Contraseña",
+    "shell.login.submit": "Ingresar",
+    "shell.login.bad_credentials": "❌ Usuario o contraseña incorrectos",
+    "shell.sidebar.logout": "↩ Cerrar sesión",
+    "shell.sidebar.search_label": "Buscar módulo",
+    "shell.sidebar.search_placeholder": "Buscar módulo — Enter",
+    "shell.sidebar.search_no_results": "Ningún módulo se llama así.",
+    # The two options are endonyms rendered by the widget itself, so they are
+    # not catalog entries: a language names itself in every language.
+    "shell.sidebar.ai_lang_label": "Idioma",
+    "shell.sidebar.ai_lang_help": (
+        "Cambia el idioma de la interfaz y el de las respuestas de la IA en "
+        "las pestañas de análisis (STR, SQP, DataDive). Las pantallas que "
+        "todavía no se migraron siguen en español."
+    ),
+    "shell.sidebar.parent_child_ok": "🧬 {n} parents",
+    "shell.sidebar.parent_child_missing": "⚠️ Sin mapeo",
+    "shell.sidebar.footer_developed_by": "Desarrollado por",
+    "shell.sidebar.footer_author": "Lenin Acosta",
+    "shell.sidebar.footer_agency": "Capybaras Agency · 2026",
+    "shell.local_mode.banner": (
+        "🔓 MODO LOCAL — login desactivado. No usar en producción."
+    ),
+
+    # ── Navigation: section titles ────────────────────────────────────────
+    "nav.section.ppc": "PPC",
+    "nav.section.research": "Research",
+    "nav.section.account": "Account",
+    "nav.section.sales_director": "Sales Director",
+    "nav.section.knowledge": "Knowledge",
+    "nav.section.account_health": "Account Health",
+    "nav.section.marketplaces": "Marketplaces",
+    "nav.section.sistema": "Sistema",
+
+    # ── Navigation: page labels (routing keys keep their emoji) ───────────
+    "nav.page.inicio": "Inicio",
+    "nav.page.search_term_report": "Search Term Report",
+    "nav.page.search_query_performance": "Search Query Performance",
+    "nav.page.analisis_cruzado": "Análisis Cruzado STR vs SQP",
+    "nav.page.tendencia_multisemana": "Tendencia Multi-Semana",
+    "nav.page.bulk_campanas": "Bulk Campañas",
+    "nav.page.business_report": "Business Report",
+    "nav.page.analisis_funnel": "Análisis de Funnel",
+    "nav.page.bid_optimizer": "Bid Optimizer",
+    "nav.page.campaign_builder": "Campaign Builder",
+    "nav.page.atom11_rules_builder": "Atom11 Rules Builder",
+    "nav.page.datadive_analyzer": "DataDive Analyzer",
+    "nav.page.helium10_analyzer": "Helium 10 Analyzer",
+    "nav.page.sbh_recommendation": "SBH Recommendation",
+    "nav.page.ppc_insights": "PPC Insights",
+    "nav.page.ppc_forecast": "PPC Forecast",
+    "nav.page.ppc_audit": "PPC Audit",
+    "nav.page.account_pulse": "Account Pulse",
+    "nav.page.reportes_atom11": "Reportes Atom 11",
+    "nav.page.reportes_merchanspring": "Reportes MerchanSpring",
+    "nav.page.weekly_client_report": "Weekly Client Report",
+    "nav.page.listing_monitor": "Listing Monitor",
+    "nav.page.listing_compliance": "Listing Compliance",
+    "nav.page.gamboa_generator": "Gamboa Generator",
+    "nav.page.variation_builder": "Variation Builder",
+    "nav.page.monthly_forecast": "Monthly Forecast",
+    "nav.page.proposal_studio": "Proposal Studio",
+    "nav.page.case_study_studio": "Case Study Studio",
+    "nav.page.knowledge_base": "Knowledge Base",
+    "nav.page.flat_file_migrator": "Flat File Migrator",
+    "nav.page.sku_progress_report": "SKU Progress Report",
+    "nav.page.pricing_dashboard": "Pricing Dashboard",
+    "nav.page.mercado_libre": "Mercado Libre",
+    "nav.page.cuentas_conectadas": "Cuentas conectadas",
+    "nav.page.integraciones": "Integraciones",
+
+    # ── Cuentas conectadas (M37) ──────────────────────────────────────────
+    "accounts.sop_md": """
+**Qué es esta pantalla**
+
+Es el lugar donde la agencia conecta las cuentas de sus clientes contra
+cada proveedor (Mercado Libre hoy, Amazon o Walmart cuando estén
+disponibles). Cualquier empleado puede conectar o quitar una cuenta: no
+hace falta ser admin.
+
+**Cómo se usa**
+
+1. Ubicá el proveedor donde vas a operar la cuenta del cliente.
+2. Apretá **Conectar cuenta nueva**. Se genera un link único.
+3. Pasáselo al vendedor (o abrilo vos si ya estás con él): va a Mercado
+   Libre, se loguea con SU usuario y aprueba a la app.
+4. Cuando termina, la cuenta aparece acá con el nickname de Mercado
+   Libre y el país (`MLA` = Argentina, `MLM` = México, etc.).
+
+**Qué no está acá**
+
+Las credenciales de la agencia (`client_id`, `client_secret`, API keys)
+las carga un admin en **⚙️ Sistema → 🔌 Integraciones**. Sin esa
+credencial cargada, este panel muestra el proveedor pero no deja
+conectar cuentas nuevas.
+""",
+    "accounts.status_active": "Activa",
+    "accounts.status_needs_reauth": "Requiere reautorizar",
+    "accounts.header_title": "🔑 Cuentas conectadas",
+    "accounts.header_caption": (
+        "Cuentas de clientes que la agencia opera vía API en cada marketplace. "
+        "Cualquier empleado puede conectar o desconectar."
+    ),
+    "accounts.verdict_needs_reauth_one": "1 cuenta requiere reautorizar.",
+    "accounts.verdict_needs_reauth_other": "{n} cuentas requieren reautorizar.",
+    "accounts.verdict_all_clear": "Nada requiere atención.",
+    # Noun fragments: needed only by `accounts.verdict_detail`, which counts two
+    # different things in one sentence and so cannot carry a single plural form.
+    # Nothing else should concatenate them.
+    "accounts.word_account_one": "cuenta",
+    "accounts.word_account_other": "cuentas",
+    "accounts.word_provider_one": "proveedor",
+    "accounts.word_provider_other": "proveedores",
+    "accounts.verdict_detail": "{accounts} {account_word} en {providers} {provider_word}.",
+    "accounts.verdict_detail_coming": "{n} más próximamente.",
+    "accounts.sop_expander": "📘 Cómo usar esta pantalla",
+    "accounts.error_db_unavailable": (
+        "El portal todavía no está conectado a la base de datos, así que no "
+        "puedo mostrar las cuentas conectadas ni conectar cuentas nuevas. Es "
+        "un paso de infraestructura del servidor: avisale al equipo de "
+        "sistemas."
+    ),
+    "accounts.empty_no_providers": (
+        "Todavía no hay proveedores con conexión de cuentas disponibles."
+    ),
+    "accounts.provider_pending_default": (
+        "El proveedor está en el catálogo pero la app de la agencia todavía no "
+        "fue aprobada."
+    ),
+    "accounts.provider_missing_credential": (
+        "La credencial del sistema para {provider} todavía no está cargada. "
+        "Un admin la agrega en <strong>Sistema → Integraciones</strong>."
+    ),
+    "accounts.provider_no_accounts": "Todavía no hay cuentas conectadas.",
+    "accounts.provider_coming_soon": "Próximamente",
+    "accounts.provider_count_one": "{n} cuenta",
+    "accounts.provider_count_other": "{n} cuentas",
+    "accounts.row_connected_by": "conectada por {user}",
+    "accounts.btn_reauth": "Reautorizar",
+    "accounts.btn_remove": "Quitar",
+    "accounts.btn_connect_new": "Conectar cuenta nueva",
+    "accounts.dialog_connect_title": "Conectar cuenta",
+    "accounts.error_unknown_provider": "Proveedor desconocido.",
+    "accounts.error_db_unavailable_short": "El portal no está conectado a la base.",
+    "accounts.error_missing_credential": (
+        "Falta la credencial del sistema para {provider}. Un admin la carga en "
+        "**Sistema → Integraciones**."
+    ),
+    "accounts.error_missing_redirect_uri": (
+        "Falta configurar `INTEGRATIONS_REDIRECT_URI` en el servidor. "
+        "Avisale a sistemas."
+    ),
+    "accounts.error_missing_public_key": (
+        "El worker todavía no publicó su clave pública. Corré `worker keys` "
+        "una vez en el servidor."
+    ),
+    "accounts.connect_dialog_body": (
+        "Abrí el link para que el vendedor autorice a la app desde su cuenta "
+        "de **{provider}**. No hay campos: el nombre y el país los tomamos "
+        "automáticamente al conectarse. Cuando termine, la cuenta aparece en "
+        "el listado con su nickname y país."
+    ),
+    "accounts.btn_open_consent": "Abrir {provider} para autorizar",
+    "accounts.btn_close": "Cerrar",
+    "accounts.dialog_remove_title": "Quitar cuenta",
+    "accounts.remove_dialog_body": (
+        "Vas a desconectar la cuenta de **{provider}**. La app deja de poder "
+        "consultar sus datos. El registro queda para auditoría; si más "
+        "adelante la querés reconectar, andá a `Conectar cuenta nueva`."
+    ),
+    "accounts.btn_cancel": "Cancelar",
+    "accounts.btn_disconnect": "Desconectar",
+    "accounts.toast_disconnected": "Cuenta desconectada.",
+
+    # ── Integraciones (M38) ───────────────────────────────────────────────
+    "integrations.sop_md": """**Dos niveles de credential, con radios de impacto distintos.**
+
+- **Credencial del sistema** — una por integración. Es la API key de la agencia, o el
+  `client_id` y `client_secret` de la aplicación OAuth. La carga un admin una sola vez.
+  Si falla, se cae la integración para **todos** los clientes.
+- **Cuenta conectada** — una por cliente. El vendedor autoriza desde su propia sesión y
+  queda un permiso renovable. Si falla, se cae **ese** cliente nada más.
+
+**Por qué no se puede ver una credential ya cargada.** Las credenciales OAuth se guardan
+cifradas con una clave que sólo sirve para cerrar: la app puede guardarlas y no puede
+volver a abrirlas. La mitad que descifra la tiene sólo el worker de ingesta, así que si
+alguien entrara a la aplicación se llevaría un texto ilegible.
+
+Por eso las acciones son *Agregar*, *Reemplazar* y *Quitar*, y no hay *Ver* ni *Editar*:
+para cambiar una credential se carga de nuevo. La huella de seis caracteres sirve para
+que dos personas confirmen que hablan de la misma clave, sin revelarla.
+
+**Permisos.** Conectar la cuenta de un cliente lo puede hacer cualquier usuario. Cargar,
+reemplazar o quitar una credential del sistema es sólo de admin: si no sos admin, esos
+botones no aparecen.
+
+**Cómo se lee la lista.** Arriba de todo, una línea dice si hay algo roto y a qué cliente
+le pega. Debajo, una fila por integración agrupada en bandas: *Requiere atención* primero,
+después *Se puede cargar* y *En servicio*. Una banda sin filas no se dibuja — que la de
+atención no esté es el mensaje.
+
+Cuando una cuenta de cliente deja de autorizar, la integración **no** se pinta como caída:
+anda para las demás. Lo que se marca es la línea de ese cliente, colgada de su integración.
+
+Lo que todavía no existe no ocupa una fila: va en una sola oración al pie.""",
+    "integrations.band.uncertain": "SIN PODER CONFIRMAR",
+    "integrations.band.attention": "REQUIERE ATENCIÓN",
+    "integrations.band.loadable": "SE PUEDE CARGAR",
+    "integrations.band.live": "EN SERVICIO",
+    "integrations.months_short": "ene,feb,mar,abr,may,jun,jul,ago,sep,oct,nov,dic",
+    "integrations.page.header": "Integraciones · sistema",
+    "integrations.page.caption": (
+        "Credenciales de las apps que la agencia registró en cada proveedor. "
+        "Sólo admin."
+    ),
+    "integrations.page.admin_only_info": (
+        "Esta pantalla es sólo para admin. Para conectar la cuenta de un "
+        "cliente, andá a **🛒 Mercado Libre** en el menú de Marketplaces."
+    ),
+    "integrations.sop.expander_title": "📘 Cómo usar este módulo",
+    "integrations.verdict.no_db": "El portal no está conectado a la base.",
+    "integrations.verdict.read_failed": "No se pudo leer el estado del portal.",
+    "integrations.verdict.needs_attention_one": "{n} integración requiere atención.",
+    "integrations.verdict.needs_attention_other": "{n} integraciones requieren atención.",
+    "integrations.verdict.all_ok": "Nada requiere atención.",
+    "integrations.verdict.summary_count_one": "{n} integración.",
+    "integrations.verdict.summary_count_other": "{n} integraciones.",
+    "integrations.row.btn_detail": "Detalle",
+    "integrations.footer.coming_soon_label": "Próximamente:",
+    "integrations.row.btn_add_credential": "Agregar credential",
+    "integrations.row.btn_replace": "Reemplazar",
+    "integrations.notice.no_db_warning": (
+        "El portal todavía no está conectado a la base de datos, así que abajo "
+        "ves el catálogo pero no se puede guardar nada. Es un paso de "
+        "infraestructura del servidor: avisale al equipo de sistemas."
+    ),
+    "integrations.notice.none_enabled": "Todavía no hay integraciones habilitadas.",
+    "integrations.notice.worker_not_run": (
+        "El worker de ingesta todavía no corrió por primera vez. Se configura "
+        "solo cuando lo hace —esta noche, en su corrida programada— y ahí se "
+        "habilitan las integraciones que conectan cuentas de clientes."
+    ),
+    "integrations.dialog.detail_title": "Detalle de la integración",
+    "integrations.detail.section_system_credential": "**Credencial del sistema**",
+    "integrations.detail.label_fingerprint": "Huella",
+    "integrations.detail.label_created_by": "Cargada por",
+    "integrations.detail.label_updated_at": "Última actualización",
+    "integrations.detail.label_storage": "Cómo se guarda",
+    "integrations.detail.storage_encrypted": "Cifrada",
+    "integrations.detail.storage_plain": "Sin cifrar",
+    "integrations.detail.caption_sealed": (
+        "La app la guarda cifrada y no puede volver a leerla: sólo la abre el "
+        "worker."
+    ),
+    "integrations.detail.caption_plain": (
+        "La usa el propio módulo que la consume, así que se guarda sin cifrar."
+    ),
+    "integrations.detail.warning_imported_copy": (
+        "Esta credential se {detail}. Borrá esa copia del servidor: el portal "
+        "es la única fuente y dos copias se desincronizan."
+    ),
+    "integrations.detail.btn_remove_credential": "Quitar credential",
+    "integrations.dialog.credential_title": "Credencial del sistema",
+    "integrations.credential.caption_blast_radius": (
+        "Esta credential la usan todos los clientes de la integración. Si "
+        "falla, la integración deja de funcionar para toda la agencia."
+    ),
+    "integrations.credential.btn_replace": "Reemplazar",
+    "integrations.credential.btn_save": "Guardar",
+    "integrations.credential.error_missing_secret": "Falta {field}.",
+    "integrations.credential.error_missing_public_one": "Falta {fields}.",
+    "integrations.credential.error_missing_public_other": "Faltan {fields}.",
+    "integrations.credential.error_seal_failed": (
+        "No se pudo cifrar la credential: {error}"
+    ),
+    "integrations.credential.error_no_db_save": (
+        "El portal no está conectado a la base de datos, así que no se puede "
+        "guardar."
+    ),
+    "integrations.credential.flash_saved": "Credencial de {integration} guardada.",
+    "integrations.dialog.remove_title": "Quitar credential",
+    "integrations.remove.warning_accounts_one": (
+        "La cuenta que depende de esta credential deja de funcionar."
+    ),
+    "integrations.remove.warning_accounts_other": (
+        "Las {n} cuentas que dependen de esta credential dejan de funcionar."
+    ),
+    "integrations.remove.confirm_input_label": "Escribí {name} para confirmar",
+    "integrations.remove.btn_confirm": "Quitar",
+    "integrations.remove.error_no_db": (
+        "El portal no está conectado a la base de datos."
+    ),
+    "integrations.remove.flash_removed": "Credencial de {integration} quitada.",
+    "integrations.status.out_of_scope": "Andando, fuera del portal",
+    "integrations.status.no_sealing": "Esperando la primera corrida del worker",
+    "integrations.status.no_credential": "Sin configurar",
+    "integrations.status.pending_migration": "Anda con una copia vieja, sin migrar",
+    "integrations.status.credential_loaded": "Credencial cargada",
+    "integrations.status.ready_for_accounts": "Lista para conectar cuentas de clientes",
+    "integrations.fact.sealing_tonight": "Se configura solo en la corrida de esta noche",
+    "integrations.fact.pending_migration_origin": "Quedó en {origin}",
+    "integrations.kind.oauth": "OAuth",
+    "integrations.kind.api_key": "API key",
+}
+
+
+_EN: dict[str, str] = {
+    # ── Shell: login, sidebar, footer, local mode ─────────────────────────
+    "shell.local_mode.sidebar_caption": "🔓 Local mode — no login",
+    "shell.auth.secrets_missing": (
+        "❌ Missing `.streamlit/secrets.toml` or its `credentials`/`cookie` "
+        "keys. Copy `secrets.toml.example` → `secrets.toml` and fill in your "
+        "credentials, or run in local mode with the environment variable "
+        "`AGENCY_OS_LOCAL_MODE=1`."
+    ),
+    "shell.login.form_name": "🦫 Agency OS",
+    "shell.login.username": "Username",
+    "shell.login.password": "Password",
+    "shell.login.submit": "Sign in",
+    "shell.login.bad_credentials": "❌ Incorrect username or password",
+    "shell.sidebar.logout": "↩ Sign out",
+    "shell.sidebar.search_label": "Search modules",
+    "shell.sidebar.search_placeholder": "Search modules — Enter",
+    "shell.sidebar.search_no_results": "No module by that name.",
+    "shell.sidebar.ai_lang_label": "Language",
+    "shell.sidebar.ai_lang_help": (
+        "Switches the interface language and the language the AI answers in "
+        "on the analysis tabs (STR, SQP, DataDive). Screens not migrated yet "
+        "stay in Spanish."
+    ),
+    "shell.sidebar.parent_child_ok": "🧬 {n} parents",
+    "shell.sidebar.parent_child_missing": "⚠️ No mapping",
+    "shell.sidebar.footer_developed_by": "Developed by",
+    "shell.sidebar.footer_author": "Lenin Acosta",
+    "shell.sidebar.footer_agency": "Capybaras Agency · 2026",
+    "shell.local_mode.banner": (
+        "🔓 LOCAL MODE — login disabled. Not for production use."
+    ),
+
+    # ── Navigation: section titles ────────────────────────────────────────
+    "nav.section.ppc": "PPC",
+    "nav.section.research": "Research",
+    "nav.section.account": "Account",
+    "nav.section.sales_director": "Sales Director",
+    "nav.section.knowledge": "Knowledge",
+    "nav.section.account_health": "Account Health",
+    "nav.section.marketplaces": "Marketplaces",
+    "nav.section.sistema": "System",
+
+    # ── Navigation: page labels (routing keys keep their emoji) ───────────
+    "nav.page.inicio": "Home",
+    "nav.page.search_term_report": "Search Term Report",
+    "nav.page.search_query_performance": "Search Query Performance",
+    "nav.page.analisis_cruzado": "STR vs SQP Cross-Analysis",
+    "nav.page.tendencia_multisemana": "Multi-Week Trend",
+    "nav.page.bulk_campanas": "Bulk Campaigns",
+    "nav.page.business_report": "Business Report",
+    "nav.page.analisis_funnel": "Funnel Analysis",
+    "nav.page.bid_optimizer": "Bid Optimizer",
+    "nav.page.campaign_builder": "Campaign Builder",
+    "nav.page.atom11_rules_builder": "Atom11 Rules Builder",
+    "nav.page.datadive_analyzer": "DataDive Analyzer",
+    "nav.page.helium10_analyzer": "Helium 10 Analyzer",
+    "nav.page.sbh_recommendation": "SBH Recommendation",
+    "nav.page.ppc_insights": "PPC Insights",
+    "nav.page.ppc_forecast": "PPC Forecast",
+    "nav.page.ppc_audit": "PPC Audit",
+    "nav.page.account_pulse": "Account Pulse",
+    "nav.page.reportes_atom11": "Atom 11 Reports",
+    "nav.page.reportes_merchanspring": "MerchanSpring Reports",
+    "nav.page.weekly_client_report": "Weekly Client Report",
+    "nav.page.listing_monitor": "Listing Monitor",
+    "nav.page.listing_compliance": "Listing Compliance",
+    "nav.page.gamboa_generator": "Gamboa Generator",
+    "nav.page.variation_builder": "Variation Builder",
+    "nav.page.monthly_forecast": "Monthly Forecast",
+    "nav.page.proposal_studio": "Proposal Studio",
+    "nav.page.case_study_studio": "Case Study Studio",
+    "nav.page.knowledge_base": "Knowledge Base",
+    "nav.page.flat_file_migrator": "Flat File Migrator",
+    "nav.page.sku_progress_report": "SKU Progress Report",
+    "nav.page.pricing_dashboard": "Pricing Dashboard",
+    "nav.page.mercado_libre": "Mercado Libre",
+    "nav.page.cuentas_conectadas": "Connected Accounts",
+    "nav.page.integraciones": "Integrations",
+
+    # ── Cuentas conectadas (M37) ──────────────────────────────────────────
+    "accounts.sop_md": """
+**What this screen is**
+
+This is where the agency connects its clients' accounts to each provider
+(Mercado Libre today; Amazon and Walmart once they're available). Any
+employee can connect or remove an account — you don't need to be an
+admin.
+
+**How to use it**
+
+1. Find the provider you'll be running the client's account on.
+2. Click **Connect a new account**. A one-time link is generated.
+3. Hand it to the seller (or open it yourself if you're with them): it
+   takes them to Mercado Libre, where they log in with THEIR user and
+   approve the app.
+4. Once they're done, the account shows up here with its Mercado Libre
+   nickname and country (`MLA` = Argentina, `MLM` = Mexico, etc.).
+
+**What's not here**
+
+The agency's own credentials (`client_id`, `client_secret`, API keys)
+are loaded by an admin under **⚙️ System → 🔌 Integrations**. Without
+that credential loaded, this panel shows the provider but won't let you
+connect new accounts.
+""",
+    "accounts.status_active": "Active",
+    "accounts.status_needs_reauth": "Needs reauthorization",
+    "accounts.header_title": "🔑 Connected accounts",
+    "accounts.header_caption": (
+        "Client accounts the agency operates through each marketplace's API. "
+        "Any employee can connect or disconnect one."
+    ),
+    "accounts.verdict_needs_reauth_one": "1 account needs to be reauthorized.",
+    "accounts.verdict_needs_reauth_other": "{n} accounts need to be reauthorized.",
+    "accounts.verdict_all_clear": "Nothing needs your attention.",
+    "accounts.word_account_one": "account",
+    "accounts.word_account_other": "accounts",
+    "accounts.word_provider_one": "provider",
+    "accounts.word_provider_other": "providers",
+    "accounts.verdict_detail": "{accounts} {account_word} across {providers} {provider_word}.",
+    "accounts.verdict_detail_coming": "{n} more coming soon.",
+    "accounts.sop_expander": "📘 How to use this screen",
+    "accounts.error_db_unavailable": (
+        "The portal isn't connected to the database yet, so it can't list "
+        "connected accounts or connect new ones. That's a server-side setup "
+        "step — let the systems team know."
+    ),
+    "accounts.empty_no_providers": "No provider supports account connections yet.",
+    "accounts.provider_pending_default": (
+        "This provider is in the catalog, but the agency's app hasn't been "
+        "approved yet."
+    ),
+    "accounts.provider_missing_credential": (
+        "The system credential for {provider} hasn't been loaded yet. An admin "
+        "adds it under <strong>System → Integrations</strong>."
+    ),
+    "accounts.provider_no_accounts": "No accounts connected yet.",
+    "accounts.provider_coming_soon": "Coming soon",
+    "accounts.provider_count_one": "{n} account",
+    "accounts.provider_count_other": "{n} accounts",
+    "accounts.row_connected_by": "connected by {user}",
+    "accounts.btn_reauth": "Reauthorize",
+    "accounts.btn_remove": "Remove",
+    "accounts.btn_connect_new": "Connect a new account",
+    "accounts.dialog_connect_title": "Connect account",
+    "accounts.error_unknown_provider": "Unknown provider.",
+    "accounts.error_db_unavailable_short": (
+        "The portal isn't connected to the database."
+    ),
+    "accounts.error_missing_credential": (
+        "The system credential for {provider} is missing. An admin loads it "
+        "under **System → Integrations**."
+    ),
+    "accounts.error_missing_redirect_uri": (
+        "`INTEGRATIONS_REDIRECT_URI` isn't configured on the server. Let the "
+        "systems team know."
+    ),
+    "accounts.error_missing_public_key": (
+        "The worker hasn't published its public key yet. Run `worker keys` "
+        "once on the server."
+    ),
+    "accounts.connect_dialog_body": (
+        "Open the link so the seller can authorize the app from their "
+        "**{provider}** account. There are no fields to fill in — we pick up "
+        "the name and country automatically once they connect. When they're "
+        "done, the account shows up in the list with its nickname and country."
+    ),
+    "accounts.btn_open_consent": "Open {provider} to authorize",
+    "accounts.btn_close": "Close",
+    "accounts.dialog_remove_title": "Remove account",
+    "accounts.remove_dialog_body": (
+        "You're about to disconnect the **{provider}** account. The app will "
+        "no longer be able to read its data. The record is kept for auditing; "
+        "if you want to reconnect it later, use `Connect a new account`."
+    ),
+    "accounts.btn_cancel": "Cancel",
+    "accounts.btn_disconnect": "Disconnect",
+    "accounts.toast_disconnected": "Account disconnected.",
+
+    # ── Integraciones (M38) ───────────────────────────────────────────────
+    "integrations.sop_md": """**Two levels of credential, with different blast radii.**
+
+- **System credential** — one per integration. It is the agency's API key, or the
+  `client_id` and `client_secret` of the OAuth application. An admin loads it once.
+  If it fails, the integration goes down for **every** client.
+- **Connected account** — one per client. The seller authorizes from their own session and
+  a renewable grant is left behind. If it fails, only **that** client goes down.
+
+**Why a credential that is already loaded cannot be viewed.** OAuth credentials are stored
+encrypted with a key that can only close: the app can save them and cannot open them again.
+Only the ingest worker holds the half that decrypts, so if someone got into the application
+they would walk away with unreadable text.
+
+That is why the actions are *Add*, *Replace* and *Remove*, and there is no *View* or *Edit*:
+to change a credential you load it again. The six-character fingerprint is there so two
+people can confirm they are talking about the same key, without revealing it.
+
+**Permissions.** Connecting a client's account can be done by any user. Loading, replacing
+or removing a system credential is admin-only: if you are not an admin, those buttons do
+not appear.
+
+**How to read the list.** At the very top, one line says whether anything is broken and
+which client it hits. Below that, one row per integration grouped into bands: *Needs
+attention* first, then *Ready to add* and *In service*. A band with no rows is not drawn —
+the attention band being absent is the message.
+
+When a client account stops authorizing, the integration is **not** painted as down: it
+works for the others. What gets flagged is that client's line, hanging off its integration.
+
+What does not exist yet does not take up a row: it goes in a single sentence at the foot.""",
+    "integrations.band.uncertain": "UNABLE TO CONFIRM",
+    "integrations.band.attention": "NEEDS ATTENTION",
+    "integrations.band.loadable": "READY TO ADD",
+    "integrations.band.live": "IN SERVICE",
+    "integrations.months_short": "Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec",
+    "integrations.page.header": "Integrations · system",
+    "integrations.page.caption": (
+        "Credentials for the apps the agency registered with each provider. "
+        "Admin only."
+    ),
+    "integrations.page.admin_only_info": (
+        "This screen is admin-only. To connect a client's account, go to "
+        "**🛒 Mercado Libre** in the Marketplaces menu."
+    ),
+    "integrations.sop.expander_title": "📘 How to use this module",
+    "integrations.verdict.no_db": "The portal is not connected to the database.",
+    "integrations.verdict.read_failed": "The portal's status could not be read.",
+    "integrations.verdict.needs_attention_one": "{n} integration needs attention.",
+    "integrations.verdict.needs_attention_other": "{n} integrations need attention.",
+    "integrations.verdict.all_ok": "Nothing needs attention.",
+    "integrations.verdict.summary_count_one": "{n} integration.",
+    "integrations.verdict.summary_count_other": "{n} integrations.",
+    "integrations.row.btn_detail": "Details",
+    "integrations.footer.coming_soon_label": "Coming soon:",
+    "integrations.row.btn_add_credential": "Add credential",
+    "integrations.row.btn_replace": "Replace",
+    "integrations.notice.no_db_warning": (
+        "The portal is not connected to the database yet, so you can see the "
+        "catalog below but nothing can be saved. It's a server infrastructure "
+        "step: let the systems team know."
+    ),
+    "integrations.notice.none_enabled": "No integrations are enabled yet.",
+    "integrations.notice.worker_not_run": (
+        "The ingest worker hasn't run for the first time yet. It sets itself "
+        "up when it does — tonight, on its scheduled run — and that's when the "
+        "integrations that connect client accounts become available."
+    ),
+    "integrations.dialog.detail_title": "Integration detail",
+    "integrations.detail.section_system_credential": "**System credential**",
+    "integrations.detail.label_fingerprint": "Fingerprint",
+    "integrations.detail.label_created_by": "Loaded by",
+    "integrations.detail.label_updated_at": "Last updated",
+    "integrations.detail.label_storage": "How it's stored",
+    "integrations.detail.storage_encrypted": "Encrypted",
+    "integrations.detail.storage_plain": "Unencrypted",
+    "integrations.detail.caption_sealed": (
+        "The app stores it encrypted and cannot read it back: only the worker "
+        "can open it."
+    ),
+    "integrations.detail.caption_plain": (
+        "The module that consumes it reads it directly, so it's stored "
+        "unencrypted."
+    ),
+    "integrations.detail.warning_imported_copy": (
+        "This credential was {detail}. Delete that copy from the server: the "
+        "portal is the single source and two copies drift apart."
+    ),
+    "integrations.detail.btn_remove_credential": "Remove credential",
+    "integrations.dialog.credential_title": "System credential",
+    "integrations.credential.caption_blast_radius": (
+        "Every client of this integration uses this credential. If it fails, "
+        "the integration stops working for the whole agency."
+    ),
+    "integrations.credential.btn_replace": "Replace",
+    "integrations.credential.btn_save": "Save",
+    "integrations.credential.error_missing_secret": "Missing {field}.",
+    "integrations.credential.error_missing_public_one": "Missing {fields}.",
+    "integrations.credential.error_missing_public_other": "Missing {fields}.",
+    "integrations.credential.error_seal_failed": (
+        "The credential could not be encrypted: {error}"
+    ),
+    "integrations.credential.error_no_db_save": (
+        "The portal is not connected to the database, so nothing can be saved."
+    ),
+    "integrations.credential.flash_saved": "{integration} credential saved.",
+    "integrations.dialog.remove_title": "Remove credential",
+    "integrations.remove.warning_accounts_one": (
+        "The account that depends on this credential stops working."
+    ),
+    "integrations.remove.warning_accounts_other": (
+        "The {n} accounts that depend on this credential stop working."
+    ),
+    "integrations.remove.confirm_input_label": "Type {name} to confirm",
+    "integrations.remove.btn_confirm": "Remove",
+    "integrations.remove.error_no_db": (
+        "The portal is not connected to the database."
+    ),
+    "integrations.remove.flash_removed": "{integration} credential removed.",
+    "integrations.status.out_of_scope": "Working, outside the portal",
+    "integrations.status.no_sealing": "Waiting for the worker's first run",
+    "integrations.status.no_credential": "Not set up",
+    "integrations.status.pending_migration": "Running on an old copy, not migrated",
+    "integrations.status.credential_loaded": "Credential loaded",
+    "integrations.status.ready_for_accounts": "Ready to connect client accounts",
+    "integrations.fact.sealing_tonight": "Sets itself up in tonight's run",
+    "integrations.fact.pending_migration_origin": "Still in {origin}",
+    "integrations.kind.oauth": "OAuth",
+    "integrations.kind.api_key": "API key",
+}
+
+_CATALOG: dict[str, dict[str, str]] = {"es": _ES, "en": _EN}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# LOOKUP TABLES — routing keys and section titles
+# ══════════════════════════════════════════════════════════════════════════
+
+# Routing key → catalog key. The routing key is the literal `app.py` compares
+# (emoji included) and must never be translated; only the label it shows is.
+_PAGE_KEYS: dict[str, str] = {
+    "🏠 Inicio": "nav.page.inicio",
+    "📊 Search Term Report": "nav.page.search_term_report",
+    "🔍 Search Query Performance": "nav.page.search_query_performance",
+    "🔗 Análisis Cruzado STR vs SQP": "nav.page.analisis_cruzado",
+    "📈 Tendencia Multi-Semana": "nav.page.tendencia_multisemana",
+    "📁 Bulk Campañas": "nav.page.bulk_campanas",
+    "💰 Business Report": "nav.page.business_report",
+    "🔻 Análisis de Funnel": "nav.page.analisis_funnel",
+    "🧠 Bid Optimizer": "nav.page.bid_optimizer",
+    "🚀 Campaign Builder": "nav.page.campaign_builder",
+    "⚙️ Atom11 Rules Builder": "nav.page.atom11_rules_builder",
+    "🧲 DataDive Analyzer": "nav.page.datadive_analyzer",
+    "🧲 Helium 10 Analyzer": "nav.page.helium10_analyzer",
+    "📢 SBH Recommendation": "nav.page.sbh_recommendation",
+    "🔎 PPC Insights": "nav.page.ppc_insights",
+    "📈 PPC Forecast": "nav.page.ppc_forecast",
+    "🛡️ PPC Audit": "nav.page.ppc_audit",
+    "📊 Account Pulse": "nav.page.account_pulse",
+    "🔬 Reportes Atom 11": "nav.page.reportes_atom11",
+    "🛡️ Reportes MerchanSpring": "nav.page.reportes_merchanspring",
+    "📊 Weekly Client Report": "nav.page.weekly_client_report",
+    "👁️ Listing Monitor": "nav.page.listing_monitor",
+    "🛡️ Listing Compliance": "nav.page.listing_compliance",
+    "📊 Gamboa Generator": "nav.page.gamboa_generator",
+    "🧬 Variation Builder": "nav.page.variation_builder",
+    "📈 Monthly Forecast": "nav.page.monthly_forecast",
+    "📋 Proposal Studio": "nav.page.proposal_studio",
+    "🏆 Case Study Studio": "nav.page.case_study_studio",
+    "📚 Knowledge Base": "nav.page.knowledge_base",
+    "🗂️ Flat File Migrator": "nav.page.flat_file_migrator",
+    "🏥 SKU Progress Report": "nav.page.sku_progress_report",
+    "💲 Pricing Dashboard": "nav.page.pricing_dashboard",
+    "🛒 Mercado Libre": "nav.page.mercado_libre",
+    "🔑 Cuentas conectadas": "nav.page.cuentas_conectadas",
+    "🔌 Integraciones": "nav.page.integraciones",
+}
+
+# `navigation.Section.title` → catalog key. The title is also the identifier of
+# the section in `SECTIONS`, so it is looked up, never translated in place.
+_SECTION_KEYS: dict[str, str] = {
+    "PPC": "nav.section.ppc",
+    "Research": "nav.section.research",
+    "Account": "nav.section.account",
+    "Sales Director": "nav.section.sales_director",
+    "Knowledge": "nav.section.knowledge",
+    "Account Health": "nav.section.account_health",
+    "Marketplaces": "nav.section.marketplaces",
+    "Sistema": "nav.section.sistema",
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# API
+# ══════════════════════════════════════════════════════════════════════════
+
+def current_lang() -> str:
+    """The interface language: `"en"` or `"es"`, Spanish by default.
+
+    Reads the sidebar radio's own option label out of `session_state`, so it
+    works whether the widget has been drawn yet or not. Outside a Streamlit
+    runtime — tests, scripts, `import` at collection time — session state is
+    unreachable and the answer is the default, never an exception.
+    """
+    if st is None:
+        return DEFAULT_LANG
+    try:
+        chosen = st.session_state.get("app_lang")
+    except Exception:
+        return DEFAULT_LANG
+    return _RADIO_TO_LANG.get(chosen, DEFAULT_LANG)
+
+
+def t(key: str, **kwargs) -> str:
+    """The translated string for `key`, interpolated with `kwargs`.
+
+    Degrades in three steps and never raises: the current language, then
+    Spanish (the source language, always complete), then the key itself. A key
+    is a readable last resort — `accounts.btn_close` in a button says what is
+    missing; an empty label says nothing.
+
+    `.format()` runs only when kwargs are passed, so markdown blocks with
+    literal braces survive untouched. A template whose slots don't match the
+    kwargs is returned raw rather than blowing up a render.
+    """
+    lang = current_lang()
+    text = _CATALOG.get(lang, {}).get(key)
+    if text is None:
+        text = _ES.get(key)
+    if text is None:
+        return key
+    if not kwargs:
+        return text
+    try:
+        return text.format(**kwargs)
+    except (KeyError, IndexError, ValueError):
+        return text
+
+
+def tn(key: str, n: int, **kwargs) -> str:
+    """The plural form of `key` for `n`, interpolated with `n` and `kwargs`.
+
+    Reads `<key>_one` when `n == 1` and `<key>_other` otherwise, and always
+    passes `n` into the format call, so a template can spend it (`"{n} cuentas"`)
+    or ignore it (`"1 cuenta requiere reautorizar."`).
+
+    Picking the branch here rather than at the call site is what stops the
+    call site from appending an "s": Spanish also inflects the verb, and other
+    languages have more than two forms.
+    """
+    variant = f"{key}_one" if n == 1 else f"{key}_other"
+    return t(variant, n=n, **kwargs)
+
+
+def page_label(routing_key: str) -> str:
+    """The visible label of a sidebar destination, without its leading emoji.
+
+    The routing key keeps the emoji — `app.py` compares it literally — while
+    the rail draws a Material icon, so showing the emoji too would put two
+    icons in one row. A destination that isn't in the catalog (a page added to
+    `navigation.SECTIONS` and not yet translated) falls back to its Spanish
+    routing key with the emoji stripped, which is exactly what the rail showed
+    before i18n.
+    """
+    catalog_key = _PAGE_KEYS.get(routing_key)
+    if catalog_key is not None:
+        label = t(catalog_key)
+        if label != catalog_key:
+            return label
+    return _strip_leading_emoji(routing_key)
+
+
+def section_title(title: str) -> str:
+    """The visible title of a `navigation.SECTIONS` section.
+
+    The title doubles as the section's identifier, so an unknown one comes
+    back unchanged instead of being blanked out.
+    """
+    catalog_key = _SECTION_KEYS.get(title)
+    if catalog_key is None:
+        return title
+    translated = t(catalog_key)
+    return title if translated == catalog_key else translated
+
+
+def months_short() -> tuple[str, ...]:
+    """The twelve abbreviated month names, in order, for the current language.
+
+    Stored as one comma-separated entry so the catalog holds only strings;
+    split here so no caller has to remember the separator.
+    """
+    return tuple(part.strip() for part in t("integrations.months_short").split(","))
+
+
+def _strip_leading_emoji(page: str) -> str:
+    """Everything from the first letter or digit on.
+
+    Mirrors `core.navigation.visible_label` on purpose instead of importing it:
+    this module sits underneath the navigation layer and stays free of it, so
+    navigation can start calling `page_label()` without a circular import.
+    Skipping to the first alphanumeric also carries away composite emojis like
+    `🛡️` (symbol + variation selector U+FE0F) without orphaning the selector.
+    """
+    for index, char in enumerate(page):
+        if char.isalnum():
+            return page[index:]
+    return page

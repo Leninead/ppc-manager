@@ -21,6 +21,39 @@ services:
       - --server.enableCORS=false
       - --server.enableXsrfProtection=false
 
+  # Integrations OAuth callback + Mercado Libre webhook receiver.
+  # Not published: only Caddy reaches it, on the internal `web` network.
+  integrations-receiver:
+    build:
+      context: .
+      dockerfile: services/integrations_receiver/Dockerfile
+    # The tag is what makes a deploy land. Without an explicit `image:` the
+    # service gets a stable implicit name, compose sees no config change and
+    # leaves the old container running even after a rebuild — the receiver
+    # COPYs core/integrations/, so that is silent version skew against the app.
+    image: ppc-manager-receiver:${IMAGE_TAG:-latest}
+    container_name: integrations-receiver
+    restart: unless-stopped
+    environment:
+      # Same PostgREST that the app uses. web_user JWT is enough — the
+      # receiver never reads sealed columns.
+      SUPABASE_URL: ${SUPABASE_URL:-http://rest-gateway}
+      INTEGRATIONS_RECEIVER_JWT: ${INTEGRATIONS_RECEIVER_JWT:?set INTEGRATIONS_RECEIVER_JWT in .env (JWT with role=web_user)}
+      # Soft default, and it has to be: you obtain this key by running
+      # `worker keys` THROUGH compose, so a `${VAR:?}` here makes the
+      # documented install order circular — compose refuses to interpolate
+      # the merged file set before the key it is asking for can exist. The
+      # receiver checks it at startup instead, so an empty value fails the
+      # healthcheck and the deploy's health gate, loudly and in the right place.
+      INTEGRATIONS_PUBLIC_KEY: ${INTEGRATIONS_PUBLIC_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8600/health',timeout=2).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [web]
+
   caddy:
     image: caddy:2
     container_name: caddy
@@ -36,7 +69,7 @@ services:
       - caddy_data:/data       # persist certs across deploys
       - caddy_config:/config
     networks: [web]
-    depends_on: [app]
+    depends_on: [app, integrations-receiver]
 
 networks:
   web: {}

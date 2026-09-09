@@ -1,0 +1,7 @@
+# Receiver-only deps. FastAPI + uvicorn are the HTTP layer; cryptography is
+# needed to seal the OAuth code with the portal's public key; requests is used
+# by core.integrations.store._Rest to talk to PostgREST.
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+cryptography>=44.0.2
+requests==2.34.2

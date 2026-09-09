@@ -94,7 +94,10 @@ def _matches_dtype(series: pd.Series, expected: str) -> bool:
     expected_low = expected.lower()
 
     if expected_low in {"string", "str", "object"}:
-        return actual in {"object", "string"}
+        # pandas 3.x reports plain Python string columns as ``str`` instead
+        # of the legacy ``object`` — accept both so the same schema keeps
+        # validating on newer environments.
+        return actual in {"object", "string", "str"}
     if expected_low in {"float", "float64", "float32"}:
         return actual.startswith("float")
     if expected_low in {"int", "int64", "int32", "int16"}:
@@ -174,7 +177,13 @@ class _LocalBackend:
             # Excluir: history aggregator (_*) + logs append-only canonicos del Agency OS
             if name.startswith("_"):
                 continue
-            if name in ("optimizations", "events", "decisions-log"):
+            # `cambios` and `transito` are M36 append-only logs; before adding
+            # them here `_list_periods` returned them as snapshots. That made
+            # `_latest_snapshot` load a log as a rendimiento snapshot AND let
+            # Admin's trash button delete a hand-loaded log with no confirmation.
+            # Supabase does not have this: logs live in `ah_logs`, snapshots in
+            # `ah_snapshots`, and `list_periods` only queries the second.
+            if name in ("optimizations", "events", "decisions-log", "cambios", "transito"):
                 continue
             periods.append(name)
         return sorted(periods)

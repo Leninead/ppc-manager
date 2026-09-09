@@ -79,16 +79,19 @@ Asegurate de que el bloque `[cookie]` tenga las 3 claves: `name`, `key`,
 python -m pytest -q
 ```
 
-**Resultado esperado hoy: `866 passed, 5 skipped, 9 failed`.**
+**Resultado esperado hoy (2026-09-03): `1370 passed, 24 skipped, 5 failed,
+2 errors`.**
 
-Los **9 fallos son esperados** en entorno local (dependen de config de Supabase
-/ env que no tenés en local). NO rompiste nada. Son estas familias:
-- `test_revenue_forecast_state.py` (4) + `test_revenue_forecast_ingest.py` (1)
-- `test_m29_ui_e2e.py` (2)
-- `test_proposal_supabase_storage.py` (1)
-- `test_knowledge_base_smoke.py` (1)
+Los rojos son **esperados** en local: dependen de fixtures y de config de
+entorno que no tenés. NO rompiste nada. El número total cambia cada vez que
+alguien suma un test — mirá las familias, no el conteo:
+- `test_m29_ui_e2e.py` (3) + `test_b7_importer.py` (2 errores) +
+  `test_datadive_to_v3_mapper.py` (1) — fixtures de propuestas que no están en el repo
+- `test_knowledge_base_smoke.py` (1) — espera el fallback sin `secrets.toml`;
+  como vos sí tenés uno, el selectbox trae los nombres del equipo y el test no
+  encuentra su opción. Pasa solo en CI.
 
-Si ves un número distinto de fallos, o fallos en OTROS archivos, ahí sí revisá.
+Si falla un archivo que NO está en esa lista, ahí sí revisá.
 
 ## Correr la app
 

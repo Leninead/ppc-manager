@@ -1,4 +1,4 @@
-"""Vista de la Feature 2 — sugerencia de reposición de stock."""
+"""Feature 2 view — stock restock suggestions."""
 from __future__ import annotations
 
 from datetime import date
@@ -12,7 +12,7 @@ from core.persistence import _append_log, _load_log
 from modules.mercado_libre.core.stock_advisor import resumen, sugerir_reposicion
 from modules.mercado_libre.views.helpers import (badge, empty_state, fmt_decimal, fmt_money, fmt_num)
 
-_COLOR_URGENCIA = {
+_URGENCY_COLOR = {
     "critico": config.COLOR_EMPEORO,
     "alto": config.COLOR_AMARILLO,
     "medio": config.COLOR_SECUNDARIO,
@@ -20,7 +20,7 @@ _COLOR_URGENCIA = {
     "sin_ventas": config.COLOR_SIN_DATOS,
 }
 
-_ETIQUETA_URGENCIA = {
+_URGENCY_LABEL = {
     "critico": "🔴 Crítico",
     "alto": "🟠 Alto",
     "medio": "🔵 Medio",
@@ -29,37 +29,37 @@ _ETIQUETA_URGENCIA = {
 }
 
 
-def _color_urgencia(valor):
-    """Colorea la celda de urgencia con los colores de config (patrón de alerts.py)."""
-    for clave, etiqueta in _ETIQUETA_URGENCIA.items():
-        if valor == etiqueta:
-            return f"color: {_COLOR_URGENCIA[clave]}; font-weight: 600"
+def _color_urgency(value):
+    """Color the urgency cell with the config colors (matches alerts.py)."""
+    for key, label in _URGENCY_LABEL.items():
+        if value == label:
+            return f"color: {_URGENCY_COLOR[key]}; font-weight: 600"
     return ""
 
 
 @st.dialog("Registrar stock en tránsito")
-def dialogo_registrar_transito(cuenta: str, publicaciones: pd.DataFrame) -> None:
-    """Alta de unidades en camino, con la fecha que informa el cliente."""
-    st.caption(f"Cuenta: **{cuenta}**")
+def dialog_register_in_transit(account: str, listings: pd.DataFrame) -> None:
+    """Record in-transit units with the client-reported arrival date."""
+    st.caption(f"Cuenta: **{account}**")
 
-    opciones = []
-    if publicaciones is not None and not publicaciones.empty:
-        opciones = [
-            f"{fila.mla} — {str(fila.titulo)[:60]}"
-            for fila in publicaciones.itertuples(index=False)
+    options = []
+    if listings is not None and not listings.empty:
+        options = [
+            f"{row.mla} — {str(row.titulo)[:60]}"
+            for row in listings.itertuples(index=False)
         ]
 
-    if opciones:
-        elegida = st.selectbox("Publicación *", options=opciones,
+    if options:
+        chosen = st.selectbox("Publicación *", options=options,
                                key="meli_transito_publicacion")
-        mla = elegida.split(" — ")[0]
+        mla = chosen.split(" — ")[0]
     else:
         mla = st.text_input("MLA *", key="meli_transito_mla",
                             placeholder="MLA1176496460")
 
-    unidades = st.number_input("Unidades en camino *", min_value=1, step=1,
+    units = st.number_input("Unidades en camino *", min_value=1, step=1,
                                key="meli_transito_unidades")
-    fecha_llegada = st.date_input(
+    arrival_date = st.date_input(
         "Fecha estimada de llegada *",
         value=date.today(),
         key="meli_transito_fecha",
@@ -67,14 +67,14 @@ def dialogo_registrar_transito(cuenta: str, publicaciones: pd.DataFrame) -> None
              f"{config.DIAS_COBERTURA_OBJETIVO} días. Lo que llega después no "
              "se descuenta de la sugerencia.",
     )
-    nota = st.text_input("Nota", key="meli_transito_nota",
+    note = st.text_input("Nota", key="meli_transito_nota",
                          placeholder="Contenedor de agosto")
 
-    col_cancelar, col_guardar = st.columns(2)
-    if col_cancelar.button("Cancelar", key="meli_transito_cancel",
+    col_cancel, col_save = st.columns(2)
+    if col_cancel.button("Cancelar", key="meli_transito_cancel",
                            use_container_width=True):
         st.rerun()
-    if col_guardar.button("Registrar", key="meli_transito_ok", type="primary",
+    if col_save.button("Registrar", key="meli_transito_ok", type="primary",
                           use_container_width=True):
         if not mla:
             st.error("La publicación es obligatoria.")
@@ -82,21 +82,21 @@ def dialogo_registrar_transito(cuenta: str, publicaciones: pd.DataFrame) -> None
         _append_log(
             row={
                 "mla": mla.strip().upper(),
-                "unidades": float(unidades),
-                "fecha_llegada": fecha_llegada.isoformat(),
-                "nota": nota.strip(),
+                "unidades": float(units),
+                "fecha_llegada": arrival_date.isoformat(),
+                "nota": note.strip(),
             },
             area=config.AREA,
-            cliente=cuenta,
+            cliente=account,
             modulo=config.MODULO_PUBLICACIONES,
             log_name=config.LOG_TRANSITO,
         )
-        st.success(f"{unidades} unidades en tránsito registradas para {mla}.")
+        st.success(f"{units} unidades en tránsito registradas para {mla}.")
         st.rerun()
 
 
-def render(cuenta: str, rendimiento: pd.DataFrame | None,
-           publicaciones: pd.DataFrame | None, dias_periodo: int | None) -> None:
+def render(account: str, performance: pd.DataFrame | None,
+           listings: pd.DataFrame | None, days_in_period: int | None) -> None:
     st.markdown("### 📦 Sugerencia de reposición")
     st.caption(
         f"Proyecta {config.DIAS_COBERTURA_OBJETIVO} días de cobertura sobre la "
@@ -104,7 +104,7 @@ def render(cuenta: str, rendimiento: pd.DataFrame | None,
         "en camino."
     )
 
-    if rendimiento is None or rendimiento.empty or publicaciones is None or publicaciones.empty:
+    if performance is None or performance.empty or listings is None or listings.empty:
         empty_state(
             "Faltan datos para calcular la sugerencia",
             "Se necesitan el reporte de rendimiento y el export de publicaciones "
@@ -112,90 +112,90 @@ def render(cuenta: str, rendimiento: pd.DataFrame | None,
         )
         return
 
-    transito = _load_log(config.AREA, cuenta, config.MODULO_PUBLICACIONES,
+    in_transit = _load_log(config.AREA, account, config.MODULO_PUBLICACIONES,
                          config.LOG_TRANSITO)
 
-    columna_boton, columna_info = st.columns([1.6, 4])
-    with columna_boton:
+    col_button, col_info = st.columns([1.6, 4])
+    with col_button:
         if st.button("🚚 Registrar tránsito", key="meli_btn_transito",
                      use_container_width=True):
-            dialogo_registrar_transito(cuenta, publicaciones)
-    with columna_info:
-        st.caption(f"Envíos en tránsito registrados: **{len(transito)}**")
+            dialog_register_in_transit(account, listings)
+    with col_info:
+        st.caption(f"Envíos en tránsito registrados: **{len(in_transit)}**")
 
-    if len(transito) == 0:
+    if len(in_transit) == 0:
         st.caption(
             "Todavía no hay envíos en tránsito cargados. La columna 'En tránsito' "
             "va a mostrar 0 hasta que registres alguno."
         )
 
-    sugerencias = sugerir_reposicion(
-        rendimiento, publicaciones, transito,
-        dias_periodo=dias_periodo,
+    suggestions = sugerir_reposicion(
+        performance, listings, in_transit,
+        dias_periodo=days_in_period,
     )
-    if sugerencias.empty:
+    if suggestions.empty:
         empty_state("Sin publicaciones para analizar",
                     "Ninguna publicación activa quedó tras aplicar los filtros.")
         return
 
     st.divider()
-    totales = resumen(sugerencias)
-    columnas = st.columns(5)
-    tarjetas = [
-        ("Publicaciones activas", fmt_num(totales["publicaciones"])),
-        ("A reponer", fmt_num(totales["a_reponer"])),
-        ("Unidades sugeridas", fmt_num(totales["unidades_sugeridas"])),
-        ("Críticos", fmt_num(totales["criticos"])),
-        ("Sin ventas", fmt_num(totales["sin_ventas"])),
+    totals = resumen(suggestions)
+    cols = st.columns(5)
+    cards = [
+        ("Publicaciones activas", fmt_num(totals["publicaciones"])),
+        ("A reponer", fmt_num(totals["a_reponer"])),
+        ("Unidades sugeridas", fmt_num(totals["unidades_sugeridas"])),
+        ("Críticos", fmt_num(totals["criticos"])),
+        ("Sin ventas", fmt_num(totals["sin_ventas"])),
     ]
-    for columna, (etiqueta, valor) in zip(columnas, tarjetas):
-        with columna:
-            st.markdown(kpi_card(label=etiqueta, value=valor),
+    for col, (label, value) in zip(cols, cards):
+        with col:
+            st.markdown(kpi_card(label=label, value=value),
                         unsafe_allow_html=True)
     st.markdown("")
 
-    if totales["criticos"]:
+    if totals["criticos"]:
         st.error(
-            f"{totales['criticos']} publicación(es) tienen 7 días o menos de "
+            f"{totals['criticos']} publicación(es) tienen 7 días o menos de "
             "cobertura al ritmo de venta actual. Son las que hay que resolver "
             "esta semana."
         )
 
-    solo_reponer = st.checkbox(
+    only_to_restock = st.checkbox(
         "Mostrar solo las que necesitan reposición", value=True,
         key="meli_stock_filtro",
     )
-    urgencias = st.multiselect(
+    urgencies = st.multiselect(
         "Filtrar por urgencia",
-        options=list(_ETIQUETA_URGENCIA),
+        options=list(_URGENCY_LABEL),
         default=[],
-        format_func=lambda clave: _ETIQUETA_URGENCIA[clave],
+        format_func=lambda key: _URGENCY_LABEL[key],
         placeholder="Todas las urgencias",
         key="meli_stock_urgencia",
     )
 
-    mostrar = sugerencias
-    if solo_reponer:
-        mostrar = mostrar[mostrar["sugerido"] > 0]
-    if urgencias:
-        mostrar = mostrar[mostrar["urgencia"].isin(urgencias)]
+    visible = suggestions
+    if only_to_restock:
+        visible = visible[visible["sugerido"] > 0]
+    if urgencies:
+        visible = visible[visible["urgencia"].isin(urgencies)]
 
-    tabla = pd.DataFrame({
-        "MLA": mostrar["mla"],
-        "Título": mostrar["titulo"].astype(str).str.slice(0, 55),
-        "Stock": mostrar["stock"],
-        "En tránsito": mostrar["en_transito"],
-        "Vendidas": mostrar["unidades"],
-        "Venta/día": mostrar["velocidad_diaria"],
-        "Días cobertura": mostrar["dias_cobertura"],
-        "Sugerido": mostrar["sugerido"],
-        "Facturación": mostrar["facturacion"],
-        "Urgencia": mostrar["urgencia"].map(_ETIQUETA_URGENCIA),
+    table = pd.DataFrame({
+        "MLA": visible["mla"],
+        "Título": visible["titulo"].astype(str).str.slice(0, 55),
+        "Stock": visible["stock"],
+        "En tránsito": visible["en_transito"],
+        "Vendidas": visible["unidades"],
+        "Venta/día": visible["velocidad_diaria"],
+        "Días cobertura": visible["dias_cobertura"],
+        "Sugerido": visible["sugerido"],
+        "Facturación": visible["facturacion"],
+        "Urgencia": visible["urgencia"].map(_URGENCY_LABEL),
     })
 
     st.dataframe(
-        tabla.style
-        .map(_color_urgencia, subset=["Urgencia"])
+        table.style
+        .map(_color_urgency, subset=["Urgencia"])
         .format({
             "Stock": fmt_num, "En tránsito": fmt_num, "Vendidas": fmt_num,
             "Sugerido": fmt_num, "Facturación": fmt_money,
@@ -206,10 +206,10 @@ def render(cuenta: str, rendimiento: pd.DataFrame | None,
         hide_index=True,
     )
 
-    tardio = sugerencias[sugerencias["transito_tardio"] > 0]
-    if not tardio.empty:
+    late = suggestions[suggestions["transito_tardio"] > 0]
+    if not late.empty:
         with st.expander(
-            f"🚚 {len(tardio)} publicación(es) con tránsito fuera del horizonte"
+            f"🚚 {len(late)} publicación(es) con tránsito fuera del horizonte"
         ):
             st.caption(
                 f"Estas unidades llegan después de los "
@@ -217,7 +217,7 @@ def render(cuenta: str, rendimiento: pd.DataFrame | None,
                 "se descuentan de la sugerencia: no alcanzan a cubrir el período."
             )
             st.dataframe(
-                tardio[["mla", "titulo", "transito_tardio", "sugerido"]],
+                late[["mla", "titulo", "transito_tardio", "sugerido"]],
                 use_container_width=True, hide_index=True,
             )
 

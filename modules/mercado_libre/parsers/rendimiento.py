@@ -1,8 +1,8 @@
-"""Parser del reporte de rendimiento de publicaciones de Mercado Libre.
+"""Parser for the Mercado Libre listing performance report.
 
-Estructura del archivo: las primeras 5 filas son encabezado descriptivo (la
-fila 2 contiene el período en prosa) y los nombres de columna están en la
-fila 5. Los datos arrancan en la fila 6.
+File structure: the first 5 rows are a descriptive header (row 2 carries
+the period in prose) and the column names sit on row 5. Data starts at
+row 6.
 """
 from __future__ import annotations
 
@@ -11,21 +11,21 @@ from datetime import date
 
 import pandas as pd
 
-from .common import (a_decimal, a_entero, extraer_periodo, normalizar_mla,
-                     normalizar_texto)
+from .common import (extract_period, normalize_mla, normalize_text,
+                     to_decimal, to_int)
 
-FILA_ENCABEZADOS = 5
-FILA_PERIODO = 2
+_HEADER_ROW = 5
+_PERIOD_ROW = 2
 
-_COLUMNAS_REQUERIDAS = {
+_REQUIRED_COLUMNS = {
     "id de la publicacion", "publicacion", "estado actual",
     "visitas unicas", "cantidad de ventas", "unidades vendidas",
 }
 
 
 @dataclass
-class ReporteRendimiento:
-    """Resultado del parseo: los datos más el período que cubren."""
+class PerformanceReport:
+    """Parse result: the data plus the period it covers."""
     datos: pd.DataFrame
     desde: date
     hasta: date
@@ -35,54 +35,54 @@ class ReporteRendimiento:
         return (self.hasta - self.desde).days + 1
 
 
-class ErrorFormato(Exception):
-    """El archivo no tiene la forma esperada de un reporte de rendimiento."""
+class FormatError(Exception):
+    """The file is not shaped like a performance report."""
 
 
-def parsear(archivo) -> ReporteRendimiento:
-    crudo = pd.read_excel(archivo, sheet_name=0, header=None)
+def parse(file) -> PerformanceReport:
+    raw = pd.read_excel(file, sheet_name=0, header=None)
 
-    periodo = extraer_periodo(crudo.iloc[FILA_PERIODO, 0]) if len(crudo) > FILA_PERIODO else None
-    if periodo is None:
-        raise ErrorFormato(
+    period = extract_period(raw.iloc[_PERIOD_ROW, 0]) if len(raw) > _PERIOD_ROW else None
+    if period is None:
+        raise FormatError(
             "No se pudo leer el período del reporte. Verificá que sea el export "
             "de 'Métricas del rendimiento de tus publicaciones' sin modificar."
         )
-    desde, hasta = periodo
+    from_date, to_date = period
 
-    archivo.seek(0) if hasattr(archivo, "seek") else None
-    df = pd.read_excel(archivo, sheet_name=0, header=FILA_ENCABEZADOS)
-    df.columns = [normalizar_texto(c) for c in df.columns]
+    file.seek(0) if hasattr(file, "seek") else None
+    df = pd.read_excel(file, sheet_name=0, header=_HEADER_ROW)
+    df.columns = [normalize_text(c) for c in df.columns]
 
-    faltantes = _COLUMNAS_REQUERIDAS - set(df.columns)
-    if faltantes:
-        raise ErrorFormato(
+    missing = _REQUIRED_COLUMNS - set(df.columns)
+    if missing:
+        raise FormatError(
             "Al reporte le faltan columnas esperadas: "
-            + ", ".join(sorted(faltantes))
+            + ", ".join(sorted(missing))
             + ". Puede que Mercado Libre haya cambiado el formato del export."
         )
 
-    limpio = pd.DataFrame()
-    limpio["mla"] = df["id de la publicacion"].map(normalizar_mla)
-    limpio["titulo"] = df["publicacion"].astype(str).str.strip()
-    limpio["estado"] = df["estado actual"].map(normalizar_texto)
-    limpio["variante"] = df.get("variante", pd.Series(dtype=object))
-    limpio["sku"] = df.get("sku", pd.Series(dtype=object))
-    limpio["visitas"] = df["visitas unicas"].map(a_entero)
-    limpio["ventas"] = df["cantidad de ventas"].map(a_entero)
-    limpio["unidades"] = df["unidades vendidas"].map(a_entero)
+    cleaned = pd.DataFrame()
+    cleaned["mla"] = df["id de la publicacion"].map(normalize_mla)
+    cleaned["titulo"] = df["publicacion"].astype(str).str.strip()
+    cleaned["estado"] = df["estado actual"].map(normalize_text)
+    cleaned["variante"] = df.get("variante", pd.Series(dtype=object))
+    cleaned["sku"] = df.get("sku", pd.Series(dtype=object))
+    cleaned["visitas"] = df["visitas unicas"].map(to_int)
+    cleaned["ventas"] = df["cantidad de ventas"].map(to_int)
+    cleaned["unidades"] = df["unidades vendidas"].map(to_int)
 
     if "ventas brutas (ars)" in df.columns:
-        limpio["facturacion"] = df["ventas brutas (ars)"].map(a_decimal)
+        cleaned["facturacion"] = df["ventas brutas (ars)"].map(to_decimal)
     else:
-        limpio["facturacion"] = None
+        cleaned["facturacion"] = None
 
-    limpio = limpio[limpio["mla"].notna()].copy()
+    cleaned = cleaned[cleaned["mla"].notna()].copy()
 
-    # El reporte trae una fila por variante. El seguimiento se definió a nivel
-    # publicación, así que se agregan las variantes antes de cualquier cálculo.
-    agregado = (
-        limpio.groupby("mla", as_index=False)
+    # The report has one row per variant. Tracking is defined at listing
+    # level, so we aggregate variants before any calculation.
+    aggregated = (
+        cleaned.groupby("mla", as_index=False)
         .agg(
             titulo=("titulo", "first"),
             estado=("estado", "first"),
@@ -94,13 +94,19 @@ def parsear(archivo) -> ReporteRendimiento:
         )
     )
 
-    # La conversión se recalcula en vez de promediar la columna del reporte:
-    # promediar porcentajes de variantes con distinto tráfico da un número que
-    # no representa la publicación.
-    visitas_validas = agregado["visitas"].where(agregado["visitas"] > 0)
-    agregado["conversion"] = agregado["ventas"] / visitas_validas
+    # Conversion is recomputed rather than averaging the report column:
+    # averaging percentages across variants with different traffic yields
+    # a figure that does not represent the listing.
+    valid_visits = aggregated["visitas"].where(aggregated["visitas"] > 0)
+    aggregated["conversion"] = aggregated["ventas"] / valid_visits
 
-    agregado["desde"] = desde
-    agregado["hasta"] = hasta
+    aggregated["desde"] = from_date
+    aggregated["hasta"] = to_date
+    # Schema v2 introduced the "origen" column so a single Parquet can carry
+    # rows coming from the Meli API and rows coming from the AM's Excel side
+    # by side. The parser handles the Excel side, so it always stamps
+    # "excel" here — api_bridge stamps "api" for rows it builds from
+    # Postgres. Downstream can filter or blend without loading two files.
+    aggregated["origen"] = "excel"
 
-    return ReporteRendimiento(datos=agregado, desde=desde, hasta=hasta)
+    return PerformanceReport(datos=aggregated, desde=from_date, hasta=to_date)

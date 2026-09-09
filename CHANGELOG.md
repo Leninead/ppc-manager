@@ -6,6 +6,132 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Portal de integraciones: credenciales del sistema (M38) y cuentas de cliente (M37) (2026-09-03)
+
+**Dos pantallas, porque son dos permisos y dos radios de impacto.**
+- **`modules/pages/integrations.py` — `⚙️ Sistema → Integraciones`, sólo admin.** La
+  *credencial del sistema*: una por integración, la API key de la agencia o el
+  `client_id`/`client_secret` de la app OAuth. Si falla, se cae la integración para todos
+  los clientes. Lista en bandas ordenadas por urgencia (`SIN PODER CONFIRMAR` ·
+  `REQUIERE ATENCIÓN` · `SE PUEDE CARGAR` · `EN SERVICIO`); una banda sin filas no se
+  dibuja, su ausencia es el mensaje. Arriba, un veredicto de dos líneas que contesta si
+  hay algo roto y a qué cliente le pega.
+- **`modules/pages/accounts.py` — `⚙️ Sistema → Cuentas conectadas`, todos los empleados.**
+  La *cuenta conectada*: una por cliente, la autoriza el vendedor. Si falla, se cae ese
+  cliente nada más. Vive en Sistema y no dentro de Mercado Libre justamente porque la
+  autorización es transversal: cuando entre Amazon o Walmart se suman como bandas acá, y
+  no hay que ir a buscarlas al módulo de cada marketplace.
+
+**El permiso se comunica por ausencia.** Al usuario sin rol admin no le aparece un botón
+deshabilitado: no le aparece el botón. Y ningún bloqueo se descubre después de tipear un
+secreto — si falta la base o falta el sellado, eso es el estado visible de la fila.
+
+**Conectar una cuenta no pide ningún campo.** El link de consentimiento se arma al abrir el
+diálogo, y el nombre y el país de la cuenta los completa el worker desde `/users/me` de
+Mercado Libre al cerrar el grant. Pedirle el slug de la agencia a quien conecta era pedirle
+un dato que el proveedor ya sabe.
+
+**Nunca se muestra un secreto enmascarado.** Un `sk-••••3f2a` insinúa que la app lo tiene y
+no lo enseña, y eso es falso: va la huella de seis caracteres, que alcanza para que dos
+personas confirmen que hablan de la misma clave.
+
+- **`core/integrations/crypto.py`** — sellado asimétrico RSA-4096-OAEP-SHA256 con prefijo
+  de versión. La app sella con la pública y no puede volver a abrir; la privada la genera
+  `worker keys` en su primera corrida y vive en el volumen del worker. Nadie la tipea.
+- **`deploy/db/migrations/002_integrations.sql`** — cuatro tablas con GRANTs por columna:
+  `web_user` puede INSERT/UPDATE sobre las columnas selladas y no las tiene en ningún
+  SELECT. Arranca con un `revoke` explícito porque `deploy/db/schema.sql:143` le da CRUD
+  sobre toda tabla futura a la app.
+- **`core/integrations/{catalog,roles,store,oauth,worker,lookup,notice}.py`** — catálogo
+  estático (sumar una integración es una entrada de datos, no código), resolución de rol
+  que **no** confía en `AGENCY_OS_LOCAL_MODE`, store PostgREST que escribe con
+  `Prefer: return=minimal` (pedir la representación fuerza un SELECT y devuelve 403), y
+  flujo OAuth con PKCE S256.
+- **`services/integrations_receiver/`** — callback OAuth y webhooks MELI en un FastAPI
+  aparte, detrás de Caddy en `/oauth/*` y `/notifications`. Sella el code y lo deja en la
+  base; nunca abre nada. Streamlit no ve un code y el receptor no ve en qué página estaba
+  el usuario.
+- **DataDive lee del portal** — `core/datadive.py` resuelve la key en orden env → portal →
+  `st.secrets`, así que cargarla desde la pantalla la pone en uso sin tocar `.env`.
+
+### Added — Puente con la API de Mercado Libre (M36) (2026-09-03)
+- **`core/meli_api/{transport,ingest,worker}.py`** — cliente con retry/backoff que honra
+  `Retry-After`, refresca el token ante un 401 y no reintenta lo que no corresponde;
+  ingesta de items, visitas, órdenes y métricas de ads; y un worker con CLI
+  (`ingest [--client=SLUG]`) pensado para cron.
+- **`modules/mercado_libre/api_bridge.py`** — el módulo M36 pasa a leer de la base en vez
+  de esperar un Excel subido a mano, sin cambiar sus tres vistas.
+- **Migraciones `003_meli_api.sql` y `004_meli_ads_unique.sql`** — identidades, corridas de
+  ingesta, snapshots de publicaciones, serie diaria de rendimiento y de ads.
+- **Cron de ingesta 1 vez al día a las 23:30** — las métricas del día quedan firmes cuando
+  MELI cierra su ventana, así que el AM abre el módulo a la mañana con el día anterior
+  completo.
+
+### Added — Sistema de diseño e idioma unificados (`core/ui/`) (2026-09-03)
+- **`core/ui/palette.py`** — única fuente de la paleta y de los parciales de CSS que usan
+  las pantallas nuevas y el sidebar. Antes cada página repetía sus propios hex y un cambio
+  de color había que rastrearlo archivo por archivo; ahora se toca en un lugar. Las dos
+  pantallas de esta feature no tienen un solo hex propio.
+- **`core/ui/sidebar.py`** — el CSS del riel oscuro sale de `app.py` (548 → 328 líneas) a un
+  `string.Template` que sustituye las constantes de la paleta.
+- **`core/ui/i18n.py`** — catálogo es/en de 168 claves con plurales y slots de formato
+  verificados por paridad. El toggle del sidebar ahora **cambia la interfaz**, no sólo el
+  idioma de salida de los tabs IA: pantallas migradas, sidebar completo y shell. `t()`
+  nunca levanta excepción — una clave desconocida se devuelve tal cual.
+- **El toggle se reseteaba solo, y la causa no era el catálogo.** Streamlit arma el id de un
+  widget con sus propios argumentos: `radio.py:323` mete `label`, las `options` pasadas por
+  `format_func` y `help` en el hash. El toggle traducía los tres, así que en el rerun
+  siguiente al click —el primero cuyo sidebar ya está en inglés— el radio se registraba con
+  otro id, perdía su valor guardado y caía al default, escribiendo `"Español"` encima de la
+  elección. Se veía como la interfaz en inglés y el check en español. Ahora el widget es
+  invariante al idioma (label constante y colapsado, opciones en endónimo, sin `help`) y la
+  etiqueta traducida se dibuja al lado. `tests/test_language_toggle.py` fija las dos mitades:
+  el comportamiento y el invariante del id — verificado que los 3 tests fallan contra la
+  construcción vieja y pasan contra la nueva.
+
+### Fixed — Deploy: lo que habría roto el primer push a main (2026-09-03)
+- **El container `app` cargaba secretos que no le tocan.** `env_file: .env` inyectaba el
+  archivo entero, así que Streamlit —el único servicio expuesto a internet— tenía
+  `POSTGRES_PASSWORD`, `PGRST_JWT_SECRET` y `INTEGRATIONS_WORKER_JWT`. Con el secreto de
+  firma, quien comprometa la app puede firmarse un token `role=integ_worker` y leer las
+  columnas selladas: el sellado asimétrico dejaba de proteger nada. Ahora cada servicio
+  nombra sólo sus variables y `.env` no lo monta nadie. Verificado dentro del container:
+  los tres ausentes, y presentes las que la app sí necesita.
+- **`.env.integrations` no era una fuente de interpolación.** Compose lee `${...}` sólo de
+  `.env`, pero el instructivo mandaba a poner ahí variables declaradas `${VAR:?}` — el
+  stack no arrancaba. Queda un solo archivo (`deploy/integrations/env.example`), y el orden
+  de instalación de DEPLOY.md dejó de pedir el paso 3 antes del 4 que lo habilita.
+- **El CD nunca reconstruía `integrations-receiver`.** Tenía `build:` sin `image:`, así que
+  se quedaba con un nombre implícito estable y `up -d` lo daba por al día. Reproducido:
+  `up -d --build` construyó la imagen nueva y dejó corriendo la vieja. Como el receptor
+  copia `core/integrations/`, eso es deriva de versión silenciosa contra la app. Ahora
+  lleva `image: ppc-manager-receiver:${IMAGE_TAG}` y CI construye las dos imágenes con el
+  mismo tag.
+- **Los webhooks de MELI se perdían en silencio** (`005_notifications_insert.sql`). `003`
+  dejó a `web_user` con sólo `select` sobre `meli_notifications` y el receptor corre con
+  ese rol: PostgREST devolvía 403, el receptor lo logueaba y le contestaba 200 a MELI
+  igual. Reproducido y arreglado con un GRANT por columna. De paso, el duplicado legítimo
+  se detecta por status 409 y no por texto de excepción, que con `return=minimal` nunca
+  llega.
+- **`migrate.sh` no lo llamaba nadie** — nueva etapa `DB migrate` entre `Deploy` y
+  `Health gate`. Y su guardia era un falso positivo: `docker compose ps --status running`
+  sale 0 aunque el servicio no exista, así que en un host sin overlay de base no se
+  salteaba, fallaba.
+- **El smoke de base podía pasar sin base.** Salía 0 si no había `SUPABASE_URL`, incluso en
+  un deploy que sí declara el overlay. Ahora acepta `--require` y el pipeline se lo pasa
+  cuando el compose tiene `postgrest`. Cubre las 10 tablas nuevas pidiendo la PK y no `*`:
+  un `select *` sobre una tabla con columna sellada devuelve 403 por diseño.
+- **El health gate miraba un solo container** — ahora exige `ppc-manager` y
+  `integrations-receiver` sanos, así que un callback OAuth roto rompe el deploy en vez de
+  reportar verde mientras cada consentimiento devuelve 502.
+- **El `/health` documentado era un falso verde** — Caddy sólo rutea `/oauth/*` y
+  `/notifications` al receptor, así que ese curl lo contestaba Streamlit. El chequeo pasa
+  a `docker inspect`.
+- **`pgadmin` iba a producción** — quedó bajo `profiles: ["dev"]`. Verificado: 6 servicios
+  en el perfil por defecto.
+- **El backup no incluía el volumen `integrations_keys`** — con la clave privada perdida,
+  ninguna credencial sellada se puede volver a abrir. Agregado con su propia rotación.
+
 ### Added — Análisis IA en STR (M2) y SQP (M3) sobre la plataforma `ai/` (2026-09-01)
 - **M2 STR — tab Análisis IA sobre `core/ai_tab`** — reemplaza el botón legacy con `core/ai_analyze` por la plataforma reusable: el análisis se dispara solo al cargar el archivo, se marca como desactualizado si cambian los parámetros y ofrece Reintentar si falla. El agente `ai/agents/str/` recibe los KPIs, el agregado por campaña (top 40 por spend, o por clicks si el export no trae costo), los candidatos a negativizar (Alta/Media, top 120) y a harvest (top 60) con los mismos valores de los tabs 1-3, y opina fila por fila (`razon`, `categoria`, `advertencia`) más diagnósticos por campaña y la síntesis canónica. Chat flotante de repreguntas sobre el mismo análisis. Exports de la consola nueva sin columna de costo: `cost_detected=False`, ranking por clicks y caveat declarado en la síntesis.
 - **M3 SQP — señales deterministas + tab Análisis IA** — capa aditiva solo para la IA (`_compute_funnel_signals`, `_compute_account_rollup`): cascada de shares en 4 etapas con Cart Adds, índices marca-vs-mercado, brechas de precio por etapa con bandas fijas, gate de evidencia, visibilidad, gemas, defensa de marca (piso 80%), oportunidad en dólares sobre compras reales y pre-flags de riesgo. Las tabs 1-3 y sus cálculos no cambian. El agente `ai/agents/sqp/` diagnostica las 40 queries de mayor prioridad con taxonomías cerradas (`funnel_diagnosis`, `price_causality`, `action`, `confidence`) y emite la síntesis canónica con los riesgos exactamente iguales a los pre-flags. Input propio: brand terms (prefill con la marca detectada).

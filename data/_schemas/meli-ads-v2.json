@@ -1,0 +1,101 @@
+{
+  "module": "meli-ads",
+  "version": 2,
+  "created": "2026-09-03",
+  "description": "Mercado Libre — snapshot semanal del reporte de Product Ads con alertas por umbral de ACOS y ROAS. Una fila por (campaña, publicación). Multi-cuenta. v2 agrega la columna origen ({api, excel}) para distinguir de dónde salió cada fila: la API de Meli (via api_bridge sobre meli_ads_daily) o el Excel local del AM.",
+  "primary_key": ["campana", "mla"],
+  "period_column": "_period",
+  "columns": {
+    "campana": {
+      "dtype": "string",
+      "required": true,
+      "description": "Nombre de la campaña. Forma parte de la clave primaria porque una misma publicación puede estar anunciada en más de una campaña."
+    },
+    "anuncio": {
+      "dtype": "string",
+      "required": false,
+      "description": "Título del anuncio tal como figura en el reporte (Excel) o nombre del ad_group (API). La API no expone un título por anuncio así que ese es el equivalente más cercano."
+    },
+    "mla": {
+      "dtype": "string",
+      "required": true,
+      "description": "Publicación anunciada, normalizada al formato MLA<digitos>. Es la llave que permite cruzar el gasto publicitario con el rendimiento orgánico y el stock."
+    },
+    "estado": {
+      "dtype": "string",
+      "required": false,
+      "description": "Estado del anuncio normalizado. El estado 'movido' concentra la mayoría de los anuncios sin impresiones. La API no lo expone; el bridge lo deja vacío."
+    },
+    "impresiones": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Impresiones del período. Cuando es cero el anuncio va a la lista de revisión de exposición, no a la de eficiencia."
+    },
+    "clics": {
+      "dtype": "int64",
+      "required": true,
+      "description": "Clics del período. Define si el anuncio tiene volumen suficiente para que su ACOS y su ROAS sean interpretables."
+    },
+    "inversion": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Inversión publicitaria del período en moneda local."
+    },
+    "ingresos": {
+      "dtype": "float64",
+      "required": true,
+      "description": "Ingresos atribuidos al anuncio en el período."
+    },
+    "acos": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Inversión sobre ingresos, en porcentaje. Se recalcula desde los totales agregados (Excel y API por igual) en vez de leer la columna del reporte, para que el criterio sea el mismo al agregar por campaña, donde promediar los porcentajes de cada anuncio pesaría igual uno de mil pesos que uno de cien mil. Nulo si no hubo ingresos: un anuncio sin ventas no tiene un ACOS de cero, no tiene ACOS."
+    },
+    "roas": {
+      "dtype": "float64",
+      "required": false,
+      "description": "Ingresos sobre inversión. Nulo si no hubo inversión."
+    },
+    "nivel": {
+      "dtype": "string",
+      "required": false,
+      "description": "rojo, amarillo u ok según los umbrales configurados. El rojo tiene prioridad porque un anuncio puede disparar las dos condiciones a la vez. Lo computa aguas abajo (ads_alerts) y no viaja en el snapshot base."
+    },
+    "desde": {"dtype": "string", "required": true, "description": "Inicio del período en ISO 8601. Excel: la fecha 'desde' que trae cada fila del reporte. API: la fecha mínima observada en meli_ads_daily dentro de la ventana consultada."},
+    "hasta": {"dtype": "string", "required": true, "description": "Fin del período en ISO 8601. Define el nombre del snapshot. Excel: la fecha 'hasta' del reporte. API: la fecha máxima observada."},
+    "origen": {
+      "dtype": "string",
+      "required": true,
+      "description": "Origen de la fila: 'api' cuando la construyó api_bridge desde meli_ads_daily que alimenta el worker de meli_api; 'excel' cuando la escribió el parser desde el reporte local del AM. Le permite a la UI mostrar la procedencia y le da a downstream la posibilidad de filtrar por fuente sin cargar dos DataFrames distintos."
+    }
+  },
+  "entities": {
+    "snapshot": {
+      "filename_pattern": "<YYYY-MM-DD>.parquet",
+      "path": "data/marketplaces/<cuenta>/meli-ads/<YYYY-MM-DD>.parquet",
+      "frequency": "semanal",
+      "primary_key": ["campana", "mla"]
+    }
+  },
+  "alert_rules": {
+    "amarillo": "ACOS > 15%",
+    "rojo": "ROAS < 3",
+    "min_clics_alerta": 20,
+    "rationale_min_clics": "Debajo de veinte clics el ACOS y el ROAS se mueven por una sola conversión. Alertar ahí genera revisiones que no llevan a ninguna decisión.",
+    "poblaciones_separadas": [
+      "Anuncios con clics suficientes: tabla de alertas por eficiencia.",
+      "Anuncios sin impresiones: revisión de puja, presupuesto o estado. El problema no es la rentabilidad sino la falta de exposición.",
+      "Anuncios con impresiones pero pocos clics: se listan aparte para dejar explícito que no se ignoraron, solo que todavía no tienen datos suficientes."
+    ],
+    "nota_umbrales": "Los dos umbrales configurados no son independientes: ROAS 3 equivale a ACOS 33%, así que todo anuncio rojo también supera el corte amarillo. La alerta roja es un subconjunto más grave de la amarilla, no un criterio distinto. Es el comportamiento pedido por el equipo de cuentas y los valores son editables en config.py."
+  },
+  "evolution_notes": {
+    "v1_baseline": "Derivado del reporte de publicidad de julio 2026: hoja 'Reporte por Anuncios', encabezados en fila 1 con la definición de cada métrica en la misma celda.",
+    "v2_changes": "Se agrega la columna 'origen' (required, {api, excel}) para poder mezclar snapshots que vienen de la API con snapshots que vienen del Excel local. El parser existente empezó a estampar 'excel' y api_bridge.build_ads_snapshot estampa 'api'.",
+    "future_v3_candidates": [
+      "umbral por producto según margen (hoy el corte es único para todas las cuentas)",
+      "comparación contra el período anterior para detectar degradación además de nivel absoluto",
+      "cruce con el snapshot de rendimiento para separar venta orgánica de venta publicitaria"
+    ]
+  }
+}

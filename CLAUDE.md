@@ -41,12 +41,23 @@ Para correr la suite completa:
 python -m pytest -q
 ```
 
-**Baseline de esta máquina (2026-08-06): `866 passed, 5 skipped, 9 failed` sobre
-880 colectados.** Los 9 fallos son esperados en local (dependen de config
-Supabase/env): `test_revenue_forecast_state.py` (4) · `test_revenue_forecast_ingest.py`
-(1) · `test_m29_ui_e2e.py` (2) · `test_proposal_supabase_storage.py` (1) ·
-`test_knowledge_base_smoke.py` (1). Si el número difiere, o falla otro archivo,
-ahí sí revisar.
+**Baseline de esta máquina (2026-09-03): `1370 passed, 24 skipped, 5 failed,
+2 errors` sobre 1401 colectados.**
+
+El conteo absoluto envejece cada vez que alguien suma un test — lo que se
+mantiene estable, y lo único que hay que mirar, son las **familias** de rojos
+esperados en local (todas por config de entorno, ninguna por el código):
+
+| Archivo | Por qué falla en local |
+|---|---|
+| `test_m29_ui_e2e.py` (3) | fixtures de propuestas que no están en el repo |
+| `test_b7_importer.py` (2 errores) | idem |
+| `test_datadive_to_v3_mapper.py` (1) | idem |
+| `test_knowledge_base_smoke.py` (1) | espera el fallback sin `secrets.toml`; con uno real, el selectbox trae los nombres del equipo |
+
+Si falla un archivo que no está en esa tabla, ahí sí revisar. El pipeline
+deselecciona las tres primeras familias (`DESELECTS` en el `Jenkinsfile`) y la
+cuarta pasa sola en CI, donde el checkout no trae `secrets.toml`.
 
 ---
 

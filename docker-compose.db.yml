@@ -12,6 +12,8 @@ services:
       AGENCY_OS_INNOVATION_BACKEND: supabase
       SUPABASE_URL: http://rest-gateway
       SUPABASE_KEY: ${SUPABASE_KEY:?set SUPABASE_KEY (a JWT signed with PGRST_JWT_SECRET, role=web_user) in .env}
+      INTEGRATIONS_PUBLIC_KEY: ${INTEGRATIONS_PUBLIC_KEY:-}   # solo sella; la privada es del worker
+      INTEGRATIONS_REDIRECT_URI: ${INTEGRATIONS_REDIRECT_URI:-}
 
   db:
     image: postgres:16
@@ -50,6 +52,11 @@ services:
     image: caddy:2
     container_name: agency-rest-gateway
     restart: unless-stopped
+    # Publish on loopback so local smoke scripts and the receiver's E2E tests
+    # can go through the SAME gateway that production uses, catching URL-prefix
+    # bugs like the one that hid because we talked to postgrest:3001 directly.
+    ports:
+      - "127.0.0.1:3002:80"
     volumes:
       - ./deploy/db/rest-gateway.Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on: [postgrest]
@@ -58,10 +65,17 @@ services:
   pgadmin:
     image: dpage/pgadmin4:8
     container_name: agency-pgadmin
+    # Dev-only: `docker compose --profile dev up` brings it up; a bare
+    # `docker compose up` (what CD runs) leaves it out.
+    profiles: ["dev"]
     restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@local}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?set PGADMIN_PASSWORD in .env}
+      # Same trap as the worker below: a `${VAR:?}` is interpolated even for a
+      # service its profile excludes, so this aborted `up` for everyone who
+      # never asked for pgAdmin. It refuses to boot on an empty password by
+      # itself, which is the right place for that error.
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-}
       PGADMIN_LISTEN_PORT: 80
     ports:
       - "127.0.0.1:5050:80"   # loopback only → reach via SSH tunnel, never public
@@ -70,9 +84,34 @@ services:
     depends_on: [db]
     networks: [web]
 
+  integrations-worker:
+    image: ppc-manager:${IMAGE_TAG:-latest}
+    container_name: agency-integrations-worker
+    profiles: ["worker"]          # ephemeral: never starts on `up`, only via `run --rm`
+    # Named one by one, like every other service: `.env` is the only
+    # interpolation source and no container mounts it. The worker is the sole
+    # holder of INTEGRATIONS_WORKER_JWT — the role that can read sealed columns.
+    environment:
+      SUPABASE_URL: http://rest-gateway
+      # Soft defaults on purpose: `${VAR:?}` here is evaluated even though the
+      # service sits behind a profile, so it would block `up` for the whole
+      # stack on a host that never runs the worker. Both are required at run
+      # time and the worker says so itself (WorkerError) if they are empty.
+      INTEGRATIONS_WORKER_JWT: ${INTEGRATIONS_WORKER_JWT:-}   # JWT, role=integ_worker
+      INTEGRATIONS_REDIRECT_URI: ${INTEGRATIONS_REDIRECT_URI:-}  # must match the provider's registered URI
+    volumes:
+      # The unsealing key is generated on the first run and lives here.
+      # The `app` service does NOT mount this volume — that is why it cannot
+      # open anything sealed.
+      - integrations_keys:/app/data/integrations
+    depends_on: [rest-gateway]
+    networks: [web]
+    mem_limit: 512m
+
 networks:
   web: {}
 
 volumes:
   pgdata: {}
   pgadmin_data: {}
+  integrations_keys: {}

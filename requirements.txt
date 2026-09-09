@@ -9,6 +9,9 @@ openpyxl==3.1.5
 pdfplumber==0.11.4
 streamlit-authenticator==0.3.3
 bcrypt==4.2.1
+# Sellado asimetrico de credenciales (core/integrations/crypto.py). Ya venia
+# transitiva por pdfplumber; se declara directa porque ahora es de primer orden.
+cryptography>=44.0.2
 Jinja2==3.1.6
 xhtml2pdf==0.2.17
 # svglib 1.5.0 = última pre-rlpycairo; evita pycairo/libcairo (no compila en Streamlit Cloud)

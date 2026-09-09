@@ -1,4 +1,4 @@
-"""Vista de la Feature 3 — alertas de campañas de Product Ads."""
+"""Feature 3 view — Product Ads campaign alerts."""
 from __future__ import annotations
 
 import pandas as pd
@@ -12,21 +12,21 @@ from modules.mercado_libre.core.ads_alerts import (COLOR_NIVEL, ETIQUETA_NIVEL, 
 from core.helpers import kpi_card
 from modules.mercado_libre.views.helpers import badge, empty_state, fmt_decimal, fmt_money, fmt_num
 
-_ETIQUETA_CORTA = {
+_SHORT_LABEL = {
     NIVEL_ROJO: "🔴 Rojo",
     NIVEL_AMARILLO: "🟡 Amarillo",
     NIVEL_OK: "🟢 OK",
 }
 
 
-def _color_nivel(valor):
-    for clave, etiqueta in _ETIQUETA_CORTA.items():
-        if valor == etiqueta:
-            return f"color: {COLOR_NIVEL[clave]}; font-weight: 600"
+def _color_level(value):
+    for key, label in _SHORT_LABEL.items():
+        if value == label:
+            return f"color: {COLOR_NIVEL[key]}; font-weight: 600"
     return ""
 
 
-def render(cuenta: str, ads: pd.DataFrame | None) -> None:
+def render(account: str, ads: pd.DataFrame | None) -> None:
     st.markdown("### 🎯 Alertas de campañas")
     st.caption(
         f"Marca en amarillo lo que supera {config.ACOS_ALERTA_AMARILLA:g}% de "
@@ -41,42 +41,42 @@ def render(cuenta: str, ads: pd.DataFrame | None) -> None:
         )
         return
 
-    totales = resumen(ads)
+    totals = resumen(ads)
 
-    columnas = st.columns(5)
-    tarjetas = [
-        ("Inversión", fmt_money(totales["inversion"])),
-        ("Ingresos", fmt_money(totales["ingresos"])),
-        ("ACOS global", f"{totales['acos']:.1f}%" if totales["acos"] else "—"),
-        ("Alertas rojas", fmt_num(totales["rojos"])),
-        ("Alertas amarillas", fmt_num(totales["amarillos"])),
+    cols = st.columns(5)
+    cards = [
+        ("Inversión", fmt_money(totals["inversion"])),
+        ("Ingresos", fmt_money(totals["ingresos"])),
+        ("ACOS global", f"{totals['acos']:.1f}%" if totals["acos"] else "—"),
+        ("Alertas rojas", fmt_num(totals["rojos"])),
+        ("Alertas amarillas", fmt_num(totals["amarillos"])),
     ]
-    for columna, (etiqueta, valor) in zip(columnas, tarjetas):
-        with columna:
-            st.markdown(kpi_card(label=etiqueta, value=valor),
+    for col, (label, value) in zip(cols, cards):
+        with col:
+            st.markdown(kpi_card(label=label, value=value),
                         unsafe_allow_html=True)
     st.markdown("")
 
-    por_campana = alertas_por_campana(ads)
+    by_campaign = alertas_por_campana(ads)
     st.markdown("#### Por campaña")
     st.caption(
         "El ACOS y el ROAS de la campaña se calculan sobre la inversión total, "
         "no promediando los anuncios: así un anuncio chico no pesa lo mismo que "
         "uno que se lleva la mayor parte del presupuesto."
     )
-    tabla_campana = pd.DataFrame({
-        "Campaña": por_campana["campana"],
-        "Anuncios": por_campana["anuncios"],
-        "Clics": por_campana["clics"],
-        "Inversión": por_campana["inversion"],
-        "Ingresos": por_campana["ingresos"],
-        "ACOS": por_campana["acos"],
-        "ROAS": por_campana["roas"],
-        "Nivel": por_campana["nivel"].map(_ETIQUETA_CORTA),
+    campaign_table = pd.DataFrame({
+        "Campaña": by_campaign["campana"],
+        "Anuncios": by_campaign["anuncios"],
+        "Clics": by_campaign["clics"],
+        "Inversión": by_campaign["inversion"],
+        "Ingresos": by_campaign["ingresos"],
+        "ACOS": by_campaign["acos"],
+        "ROAS": by_campaign["roas"],
+        "Nivel": by_campaign["nivel"].map(_SHORT_LABEL),
     })
     st.dataframe(
-        tabla_campana.style
-        .map(_color_nivel, subset=["Nivel"])
+        campaign_table.style
+        .map(_color_level, subset=["Nivel"])
         .format({
             "Clics": fmt_num, "Anuncios": fmt_num,
             "Inversión": fmt_money, "Ingresos": fmt_money,
@@ -89,44 +89,44 @@ def render(cuenta: str, ads: pd.DataFrame | None) -> None:
     st.divider()
     st.markdown("#### Por anuncio")
 
-    alertas = alertas_por_anuncio(ads)
-    if alertas.empty:
+    alerts_df = alertas_por_anuncio(ads)
+    if alerts_df.empty:
         st.info(
             f"Ningún anuncio alcanzó los {config.MIN_CLICS_ALERTA} clics "
             "necesarios para evaluar su eficiencia en este período."
         )
     else:
-        solo_alertas = st.checkbox(
+        only_alerts = st.checkbox(
             "Mostrar solo los que tienen alerta", value=True,
             key="meli_ads_filtro",
         )
-        mostrar = alertas[alertas["nivel"] != NIVEL_OK] if solo_alertas else alertas
+        visible = alerts_df[alerts_df["nivel"] != NIVEL_OK] if only_alerts else alerts_df
 
-        sin_ingresos = mostrar[
-            (mostrar["ingresos"].fillna(0) == 0) & (mostrar["inversion"].fillna(0) > 0)
+        no_revenue = visible[
+            (visible["ingresos"].fillna(0) == 0) & (visible["inversion"].fillna(0) > 0)
         ]
-        if not sin_ingresos.empty:
-            perdida = sin_ingresos["inversion"].sum()
+        if not no_revenue.empty:
+            loss = no_revenue["inversion"].sum()
             st.error(
-                f"{len(sin_ingresos)} anuncio(s) gastaron "
-                f"{fmt_money(perdida)} sin generar ningún ingreso en el período. "
+                f"{len(no_revenue)} anuncio(s) gastaron "
+                f"{fmt_money(loss)} sin generar ningún ingreso en el período. "
                 "Son los primeros a revisar."
             )
 
-        tabla_anuncio = pd.DataFrame({
-            "Campaña": mostrar["campana"],
-            "MLA": mostrar["mla"],
-            "Anuncio": mostrar["anuncio"].astype(str).str.slice(0, 45),
-            "Clics": mostrar["clics"],
-            "Inversión": mostrar["inversion"],
-            "Ingresos": mostrar["ingresos"],
-            "ACOS": mostrar["acos"],
-            "ROAS": mostrar["roas"],
-            "Nivel": mostrar["nivel"].map(_ETIQUETA_CORTA),
+        ad_table = pd.DataFrame({
+            "Campaña": visible["campana"],
+            "MLA": visible["mla"],
+            "Anuncio": visible["anuncio"].astype(str).str.slice(0, 45),
+            "Clics": visible["clics"],
+            "Inversión": visible["inversion"],
+            "Ingresos": visible["ingresos"],
+            "ACOS": visible["acos"],
+            "ROAS": visible["roas"],
+            "Nivel": visible["nivel"].map(_SHORT_LABEL),
         })
         st.dataframe(
-            tabla_anuncio.style
-            .map(_color_nivel, subset=["Nivel"])
+            ad_table.style
+            .map(_color_level, subset=["Nivel"])
             .format({
                 "Clics": fmt_num, "Inversión": fmt_money, "Ingresos": fmt_money,
                 "ACOS": lambda v: f"{v:.1f}%" if pd.notna(v) else "—",
@@ -135,36 +135,50 @@ def render(cuenta: str, ads: pd.DataFrame | None) -> None:
             use_container_width=True, hide_index=True,
         )
 
-    sin_impresiones = anuncios_sin_impresiones(ads)
-    pocos_clics = anuncios_con_pocos_clics(ads)
+    no_impressions = anuncios_sin_impresiones(ads)
+    few_clicks = anuncios_con_pocos_clics(ads)
 
-    st.divider()
-    columna_izq, columna_der = st.columns(2)
+    # The two remaining blocks are DIAGNOSTIC cases, not action rows for
+    # the AM. They used to occupy two side-by-side `st.dataframe(...,
+    # height=280)` panels with hundreds of repeated MLA ids (measured: 224
+    # without impressions · 25 with few clicks on a real client). A one-line
+    # summary + expander for the detail reclaims 560 px of screen without
+    # losing access to the listing when the ids really need to be inspected.
+    if not (no_impressions.empty and few_clicks.empty):
+        st.divider()
+        pieces = []
+        if not no_impressions.empty:
+            pieces.append(
+                f"**{len(no_impressions)}** sin impresiones — puja, "
+                "presupuesto o estado"
+            )
+        if not few_clicks.empty:
+            pieces.append(
+                f"**{len(few_clicks)}** con menos de "
+                f"{config.MIN_CLICS_ALERTA} clics — sin datos para juzgar"
+            )
+        st.caption("Sin evaluar: " + " · ".join(pieces) + ".")
 
-    with columna_izq:
-        st.markdown(f"#### Sin impresiones ({len(sin_impresiones)})")
-        st.caption(
-            "Acá el problema no es la rentabilidad sino que el anuncio no se "
-            "está mostrando: puja, presupuesto o estado."
-        )
-        if sin_impresiones.empty:
-            st.success("Todos los anuncios tuvieron impresiones.")
-        else:
-            st.dataframe(sin_impresiones, use_container_width=True,
-                         hide_index=True, height=280)
-
-    with columna_der:
-        st.markdown(f"#### Pocos clics ({len(pocos_clics)})")
-        st.caption(
-            f"Tuvieron impresiones pero menos de {config.MIN_CLICS_ALERTA} "
-            "clics. Se listan para dejar constancia: todavía no hay datos "
-            "suficientes para juzgar su eficiencia."
-        )
-        if pocos_clics.empty:
-            st.success("Sin anuncios en esta zona.")
-        else:
-            st.dataframe(pocos_clics, use_container_width=True,
-                         hide_index=True, height=280)
+        with st.expander("Ver los anuncios sin evaluar", expanded=False):
+            if not no_impressions.empty:
+                st.markdown(f"**Sin impresiones ({len(no_impressions)})**")
+                st.caption(
+                    "Acá el problema no es la rentabilidad sino que el "
+                    "anuncio no se está mostrando: puja, presupuesto o estado."
+                )
+                st.dataframe(no_impressions, use_container_width=True,
+                             hide_index=True, height=280)
+            if not few_clicks.empty:
+                if not no_impressions.empty:
+                    st.divider()
+                st.markdown(f"**Pocos clics ({len(few_clicks)})**")
+                st.caption(
+                    f"Tuvieron impresiones pero menos de "
+                    f"{config.MIN_CLICS_ALERTA} clics. Todavía no hay datos "
+                    "suficientes para juzgar su eficiencia."
+                )
+                st.dataframe(few_clicks, use_container_width=True,
+                             hide_index=True, height=280)
 
     with st.expander("📖 Sobre los umbrales configurados"):
         st.markdown(

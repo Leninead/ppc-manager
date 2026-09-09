@@ -439,14 +439,16 @@ def latest_research_date(payload: dict) -> str:
 
 def client_from_env(*, max_retries: int = _MAX_RETRIES,
                     retry_after_cap_s: float = _RETRY_AFTER_CAP_S) -> DataDiveClient | None:
-    """A client when a key is configured (env first, then st.secrets), else None."""
-    key = os.environ.get("DATADIVE_API_KEY", "").strip()
-    if not key:
-        try:
-            import streamlit as st  # deferred: core must import without Streamlit
-            key = str(st.secrets.get("datadive", {}).get("api_key", "")).strip()
-        except Exception:
-            key = ""
+    """A client when a key is configured, else None.
+
+    One resolver decides where the key comes from (portal, env, secrets) so the
+    Integraciones page can never claim a different source than the one in use.
+    """
+    try:
+        from core.integrations.lookup import system_secret  # deferred: needs Streamlit
+        key = (system_secret("datadive") or "").strip()
+    except Exception:
+        key = os.environ.get("DATADIVE_API_KEY", "").strip()
     if not key:
         return None
     return DataDiveClient(key, max_retries=max_retries,

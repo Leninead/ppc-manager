@@ -46,6 +46,8 @@ app_backup.py
 # Clonar en notes/ — repo anidado, este repo lo ignora entero. Destrackeado 2026-08-20 (cfc2f92).
 notes/
 .env
+.env.*
+!.env.example
 # ── Agregado por setup_deploy.py ──────────────────
 .streamlit/secrets.toml
 # ── Carpeta porting-sources/ ──────────────────────
@@ -88,9 +90,23 @@ _smoke_render*.html
 _staging/
 # Bulks operativos de Amazon — artefactos, no versionar
 BULK_*.xlsx
+# ── Scratch de la skill /design (Claude Design canvas) ──
+# Artboards .dc.html, canvas.json y los .html "seedeados" que empaquetan el
+# editor completo (~2,5 MB cada uno, el editor va embebido entero en el archivo).
+# No es código de la app ni un entregable para el equipo: lo que importa queda
+# publicado como Artifact con link compartible — esto es sólo cómo se llegó ahí.
+# Versionarlo infla el repo para siempre: cada edición de un artboard crea un
+# blob nuevo de varios MB en el historial, que nunca se puede recuperar después.
+_design/
+
 # ── Handoffs de frente al consolidador ──
 # Dumps sueltos en raíz (resumenes-YYYY-MM-DD.txt). No se versionan: su
 # contenido se procesa al vault (daily + STATE) y ahí queda el registro.
 # Excepción: los ya archivados en _archive/docs/ siguen trackeados.
 resumenes-*.txt
 !_archive/docs/resumenes-*.txt
+
+# Dev-only overlay: LOCAL_MODE=1 + LOCAL_ADMIN=1 bypass login. If it leaks to prod, the app runs without auth.
+docker-compose.dev-expose.yml
+# Per-machine scratch of the /design skill's hook.
+.impeccable/

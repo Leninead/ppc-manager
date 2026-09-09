@@ -8,11 +8,19 @@ quieran mover alguno.
 from __future__ import annotations
 
 AREA = "marketplaces"
+# Kept for callers that don't need to distinguish per-module. Individual
+# modules use SCHEMA_VERSION_<name> below; rendimiento, publicaciones and
+# ads jumped to v2 when the API bridge started producing rows and each
+# schema had to grow an "origen" column ({api, excel}).
 SCHEMA_VERSION = 1
 
 MODULO_RENDIMIENTO = "meli-rendimiento"
 MODULO_PUBLICACIONES = "meli-publicaciones"
 MODULO_ADS = "meli-ads"
+
+SCHEMA_VERSION_RENDIMIENTO = 2
+SCHEMA_VERSION_PUBLICACIONES = 2
+SCHEMA_VERSION_ADS = 2
 
 LOG_CAMBIOS = "cambios"
 LOG_TRANSITO = "transito"

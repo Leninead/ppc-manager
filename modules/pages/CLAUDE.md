@@ -1137,3 +1137,106 @@ Cada módulo de cara al usuario embebe su guía de uso como:
 - En `render()`, apenas debajo del header del módulo: un `st.expander("📘 Cómo usar este módulo", expanded=False)` con `st.markdown(_SOP_MD)` adentro. TOP-LEVEL, nunca anidado dentro de otro expander/popover.
 Aplicado en: sku_progress_report.py, pricing_dashboard.py, proposal_studio.py (commits 2607b4e + 797f7eb).
 La copia de equipo (fuera de la app) vive en notes/sops/SOP_USER_*.md. El `_SOP_MD` del módulo es la fuente de verdad; los .md se mantienen en sync con él.
+
+---
+
+## M37 — Cuentas conectadas (`accounts.py`)
+
+**Propósito.** El otro lado del portal: las cuentas de cliente que un vendedor autoriza por
+OAuth. Vive en `⚙️ Sistema → Cuentas conectadas` y la ve **todo empleado**, no sólo admin.
+
+**Por qué no está adentro de Mercado Libre.** La autorización es transversal: mañana entran
+Amazon y Walmart y se suman como bandas acá. Si viviera en M36, la primera pantalla nueva
+que necesite una cuenta de MELI tendría que ir a buscar la autenticación a otro módulo.
+La divisoria con M38 es el permiso y el radio: credencial del sistema (una, admin, rompe a
+todos) vs cuenta conectada (una por cliente, cualquiera, rompe a uno).
+
+**Conectar no pide ningún campo.** El link de consentimiento se arma al abrir el diálogo, y
+el nombre y el país los completa el worker desde `/users/me` al cerrar el grant
+(`_fetch_meli_identity` + `_resolve_client_slug` en `core/integrations/worker.py`). Pedirle
+el slug a quien conecta era pedirle un dato que el proveedor ya sabe.
+
+**Reglas de negocio.**
+- El grant se abre con un cliente provisorio `_pending_<state[:12]>`; el worker lo reemplaza
+  cuando canjea. Si dos cuentas del mismo proveedor colisionan en slug, se desempata con el
+  site (`MLA`, `MLM`).
+- Una fila en `needs_reauth` muestra su propio botón **Reautorizar**: reabre el mismo flujo
+  sobre la misma cuenta, y el cierre va por `upsert` con
+  `on_conflict=integration_slug,cuenta_externa_id` — `insert` choca en 409 contra el unique.
+- El estado de la conexión se espeja a `meli_auth_identities` (`_mirror_on_identity`): sin
+  eso, el portal decía "requiere reautorizar" y la ingesta seguía intentando con la
+  identidad marcada activa.
+
+**Estilo.** Cero hex propios: todo sale de `core/ui/palette.py`. Los textos salen de
+`core/ui/i18n.py` — el módulo no tiene literales de UI.
+
+**Anti-patterns.**
+- ❌ NO llamar a `st.rerun()` dentro de un `st.dialog`: cierra el diálogo. Para encadenar
+  dos pasos va el patrón de señal en `session_state`, no un diálogo anidado (no existen).
+- ❌ NO armar el link de consentimiento en el render de la fila: se arma al abrir el
+  diálogo, una sola vez por `state`, o cada rerun quema un grant nuevo.
+- ❌ NO leer el estado de la cuenta sólo de `integration_connections` sin mirar la identidad
+  espejada — quedan en desacuerdo.
+- ❌ NO poner texto de UI en el módulo: va al catálogo de `core/ui/i18n.py`, en las dos
+  lenguas, o el toggle del sidebar deja la pantalla a medio traducir.
+
+---
+
+## M38 — Integraciones (`integrations.py`)
+
+**Propósito.** Portal de credenciales de todas las integraciones, para dejar de editar `.env` por SSH en el VPS.
+
+**Dos niveles, con cardinalidad y permisos distintos.**
+- *Credencial del sistema*: una por integración. API key de la agencia, o `client_id`/`client_secret` de la app OAuth. Sólo admin.
+- *Cuenta conectada*: N por integración, una por cliente. La autoriza el vendedor. Cualquier usuario puede conectar.
+
+**Dos clases de almacenamiento, elegidas por quién consume la credencial.**
+- `APP_READABLE`: la lee el propio proceso de Streamlit (DataDive). Cifrarla la volvería inutilizable.
+- `SEALED`: cifrada con RSA-OAEP; sólo la abre el worker. Correcta para un `client_secret` que gobierna N cuentas.
+- La pantalla nunca dice "sellada": dice **cifrada**. `sealed` es el nombre interno, no el del usuario.
+- El test `test_lo_que_consume_la_app_no_puede_ser_sellado` blinda esa regla.
+
+**Reglas de negocio.**
+- El invariante "escribir sin leer" lo garantiza el GRANT por columna de `002_integrations.sql`, no el chequeo de rol en Python: `AGENCY_OS_LOCAL_MODE` puentea el login entero.
+- Los writes van con `Prefer: return=minimal`. Pedir la representación fuerza un SELECT y PostgREST responde 403 — por eso este módulo no puede reusar el transporte de `core/persistence.py:431`.
+- `guardar()` invalida y después inserta. Un upsert leería `excluded` sobre la columna sellada.
+
+**El catálogo es una lista en bandas, no una grilla de tarjetas** (rediseño 2026-09-03).
+- Arriba, un **veredicto** de dos líneas que contesta "¿hay algo roto y a qué cliente le pega?".
+  Tres ramas y sólo tres: 0 rotas / 1 rota (nombra al cliente) / N rotas (cuenta, no nombra —
+  los nombres bajan a las sub-líneas). No declara una hora: `last_sync_at` no lo escribe nada
+  en el repo, así que una hora ahí sería inventada.
+- Cuatro bandas en orden fijo (`SIN PODER CONFIRMAR` · `REQUIERE ATENCIÓN` · `SE PUEDE CARGAR`
+  · `EN SERVICIO`). **Una banda sin filas no se dibuja** — su ausencia es el mensaje.
+- Fila de 44px con siete celdas (`st.columns(_PESOS_FILA, vertical_alignment="center")`) dentro
+  de `st.container(key=...)`. La `key` **sí** baja al DOM en 1.43.2 (`convertKeyToClassName` →
+  `st-key-<key>`): todo el CSS cuelga de `.st-key-ig_lista`, sin un solo `:has()`.
+- Prefijos de key: `ig_lista` · `ig_banda_<n>` · `ig_fila_<slug>` · `ig_att_<slug>` ·
+  `ig_att_<slug>_<conexion.id>`. El prefijo `ig_att` es lo que pinta el riel naranja.
+- La cuenta del cliente caída sube a **sub-línea propia** bajo su integración, con su propio
+  botón `Reautorizar`. Tope de 4 más una fila `y N más`.
+- `PROXIMAMENTE` **no es una fila**: es una oración al pie. Ese cambio de clase estructural es
+  lo que lo separa de "Andando, fuera del portal" sin depender del color.
+- `Contexto.lectura_ok` distingue "no hay nada cargado" de "no se pudo preguntar". Sin eso,
+  PostgREST intermitente pintaba "Sin configurar" sobre credenciales que existen.
+- `#F59E0B` salió del módulo: da **2,15:1** sobre blanco y ni llega al 3:1 de elemento no
+  textual. El ámbar de atención es `#B02A00` (6,61:1).
+
+**Estilo e idioma.** Cero hex propios: todo sale de `core/ui/palette.py`. Cero literales
+de UI: salen de `core/ui/i18n.py`, en las dos lenguas.
+
+**Anti-patterns.**
+- ❌ NO agregar `secret_sealed` a ninguna lista de SELECT: tumba la página entera con un 403.
+- ❌ NO meter texto que venga de la base en el HTML de una celda sin `html.escape`: `cliente` y
+  `created_by` los tipea una persona y viajan hasta un `unsafe_allow_html`.
+- ❌ NO dejar que una celda secundaria envuelva: estira esa fila y reaparece el escalón que la
+  grilla tenía. Clase y Hecho se cortan en una línea, con el valor entero en el tooltip.
+- ❌ NO usar `insert` para cerrar un grant OAuth: `integration_connections` declara
+  `unique (integration_slug, cuenta_externa_id)` y reautorizar la misma cuenta choca en 409.
+  Va `_Rest.upsert` con `Prefer: resolution=merge-duplicates`.
+- ❌ NO mostrar un secreto enmascarado (`sk-••••3f2a`): insinúa que la app lo tiene y no lo muestra, lo cual es falso. Va la huella.
+- ❌ NO renderizar un botón deshabilitado por falta de permiso: se omite el botón.
+- ❌ NO tratar `AGENCY_OS_LOCAL_MODE` como admin — para eso está `AGENCY_OS_LOCAL_ADMIN`.
+- ❌ NO ofrecer una acción que no puede funcionar: si falta la base o el worker, eso es el ESTADO de la tarjeta, no un error después de que alguien tipeó un secreto.
+- ❌ NO pedirle al admin que genere la clave de cifrado desde la UI: la genera `worker keys` al instalar y publica sola la mitad pública.
+- ❌ NO dejar que una falla de red llegue a pantalla como excepción — `_mensaje_error` la traduce y el detalle va al log.

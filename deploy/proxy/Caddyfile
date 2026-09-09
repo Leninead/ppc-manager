@@ -10,8 +10,30 @@
     log {
         format json
     }
-    reverse_proxy app:8501 {
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Forwarded-Host {host}
+
+    # Path splitting: everything under /oauth/ and /notifications reaches the
+    # integrations receiver (see services/integrations_receiver/). The rest of
+    # the domain stays on Streamlit — the receiver never learns which page the
+    # user was on, and Streamlit never sees an OAuth code.
+    #
+    # Order matters in Caddy: the FIRST matching handler wins. `handle` blocks
+    # here are mutually exclusive by design, no fallthrough surprises.
+    handle /oauth/* {
+        reverse_proxy integrations-receiver:8600 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
+        }
+    }
+    handle /notifications {
+        reverse_proxy integrations-receiver:8600 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
+        }
+    }
+    handle {
+        reverse_proxy app:8501 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
+        }
     }
 }

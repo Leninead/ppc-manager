@@ -6,38 +6,9 @@ _BR_OPTIONAL_COLS = [
     "Total Order Items", "Refund Rate", "Shipped Product Sales", "Units Shipped",
 ]
 
-_PAGES = [
-    "🏠 Inicio",
-    "📊 Search Term Report",
-    "🔍 Search Query Performance",
-    "📁 Bulk Campañas",
-    "💰 Business Report",
-    "🔗 Análisis Cruzado STR vs SQP",
-    "📈 Tendencia Multi-Semana",
-    "🔻 Análisis de Funnel",
-    "🔬 Reportes Atom 11",
-    "🛡️ Reportes MerchanSpring",
-    "🧠 Bid Optimizer",
-    "🚀 Campaign Builder",
-    "📊 Weekly Client Report",
-    "⚙️ Atom11 Rules Builder",
-    "📅 Account Pulse",
-    "🔎 PPC Insights Engine",
-    "🔮 PPC Forecast",
-    "📋 PPC Audit",
-    "🔬 DataDive Analyzer",
-    "🧲 Helium 10 Analyzer",
-    "📢 SBH Recommendation",
-    "📚 Knowledge Base",
-    "👁️ Listing Monitor",
-    "🛡️ Listing Compliance",
-    "📊 Gamboa Generator",
-    "🧬 Variation Builder",
-    "🗂️ Flat File Migrator",
-    "🏥 SKU Progress Report",
-    "💲 Pricing Dashboard",
-    "📋 Proposal Studio",
-    "📈 Monthly Forecast",
-    "🏆 Case Study Studio",
-    "🛒 Mercado Libre",
-]
+# Los destinos del riel, derivados de su unica fuente. Antes era una copia a
+# mano y habia derivado: cinco entradas tenian otro emoji o otro nombre que el
+# boton real, y dos modulos habian quedado afuera hasta 2c34d1f.
+from core.navigation import all_pages as _all_pages
+
+_PAGES = _all_pages()

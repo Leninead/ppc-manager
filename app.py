@@ -2,9 +2,14 @@ import streamlit as st
 import pandas as pd
 import io
 import os
+from html import escape as _escape
 import re
 
 from core.i18n import _I18N
+from core import navigation
+from core.integrations.notice import accounts_needing_reauth
+from core.ui import sidebar as _sidebar
+from core.ui import i18n
 from core.constants import _BR_OPTIONAL_COLS, _PAGES
 from core.helpers import _color_pct, extract_sqp_brand, read_sqp
 from core.business_report import _BIZ_DIR, _parse_business_report_map, _auto_load_business_report_map
@@ -49,108 +54,15 @@ from modules.pages.proposal_studio import render as render_proposal_studio
 from modules.pages.case_study_studio import render as render_case_study_studio
 from modules.pages.revenue_forecast import render as render_revenue_forecast
 from modules.mercado_libre.main import render as render_mercado_libre
+from modules.pages.accounts import render as render_accounts
+from modules.pages.integrations import render as render_integrations
+from core.integrations.roles import is_admin as _role_is_admin
+from core.integrations.roles import resolve_role as _resolve_role
 import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="Agency OS", layout="wide")
 
-st.markdown("""
-<style>
-/* ── Sidebar fondo oscuro ─────────────────────────────────────── */
-[data-testid="stSidebar"] {
-    background-color: #1A1A1A !important;
-    min-width: 180px !important;
-    max-width: 180px !important;
-}
-
-/* ── Texto del sidebar ────────────────────────────────────────── */
-[data-testid="stSidebar"] * {
-    color: #CCCCCC !important;
-}
-
-/* ── Botones del sidebar ──────────────────────────────────────── */
-[data-testid="stSidebar"] button {
-    background-color: transparent !important;
-    border: none !important;
-    border-radius: 6px !important;
-    color: #CCCCCC !important;
-    font-size: 0.78rem !important;
-    padding: 0.3rem 0.5rem !important;
-    text-align: left !important;
-    width: 100% !important;
-    transition: background 0.15s ease !important;
-}
-
-[data-testid="stSidebar"] button:hover {
-    background-color: #2A2A2A !important;
-    color: #FFFFFF !important;
-}
-
-/* ── Labels de sección (markdown bold) ───────────────────────── */
-[data-testid="stSidebar"] .stMarkdown p {
-    color: #888888 !important;
-    font-size: 0.68rem !important;
-    font-weight: 700 !important;
-    letter-spacing: 0.08em !important;
-    text-transform: uppercase !important;
-    margin: 0.75rem 0 0.25rem 0.5rem !important;
-}
-
-/* ── Labels custom HTML en sidebar ───────────────────────────── */
-[data-testid="stSidebar"] .stMarkdown div {
-    color: #E84000 !important;
-    font-size: 0.85rem !important;
-    font-weight: 800 !important;
-}
-
-/* ── Divider ──────────────────────────────────────────────────── */
-[data-testid="stSidebar"] hr {
-    border-color: #333333 !important;
-    margin: 0.5rem 0 !important;
-}
-
-/* ── Título/caption del sidebar ───────────────────────────────── */
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 {
-    color: #E84000 !important;
-    font-size: 0.85rem !important;
-}
-
-/* ── Footer del sidebar ───────────────────────────────────────── */
-[data-testid="stSidebar"] div[style*="margin-top:2rem"] {
-    color: #555555 !important;
-}
-
-/* ── Ocultar el collapse arrow del sidebar ────────────────────── */
-[data-testid="stSidebarCollapseButton"] {
-    display: none !important;
-}
-
-/* ── Área principal — quitar padding excesivo ─────────────────── */
-[data-testid="stAppViewContainer"] > .main {
-    padding-left: 1rem !important;
-}
-
-/* ── Expanders del sidebar ──────────────────────────────────── */
-[data-testid="stSidebar"] details {
-    background-color: transparent !important;
-    border: none !important;
-    margin-bottom: 0 !important;
-}
-
-[data-testid="stSidebar"] details summary {
-    color: #E84000 !important;
-    font-size: 0.82rem !important;
-    font-weight: 800 !important;
-    letter-spacing: 0.05em !important;
-    padding: 0.4rem 0.5rem !important;
-}
-
-[data-testid="stSidebar"] details summary:hover {
-    color: #FF6B00 !important;
-}
-</style>
-""", unsafe_allow_html=True)
+st.markdown(_sidebar.SIDEBAR_CSS, unsafe_allow_html=True)
 
 # ── Autenticación ──────────────────────────────────────────────────
 # Excepción que lanza st.secrets si falta secrets.toml. En streamlit 1.43.2 es
@@ -168,17 +80,13 @@ _LOCAL_MODE = os.environ.get("AGENCY_OS_LOCAL_MODE") == "1"
 if _LOCAL_MODE:
     _authenticator = None
     _name, _auth_status, _username = "Local Dev", True, "local"
-    st.sidebar.warning("🔓 Modo local — login desactivado (AGENCY_OS_LOCAL_MODE=1)")
+    st.sidebar.caption(i18n.t("shell.local_mode.sidebar_caption"))
 else:
     try:
         _creds = st.secrets["credentials"].to_dict()
         _cookie = st.secrets["cookie"]
     except _SECRET_ERRORS:
-        st.error(
-            "❌ Falta `.streamlit/secrets.toml` o sus claves `credentials`/`cookie`. "
-            "Copiá `secrets.toml.example` → `secrets.toml` y completá tus credenciales, "
-            "o corré en modo local con la variable de entorno `AGENCY_OS_LOCAL_MODE=1`."
-        )
+        st.error(i18n.t("shell.auth.secrets_missing"))
         st.stop()
     _authenticator = stauth.Authenticate(
         _creds,
@@ -186,20 +94,31 @@ else:
         _cookie["key"],
         int(_cookie["expiry_days"]),
     )
+    # The dict keys are the library's field ids, not copy: only the values
+    # they map to are shown. The login screen is drawn before the sidebar
+    # exists, so `app_lang` is unset here and this renders in Spanish — the
+    # catalog's fallback, not an accident.
     _name, _auth_status, _username = _authenticator.login(
         fields={
-            "Form name": "🦫 Agency OS",
-            "Username": "Usuario",
-            "Password": "Contraseña",
-            "Login": "Ingresar",
+            "Form name": i18n.t("shell.login.form_name"),
+            "Username": i18n.t("shell.login.username"),
+            "Password": i18n.t("shell.login.password"),
+            "Login": i18n.t("shell.login.submit"),
         }
     )
     if _auth_status is False:
-        st.error("❌ Usuario o contraseña incorrectos")
+        st.error(i18n.t("shell.login.bad_credentials"))
         st.stop()
     elif _auth_status is None:
         st.stop()
 # ── Fin auth ───────────────────────────────────────────────────────
+
+# Resolved server-side on every run, never read from the cookie or from
+# session_state: any of the 33 modules could write that key.
+_role = _resolve_role(_username)
+# Derived once here and passed down to the rail: recomputing it per button
+# would call into `st.secrets` on every destination, every rerun.
+_is_admin = _role_is_admin(_role)
 
 
 if "parent_child_map" not in st.session_state:
@@ -209,12 +128,40 @@ if "parent_child_map" not in st.session_state:
 if "selected_page" not in st.session_state:
     st.session_state["selected_page"] = "🏠 Inicio"
 
-def _nav(page):
+def _go_to(page):
     st.session_state["selected_page"] = page
+
+
+def _nav_type(page):
+    """`primary` marks the active page: without this, 33 destinations look identical."""
+    return "primary" if st.session_state.get("selected_page") == page else "secondary"
+
+
+def _nav_label(page: str) -> str:
+    """Visible text for a destination: no emoji, plus an amber dot on
+    Integrations when a client account has stopped authorizing."""
+    label = navigation.visible_label(page)
+    if page == "🔌 Integraciones" and accounts_needing_reauth():
+        return f"{label} :orange[●]"
+    return label
+
+
+def _nav_button(page: str) -> None:
+    """The label is what the user sees; `page` is the routing key and never changes."""
+    st.button(
+        _nav_label(page),
+        icon=navigation.icon_for(page),
+        use_container_width=True,
+        on_click=_go_to,
+        type=_nav_type(page),
+        args=(page,),
+        key=f"nav_{page}",
+    )
+
 
 with st.sidebar:
     if _authenticator is not None:
-        _authenticator.logout("↩ Cerrar sesión", "sidebar")
+        _authenticator.logout(i18n.t("shell.sidebar.logout"), "sidebar")
     st.caption(f"👤 {_name}")
     st.divider()
     st.markdown(
@@ -227,93 +174,83 @@ with st.sidebar:
     )
     st.divider()
 
-    st.button("🏠 Inicio", use_container_width=True, on_click=_nav,
-              args=("🏠 Inicio",), key="nav_home")
+    # Search replaces the whole rail while text is typed: filtering inside
+    # closed expanders hides exactly what's being searched for.
+    _search = st.text_input(
+        i18n.t("shell.sidebar.search_label"),
+        key="nav_search",
+        placeholder=i18n.t("shell.sidebar.search_placeholder"),
+        label_visibility="collapsed",
+    ).strip()
 
-    with st.expander("📊 PPC", expanded=True):
-        for _pg in [
-            "📊 Search Term Report",
-            "🔍 Search Query Performance",
-            "🔗 Análisis Cruzado STR vs SQP",
-            "📈 Tendencia Multi-Semana",
-            "📁 Bulk Campañas",
-            "💰 Business Report",
-            "🔻 Análisis de Funnel",
-            "🧠 Bid Optimizer",
-            "🚀 Campaign Builder",
-            "⚙️ Atom11 Rules Builder",
-        ]:
-            st.button(_pg, use_container_width=True, on_click=_nav,
-                      args=(_pg,), key=f"nav_{_pg}")
+    if _search:
+        _hits = navigation.filter_pages(_search, _is_admin)
+        for _page in _hits:
+            _nav_button(_page)
+        if not _hits:
+            st.markdown(
+                f"<div class='sb-no-results'>"
+                f"{i18n.t('shell.sidebar.search_no_results')}</div>",
+                unsafe_allow_html=True,
+            )
+    else:
+        _nav_button(navigation.HOME)
+        for _section in navigation.SECTIONS:
+            # Count and buttons both come from the filtered tuple: reading the
+            # count off `_section.pages` is what captioned "Sistema 2" over a
+            # single button. A section left empty by the filter is skipped
+            # outright — an expander that opens onto nothing reads as a bug.
+            _pages = navigation.visible_pages(_section, _is_admin)
+            if not _pages:
+                continue
+            with st.expander(
+                f"{navigation.section_label(_section.title)} "
+                f":gray[{len(_pages)}]",
+                expanded=_section.open_by_default,
+                icon=_section.icon,
+            ):
+                for _page in _pages:
+                    _nav_button(_page)
 
-    with st.expander("🔬 RESEARCH", expanded=False):
-        for _pg in [
-            "🧲 DataDive Analyzer",
-            "🧲 Helium 10 Analyzer",
-            "📢 SBH Recommendation",
-            "🔎 PPC Insights",
-            "📈 PPC Forecast",
-            "🛡️ PPC Audit",
-            "📊 Account Pulse",
-        ]:
-            st.button(_pg, use_container_width=True, on_click=_nav,
-                      args=(_pg,), key=f"nav_{_pg}")
-
-    with st.expander("👥 ACCOUNT", expanded=False):
-        for _pg in [
-            "🔬 Reportes Atom 11",
-            "🛡️ Reportes MerchanSpring",
-            "📊 Weekly Client Report",
-            "👁️ Listing Monitor",
-            "🛡️ Listing Compliance",
-            "📊 Gamboa Generator",
-            "🧬 Variation Builder",
-            "📈 Monthly Forecast",
-        ]:
-            st.button(_pg, use_container_width=True, on_click=_nav,
-                      args=(_pg,), key=f"nav_{_pg}")
-
-    with st.expander("📋 SALES DIRECTOR", expanded=False):
-        st.button("📋 Proposal Studio", use_container_width=True, on_click=_nav,
-                  args=("📋 Proposal Studio",), key="nav_📋 Proposal Studio")
-        st.button("🏆 Case Study Studio", use_container_width=True, on_click=_nav,
-                  args=("🏆 Case Study Studio",), key="nav_🏆 Case Study Studio")
-
-    with st.expander("📚 KNOWLEDGE", expanded=False):
-        st.button("📚 Knowledge Base", use_container_width=True, on_click=_nav,
-                  args=("📚 Knowledge Base",), key="nav_📚 Knowledge Base")
-
-    with st.expander("🏥 ACCOUNT HEALTH", expanded=False):
-        st.button("🗂️ Flat File Migrator", use_container_width=True, on_click=_nav,
-                  args=("🗂️ Flat File Migrator",), key="nav_🗂️ Flat File Migrator")
-        st.button("🏥 SKU Progress Report", use_container_width=True, on_click=_nav,
-                  args=("🏥 SKU Progress Report",), key="nav_🏥 SKU Progress Report")
-        st.button("💲 Pricing Dashboard", use_container_width=True, on_click=_nav,
-                  args=("💲 Pricing Dashboard",), key="nav_💲 Pricing Dashboard")
-
-    with st.expander("🛒 MARKETPLACES", expanded=False):
-        st.button("🛒 Mercado Libre", use_container_width=True, on_click=_nav,
-                  args=("🛒 Mercado Libre",), key="nav_🛒 Mercado Libre")
-
-    # App-wide language — single source of truth (st.session_state["app_lang"]).
-    # Modules read it instead of rolling their own toggle.
-    st.radio("Idioma", ["Español", "English"], horizontal=True, key="app_lang")
+    # Interface language + output language of the AI tabs, on one key that
+    # `core.ui.i18n` and `core.ai_tab.app_language()` both read.
+    #
+    # Every argument here is language-invariant ON PURPOSE. Streamlit builds a
+    # widget's identity from its own arguments — radio.py feeds `label`, the
+    # format_func'd `options` and `help` into the element id. Translating any of
+    # them changes the id on the run right after the click, which orphans the
+    # stored value: the widget falls back to its default and writes "Español"
+    # back over the choice, so the toggle bounced. The translated label is drawn
+    # above instead, and the options are endonyms — a language names itself, the
+    # way every language picker does.
+    st.markdown(
+        f"<p title='{_escape(i18n.t('shell.sidebar.ai_lang_help'), quote=True)}'>"
+        f"{_escape(i18n.t('shell.sidebar.ai_lang_label'))}</p>",
+        unsafe_allow_html=True,
+    )
+    st.radio(
+        "Idioma / Language",          # constant: collapsed, read by screen readers only
+        ("Español", "English"),
+        horizontal=True,
+        key="app_lang",
+        label_visibility="collapsed",
+    )
 
     _n_pe_parents = len(set(st.session_state.get("parent_child_map", {}).values()))
     _pe_label = (
-        f"🧬 {_n_pe_parents} parents"
-        if _n_pe_parents > 0 else "⚠️ Sin mapeo"
+        i18n.t("shell.sidebar.parent_child_ok", n=_n_pe_parents)
+        if _n_pe_parents > 0 else i18n.t("shell.sidebar.parent_child_missing")
     )
-    _pe_color = "#4caf50" if _n_pe_parents > 0 else "#ff9800"
+    _pe_clase = "sb-salud-ok" if _n_pe_parents > 0 else "sb-salud-alerta"
     st.markdown(
         "<div style='margin-top:2rem;padding:0 0.5rem;'>"
-        "<div style='font-size:0.78rem;font-weight:600;color:#AAAAAA;"
-        "line-height:1.6;'>Desarrollado por<br>"
-        "<span style='color:#E84000;font-weight:800;font-size:0.85rem;'>"
-        "Lenin Acosta</span><br>"
-        "<span style='color:#777777;'>Capybaras Agency · 2026</span></div>"
-        f"<div style='font-size:0.72rem;color:{_pe_color};"
-        f"margin-top:0.4rem;'>{_pe_label}</div>"
+        "<div class='sb-pie' style='line-height:1.6;'>"
+        f"{i18n.t('shell.sidebar.footer_developed_by')}<br>"
+        f"<span class='sb-marca'>{i18n.t('shell.sidebar.footer_author')}</span><br>"
+        "<span class='sb-pie-tenue'>"
+        f"{i18n.t('shell.sidebar.footer_agency')}</span></div>"
+        f"<div class='{_pe_clase}' style='font-size:0.72rem;margin-top:0.4rem;'>"
+        f"{_pe_label}</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -321,7 +258,7 @@ with st.sidebar:
 selected = st.session_state["selected_page"]
 
 if _LOCAL_MODE:
-    st.warning("🔓 MODO LOCAL — login desactivado. No usar en producción.")
+    st.warning(i18n.t("shell.local_mode.banner"))
 
 if selected == "🏠 Inicio":
     _render_inicio()
@@ -421,4 +358,10 @@ if selected == "📈 Monthly Forecast":
     render_revenue_forecast()
 
 if selected == "🛒 Mercado Libre":
-    render_mercado_libre()
+    render_mercado_libre(username=_username, role=_role)
+
+if selected == "🔑 Cuentas conectadas":
+    render_accounts(username=_username, role=_role)
+
+if selected == "🔌 Integraciones":
+    render_integrations(username=_username, role=_role)

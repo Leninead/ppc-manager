@@ -1,72 +1,71 @@
-"""Parser del export 'Modifica tus publicaciones' (stock y estado).
+"""Parser for the 'Modifica tus publicaciones' export (stock and status).
 
-Estructura del archivo: tres hojas, los datos están en 'Publicaciones'. La
-fila 0 trae los nombres técnicos de columna (ITEM_ID, STOCK_FLEX, STATUS) y
-las filas 1 a 5 son texto de ayuda de Mercado Libre. Los datos arrancan en la
-fila 6.
+File structure: three sheets, the data lives in 'Publicaciones'. Row 0
+carries the technical column names (ITEM_ID, STOCK_FLEX, STATUS) and rows 1
+to 5 are Mercado Libre help text. Data starts at row 6.
 
-Se usan los nombres técnicos y no los rótulos en español porque los primeros
-son estables entre exports mientras que los segundos cambian con el idioma de
-la cuenta.
+We use the technical names, not the Spanish labels, because the first are
+stable across exports while the second change with the account language.
 """
 from __future__ import annotations
 
 import pandas as pd
 
-from .common import a_decimal, a_entero, normalizar_mla, normalizar_texto
+from .common import normalize_mla, normalize_text, to_decimal, to_int
 
-HOJA = "Publicaciones"
-FILA_TECNICOS = 0
-PRIMERA_FILA_DATOS = 6
+_SHEET = "Publicaciones"
+_TECHNICAL_ROW = 0
+_FIRST_DATA_ROW = 6
 
-_COLUMNAS_REQUERIDAS = {"ITEM_ID", "STOCK_FLEX", "STATUS"}
+_REQUIRED_COLUMNS = {"ITEM_ID", "STOCK_FLEX", "STATUS"}
 
-# El seguimiento excluye publicaciones que no pueden vender.
-_ESTADOS_EXCLUIDOS = {"pausada", "inactiva", "finalizada", "cerrada", "bajo revision"}
-
-
-class ErrorFormato(Exception):
-    """El archivo no tiene la forma esperada del export de publicaciones."""
+# Tracking excludes listings that cannot sell.
+_EXCLUDED_STATES = {"pausada", "inactiva", "finalizada", "cerrada", "bajo revision"}
 
 
-def parsear(archivo, excluir_inactivas: bool = True) -> pd.DataFrame:
+class FormatError(Exception):
+    """The file is not shaped like the expected listings export."""
+
+
+def parse(file, exclude_inactive: bool = True) -> pd.DataFrame:
     try:
-        crudo = pd.read_excel(archivo, sheet_name=HOJA, header=None)
+        raw = pd.read_excel(file, sheet_name=_SHEET, header=None)
     except ValueError as exc:
-        raise ErrorFormato(
-            f"El archivo no tiene una hoja llamada '{HOJA}'. Verificá que sea "
+        raise FormatError(
+            f"El archivo no tiene una hoja llamada '{_SHEET}'. Verificá que sea "
             "el export de 'Modifica tus publicaciones' sin modificar."
         ) from exc
 
-    tecnicos = [str(c).strip() for c in crudo.iloc[FILA_TECNICOS].tolist()]
-    faltantes = _COLUMNAS_REQUERIDAS - set(tecnicos)
-    if faltantes:
-        raise ErrorFormato(
-            "Al export le faltan columnas esperadas: " + ", ".join(sorted(faltantes))
+    technical = [str(c).strip() for c in raw.iloc[_TECHNICAL_ROW].tolist()]
+    missing = _REQUIRED_COLUMNS - set(technical)
+    if missing:
+        raise FormatError(
+            "Al export le faltan columnas esperadas: " + ", ".join(sorted(missing))
         )
 
-    df = crudo.iloc[PRIMERA_FILA_DATOS:].copy()
-    df.columns = tecnicos
+    df = raw.iloc[_FIRST_DATA_ROW:].copy()
+    df.columns = technical
 
-    limpio = pd.DataFrame()
-    limpio["mla"] = df["ITEM_ID"].map(normalizar_mla)
-    limpio["variacion"] = df.get("VARIATION_ID")
-    limpio["sku"] = df.get("SKU")
-    limpio["titulo"] = df.get("TITLE", pd.Series(dtype=object)).astype(str).str.strip()
-    limpio["stock"] = df["STOCK_FLEX"].map(a_entero)
-    limpio["precio"] = df.get("PRICE", pd.Series(dtype=object)).map(a_decimal)
-    limpio["estado"] = df["STATUS"].map(normalizar_texto)
+    cleaned = pd.DataFrame()
+    cleaned["mla"] = df["ITEM_ID"].map(normalize_mla)
+    cleaned["variacion"] = df.get("VARIATION_ID")
+    cleaned["sku"] = df.get("SKU")
+    cleaned["titulo"] = df.get("TITLE", pd.Series(dtype=object)).astype(str).str.strip()
+    cleaned["stock"] = df["STOCK_FLEX"].map(to_int)
+    cleaned["precio"] = df.get("PRICE", pd.Series(dtype=object)).map(to_decimal)
+    cleaned["estado"] = df["STATUS"].map(normalize_text)
 
-    limpio = limpio[limpio["mla"].notna()].copy()
-    limpio["stock"] = limpio["stock"].fillna(0)
+    cleaned = cleaned[cleaned["mla"].notna()].copy()
+    cleaned["stock"] = cleaned["stock"].fillna(0)
 
-    if excluir_inactivas:
-        limpio = limpio[~limpio["estado"].isin(_ESTADOS_EXCLUIDOS)].copy()
+    if exclude_inactive:
+        cleaned = cleaned[~cleaned["estado"].isin(_EXCLUDED_STATES)].copy()
 
-    # El export desglosa por variante; el resto del módulo trabaja a nivel
-    # publicación, así que el stock se suma y se conserva el detalle aparte.
-    agregado = (
-        limpio.groupby("mla", as_index=False)
+    # The export breaks stock out per variant; the rest of the module works
+    # at listing level, so we sum the stock and keep the per-variant detail
+    # on the side.
+    aggregated = (
+        cleaned.groupby("mla", as_index=False)
         .agg(
             titulo=("titulo", "first"),
             estado=("estado", "first"),
@@ -75,4 +74,13 @@ def parsear(archivo, excluir_inactivas: bool = True) -> pd.DataFrame:
             variantes=("mla", "size"),
         )
     )
-    return agregado
+    # The schema declares stock as float64 because the parser fills missing
+    # STOCK_FLEX cells with zero. When the export happens to have no blanks
+    # the sum stays int64 and _validate_against_schema refuses the snapshot
+    # ("Tipo incorrecto en 'stock': esperado float64, recibido int64"). Cast
+    # explicitly so the dtype is stable regardless of the export.
+    aggregated["stock"] = aggregated["stock"].astype("float64")
+    # Schema v2 introduced "origen" so a single Parquet can carry both
+    # Excel-parsed and API-materialised rows. The parser is the Excel side.
+    aggregated["origen"] = "excel"
+    return aggregated
