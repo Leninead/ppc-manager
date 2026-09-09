@@ -105,7 +105,7 @@ pipeline {
           # against a host still on the old layout instead of starting a stack
           # whose worker and receiver silently lose their credentials.
           for v in INTEGRATIONS_RECEIVER_JWT INTEGRATIONS_WORKER_JWT INTEGRATIONS_PUBLIC_KEY INTEGRATIONS_REDIRECT_URI; do
-            grep -q "^$v=.\+" "$DEPLOY_DIR/.env" || {
+            grep -qE "^$v=.+" "$DEPLOY_DIR/.env" || {
               echo "$v missing from $DEPLOY_DIR/.env — move the portal vars out of .env.integrations (see deploy/integrations/env.example), then delete that file."; exit 1;
             }
           done
