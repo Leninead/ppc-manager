@@ -6,6 +6,33 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Conectar una cuenta de Mercado Libre ya trae los datos, sin esperar a las 23:30 (2026-09-09)
+
+**Conectar y ver eran dos momentos separados por hasta un día.** El canje del grant dejaba
+la cuenta `Activa` y completamente vacía, porque los datos los traía únicamente el `ingest`
+nocturno. El operador conectaba, entraba al módulo, y no había nada: una conexión que
+funcionaba perfecto y no mostraba absolutamente nada hasta la mañana siguiente. Ahora la
+misma corrida de `worker grants` que canjea el code sincroniza esa cuenta en el acto —
+items, visitas, ventas y ads — y el módulo queda utilizable enseguida.
+
+**Tenía que vivir en el worker y en ningún otro lado.** La tentación era dispararlo desde la
+app al apretar Conectar, pero ni Streamlit ni el receptor tienen la clave privada de
+sellado: viven fuera del volumen que la guarda, y esa separación es justamente lo que hace
+que comprometer la app no entregue las credenciales de ningún cliente. Lo más que podrían
+hacer es dejar una nota en una cola que este mismo worker tendría que drenar igual. El
+primer sync corre donde ya está la clave.
+
+**Un primer sync que falla no ensucia el canje.** Corre después de canjear todos los grants
+de esa corrida y su error se loguea sin mover el exit code: la cuenta ya quedó conectada, y
+hacer que el cron reporte como rota una conexión que anda porque un catálogo tardó era
+mandar a alguien a arreglar algo que no estaba roto. El `ingest` de las 23:30 sigue siendo
+el refresco diario y, ahora también, el reintento automático.
+
+**La espera que queda es el intervalo del cron de `grants`**, no la noche entera. Con `*/5`
+son minutos; bajarlo a `* * * * *` lo vuelve inmediato y sale barato, porque sin
+autorizaciones pendientes el comando corta al toque sin tocar la API ni cargar el pipeline
+de ingest.
+
 ### Added — Portal de integraciones: credenciales del sistema (M38) y cuentas de cliente (M37) (2026-09-03)
 
 **Dos pantallas, porque son dos permisos y dos radios de impacto.**

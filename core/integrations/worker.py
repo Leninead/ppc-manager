@@ -143,11 +143,17 @@ def command_grants() -> int:
         return 0
 
     failed_count = 0
+    connected: list[str] = []
     for pending in pending_rows:
         slug = pending["integration_slug"]
         try:
-            _exchange_grant(rest, pending, private_pem, redirect_uri)
-            print(f"ok    {slug} · {pending['cliente']}")
+            # The returned slug, not `pending['cliente']`: for Mercado Libre the
+            # pending row still holds the `_pending_xxx` placeholder, so the log
+            # used to name a client nobody could look up.
+            client = _exchange_grant(rest, pending, private_pem, redirect_uri)
+            print(f"ok    {slug} · {client}")
+            if slug == _MELI_SLUG:
+                connected.append(client)
         except Exception as exc:
             failed_count += 1
             log.error("could not exchange %s/%s: %s", slug, pending["cliente"], exc)
@@ -158,9 +164,54 @@ def command_grants() -> int:
             )
             rest.audit("grant_failed", slug=slug, actor="worker", detail={"error": type(exc).__name__})
             print(f"error {slug} · {pending['cliente']}: {exc}")
+
+    # After the loop, never inside it: every grant gets exchanged and committed
+    # before a single (slow) sync starts, so a sync that hangs cannot strand a
+    # later authorization in `recibido`.
+    _first_sync_meli(connected)
     return 1 if failed_count else 0
 
 
+def _first_sync_meli(clients: list[str]) -> None:
+    """Pull the freshly connected accounts' data now instead of at 23:30.
+
+    Without this an account appears `Activa` and completely empty until the
+    nightly ingest — up to a day of an operator looking at a connection that
+    works and shows nothing.
+
+    It has to happen in this process and nowhere else: the sealing private key
+    lives only in the worker's volume, so neither Streamlit nor the receiver can
+    open the refresh token the sync needs. The most either of them could do is
+    leave a note in a queue that this same worker would have to drain anyway.
+
+    Failures are logged and swallowed on purpose, and deliberately do not move
+    the exit code. The account IS connected — the grant was exchanged and
+    committed above — so reporting the whole run as failed because a catalogue
+    was slow would call a working connection broken, and the nightly ingest
+    retries on its own.
+    """
+    if not clients:
+        return
+
+    # Deferred import: this module is the provider-agnostic one, and
+    # `core.meli_api` drags in the whole ingest pipeline. `keys` and `refresh`
+    # must not pay for it, and a host that runs no MELI integration must not
+    # need it importable at all.
+    from core.meli_api.worker import command_ingest
+
+    for client in clients:
+        print(f"sync  {_MELI_SLUG} · {client} (first sync)")
+        try:
+            if command_ingest(client=client) != 0:
+                print(f"warn  first sync incomplete for {client} — "
+                      f"the nightly ingest will retry")
+        except Exception as exc:
+            log.warning("first sync failed for %s (the nightly ingest retries): %s",
+                        client, exc)
+            print(f"warn  first sync failed for {client}: {exc}")
+
+
+_MELI_SLUG = "mercado_libre"
 _MELI_USERS_ME = "https://api.mercadolibre.com/users/me"
 _MELI_USERS_ME_TIMEOUT_S = 10
 
@@ -236,7 +287,16 @@ def _resolve_client_slug(rest: _Rest, slug: str, client_base: str, external_acco
     return f"{client_base}-{site_id.lower()}"
 
 
-def _exchange_grant(rest: _Rest, pending: dict, private_pem: str, redirect_uri: str) -> None:
+def _exchange_grant(rest: _Rest, pending: dict, private_pem: str,
+                    redirect_uri: str) -> str:
+    """Close one grant and return the `cliente` slug the connection ended up on.
+
+    The slug is the caller's only way to know *which* account just came online:
+    for Mercado Libre the pending row carried a `_pending_xxx` placeholder and
+    the real one is resolved here from /users/me. `command_grants` uses it to
+    sync that account immediately instead of leaving it empty until the nightly
+    ingest.
+    """
     slug = pending["integration_slug"]
     integration = catalog.by_slug(slug)
     if integration is None:
@@ -260,7 +320,7 @@ def _exchange_grant(rest: _Rest, pending: dict, private_pem: str, redirect_uri: 
     # pending row carries placeholder values that must be resolved here.
     client = pending.get("cliente") or ""
     marketplace = pending.get("marketplace") or ""
-    if slug == "mercado_libre":
+    if slug == _MELI_SLUG:
         nickname, site_id = _fetch_meli_identity(tokens.access_token)
         client = _resolve_client_slug(rest, slug, _slugify(nickname), tokens.user_id, site_id)
         marketplace = site_id
@@ -292,6 +352,7 @@ def _exchange_grant(rest: _Rest, pending: dict, private_pem: str, redirect_uri: 
     )
     rest.update(PENDING_GRANTS_TABLE, {"id": f"eq.{pending['id']}"}, {"estado": "canjeado"})
     rest.audit("grant_exchanged", slug=slug, actor="worker", detail={"cliente": client})
+    return client
 
 
 def command_refresh() -> int:

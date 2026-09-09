@@ -381,15 +381,38 @@ imagen— una rotación con bug quema los tokens de toda la flota en una noche, 
 el rollback no los devuelve. Si levantás el stack a mano, poné el tag:
 `IMAGE_TAG=<sha> docker compose … up -d`.
 
-- `grants` cada 5 min: canjea los codes que dejó el receptor.
+- `grants` cada 5 min: canjea los codes que dejó el receptor **y sincroniza
+  de una la cuenta que acaba de conectarse**. Sin ese primer sync la cuenta
+  quedaba Activa y vacía hasta las 23:30 — hasta un día entero mirando una
+  conexión que anda y no muestra nada.
 - `refresh` cada 20 min: rota los refresh tokens con margen de 30 días.
 - `ingest` 1 vez al día 23:30: trae items, visitas, ventas y métricas de
-  ads. Corre al cierre porque las métricas del día quedan firmes recién
-  ahí; el AM abre el módulo a la mañana con el día anterior completo.
+  ads de TODAS las cuentas. Corre al cierre porque las métricas del día
+  quedan firmes recién ahí; el AM abre el módulo a la mañana con el día
+  anterior completo. También es el reintento del primer sync: si el de
+  conexión falló, esta corrida lo levanta sin que nadie haga nada.
 
-Si el AM conecta una cuenta y quiere ver el resultado ya, `docker compose
-… run --rm integrations-worker … grants` manual lo cierra al toque. Lo
-mismo con `… ingest --client=<slug>` para forzar una sync puntual.
+**El intervalo de `grants` es ahora la espera que siente el operador.** Con 5
+minutos, conectar y ver datos es cuestión de minutos; si querés que se sienta
+inmediato, bajalo a `* * * * *`. Correrlo más seguido es barato: cuando no hay
+autorizaciones pendientes el comando sale al toque sin tocar la API de Mercado
+Libre ni cargar el pipeline de ingest.
+
+El primer sync corre **después** de canjear todos los grants de esa corrida, y
+su fallo se loguea sin mover el exit code: la cuenta ya quedó conectada, así que
+un catálogo lento no puede hacer que el cron reporte como rota una conexión que
+funciona. En el log aparece como `sync mercado_libre · <slug> (first sync)`, y
+un fallo como `warn first sync failed for <slug>`.
+
+Para forzar cosas a mano sigue estando `docker compose … run --rm
+integrations-worker … grants`, y `… ingest --client=<slug>` para una sync
+puntual de una cuenta ya conectada.
+
+⚠️ No hay locking: `meli_locks` existe en el schema pero nadie la usa todavía.
+Conectar una cuenta a las 23:29 puede solapar su primer sync con el ingest
+nocturno de esa misma cuenta. Es la misma exposición que ya tenía un `ingest
+--client` manual, no una que traiga esta feature, pero conviene tenerla
+presente si algún día aparecen filas duplicadas.
 
 ### Tablas declaradas sin consumer todavía
 
@@ -429,9 +452,11 @@ docker exec agency-db psql -U postgres -d agency_os -tAc   "select has_column_pr
    nombre de la cuenta ni el país.
 6. La cuenta aparece en 🔑 Cuentas conectadas con su nickname real y el
    chip del marketplace (`MLA`, `MLM`, …), estado **Activa**.
-7. Esa misma noche (23:30) `worker ingest` trae items, visitas, ventas y
-   ads. A la mañana siguiente el módulo 🛒 Mercado Libre muestra
-   `🔌 datos vía API · actualizado <fecha>` sobre las pestañas.
+7. **Esa misma corrida** sincroniza la cuenta recién conectada: trae items,
+   visitas, ventas y ads sin esperar a la noche. Al terminar, el módulo
+   🛒 Mercado Libre ya muestra `🔌 datos vía API · actualizado <fecha>`
+   sobre las pestañas. El `ingest` de las 23:30 sigue corriendo para
+   mantener los datos al día y para reintentar si este primer sync falló.
 
 Si algo falla en (4) o (5), el vendedor ve "Autorización recibida" pero la
 cuenta nunca figura conectada. Diagnóstico:
