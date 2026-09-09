@@ -483,6 +483,10 @@ def _credential_dialog_body(
         for field in integration.fields:
             values[field.key] = st.text_input(
                 field.label,
+                # A secret is never pre-filled, whatever the catalog says: the
+                # form is also the edit path, and a default sitting in a
+                # password box reads like the stored value came back.
+                value="" if field.secret else field.default,
                 type="password" if field.secret else "default",
                 key=f"int_secret_{nonce}_{field.key}" if field.secret else f"int_pub_{nonce}_{field.key}",
                 help=field.help_text or None,

@@ -6,6 +6,25 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — El host de autorización de Mercado Libre sale de la credencial, no del código (2026-09-09)
+
+**Una cuenta CBT no se podía conectar, y el error no decía por qué.** El catálogo tenía
+`auth.mercadolibre.com.ar` clavado para todos. Mercado Libre no tiene un host único: es por
+sitio, y Global Selling (CBT) ni siquiera es un sitio — autoriza en `global-selling.mercadolibre.com`,
+otro host y otro path. Una agencia que opera cross-border armaba un link de consentimiento que
+no llevaba a ningún lado.
+
+**El país no se puede descubrir antes de consentir, y eso decide dónde va el dato.** `/users/me`
+devuelve el `site_id`, pero necesita el token que el consentimiento produce; `/applications/$APP_ID`
+también pide token; y `/sites`, que la documentación linkea como público, hoy responde 403. Como
+Mercado Libre sólo acepta `authorization_code` y `refresh_token`, no hay forma de conseguir un token
+sin que alguien autorice primero. Así que el host no es un atributo del vendedor: es de la app que
+registró la agencia — exactamente lo que guarda la credencial del sistema, una vez, no por cuenta.
+
+**El diálogo de conectar sigue sin pedir un solo campo.** El host lo elige el admin al cargar la
+credencial, con las dos formas explicadas en el help. Una credencial guardada antes de que el campo
+existiera sigue funcionando: si viene vacío, cae al valor del catálogo.
+
 ### Changed — Conectar una cuenta de Mercado Libre ya trae los datos, sin esperar a las 23:30 (2026-09-09)
 
 **Conectar y ver eran dos momentos separados por hasta un día.** El canje del grant dejaba

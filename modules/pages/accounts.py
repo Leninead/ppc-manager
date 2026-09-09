@@ -389,7 +389,15 @@ def _connect_account_body(provider_slug: str) -> None:
                 user=st.session_state.get("username", "") or "",
             )
             url = oauth.consent_url(
-                authorize_url=integration.authorize_url,
+                # From the stored credential, falling back to the catalog: the
+                # host depends on where the agency registered its app (a country
+                # site, or Global Selling for CBT) and cannot be worked out
+                # here — the seller's site only arrives with /users/me, which
+                # needs the token this very link is meant to obtain. The
+                # fallback keeps credentials saved before the field existed
+                # working untouched.
+                authorize_url=(str(public.get("authorize_url") or "").strip()
+                               or integration.authorize_url),
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 grant=grant,

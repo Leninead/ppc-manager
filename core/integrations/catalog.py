@@ -39,6 +39,11 @@ class CredentialField:
     label: str
     secret: bool
     help_text: str = ""
+    # Pre-filled in the form. For a field whose right value depends on which
+    # flavour of an account the agency runs — Mercado Libre's authorize host is
+    # the case — a default plus help text lets the admin decide once, instead of
+    # the catalog deciding for every agency at once.
+    default: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,6 +123,26 @@ _CATALOG: tuple[Integration, ...] = (
                 label="Client Secret",
                 secret=True,
                 help_text="Se guarda sellado. No se vuelve a mostrar.",
+            ),
+            # Mercado Libre has no single authorize host: it is per site, and
+            # Global Selling (CBT) is not a site at all — it authorizes on its
+            # own domain. The country cannot be discovered before consent
+            # either (`/users/me` needs the token the consent produces, and
+            # `/applications/$APP_ID` needs a token too), so it cannot be
+            # resolved at connect time. It belongs to the app the agency
+            # registered, which is exactly what the system credential is.
+            CredentialField(
+                key="authorize_url",
+                label="URL de autorización",
+                secret=False,
+                help_text=(
+                    "Depende de dónde registraste la app. CBT / Global Selling: "
+                    "https://global-selling.mercadolibre.com/authorization · "
+                    "Vendedor local: https://auth.mercadolibre.com.XX/authorization "
+                    "con el dominio del país (.com.ar, .com.mx, .com.br…). "
+                    "El token se canjea siempre contra api.mercadolibre.com."
+                ),
+                default="https://auth.mercadolibre.com.ar/authorization",
             ),
         ),
     ),
