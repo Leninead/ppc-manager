@@ -448,6 +448,75 @@ def _admin_tab(account: str, username: str = "") -> None:
                         st.success(f"Snapshot {period} eliminado.")
                         st.rerun()
 
+    st.divider()
+    _delete_account_section(account)
+
+
+def _delete_account_section(account: str) -> None:
+    """Remove a manual account and every snapshot it holds, in the three modules.
+
+    Deleting only `MODULO_RENDIMIENTO` — the one the selector keys off — would
+    take the account off screen and strand its stock and ads rows, invisible and
+    unreachable. So all three go.
+
+    An OAuth-backed account is deliberately NOT offered here: its entry comes
+    from `integration_connections`, so wiping the local rows would leave it on
+    screen and make the button look broken. That one ends in Sistema → Cuentas
+    conectadas, which is also where the audit trail lives.
+    """
+    st.markdown("### 🗑️ Eliminar cuenta")
+    row = next((a for a in _list_accounts() if a["slug"] == account), None)
+    if row is not None and row["source"] == "oauth":
+        st.info(
+            f"**{account}** está conectada por API. Para sacarla del selector "
+            "hay que desconectarla en ⚙️ Sistema → 🔑 Cuentas conectadas: "
+            "mientras la conexión siga viva, la cuenta vuelve a aparecer acá."
+        )
+        return
+    st.caption(
+        "Saca la cuenta del selector y borra sus snapshots de rendimiento, "
+        "stock y ads. No se puede deshacer."
+    )
+    if st.button("Eliminar cuenta", icon=":material/delete_forever:",
+                 key="meli_del_account", type="primary"):
+        _dialog_delete_account(account)
+
+
+def _dialog_delete_account(account: str) -> None:
+    """Same reason the portal wraps its dialogs: the decorator would freeze the
+    title at import time, before the language is known."""
+    st.dialog("Eliminar cuenta de Mercado Libre")(_delete_account_body)(account)
+
+
+def _delete_account_body(account: str) -> None:
+    st.markdown(
+        f"Vas a borrar **{account}** y todos sus snapshots de los tres módulos. "
+        "Escribí el nombre de la cuenta para confirmar."
+    )
+    typed = st.text_input("Nombre de la cuenta", key="meli_del_account_confirm")
+    col_cancel, col_ok = st.columns(2)
+    if col_cancel.button("Cancelar", key="meli_del_account_cancel",
+                         use_container_width=True):
+        st.rerun()
+    if col_ok.button("Eliminar", key="meli_del_account_ok", type="primary",
+                     use_container_width=True,
+                     disabled=typed.strip() != account):
+        borrados = [
+            modulo for modulo in (config.MODULO_RENDIMIENTO,
+                                  config.MODULO_PUBLICACIONES,
+                                  config.MODULO_ADS)
+            if _delete_cliente(config.AREA, account, modulo)
+        ]
+        # The selectbox remembers the slug that no longer exists; leaving it
+        # set makes Streamlit raise on the next render instead of falling back
+        # to the first remaining account.
+        st.session_state.pop("meli_cuenta", None)
+        if borrados:
+            st.success(f"Cuenta {account} eliminada ({len(borrados)} módulos).")
+        else:
+            st.info(f"La cuenta {account} no tenía datos que borrar.")
+        st.rerun()
+
 
 def _open_rest():
     """Return a ``_Rest`` bound to the same env credentials the portal uses.
