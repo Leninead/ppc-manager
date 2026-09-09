@@ -40,6 +40,11 @@ PENDING_STATUS = "pendiente"
 NEEDS_REAUTH = "needs_reauth"
 REVOKED_STATUS = "revocado"
 
+# The one provider that keeps its own copy of an account's state, in
+# `meli_auth_identities`. Named here only so `set_status` can mirror onto it;
+# this module stays otherwise provider-agnostic.
+_MELI_SLUG = "mercado_libre"
+
 # `secret_sealed` is deliberately absent: selecting it would 403 and take the
 # whole page down with it.
 _CREDENTIAL_COLUMNS = (
@@ -447,6 +452,49 @@ class ConnectionStore:
         self._rest.audit(
             f"connection_{status}", slug=slug, actor=user, detail={"connection_id": connection_id}
         )
+        self._mirror_status_on_provider(connection_id=connection_id, status=status, slug=slug)
+
+    def _mirror_status_on_provider(self, *, connection_id: int, status: str,
+                                   slug: str) -> None:
+        """Carry the new state to the provider's own account table, if it keeps one.
+
+        Mercado Libre mirrors every connection in `meli_auth_identities`, and the
+        two disagreeing is what makes a disconnected account still look live to
+        anything scheduling off the identity. Only the ingest worker's failure
+        paths used to mirror, so a disconnection from the portal left the tables
+        out of step — observed in production on 2026-09-09, `revocado` on the
+        connection against `activo` on the identity.
+
+        Doing it here rather than in the UI covers every caller at once: the
+        remove dialog today, and whatever revokes a connection tomorrow.
+
+        Deferred import behind the slug guard, for the same reason
+        `worker._first_sync_meli` uses one — this module is provider-agnostic
+        and must not drag the Mercado Libre pipeline in to touch a Walmart
+        credential.
+
+        Failures are logged, never raised. The status change is already
+        committed and audited above; an operator who asked to disconnect an
+        account must not see that fail because a mirror write did.
+        """
+        if slug != _MELI_SLUG:
+            return
+        try:
+            rows = self._rest.select(
+                CONNECTIONS_TABLE,
+                {
+                    "select": "cuenta_externa_id",
+                    "id": f"eq.{connection_id}",
+                    "limit": "1",
+                },
+            )
+            external_id = str((rows or [{}])[0].get("cuenta_externa_id") or "")
+            from core.meli_api.ingest import mirror_identity_status
+
+            mirror_identity_status(self._rest, external_id, status)
+        except Exception as exc:
+            log.warning("could not mirror connection %s state onto its identity: %s",
+                        connection_id, exc)
 
 
 def _to_credential_status(row: dict) -> CredentialStatus:

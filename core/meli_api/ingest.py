@@ -31,6 +31,34 @@ RENDIMIENTO_TABLE = "meli_rendimiento_diario"
 ADS_DAILY_TABLE = "meli_ads_daily"
 RUNS_TABLE = "meli_ingestion_runs"
 
+
+def mirror_identity_status(rest, external_account_id: str, status: str) -> bool:
+    """Carry a connection's state onto the Meli identity that mirrors it.
+
+    Both tables describe the same seller account. Leaving the identity `activo`
+    while the connection is dead makes the two disagree, and any consumer that
+    schedules off the identity keeps retrying a token that cannot work — the
+    `meli_job_queue` that push mode will drain is exactly such a consumer.
+
+    Lives here, in the Mercado Libre layer, because `meli_auth_identities` is
+    ours; `core.integrations.store` calls it through a deferred import so the
+    provider-agnostic side never has to know this table exists.
+
+    Never raises. It runs after the state change is already committed and
+    audited, so a failure here must degrade to a stale mirror, not undo a
+    disconnection the operator asked for. Returns whether it wrote.
+    """
+    user_id = str(external_account_id or "").strip()
+    if not user_id:
+        return False
+    try:
+        rest.update(IDENTITIES_TABLE, {"user_id": f"eq.{user_id}"}, {"estado": status})
+    except Exception as exc:
+        log.warning("could not mirror status %r onto the identity of %s: %s",
+                    status, user_id, exc)
+        return False
+    return True
+
 # Window we sync on every run; the tables absorb overlap via their unique keys.
 _VISITS_LAST_DAYS = 30
 _ORDERS_SINCE_DAYS = 30
