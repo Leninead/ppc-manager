@@ -161,7 +161,7 @@ except ValueError:
 # =====================================================================
 print("")
 print("=== T4. lead_time_medido ===")
-print("    ventana: " + LT_DESDE + " -> " + LT_HASTA)
+print("    ventana: " + LT_DESDE + " -> " + " | ".join(LT_HASTA))
 save_proveedor({"nombre": "Lead Time Co", "id": "leadtime"})
 
 # OC-A: emitida 01/09, recibida 11/09 -> 10 dias
@@ -189,6 +189,47 @@ check("mediana de [10, 20, 30] = 20.0", lead_time_medido("leadtime") == 20.0,
 cambiar_estado_oc("OC-LT-A", "RECIBIDA_PARCIAL", fecha="2026-09-30")
 check("2da recepcion no altera el LT (cuenta la 1ra)",
       lead_time_medido("leadtime") == 20.0, lead_time_medido("leadtime"))
+
+# --- La ventana cierra en la PRIMERA recepcion, sea parcial o cierre total ---
+# Una recepcion completa en un solo envio va EMITIDA -> CERRADA sin pasar nunca
+# por RECIBIDA_PARCIAL. Proveedores aparte para no mover las medianas de arriba.
+
+save_proveedor({"nombre": "Cierre Directo", "id": "ltdirecto"})
+crear_oc("OC-LT-D", "ltdirecto", [{"sku": "S1", "qty": 10}])
+avanzar("OC-LT-D", [("APROBADA", "2026-09-01"), ("OK_FIN", "2026-09-01"),
+                    ("EMITIDA", "2026-09-01"), ("CERRADA", "2026-09-12")])
+check("EMITIDA -> CERRADA directo mide 11 dias",
+      lead_time_medido("ltdirecto") == 11.0, lead_time_medido("ltdirecto"))
+
+save_proveedor({"nombre": "Parcial y Cierre", "id": "ltparcial"})
+crear_oc("OC-LT-E", "ltparcial", [{"sku": "S1", "qty": 10}])
+avanzar("OC-LT-E", [("APROBADA", "2026-09-01"), ("OK_FIN", "2026-09-01"),
+                    ("EMITIDA", "2026-09-01"), ("RECIBIDA_PARCIAL", "2026-09-06"),
+                    ("CERRADA", "2026-09-21")])
+check("con parcial previa mide hasta la parcial (5d), no hasta CERRADA (20d)",
+      lead_time_medido("ltparcial") == 5.0, lead_time_medido("ltparcial"))
+
+# --- Una OC ANULADA no aporta muestra, aunque su log tenga la ventana entera ---
+# Replica el caso real: 1 OC buena de 11d + 1 anulada de 0d daba mediana 5.5.
+
+save_proveedor({"nombre": "Con Anulada", "id": "ltanulada"})
+crear_oc("OC-LT-F", "ltanulada", [{"sku": "S1", "qty": 10}])
+avanzar("OC-LT-F", [("APROBADA", "2026-09-01"), ("OK_FIN", "2026-09-01"),
+                    ("EMITIDA", "2026-09-01"), ("CERRADA", "2026-09-12")])
+crear_oc("OC-LT-G", "ltanulada", [{"sku": "S2", "qty": 10}])
+avanzar("OC-LT-G", [("APROBADA", "2026-09-01"), ("OK_FIN", "2026-09-01"),
+                    ("EMITIDA", "2026-09-01"), ("RECIBIDA_PARCIAL", "2026-09-01"),
+                    ("ANULADA", "2026-09-02")])
+check("OC anulada no entra en la mediana: da 11.0, no 5.5",
+      lead_time_medido("ltanulada") == 11.0, lead_time_medido("ltanulada"))
+
+save_proveedor({"nombre": "Solo Anuladas", "id": "ltsoloanul"})
+crear_oc("OC-LT-H", "ltsoloanul", [{"sku": "S1", "qty": 10}])
+avanzar("OC-LT-H", [("APROBADA", "2026-09-01"), ("OK_FIN", "2026-09-01"),
+                    ("EMITIDA", "2026-09-01"), ("RECIBIDA_PARCIAL", "2026-09-05"),
+                    ("ANULADA", "2026-09-06")])
+check("proveedor con solo OC anuladas -> None",
+      lead_time_medido("ltsoloanul") is None, lead_time_medido("ltsoloanul"))
 
 # Proveedor emitido pero sin recibir -> None
 save_proveedor({"nombre": "Sin Recepcion", "id": "sinrec"})

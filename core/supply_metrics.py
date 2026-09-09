@@ -187,14 +187,29 @@ def cambiar_estado_oc(
 # ─────────────────────────────────────────────────────────────────────────────
 
 LT_DESDE = "EMITIDA"
-LT_HASTA = "RECIBIDA_PARCIAL"
+# NO convertir a string: tiene que seguir siendo tupla/conjunto. El chequeo de
+# _muestra_lead_time es `not in`, o sea membresia exacta sobre la coleccion. Con
+# un string, `not in` pasa a ser test de SUBSTRING y el bug vuelve peor: cualquier
+# evento contenido en el texto cerraria la ventana, en silencio y sin fallar.
+LT_HASTA = ("RECIBIDA_PARCIAL", "CERRADA")
 """Ventana del lead time medido: desde que se emite la OC hasta la PRIMERA
 recepción. Se compara contra el lead time del maestro de proveedores, que es
-compra -> llegada. Decisión reversible: cambiar LT_HASTA a "CERRADA" si se
-quiere medir hasta la recepción completa."""
+compra -> llegada.
+
+LT_HASTA es un CONJUNTO de eventos de cierre, no uno solo: una recepción completa
+en un solo envío va EMITIDA -> CERRADA y nunca pasa por RECIBIDA_PARCIAL. Con un
+único evento de cierre esas OC no cerraban la ventana y no aportaban muestra —
+justo las que llegan de una, las mejores del proveedor. Cierra el PRIMERO de
+estos eventos que aparezca; si hubo parcial, la parcial gana por ser anterior."""
 
 _ESTADOS_FILL_RATE = ("CERRADA", "RECIBIDA_PARCIAL")
 """OC que ya recibieron algo y por lo tanto pueden aportar al fill rate."""
+
+_ESTADO_EXCLUIDO_LT = "ANULADA"
+"""Estado cuyas OC NO aportan muestra de lead time. Contrapartida de
+_ESTADOS_FILL_RATE: las dos metricas tienen que filtrar por estado, si no una OC
+anulada corre la mediana del proveedor. Regla sin excepciones — anulada es
+anulada, aunque su log tenga la ventana EMITIDA -> recepcion completa."""
 
 
 def _parse_fecha(valor) -> datetime | None:
@@ -215,7 +230,12 @@ def _parse_fecha(valor) -> datetime | None:
 
 
 def _muestra_lead_time(oc_id: str) -> int | None:
-    """Días entre el primer LT_DESDE y el primer LT_HASTA posterior de una OC.
+    """Días entre el primer LT_DESDE y el primer evento de LT_HASTA posterior.
+
+    Cierra con CUALQUIERA de los eventos de LT_HASTA — el primero que aparezca.
+    Una OC recibida completa de una sola vez cierra en CERRADA; una que llegó en
+    tandas cierra en su primera RECIBIDA_PARCIAL, y el CERRADA posterior ya no
+    mueve la muestra.
 
     "Posterior" es por posición en el log (orden de escritura), no por fecha: la
     fecha es backdateable y puede desordenarse. Si aun así el delta da negativo,
@@ -240,7 +260,7 @@ def _muestra_lead_time(oc_id: str) -> int | None:
 
     idx_desde, fecha_desde = desde
     for fila in filas[idx_desde + 1:]:
-        if str(fila.get("evento")) != LT_HASTA:
+        if str(fila.get("evento")) not in LT_HASTA:
             continue
         fecha_hasta = _parse_fecha(fila.get("fecha"))
         if fecha_hasta is None:
@@ -257,13 +277,18 @@ def lead_time_medido(proveedor_id: str) -> float | None:
     Mediana y no promedio: una OC atrasada por aduana no debe correr el número
     que se usa para planificar.
 
+    Las OC en _ESTADO_EXCLUIDO_LT quedan fuera: no son performance del proveedor.
+    El filtro va ANTES del walrus, asi que de esas OC ni se lee el log.
+
     Returns:
-        Días (float), o None si ninguna OC completó la ventana LT_DESDE -> LT_HASTA.
+        Días (float), o None si ninguna OC aplicable completó la ventana
+        LT_DESDE -> LT_HASTA.
     """
     muestras = [
         d
         for oc in list_ocs(proveedor_id=proveedor_id)
-        if (d := _muestra_lead_time(str(oc.get("id") or ""))) is not None
+        if oc.get("estado") != _ESTADO_EXCLUIDO_LT
+        and (d := _muestra_lead_time(str(oc.get("id") or ""))) is not None
     ]
     return float(median(muestras)) if muestras else None
 

@@ -1,0 +1,652 @@
+"""
+Modulo: Ordenes de Compra (M37 Supply Chain - B1)
+Seccion: Supply Chain
+Version: v1
+
+Segunda pantalla del modulo Supply Chain. Alta de ordenes de compra y avance por
+su maquina de estados (PROPUESTA -> APROBADA -> OK_FIN -> EMITIDA ->
+RECIBIDA_PARCIAL -> CERRADA, con ANULADA como salida desde cualquier estado no
+terminal).
+
+Cada avance registra una FECHA DE NEGOCIO. Esa fecha es la materia prima del
+lead time medido: el sistema mide desde que la OC se emite hasta la primera
+recepcion, y ese numero alimenta el Maestro de Proveedores.
+
+Esta UI no toca disco, no genera codigos y no decide que transicion es legal:
+todo sale de core.supply_persistence (CRUD) y core.supply_metrics (codigos,
+maquina de estados). Los botones de avance se derivan de TRANSICIONES, asi que
+nunca se ofrece una accion que cambiar_estado_oc vaya a rechazar.
+
+B1 no tiene selector de cliente -- Gamboa es el piloto implicito. La
+clientizacion va en B2.
+"""
+from __future__ import annotations
+
+from datetime import date
+
+import streamlit as st
+
+from core.supply_metrics import (
+    TRANSICIONES,
+    cambiar_estado_oc,
+    generar_codigo_oc,
+)
+from core.supply_persistence import (
+    ESTADOS_OC,
+    get_oc,
+    get_proveedor,
+    list_ocs,
+    list_proveedores,
+    save_oc,
+)
+
+# ── Constants ───────────────────────────────────────────────────────────
+
+MODULE_SLUG = "supply-ordenes"
+
+_NARANJA = "#E84000"
+_VERDE = "#1B6B2F"
+_ROJO = "#B71C1C"
+_GRIS = "#6B7280"
+_AZUL = "#1D4B8F"
+_VIOLETA = "#6B2D8F"
+_AMBAR = "#B26A00"
+
+_COLOR_ESTADO = {
+    "PROPUESTA": _GRIS,
+    "APROBADA": _AZUL,
+    "OK_FIN": _VIOLETA,
+    "EMITIDA": _NARANJA,
+    "RECIBIDA_PARCIAL": _AMBAR,
+    "CERRADA": _VERDE,
+    "ANULADA": _ROJO,
+}
+
+_ETIQUETA_ESTADO = {
+    "PROPUESTA": "Propuesta",
+    "APROBADA": "Aprobada",
+    "OK_FIN": "OK Finanzas",
+    "EMITIDA": "Emitida",
+    "RECIBIDA_PARCIAL": "Recibida parcial",
+    "CERRADA": "Cerrada",
+    "ANULADA": "Anulada",
+}
+
+_LABEL_TRANSICION = {
+    "APROBADA": "✅ Aprobar",
+    "OK_FIN": "💰 OK Finanzas",
+    "EMITIDA": "📤 Emitir",
+    "RECIBIDA_PARCIAL": "📥 Recibir parcial",
+    "CERRADA": "🏁 Cerrar",
+    "ANULADA": "🚫 Anular",
+}
+
+_ESTADOS_RECEPCION = ("EMITIDA", "RECIBIDA_PARCIAL")
+"""Estados desde los que se puede cargar mercaderia recibida."""
+
+_TRANSICIONES_POR_RECEPCION = ("RECIBIDA_PARCIAL", "CERRADA")
+"""Destinos que NO se ofrecen como boton suelto cuando la OC esta en un estado
+de recepcion: se disparan desde el bloque de recepcion, que ademas actualiza las
+cantidades. Ofrecerlos por duplicado permitiria avanzar el estado sin cargar lo
+que llego, que es justo el dato que el lead time y el fill rate necesitan."""
+
+_TOPE_LINEAS = 20
+
+_KEY_OC_ABIERTA = "supply_oc_abierta"
+_KEY_ALTA_ABIERTA = "supply_oc_alta_abierta"
+"""Que dialogo esta abierto, anclado en session_state.
+
+NO se abre un dialogo desde `if st.button(...): _dialog(...)`. Ese patron lo deja
+vivo un solo run: en el rerun que trae el valor que el usuario acaba de elegir, el
+boton ya devuelve False, el dialogo no se re-renderiza, y Streamlit marca stale y
+BORRA el estado de todos sus widgets — con key o sin key. El handler termina
+leyendo el default. Es lo que hacia que la fecha elegida no llegara nunca a
+cambiar_estado_oc. Anclado en session_state, el dialogo se re-renderiza en cada
+run y su estado sobrevive."""
+
+_SOP_MD = """
+Aca se registran las ordenes de compra y se las hace avanzar por sus estados:
+**Propuesta → Aprobada → OK Finanzas → Emitida → Recibida (parcial) → Cerrada**.
+Desde cualquier estado no terminal se puede **Anular**.
+
+Cada avance pide una **fecha**: es la fecha de negocio del movimiento, no la del
+dia en que lo cargas. Se puede backdatear, y conviene hacerlo — el sistema mide
+el **lead time real** desde que la OC se emite hasta la primera recepcion, y ese
+numero es el que aparece en el Maestro de Proveedores al lado del lead time
+declarado. La diferencia entre los dos es el punto de todo esto.
+
+Cuando la OC esta **Emitida** o **Recibida parcial**, el detalle habilita cargar
+cuanto llego de cada linea. El total acumulado es lo que alimenta el fill rate.
+"""
+
+
+# ── Helpers de formato ──────────────────────────────────────────────────
+# Todo lo que va a pantalla se convierte a string ACA. Ni un None ni un NaN
+# llega crudo a un widget o a st.dataframe.
+
+
+def _num(valor, default: float = 0.0) -> float:
+    """Casteo tolerante a float. NaN y basura -> default."""
+    try:
+        n = float(valor)
+    except (TypeError, ValueError):
+        return default
+    return default if n != n else n
+
+
+def _fmt_num(valor) -> str:
+    """Numero -> string sin .0 sobrante. '' si no hay dato."""
+    if valor is None or valor == "":
+        return ""
+    try:
+        f = float(valor)
+    except (TypeError, ValueError):
+        return str(valor)
+    if f != f:  # NaN
+        return ""
+    return str(int(f)) if f == int(f) else f"{f:.1f}"
+
+
+def _fmt_fecha(iso) -> str:
+    """ISO del persistence -> 'AAAA-MM-DD'. '—' si falta o esta rota."""
+    texto = str(iso or "").strip()
+    if len(texto) < 10:
+        return "—"
+    return texto[:10]
+
+
+def _totales(oc: dict) -> tuple[int, float, float]:
+    """(cantidad de lineas, unidades pedidas, unidades recibidas) de una OC."""
+    lineas = [ln for ln in (oc.get("lineas") or []) if isinstance(ln, dict)]
+    pedidas = sum(_num(ln.get("qty")) for ln in lineas)
+    recibidas = sum(_num(ln.get("recibido")) for ln in lineas)
+    return len(lineas), pedidas, recibidas
+
+
+def _chip(estado: str) -> str:
+    color = _COLOR_ESTADO.get(estado, _GRIS)
+    etiqueta = _ETIQUETA_ESTADO.get(estado, estado or "—")
+    return (
+        f"<span style='display:inline-block;font-size:0.7rem;font-weight:700;"
+        f"color:{color};background:{color}1A;border:1px solid {color}55;"
+        f"border-radius:999px;padding:2px 9px;white-space:nowrap;'>{etiqueta}</span>"
+    )
+
+
+def _celda(texto: str, color: str = "#1F1F1F", bold: bool = False) -> str:
+    peso = "700" if bold else "400"
+    return (
+        f"<div style='font-size:0.85rem;color:{color};font-weight:{peso};"
+        f"padding-top:0.35rem;'>{texto}</div>"
+    )
+
+
+def _sub(texto: str) -> str:
+    return f"<div style='font-size:0.68rem;color:{_GRIS};'>{texto}</div>"
+
+
+def _quien() -> str:
+    """Quien ejecuto el movimiento, para el log de eventos.
+
+    En modo local (sin login) devuelve '' — el log acepta el campo vacio.
+    """
+    for clave in ("username", "name"):
+        valor = st.session_state.get(clave)
+        if valor:
+            return str(valor)
+    return ""
+
+
+def _nombres_proveedores() -> dict[str, str]:
+    """id -> nombre, incluyendo archivados: una OC vieja puede apuntar a uno."""
+    return {
+        str(p.get("id")): str(p.get("nombre") or p.get("id") or "")
+        for p in list_proveedores(incluir_inactivos=True)
+    }
+
+
+# ── Header y empty state ────────────────────────────────────────────────
+
+
+def _header() -> None:
+    st.markdown("## 📦 Órdenes de Compra")
+    st.caption(
+        "📥 Alta de OC y avance por sus estados, con la fecha real de cada movimiento · "
+        "Output: el lead time medido que alimenta el Maestro de Proveedores"
+    )
+    st.divider()
+
+
+def _empty_state() -> None:
+    st.markdown(
+        "<div style='border: 2px dashed #FFD9B3; border-radius: 12px; padding: 32px;"
+        " text-align: center; background: #FFF8F0;'>"
+        f"<h3 style='color: {_NARANJA}; margin-top: 0;'>📂 Todavia no hay ordenes de compra</h3>"
+        "<p style='color: #6B7280; margin: 0;'>"
+        "Cargá la primera con el boton <strong>➕ Orden nueva</strong>. "
+        "El codigo lo genera el sistema."
+        "</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ── Apertura y cierre de dialogos ───────────────────────────────────────
+
+
+def _abrir(bandera: str, valor=True) -> None:
+    """Marca un dialogo como abierto. render() lo renderiza al final del run.
+
+    Baja la otra bandera: Streamlit admite un solo dialogo por script run.
+    """
+    for otra in (_KEY_OC_ABIERTA, _KEY_ALTA_ABIERTA):
+        if otra != bandera:
+            st.session_state.pop(otra, None)
+    st.session_state[bandera] = valor
+
+
+def _cerrar_dialogos() -> None:
+    """Baja las banderas y refresca. Al no re-renderizarse, el dialogo suelta el
+    estado de sus widgets: la proxima apertura arranca limpia."""
+    st.session_state.pop(_KEY_OC_ABIERTA, None)
+    st.session_state.pop(_KEY_ALTA_ABIERTA, None)
+    st.rerun()
+
+
+# ── Dialogo de alta (@st.dialog — nunca st.form) ────────────────────────
+# Los inputs van con value= y SIN key= a proposito: en 1.43.2, un widget con key
+# deja el valor pegado en session_state y el modal reabriria con los datos de la
+# OC anterior. Sin key, cada apertura arranca limpia. Los botones si llevan key.
+# Las etiquetas de las lineas llevan el indice para que dos SKU iguales no
+# compartan el id interno del widget.
+
+
+@st.dialog("Orden de compra nueva")
+def _dialog_alta_oc() -> None:
+    proveedores = list_proveedores()
+    if not proveedores:
+        st.warning("Cargá un proveedor primero en el Maestro de Proveedores.")
+        if st.button(
+            "Entendido", key="supply_oc_alta_sin_prov", use_container_width=True
+        ):
+            _cerrar_dialogos()
+        return
+
+    nombres = {
+        str(p.get("id")): str(p.get("nombre") or p.get("id")) for p in proveedores
+    }
+    prov_id = st.selectbox(
+        "Proveedor *",
+        options=list(nombres),
+        format_func=lambda i: nombres.get(i, i),
+    )
+
+    st.caption(
+        "Una linea por SKU. Las lineas que queden sin SKU se descartan al guardar."
+    )
+    n_lineas = st.number_input(
+        "Cuantas lineas", min_value=1, max_value=_TOPE_LINEAS, step=1, value=1
+    )
+
+    lineas: list[dict] = []
+    for i in range(int(n_lineas)):
+        col_sku, col_qty = st.columns([3, 1])
+        sku = col_sku.text_input(f"SKU #{i + 1}", value="", placeholder="SKU-001")
+        qty = col_qty.number_input(f"Cantidad #{i + 1}", min_value=1, step=1, value=1)
+        lineas.append({"sku": str(sku).strip(), "qty": int(qty), "recibido": 0})
+
+    st.divider()
+    col_cancel, col_ok = st.columns([1, 1])
+    if col_cancel.button(
+        "Cancelar", key="supply_oc_alta_cancel", use_container_width=True
+    ):
+        _cerrar_dialogos()
+    if col_ok.button(
+        "Crear OC",
+        key="supply_oc_alta_confirm",
+        type="primary",
+        use_container_width=True,
+    ):
+        validas = [ln for ln in lineas if ln["sku"]]
+        if not validas:
+            st.error("Cargá al menos una linea con SKU.")
+            return
+
+        # El codigo lo genera supply_metrics (secuencia por proveedor y por mes),
+        # no esta UI.
+        oc = {
+            "id": generar_codigo_oc(prov_id),
+            "proveedor_id": prov_id,
+            "estado": "PROPUESTA",
+            "lineas": validas,
+        }
+        try:
+            save_oc(oc)
+        except ValueError as e:
+            st.error(str(e))
+            return
+
+        st.success(f"OC {oc['id']} creada.")
+        _cerrar_dialogos()
+
+
+# ── Dialogo de detalle y acciones ───────────────────────────────────────
+
+
+def _tabla_lineas(oc: dict) -> list[dict]:
+    """Lineas de la OC listas para st.dataframe: todo string, nada de None."""
+    filas = []
+    for ln in oc.get("lineas") or []:
+        if not isinstance(ln, dict):
+            continue
+        qty = _num(ln.get("qty"))
+        recibido = _num(ln.get("recibido"))
+        filas.append(
+            {
+                "SKU": str(ln.get("sku") or ""),
+                "Pedido": _fmt_num(qty) or "0",
+                "Recibido": _fmt_num(recibido) or "0",
+                "Pendiente": _fmt_num(max(0.0, qty - recibido)) or "0",
+            }
+        )
+    return filas
+
+
+def _transicionar(oc_id: str, destino: str, fecha: date) -> None:
+    """Dispara el cambio de estado y cierra el modal.
+
+    El ValueError de metrics (transicion ilegal, OC inexistente) se muestra tal
+    cual: ya viene redactado para el usuario.
+    """
+    try:
+        # date_input devuelve un date; cambiar_estado_oc espera un string ISO.
+        cambiar_estado_oc(oc_id, destino, quien=_quien(), fecha=fecha.isoformat())
+    except ValueError as e:
+        st.error(str(e))
+        return
+    st.success(f"OC {oc_id} → {_ETIQUETA_ESTADO.get(destino, destino)}.")
+    _cerrar_dialogos()
+
+
+def _bloque_avance(oc_id: str, destinos: list[str]) -> None:
+    st.markdown("**Avanzar la OC**")
+    fecha = st.date_input(
+        "Fecha del movimiento",
+        value=date.today(),
+        help="Fecha de negocio del evento. Es la que alimenta el lead time medido.",
+    )
+    cols = st.columns(len(destinos))
+    for col, destino in zip(cols, destinos):
+        if col.button(
+            _LABEL_TRANSICION.get(destino, destino),
+            key=f"supply_oc_go_{destino}_{oc_id}",
+            type="secondary" if destino == "ANULADA" else "primary",
+            use_container_width=True,
+        ):
+            _transicionar(oc_id, destino, fecha)
+
+
+def _bloque_recepcion(oc: dict) -> None:
+    """Carga de lo recibido + transicion.
+
+    Dos escrituras a proposito: primero se guardan las cantidades, despues
+    cambiar_estado_oc relee, guarda el estado y escribe el evento en el log.
+    """
+    oc_id = str(oc.get("id") or "")
+
+    st.markdown("**Registrar recepcion**")
+    st.caption(
+        "Cargá el total acumulado que llego de cada linea, no solo lo de esta tanda."
+    )
+
+    # El checkbox va ARRIBA de las lineas: define si los inputs se miran o no, y
+    # asi el usuario lo ve antes de cargarlos en vano.
+    completa = st.checkbox("Recepcion completa — cerrar la OC")
+    if completa:
+        st.caption(
+            "☑️ Completa = **llego todo**: se pone recibido = pedido en todas las "
+            "lineas y la OC se cierra. Los valores de abajo se ignoran."
+        )
+
+    nuevas: list[dict] = []
+    for i, ln in enumerate(oc.get("lineas") or []):
+        if not isinstance(ln, dict):
+            continue
+        sku = str(ln.get("sku") or "")
+        qty = _num(ln.get("qty"))
+        pedidas = _fmt_num(qty) or "0"
+        recibido = st.number_input(
+            f"{i + 1}. {sku} — pedidas {pedidas}",
+            min_value=0,
+            step=1,
+            value=int(qty) if completa else int(_num(ln.get("recibido"))),
+            disabled=completa,
+        )
+        # "Completa" gana sobre el input: se guarda la cantidad pedida tal cual
+        # viene de la OC, sin pasar por el widget.
+        nuevas.append({**ln, "recibido": ln.get("qty") if completa else int(recibido)})
+
+    fecha = st.date_input(
+        "Fecha de la recepcion",
+        value=date.today(),
+        help="Fecha de negocio de la llegada. Cierra la ventana del lead time medido.",
+    )
+
+    if st.button(
+        "📥 Registrar recepcion",
+        key=f"supply_oc_recep_{oc_id}",
+        type="primary",
+        use_container_width=True,
+    ):
+        if not nuevas:
+            st.error("La OC no tiene lineas para recibir.")
+            return
+        try:
+            save_oc({**oc, "lineas": nuevas})
+        except ValueError as e:
+            st.error(str(e))
+            return
+
+        destino = "CERRADA" if completa else "RECIBIDA_PARCIAL"
+        try:
+            cambiar_estado_oc(oc_id, destino, quien=_quien(), fecha=fecha.isoformat())
+        except ValueError as e:
+            # Las cantidades ya quedaron guardadas; solo fallo el avance de estado.
+            st.error(f"Cantidades guardadas, pero el estado no avanzo: {e}")
+            return
+
+        st.success(
+            f"Recepcion registrada. OC {oc_id} → "
+            f"{_ETIQUETA_ESTADO.get(destino, destino)}."
+        )
+        _cerrar_dialogos()
+
+
+@st.dialog("Detalle de la orden")
+def _dialog_oc(oc_id: str) -> None:
+    oc = get_oc(oc_id)
+    if oc is None:
+        st.error(f"La OC '{oc_id}' ya no existe.")
+        return
+
+    estado = str(oc.get("estado") or "")
+    prov_id = str(oc.get("proveedor_id") or "")
+    prov = get_proveedor(prov_id)
+    prov_nombre = str((prov or {}).get("nombre") or prov_id or "—")
+
+    st.markdown(
+        f"<div style='font-size:1.05rem;font-weight:700;'>{oc_id}</div>"
+        f"<div style='font-size:0.85rem;color:{_GRIS};margin-bottom:6px;'>"
+        f"🚚 {prov_nombre}</div>{_chip(estado)}",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        f"Creada {_fmt_fecha(oc.get('creado_en'))} · "
+        f"ultimo movimiento {_fmt_fecha(oc.get('actualizado_en'))}"
+    )
+
+    n_lineas, pedidas, recibidas = _totales(oc)
+    st.caption(
+        f"{n_lineas} linea{'s' if n_lineas != 1 else ''} · "
+        f"{_fmt_num(recibidas) or '0'} de {_fmt_num(pedidas) or '0'} unidades recibidas"
+    )
+    st.dataframe(_tabla_lineas(oc), use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    legales = list(TRANSICIONES.get(estado, ()))
+    puede_recibir = estado in _ESTADOS_RECEPCION
+
+    if not legales:
+        st.info(
+            f"La OC esta **{_ETIQUETA_ESTADO.get(estado, estado)}**: es un estado "
+            "terminal, no admite mas movimientos. Solo lectura."
+        )
+    else:
+        # Los destinos de recepcion se ofrecen unicamente desde el bloque de
+        # recepcion, que ademas actualiza cantidades.
+        sueltos = [
+            e
+            for e in legales
+            if not (puede_recibir and e in _TRANSICIONES_POR_RECEPCION)
+        ]
+        if puede_recibir:
+            _bloque_recepcion(oc)
+            if sueltos:
+                st.divider()
+        if sueltos:
+            _bloque_avance(oc_id, sueltos)
+
+    st.divider()
+    if st.button(
+        "Cerrar", key=f"supply_oc_det_cerrar_{oc_id}", use_container_width=True
+    ):
+        _cerrar_dialogos()
+
+
+# ── Tabla ───────────────────────────────────────────────────────────────
+# Filas armadas con st.columns y no con st.dataframe: hace falta un boton de
+# accion por fila, que un dataframe no soporta.
+
+_COLS = [1.9, 2.0, 1.5, 1.1, 0.9, 1.4, 0.8]
+
+
+def _fila_header() -> None:
+    cols = st.columns(_COLS)
+    encabezados = ["Codigo", "Proveedor", "Estado", "Creada", "Lineas", "Unidades", ""]
+    for col, texto in zip(cols, encabezados):
+        col.markdown(
+            f"<div style='font-size:0.72rem;font-weight:700;color:{_GRIS};"
+            f"text-transform:uppercase;letter-spacing:0.03em;'>{texto}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _fila_oc(oc: dict, nombres: dict[str, str]) -> None:
+    oc_id = str(oc.get("id") or "")
+    prov_id = str(oc.get("proveedor_id") or "")
+    estado = str(oc.get("estado") or "")
+    n_lineas, pedidas, recibidas = _totales(oc)
+
+    c_id, c_prov, c_est, c_fecha, c_lin, c_uni, c_ver = st.columns(_COLS)
+
+    c_id.markdown(_celda(oc_id, bold=True), unsafe_allow_html=True)
+    c_prov.markdown(
+        _celda(nombres.get(prov_id, prov_id) or "—"), unsafe_allow_html=True
+    )
+    c_est.markdown(
+        f"<div style='padding-top:0.4rem;'>{_chip(estado)}</div>",
+        unsafe_allow_html=True,
+    )
+    c_fecha.markdown(_celda(_fmt_fecha(oc.get("creado_en"))), unsafe_allow_html=True)
+    c_lin.markdown(_celda(str(n_lineas)) + _sub("lineas"), unsafe_allow_html=True)
+
+    # Recibidas / pedidas: el numerador es lo que mueve el fill rate.
+    color_uni = _VERDE if pedidas and recibidas >= pedidas else "#1F1F1F"
+    c_uni.markdown(
+        _celda(
+            f"{_fmt_num(recibidas) or '0'} / {_fmt_num(pedidas) or '0'}",
+            color=color_uni,
+            bold=True,
+        )
+        + _sub("recibidas / pedidas"),
+        unsafe_allow_html=True,
+    )
+
+    if c_ver.button("Ver", key=f"supply_oc_ver_{oc_id}", help=f"Abrir {oc_id}"):
+        _abrir(_KEY_OC_ABIERTA, oc_id)
+
+
+# ── Render principal ────────────────────────────────────────────────────
+
+
+def render() -> None:
+    """Punto de entrada del modulo. Llamado desde app.py.
+
+    Sin early-return: el despacho de dialogos del final tiene que correr siempre,
+    incluso con la lista vacia (es cuando se crea la primera OC).
+    """
+    _header()
+
+    with st.expander("📘 Cómo usar este módulo", expanded=False):
+        st.markdown(_SOP_MD)
+
+    nombres = _nombres_proveedores()
+
+    col_add, _sp = st.columns([2, 6])
+    if col_add.button(
+        "➕ Orden nueva", key="supply_oc_btn_alta", use_container_width=True
+    ):
+        _abrir(_KEY_ALTA_ABIERTA)
+
+    col_prov, col_est, _sp2 = st.columns([2.5, 2.5, 3])
+    filtro_prov = col_prov.selectbox(
+        "Proveedor",
+        options=["Todos", *nombres],
+        format_func=lambda i: "Todos" if i == "Todos" else nombres.get(i, i),
+        key="supply_oc_filtro_prov",
+    )
+    filtro_estado = col_est.selectbox(
+        "Estado",
+        options=["Todos", *ESTADOS_OC],
+        format_func=lambda e: "Todos" if e == "Todos" else _ETIQUETA_ESTADO.get(e, e),
+        key="supply_oc_filtro_estado",
+    )
+
+    sin_filtros = filtro_prov == "Todos" and filtro_estado == "Todos"
+    ocs = list_ocs(
+        proveedor_id=None if filtro_prov == "Todos" else filtro_prov,
+        estado=None if filtro_estado == "Todos" else filtro_estado,
+    )
+
+    st.divider()
+
+    if not ocs:
+        if sin_filtros:
+            _empty_state()
+        else:
+            st.info("Ninguna orden coincide con esos filtros.")
+    else:
+        plural = "es" if len(ocs) != 1 else ""
+        st.caption(f"{len(ocs)} orden{plural} de compra")
+
+        _fila_header()
+        for oc in ocs:
+            _fila_oc(oc, nombres)
+
+        st.divider()
+        st.caption(
+            "El **lead time medido** del Maestro de Proveedores sale de estas ordenes: "
+            "se mide desde el movimiento **Emitida** hasta la **primera recepcion**, "
+            "usando la fecha que cargaste en cada avance."
+        )
+
+    # Los dialogos se renderizan al FINAL y desde session_state, no desde el
+    # `if boton:` que los abre. Va ultimo para que el click en «Ver» de una fila
+    # ya se vea reflejado en este mismo run. Sin early-return arriba: el dialogo
+    # tiene que seguir vivo aunque la lista quede vacia por los filtros.
+    if st.session_state.get(_KEY_ALTA_ABIERTA):
+        _dialog_alta_oc()
+    elif oc_abierta := st.session_state.get(_KEY_OC_ABIERTA):
+        # Streamlit admite un solo dialogo por run; el elif lo garantiza.
+        _dialog_oc(str(oc_abierta))
