@@ -40,10 +40,18 @@ _ADS_LAST_DAYS = 90  # Product Ads reports typically cover 60-90d — a shorter
 
 # Product Ads endpoints demand these headers on top of the bearer token.
 # The advertisers listing does not need Api-Version; the campaign/ad_group
-# search endpoints do. X-Product-Id keeps us on the Product Ads surface even
-# though the current documentation only requires it as a query param.
+# search endpoints do.
 _ADS_ADVERTISERS_HEADERS = {"X-Product-Id": "PADS"}
 _ADS_METRICS_HEADERS = {"Api-Version": "1", "X-Product-Id": "PADS"}
+
+# The advertisers listing wants the product as a QUERY PARAM, not only as the
+# header. Sending just the header answers 400 `product_id param not found in
+# request` — observed in production on 2026-09-09, which silently zeroed the
+# whole ads stage: `resolve_advertiser_id` turns any client error into "this
+# account has no Product Ads", so a malformed request and a genuinely
+# ad-less seller looked identical. Both are sent: the header is what keeps the
+# other Product Ads calls on the right surface.
+_ADS_ADVERTISERS_PARAMS = {"product_id": "PADS"}
 
 # Sentinel used as ad_group_id for the campaign-level rollup rows.
 # meli_ads_daily.ad_group_id is NOT NULL, so a rollup needs a value that is
@@ -365,6 +373,7 @@ def resolve_advertiser_id(
     try:
         body = client.get(
             "/advertising/advertisers",
+            params=_ADS_ADVERTISERS_PARAMS,
             extra_headers=_ADS_ADVERTISERS_HEADERS,
         )
     except NotFound:
