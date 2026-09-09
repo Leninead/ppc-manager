@@ -47,6 +47,21 @@ Archivar un proveedor no lo borra: deja de aparecer en las listas, pero su
 historial se conserva.
 """
 
+_KEY_ALTA_ABIERTA = "supply_prov_alta_abierta"
+_KEY_EDITAR_ABIERTA = "supply_prov_editar_abierta"
+_KEY_ARCHIVAR_ABIERTA = "supply_prov_archivar_abierta"
+"""Que dialogo esta abierto, anclado en session_state.
+
+NO se abre un dialogo desde `if st.button(...): _dialog(...)`. Ese patron lo deja
+vivo un solo run: en el rerun que trae el valor que el usuario acaba de tipear, el
+boton ya devuelve False, el dialogo no se re-renderiza, y Streamlit lo marca stale
+y BORRA el estado de todos sus widgets — con key o sin key. El sintoma es el modal
+que se cierra solo al tocar un input, o el campo editado que vuelve al valor
+anterior al confirmar. Anclado en session_state, el dialogo se re-renderiza en cada
+run y su estado sobrevive. Mismo mecanismo que supply_ordenes.py.
+
+Las dos banderas de detalle guardan el `prov_id`; la de alta, True."""
+
 
 # ── Helpers de formato ──────────────────────────────────────────────────
 # Todo lo que va a pantalla se convierte a string ACA. Las metricas devuelven
@@ -145,6 +160,28 @@ def _empty_state() -> None:
     )
 
 
+# ── Apertura y cierre de dialogos ───────────────────────────────────────
+
+
+def _abrir(bandera: str, valor=True) -> None:
+    """Marca un dialogo como abierto. render() lo renderiza al final del run.
+
+    Baja las otras banderas: Streamlit admite un solo dialogo por script run.
+    """
+    for otra in (_KEY_ALTA_ABIERTA, _KEY_EDITAR_ABIERTA, _KEY_ARCHIVAR_ABIERTA):
+        if otra != bandera:
+            st.session_state.pop(otra, None)
+    st.session_state[bandera] = valor
+
+
+def _cerrar_dialogos() -> None:
+    """Baja las banderas y refresca. Al no re-renderizarse, el dialogo suelta el
+    estado de sus widgets: la proxima apertura arranca limpia."""
+    for bandera in (_KEY_ALTA_ABIERTA, _KEY_EDITAR_ABIERTA, _KEY_ARCHIVAR_ABIERTA):
+        st.session_state.pop(bandera, None)
+    st.rerun()
+
+
 # ── Dialogos (@st.dialog — nunca st.form) ───────────────────────────────
 # Los inputs van con value= y SIN key= a proposito: en 1.43.2, un widget con key
 # deja el valor pegado en session_state y el modal de alta reabriria con los
@@ -230,16 +267,18 @@ def _dialog_alta() -> None:
     if col_cancel.button(
         "Cancelar", key="supply_prov_alta_cancel", use_container_width=True
     ):
-        st.rerun()
+        _cerrar_dialogos()
     if col_ok.button(
         "Guardar",
         key="supply_prov_alta_confirm",
         type="primary",
         use_container_width=True,
     ):
+        # Si _guardar devuelve False ya pinto el st.error: el dialogo se queda
+        # abierto (no se baja la bandera) para poder corregir sin reabrir.
         if _guardar(datos):
             st.success(f"Proveedor '{datos['nombre'].strip()}' guardado.")
-            st.rerun()
+            _cerrar_dialogos()
 
 
 @st.dialog("Editar proveedor")
@@ -247,6 +286,12 @@ def _dialog_editar(prov_id: str) -> None:
     prov = get_proveedor(prov_id)
     if prov is None:
         st.error(f"El proveedor '{prov_id}' ya no existe.")
+        if st.button(
+            "Entendido",
+            key=f"supply_prov_edit_inexistente_{prov_id}",
+            use_container_width=True,
+        ):
+            _cerrar_dialogos()
         return
 
     datos = _campos_proveedor(prov)
@@ -258,7 +303,7 @@ def _dialog_editar(prov_id: str) -> None:
     if col_cancel.button(
         "Cancelar", key=f"supply_prov_edit_cancel_{prov_id}", use_container_width=True
     ):
-        st.rerun()
+        _cerrar_dialogos()
     if col_ok.button(
         "Guardar cambios",
         key=f"supply_prov_edit_confirm_{prov_id}",
@@ -267,11 +312,25 @@ def _dialog_editar(prov_id: str) -> None:
     ):
         if _guardar(datos):
             st.success("Cambios guardados.")
-            st.rerun()
+            _cerrar_dialogos()
 
 
 @st.dialog("Archivar proveedor")
-def _dialog_archivar(prov_id: str, nombre: str) -> None:
+def _dialog_archivar(prov_id: str) -> None:
+    # El nombre se resuelve aca y no se pasa por la bandera: en session_state
+    # viaja solo el prov_id, igual que en supply_ordenes.py.
+    prov = get_proveedor(prov_id)
+    if prov is None:
+        st.error(f"El proveedor '{prov_id}' ya no existe.")
+        if st.button(
+            "Entendido",
+            key=f"supply_prov_arch_inexistente_{prov_id}",
+            use_container_width=True,
+        ):
+            _cerrar_dialogos()
+        return
+
+    nombre = str(prov.get("nombre") or prov_id)
     st.markdown(f"Vas a archivar **{nombre}**.")
     st.caption(
         "No se borra nada: deja de aparecer en la lista y su historial de ordenes "
@@ -282,7 +341,7 @@ def _dialog_archivar(prov_id: str, nombre: str) -> None:
     if col_cancel.button(
         "Cancelar", key=f"supply_prov_arch_cancel_{prov_id}", use_container_width=True
     ):
-        st.rerun()
+        _cerrar_dialogos()
     if col_ok.button(
         "Archivar",
         key=f"supply_prov_arch_confirm_{prov_id}",
@@ -293,7 +352,7 @@ def _dialog_archivar(prov_id: str, nombre: str) -> None:
             st.success(f"'{nombre}' archivado.")
         else:
             st.error(f"El proveedor '{prov_id}' ya no existe.")
-        st.rerun()
+        _cerrar_dialogos()
 
 
 # ── Tabla ───────────────────────────────────────────────────────────────
@@ -361,13 +420,13 @@ def _fila_proveedor(prov: dict) -> None:
     if c_edit.button(
         "✏️", key=f"supply_prov_edit_{prov_id}", help=f"Editar {nombre}"
     ):
-        _dialog_editar(prov_id)
+        _abrir(_KEY_EDITAR_ABIERTA, prov_id)
 
     if activo:
         if c_arch.button(
             "🗄️", key=f"supply_prov_arch_{prov_id}", help=f"Archivar {nombre}"
         ):
-            _dialog_archivar(prov_id, nombre)
+            _abrir(_KEY_ARCHIVAR_ABIERTA, prov_id)
     else:
         c_arch.markdown(
             f"<div style='font-size:0.68rem;color:{_GRIS};padding-top:0.5rem;'>"
@@ -382,7 +441,8 @@ def _fila_proveedor(prov: dict) -> None:
 def render() -> None:
     """Punto de entrada del modulo. Llamado desde app.py.
 
-    Un solo early-return: cuando todavia no hay ningun proveedor cargado.
+    Sin early-return: el despacho de dialogos del final tiene que correr siempre,
+    incluso con la lista vacia — es justo cuando se da de alta el primero.
     """
     _header()
 
@@ -393,7 +453,7 @@ def render() -> None:
     if col_add.button(
         "➕ Proveedor nuevo", key="supply_prov_btn_alta", use_container_width=True
     ):
-        _dialog_alta()
+        _abrir(_KEY_ALTA_ABIERTA)
     ver_inactivos = col_ver.checkbox(
         "Mostrar archivados",
         key="supply_prov_ver_inactivos",
@@ -402,26 +462,36 @@ def render() -> None:
 
     proveedores = list_proveedores(incluir_inactivos=ver_inactivos)
 
+    st.divider()
+
     if not proveedores:
-        st.divider()
         _empty_state()
-        return
+    else:
+        activos = sum(1 for p in proveedores if p.get("activo", True))
+        resumen_txt = f"{activos} proveedor{'es' if activos != 1 else ''} activo"
+        if ver_inactivos and len(proveedores) > activos:
+            resumen_txt += f" · {len(proveedores) - activos} archivado"
+        st.caption(resumen_txt)
 
-    st.divider()
+        _fila_header()
+        for prov in proveedores:
+            _fila_proveedor(prov)
 
-    activos = sum(1 for p in proveedores if p.get("activo", True))
-    resumen_txt = f"{activos} proveedor{'es' if activos != 1 else ''} activo"
-    if ver_inactivos and len(proveedores) > activos:
-        resumen_txt += f" · {len(proveedores) - activos} archivado"
-    st.caption(resumen_txt)
+        st.divider()
+        st.caption(
+            "El **LT medido** sale de las ordenes de compra: se mide desde que la OC "
+            "se emite hasta la primera recepcion. Mientras no haya OC registradas, "
+            "esa columna y el fill rate muestran «—»."
+        )
 
-    _fila_header()
-    for prov in proveedores:
-        _fila_proveedor(prov)
-
-    st.divider()
-    st.caption(
-        "El **LT medido** sale de las ordenes de compra: se mide desde que la OC "
-        "se emite hasta la primera recepcion. Mientras no haya OC registradas, "
-        "esa columna y el fill rate muestran «—»."
-    )
+    # Los dialogos se renderizan al FINAL y desde session_state, no desde el
+    # `if boton:` que los abre. Va ultimo para que el click en «✏️» de una fila
+    # ya se vea reflejado en este mismo run. Sin early-return arriba: el alta
+    # tiene que seguir viva aunque la lista este vacia.
+    if st.session_state.get(_KEY_ALTA_ABIERTA):
+        _dialog_alta()
+    elif prov_editar := st.session_state.get(_KEY_EDITAR_ABIERTA):
+        # Streamlit admite un solo dialogo por run; el elif lo garantiza.
+        _dialog_editar(str(prov_editar))
+    elif prov_archivar := st.session_state.get(_KEY_ARCHIVAR_ABIERTA):
+        _dialog_archivar(str(prov_archivar))
