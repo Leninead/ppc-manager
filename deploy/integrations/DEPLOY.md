@@ -212,6 +212,22 @@ Los demás usuarios quedan como `usuario`: ven `Sistema → Cuentas conectadas`
 y pueden conectar cuentas de clientes, pero no tocan credenciales del sistema.
 Requiere reiniciar el contenedor `app` para releer el archivo.
 
+⚠️ **El archivo lo tiene que poder leer el uid 10001, no el usuario del host.**
+`secrets.toml` se monta dentro del contenedor, que corre como `appuser` (uid
+10001, fijo en el Dockerfile). Si el archivo queda `600` y es de `ubuntu`, la app
+entra en crash-loop con `PermissionError: /app/.streamlit/secrets.toml` y el
+health gate del deploy lo rechaza — un `644` funciona por accidente, porque lo
+lee "otros". Lo correcto es dárselo al uid del contenedor:
+
+```sh
+sudo chown 10001:10001 /srv/ppc-manager/.streamlit/secrets.toml
+sudo chmod 600 /srv/ppc-manager/.streamlit/secrets.toml
+```
+
+En el host va a figurar como `UNKNOWN:UNKNOWN`: ese uid no existe afuera del
+contenedor, y está bien. `rsync` del pipeline excluye el archivo, así que la
+propiedad sobrevive a los deploys.
+
 ## 1. Registrar la Redirect URI en el DevCenter de cada proveedor
 
 **Mercado Libre** (única activa hoy): DevCenter → tu app → Redirect URI:
@@ -355,8 +371,14 @@ Para probarlo de punta a punta desde afuera, usá una ruta que Caddy sí le rute
 
 ```
 curl -sk -o /dev/null -w '%{http_code}\n' \
-  "https://app.capybaras.agency/oauth/callback?state=probe"   # 200
+  "https://app.capybaras.agency/oauth/callback?code=PROBE&state=NOEXISTE"   # 200
 ```
+
+Los **dos** parámetros, no sólo `state`: el handler responde `400 callback
+missing code or state` cuando falta cualquiera, así que un `?state=probe` solo
+devuelve 400 y parece un receptor roto cuando en realidad está perfecto. Con los
+dos, un `state` inexistente igual da 200 y el HTML "Autorización recibida" — es
+deliberado, para no filtrar qué states están en vuelo.
 
 
 ## 6. Programar los cron del worker
