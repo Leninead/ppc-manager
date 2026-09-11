@@ -50,6 +50,8 @@ from modules.pages.variation_builder import render as render_variation_builder
 from modules.pages.flat_file_migrator import render as render_flat_file_migrator
 from modules.pages.sku_progress_report import render as render_sku_progress
 from modules.pages.pricing_dashboard import render as render_pricing_dashboard
+from modules.pages.supply_proveedores import render as render_supply_proveedores
+from modules.pages.supply_ordenes import render as render_supply_ordenes
 from modules.pages.proposal_studio import render as render_proposal_studio
 from modules.pages.case_study_studio import render as render_case_study_studio
 from modules.pages.revenue_forecast import render as render_revenue_forecast
@@ -347,6 +349,12 @@ if selected == "🏥 SKU Progress Report":
 
 if selected == "💲 Pricing Dashboard":
     render_pricing_dashboard()
+
+if selected == "🚚 Proveedores":
+    render_supply_proveedores()
+
+if selected == "📦 Órdenes de Compra":
+    render_supply_ordenes()
 
 if selected == "📋 Proposal Studio":
     render_proposal_studio()

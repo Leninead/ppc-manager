@@ -42,3 +42,15 @@ def test_pages_includes_case_study_studio():
     """Case Study Studio debe estar en _PAGES (faltaba desde M32)."""
     from core.constants import _PAGES
     assert any("Case Study Studio" in p for p in _PAGES)
+
+
+def test_pages_includes_supply_proveedores():
+    """Proveedores debe estar en _PAGES (M37 Supply Chain, B1)."""
+    from core.constants import _PAGES
+    assert any("Proveedores" in p for p in _PAGES)
+
+
+def test_pages_includes_supply_ordenes():
+    """Órdenes de Compra debe estar en _PAGES (M37 Supply Chain, B1)."""
+    from core.constants import _PAGES
+    assert any("Órdenes de Compra" in p for p in _PAGES)

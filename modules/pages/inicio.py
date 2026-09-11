@@ -147,6 +147,16 @@ def render():
             activo=True, count=7
         ), unsafe_allow_html=True)
 
+    col_sc = st.columns(3)
+    with col_sc[0]:
+        st.markdown(_area_card(
+            "🚚", "Supply Chain",
+            "Abastecimiento, inventario y logística.",
+            "Julian López / Federico Valero",
+            ["Proveedores", "Órdenes de Compra"],
+            activo=True, count=2
+        ), unsafe_allow_html=True)
+
     col_kb = st.columns([1])
     with col_kb[0]:
         st.markdown(_area_card(
@@ -241,63 +251,59 @@ def render():
     col3, col4, col5 = st.columns(3)
     with col3:
         st.markdown(_area_card(
-            "🚚", "Supply Chain",
-            "Abastecimiento, inventario y logística.",
-            "Julian López / Federico Valero", [], activo=False
-        ), unsafe_allow_html=True)
-
-    with col4:
-        st.markdown(_area_card(
             "🚦", "Tráfico Externo",
             "Medios, mailing y contenido para tráfico externo.",
             "María Fernanda Rojas", [], activo=False
         ), unsafe_allow_html=True)
 
-    with col5:
+    with col4:
         st.markdown(_area_card(
             "🎨", "Diseño",
             "Contenido visual para marcas y productos.",
             "Guido Pedregoza", [], activo=False
         ), unsafe_allow_html=True)
 
-    col6, col7, col8 = st.columns(3)
-    with col6:
+    with col5:
         st.markdown(_area_card(
             "👔", "RRHH",
             "Cultura, talento y crecimiento del equipo.",
             "Keila Vivas", [], activo=False
         ), unsafe_allow_html=True)
 
-    with col7:
+    col6, col7, col8 = st.columns(3)
+    with col6:
         st.markdown(_area_card(
             "💼", "Sales",
             "Desarrollo comercial y nuevos leads.",
             "—", [], activo=False
         ), unsafe_allow_html=True)
 
-    with col8:
+    with col7:
         st.markdown(_area_card(
             "🏥", "Account Health",
             "Incidencias y cumplimiento de políticas Amazon.",
             "Marcos", [], activo=True
         ), unsafe_allow_html=True)
 
-    col9, col10, col11 = st.columns(3)
-    with col9:
+    with col8:
         st.markdown(_area_card(
             "🛒", "Marketplaces",
             "Expansión a Amazon, Mercado Libre y otros canales.",
             "—", [], activo=False
         ), unsafe_allow_html=True)
 
-    with col10:
+    # Fila de cierre: quedan dos tarjetas. Se pide igual `columns(3)` para que
+    # conserven el ancho de las de arriba; el tercer hueco queda vacio a
+    # proposito, en vez de dos tarjetas estiradas a media pantalla.
+    col9, col10, _col11 = st.columns(3)
+    with col9:
         st.markdown(_area_card(
             "📈", "Dirección General",
             "Dashboard ejecutivo, rentabilidad y KPIs.",
             "—", [], activo=False
         ), unsafe_allow_html=True)
 
-    with col11:
+    with col10:
         st.markdown(_area_card(
             "🔌", "Expansión Futura",
             "API Amazon Ads, alertas, WhatsApp/Slack, multi-cuenta.",

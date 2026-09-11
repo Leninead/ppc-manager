@@ -81,6 +81,10 @@ SECTIONS: tuple[Section, ...] = (
         "🏥 SKU Progress Report",
         "💲 Pricing Dashboard",
     )),
+    Section("Supply Chain", ":material/inventory_2:", False, (
+        "🚚 Proveedores",
+        "📦 Órdenes de Compra",
+    )),
     Section("Marketplaces", ":material/storefront:", False, (
         "🛒 Mercado Libre",
     )),
@@ -139,6 +143,8 @@ _ICONS: dict[str, str] = {
     "🗂️ Flat File Migrator": ":material/sync_alt:",
     "🏥 SKU Progress Report": ":material/local_hospital:",
     "💲 Pricing Dashboard": ":material/sell:",
+    "🚚 Proveedores": ":material/local_shipping:",
+    "📦 Órdenes de Compra": ":material/receipt_long:",
     "🛒 Mercado Libre": ":material/shopping_cart:",
     "🔑 Cuentas conectadas": ":material/key:",
     "🔌 Integraciones": ":material/power:",
@@ -146,7 +152,7 @@ _ICONS: dict[str, str] = {
 
 
 def all_pages() -> list[str]:
-    """The 35 destinations of the rail, Home first."""
+    """The 37 destinations of the rail, Home first."""
     return [HOME] + [page for section in SECTIONS for page in section.pages]
 
 
