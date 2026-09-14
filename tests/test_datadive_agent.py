@@ -27,7 +27,7 @@ def test_agent_is_discovered_by_runtime():
     assert "datadive" in runtime._agents
     meta = runtime._agents["datadive"]["meta"]
     assert meta.get("model") == "claude-opus-5"
-    assert meta.get("tools") == "datadive"
+    assert meta.get("tools") == "datadive, amazon_ads"
 
 
 def test_ask_followup_sends_datadive_tools_profile(monkeypatch):
@@ -43,7 +43,7 @@ def test_ask_followup_sends_datadive_tools_profile(monkeypatch):
         def json(self):
             return {"text": "ok", "session_id": "s2"}
 
-    def fake_post(url, json=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None):
         captured.update(json or {})
         return FakeResponse()
 
@@ -70,7 +70,7 @@ def test_ask_followup_without_session_opens_a_fresh_one(monkeypatch):
         def json(self):
             return {"text": "quedan 166 dive tokens", "session_id": "nueva"}
 
-    def fake_post(url, json=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None):
         captured.update(json or {})
         return FakeResponse()
 
@@ -83,7 +83,7 @@ def test_ask_followup_without_session_opens_a_fresh_one(monkeypatch):
 
 def test_agent_tools_reads_frontmatter():
     import ai.runtime as runtime
-    assert runtime.agent_tools("datadive") == ["datadive"]
+    assert runtime.agent_tools("datadive") == ["datadive", "amazon_ads"]
 
 
 def test_build_context_returns_two_docs_and_schema():

@@ -114,9 +114,14 @@ class TestAgentOnDisk:
         assert agent["meta"]["timeout_s"] == "900"
         assert "analista senior" in agent["system"]
 
-    def test_str_agent_declares_no_provider_tools(self):
-        # Analysis and chat stay deterministic-context only.
-        assert ai_runtime.agent_tools("str") == []
+    def test_str_agent_tools_are_chat_only_and_need_an_account(self):
+        # The analysis stays deterministic-context only. Chat turns may query
+        # Amazon Ads, but only once the AM picked a client account in the
+        # sidebar; with none picked the turn carries no tools at all.
+        assert ai_runtime.agent_tools("str") == ["amazon_ads"]
+        assert ai_runtime.usable_tools("str", None) == []
+        assert ai_runtime.usable_tools(
+            "str", {"account_id": 1, "profile_id": "1"}) == ["amazon_ads"]
 
 
 class TestBuildContext:
