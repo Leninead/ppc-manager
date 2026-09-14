@@ -58,6 +58,7 @@ from modules.pages.revenue_forecast import render as render_revenue_forecast
 from modules.mercado_libre.main import render as render_mercado_libre
 from modules.pages.accounts import render as render_accounts
 from modules.pages.integrations import render as render_integrations
+from modules.pages.chat_skills_page import render as render_chat_skills
 from core.integrations.roles import is_admin as _role_is_admin
 from core.integrations.roles import resolve_role as _resolve_role
 import streamlit_authenticator as stauth
@@ -139,11 +140,16 @@ def _nav_type(page):
     return "primary" if st.session_state.get("selected_page") == page else "secondary"
 
 
+# Both Sistema screens carry the dot: Integraciones is admin-only, and the
+# Reautorizar button lives on Cuentas conectadas, where every employee can act.
+_REAUTH_NOTICE_PAGES = ("🔌 Integraciones", "🔑 Cuentas conectadas")
+
+
 def _nav_label(page: str) -> str:
-    """Visible text for a destination: no emoji, plus an amber dot on
-    Integrations when a client account has stopped authorizing."""
+    """Visible text for a destination: no emoji, plus an amber dot on the two
+    Sistema screens when an authorization has stopped working or is about to."""
     label = navigation.visible_label(page)
-    if page == "🔌 Integraciones" and accounts_needing_reauth():
+    if page in _REAUTH_NOTICE_PAGES and accounts_needing_reauth():
         return f"{label} :orange[●]"
     return label
 
@@ -165,15 +171,9 @@ with st.sidebar:
     if _authenticator is not None:
         _authenticator.logout(i18n.t("shell.sidebar.logout"), "sidebar")
     st.caption(f"👤 {_name}")
-    st.divider()
-    st.markdown(
-        "<div style='padding:0.75rem 0.5rem 0.25rem;'>"
-        "<span style='font-size:1.4rem;'>🦫</span>"
-        "<span style='font-size:0.75rem;font-weight:800;color:#E84000;"
-        "margin-left:0.4rem;vertical-align:middle;'>Agency OS</span>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    # La marca subió a la fila del botón de colapsar (core/ui/sidebar.py), que
+    # Streamlit deja vacía. Este bloque y su segundo divisor gastaban ~90px de
+    # alto para repetir el nombre que ya está en la pestaña del navegador.
     st.divider()
 
     # Search replaces the whole rail while text is typed: filtering inside
@@ -373,3 +373,6 @@ if selected == "🔑 Cuentas conectadas":
 
 if selected == "🔌 Integraciones":
     render_integrations(username=_username, role=_role)
+
+if selected == "🧠 Skills":
+    render_chat_skills(username=_username, role=_role)

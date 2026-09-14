@@ -224,6 +224,28 @@ code, pre, kbd, samp {
 
 [data-testid="stAppViewContainer"] > .main { padding-left: 1rem !important; }
 
+/* ── Marca en la fila del colapsar ────────────────────────────────
+   Streamlit reserva una fila entera arriba del riel para el botón de colapsar
+   y la deja vacía a la izquierda. La marca vivía debajo, en su propio bloque
+   con dos divisores alrededor: unos 90px de alto para repetir un nombre que ya
+   está en la pestaña del navegador. Acá ocupa espacio que ya estaba pago.
+   Es decorativo y no recibe foco, así que va en ::before y no en el DOM.     */
+[data-testid="stSidebarHeader"] {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.25rem !important;
+}
+[data-testid="stSidebarHeader"]::before {
+    content: "🦫 Agency OS";
+    font-size: 0.95rem;
+    font-weight: 800;
+    color:  !important;
+    white-space: nowrap;
+    margin-right: auto;
+}
+
 /* 41 elementos con transición y ninguna regla de movimiento reducido. */
 @media (prefers-reduced-motion: reduce) {
     [data-testid="stSidebar"], [data-testid="stSidebar"] * {

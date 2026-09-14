@@ -183,7 +183,7 @@ def step_4_check_code_was_sealed(rest: _Rest, state: str) -> None:
     assert len(rows) == 1, f"expected 1 pending row, got {len(rows)}"
     row = rows[0]
     assert row["estado"] == "recibido", f"expected 'recibido', got {row['estado']!r}"
-    assert row["code_sealed"] and row["code_sealed"].startswith("v1:"), (
+    assert row["code_sealed"] and row["code_sealed"].startswith(f"{crypto.SEAL_VERSION}:"), (
         f"code_sealed missing or not sealed: {row['code_sealed']!r}"
     )
     ok(f"pending row: estado={row['estado']} · code_sealed prefix={row['code_sealed'][:6]}…")

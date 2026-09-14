@@ -48,6 +48,7 @@ from enum import Enum
 import streamlit as st
 
 from ai import runtime as ai_runtime
+from core import ads_account_picker
 from core.ai_chat import floating_chat
 
 _BASE_LABELS = {
@@ -319,22 +320,33 @@ def records_for_render(slug: str, analysis, payload, records, keep: int = 8):
 
 def mount_analysis_chat(slug: str, analysis, *, lang: str,
                         labels: dict, annotate=None) -> None:
-    """Mounts the floating chat as soon as an analysis exists. Call it at the
-    END of render(), outside st.tabs.
+    """Mounts the floating chat. Call it at the END of render(), outside st.tabs.
 
-    An agent with provider tools answers early questions for real (its tools do
-    not need the analysis); one without them replies labels['chat_wait'] (or
-    chat_failed) locally until the analysis session exists."""
-    if analysis is None:
-        return
-    ready = analysis.done and analysis.session_id
-    pending = labels["chat_failed"] if analysis.failed else labels["chat_wait"]
-    floating_chat(chat_id=f"{slug}_{analysis.digest}", agent=slug,
+    `analysis=None` is the normal state of a module nobody has uploaded a file
+    to yet, and the chat mounts anyway. It has tools, an account and the
+    agency's own skills before any file exists — "which campaigns does Havanna
+    have" needs none of them — and hiding the bubble until an upload made the
+    chat look like a feature of the file rather than of the module. When the
+    analysis lands, its session takes over mid-conversation and the same thread
+    gains everything the analysis computed.
+
+    The chat_id is the slug, deliberately, not the digest. Keyed by digest, a
+    moved slider recomputed the analysis and the AM found an empty panel where
+    their conversation had been.
+
+    An agent with provider tools usable right now answers early questions for
+    real; one without them replies labels['chat_wait'] (or chat_failed) locally
+    until the analysis session exists."""
+    ready = bool(analysis is not None and analysis.done and analysis.session_id)
+    failed = bool(analysis is not None and analysis.failed)
+    pending = labels["chat_failed"] if failed else labels["chat_wait"]
+    ads_scope = ads_account_picker.request_scope()
+    floating_chat(chat_id=slug, agent=slug,
                   session_id=analysis.session_id if ready else None,
                   title=labels["chat"], lang=lang,
                   pending_text=None if ready else pending,
-                  standalone=bool(ai_runtime.agent_tools(slug)),
-                  annotate=annotate)
+                  standalone=bool(ai_runtime.usable_tools(slug, ads_scope)),
+                  annotate=annotate, ads_scope=ads_scope)
 
 
 def ai_notice_html(title: str, body: str) -> str:

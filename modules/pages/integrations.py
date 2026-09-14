@@ -14,7 +14,8 @@ from html import escape
 import streamlit as st
 
 from core.integrations import catalog, crypto, lookup, oauth, roles
-from core.integrations.store import SEALING_KEY_SETTING, StoreError, open_stores
+from core.integrations.store import (REVOKED_STATUS, SEALING_KEY_SETTING, StoreError,
+                                     open_stores)
 from core.ui import i18n, palette
 
 # Status colors. Palette approximations for module-level constants used in
@@ -199,7 +200,7 @@ def render(username: str = "", role: str = roles.USER) -> None:
     if pending_remove:
         integration = catalog.by_slug(pending_remove)
         if integration is not None:
-            _remove_dialog(integration, 0, context)
+            _remove_dialog(integration, _live_connection_count(context, integration.slug), context)
 
     _blocking_notice(context)
 
@@ -556,6 +557,15 @@ def _credential_dialog_body(
         "integrations.credential.flash_saved", integration=integration.name
     )
     st.rerun()
+
+
+def _live_connection_count(context: Context, slug: str) -> int:
+    """Accounts that stop refreshing the moment this credential goes: a refresh
+    token is bound to the client application that minted it."""
+    return sum(
+        1 for connection in context.connections.get(slug, [])
+        if (connection.status or "").strip().lower() != REVOKED_STATUS
+    )
 
 
 def _remove_dialog(integration, accounts: int, context: Context) -> None:

@@ -5,9 +5,19 @@ only the worker holds the private key. This is stronger than the symmetric schem
 on `feat/ads-api-str-ingestion`, where whoever could encrypt could also decrypt —
 there, the app simply never wrote secrets at all.
 
-Ciphertext is `v1:<base64 RSA-OAEP-SHA256>`. The version prefix exists so a key
-rotation can leave both generations readable instead of requiring one atomic
-sweep of every row.
+Two ciphertext generations coexist, told apart by their prefix:
+
+  v1:<base64 RSA-OAEP-SHA256>              raw RSA over the plaintext. Capped at
+                                           446 bytes for a 4096-bit key, which
+                                           fits a Mercado Libre token (40 chars)
+                                           and not a Login with Amazon one
+                                           (up to 2048 bytes).
+  v2:<base64 wrapped key>.<base64 payload>  hybrid: a random AES-256-GCM data key
+                                           encrypts the plaintext, RSA-OAEP wraps
+                                           the data key. No size ceiling.
+
+`seal` always writes v2; `unseal` opens both, so rows sealed before the change
+keep working without a sweep — the version prefix existed for exactly this.
 """
 from __future__ import annotations
 
@@ -18,9 +28,13 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-SEAL_VERSION = "v1"
+SEAL_VERSION = "v2"
+LEGACY_SEAL_VERSION = "v1"
 KEY_SIZE_BITS = 4096
+_DATA_KEY_BITS = 256
+_GCM_NONCE_BYTES = 12
 
 PUBLIC_KEY_ENV = "INTEGRATIONS_PUBLIC_KEY"
 PRIVATE_KEY_ENV = "INTEGRATIONS_PRIVATE_KEY"
@@ -61,26 +75,46 @@ def seal(plaintext: str, public_pem: str) -> str:
         raise SealError("nothing to seal")
     try:
         public_key = serialization.load_pem_public_key(public_pem.encode("ascii"))
-        sealed = public_key.encrypt(plaintext.encode("utf-8"), _OAEP)
+        data_key = AESGCM.generate_key(bit_length=_DATA_KEY_BITS)
+        nonce = os.urandom(_GCM_NONCE_BYTES)
+        payload = nonce + AESGCM(data_key).encrypt(nonce, plaintext.encode("utf-8"), None)
+        wrapped_key = public_key.encrypt(data_key, _OAEP)
     except SealError:
         raise
     except Exception as exc:
         raise SealError(f"could not seal the secret: {exc}") from exc
-    return f"{SEAL_VERSION}:{base64.b64encode(sealed).decode('ascii')}"
+    return f"{SEAL_VERSION}:{_b64(wrapped_key)}.{_b64(payload)}"
 
 
 def unseal(ciphertext: str, private_pem: str) -> str:
     version, _, payload = ciphertext.partition(":")
-    if version != SEAL_VERSION or not payload:
+    if not payload or version not in (SEAL_VERSION, LEGACY_SEAL_VERSION):
         raise SealError(f"unknown ciphertext version: {version!r}")
     try:
         private_key = serialization.load_pem_private_key(
             private_pem.encode("ascii"), password=None
         )
-        opened = private_key.decrypt(base64.b64decode(payload), _OAEP)
+        if version == LEGACY_SEAL_VERSION:
+            opened = private_key.decrypt(base64.b64decode(payload), _OAEP)
+        else:
+            opened = _open_envelope(payload, private_key)
     except Exception as exc:
         raise SealError(f"could not open the secret: {exc}") from exc
     return opened.decode("utf-8")
+
+
+def _open_envelope(payload: str, private_key) -> bytes:
+    wrapped_key_b64, _, body_b64 = payload.partition(".")
+    if not body_b64:
+        raise ValueError("envelope without payload")
+    data_key = private_key.decrypt(base64.b64decode(wrapped_key_b64), _OAEP)
+    body = base64.b64decode(body_b64)
+    nonce, encrypted = body[:_GCM_NONCE_BYTES], body[_GCM_NONCE_BYTES:]
+    return AESGCM(data_key).decrypt(nonce, encrypted, None)
+
+
+def _b64(raw: bytes) -> str:
+    return base64.b64encode(raw).decode("ascii")
 
 
 def public_key_from_env() -> str | None:

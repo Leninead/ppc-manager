@@ -5,9 +5,11 @@ open that verifier and exchange the code, because only the worker can open the
 client secret. That split is why the authorization code never buys anything on
 its own if the app is compromised.
 
-Mercado Libre's refresh token is single-use and rotates on every refresh, so
-`refresh()` returns the new one and the caller must persist it in the same
-transaction that consumed the old one.
+Whether a refresh token rotates is a per-provider fact, declared in the catalog
+(`Integration.refresh_rotates`). Mercado Libre's is single-use and rotates on
+every refresh, so `refresh()` returns the new one and the caller must persist it
+in the same transaction that consumed the old one. Login with Amazon echoes the
+same token back, and may omit it; `rotates=False` keeps the one that was sent.
 """
 from __future__ import annotations
 
@@ -107,6 +109,7 @@ def refresh(
     client_secret: str,
     refresh_token: str,
     session: requests.Session | None = None,
+    rotates: bool = True,
 ) -> TokenSet:
     return _post_token(
         token_url,
@@ -117,10 +120,16 @@ def refresh(
             "refresh_token": refresh_token,
         },
         session,
+        expect_rotation=rotates,
     )
 
 
-def _post_token(token_url: str, payload: dict, session: requests.Session | None) -> TokenSet:
+def _post_token(
+    token_url: str,
+    payload: dict,
+    session: requests.Session | None,
+    expect_rotation: bool = True,
+) -> TokenSet:
     http = session or requests.Session()
     try:
         response = http.post(
@@ -146,9 +155,11 @@ def _post_token(token_url: str, payload: dict, session: requests.Session | None)
 
     new_refresh = str(body.get("refresh_token", "")).strip()
     if payload["grant_type"] == "refresh_token" and not new_refresh:
-        # A provider that rotates must return the replacement; losing it here
-        # would leave the stored token already spent and unrecoverable.
-        raise OAuthError("el proveedor no devolvió un refresh token nuevo")
+        if expect_rotation:
+            # A provider that rotates must return the replacement; losing it here
+            # would leave the stored token already spent and unrecoverable.
+            raise OAuthError("el proveedor no devolvió un refresh token nuevo")
+        new_refresh = payload["refresh_token"]
 
     scopes = tuple(str(body.get("scope", "")).split()) if body.get("scope") else ()
     return TokenSet(

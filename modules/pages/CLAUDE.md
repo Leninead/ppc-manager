@@ -1152,9 +1152,36 @@ La divisoria con M38 es el permiso y el radio: credencial del sistema (una, admi
 todos) vs cuenta conectada (una por cliente, cualquiera, rompe a uno).
 
 **Conectar no pide ningún campo.** El link de consentimiento se arma al abrir el diálogo, y
-el nombre y el país los completa el worker desde `/users/me` al cerrar el grant
-(`_fetch_meli_identity` + `_resolve_client_slug` en `core/integrations/worker.py`). Pedirle
-el slug a quien conecta era pedirle un dato que el proveedor ya sabe.
+quién es la cuenta lo completa el worker al cerrar el grant con el **resolver de identidad
+del proveedor** (`_IDENTITY_RESOLVERS` en `core/integrations/worker.py`: `/users/me` para
+Mercado Libre, `core/integrations/amazon_identity.py` para Amazon). Pedirle el slug a quien
+conecta era pedirle un dato que el proveedor ya sabe. Un proveedor sin resolver y sin
+`user_id` en el token hace fallar el canje: antes se guardaba sobre `(slug, '')` y cada
+cuenta pisaba la anterior.
+
+**Dos formas de proveedor en la misma pantalla** (`Integration.discovers_accounts`).
+- Mercado Libre: autoriza el vendedor; la conexión ES la cuenta del cliente, una fila.
+- Amazon Ads: autoriza un **empleado de Capybaras** con su usuario de Amazon, al que cada
+  cliente invitó a su cuenta. Una autorización alcanza N cuentas de clientes, en NA/EU/FE.
+  La fila de `integration_connections` es la autorización (token, `consent_date`,
+  vencimiento); las cuentas viven en `integration_accounts` (migración 006), una por
+  entidad de Amazon, apuntando a la autorización que la vio por última vez. La banda
+  muestra "Autorizaciones" y debajo "Cuentas de clientes", cuyo estado hereda de su
+  autorización. `worker discover` re-lista las cuentas sin reautorizar.
+- Los hechos del proveedor viajan en el catálogo: `refresh_rotates`,
+  `refresh_token_lifetime_days`, `discovers_accounts`. NO agregar `if slug ==` en la
+  pantalla ni en el worker: si hace falta distinguir, es un atributo del catálogo o un
+  resolver.
+
+**`expiring_soon` no existe en la base.** Se deriva en cada render de `consent_date` más
+`refresh_token_lifetime_days` (`core/integrations/consent_expiry.py`), desde 45 días antes.
+Pinta el pill "Vence en N días" y pone Reautorizar en la fila; el punto ámbar del menú
+(`core/integrations/notice.py`) lo cuenta también, y se pinta en las dos pantallas de
+Sistema porque Integraciones es admin-only y el botón está acá.
+
+**Cada click en Conectar o Reautorizar abre un grant nuevo** (`_open_connect_dialog` limpia
+el cache del link). El cache en `session_state` existe sólo para que los reruns del propio
+diálogo no quemen un grant cada uno; un `state` ya canjeado no se vuelve a ofrecer.
 
 **Reglas de negocio.**
 - El grant se abre con un cliente provisorio `_pending_<state[:12]>`; el worker lo reemplaza

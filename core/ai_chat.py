@@ -25,19 +25,24 @@ _L = {
     "es": {"subtitle": "responde sobre este análisis",
            "empty": "Pregunta sobre el análisis: por qué una advertencia, "
                     "qué priorizar, cómo leer una cifra.",
-           "placeholder": "Escribí tu repregunta...",
+           "placeholder": "Escribí tu repregunta...", "send": "Enviar",
            "copy": "Copiar chat", "copied": "Copiado",
            "copy_fail": "No se pudo copiar",
            "close": "Cerrar",
-           "error": "No se pudo responder"},
+           "error": "No se pudo responder",
+           # Aparecen solas, por CSS, a los 8 y a los 25 segundos.
+           "wait_tools": "Consultando Amazon Ads…",
+           "wait_long": "Sigue trabajando. Puede tardar hasta un minuto."},
     "en": {"subtitle": "answers about this analysis",
            "empty": "Ask about the analysis: why a warning, what to "
                     "prioritize, how to read a number.",
-           "placeholder": "Type your follow-up...",
+           "placeholder": "Type your follow-up...", "send": "Send",
            "copy": "Copy chat", "copied": "Copied",
            "copy_fail": "Copy failed",
            "close": "Close",
-           "error": "Could not answer"},
+           "error": "Could not answer",
+           "wait_tools": "Querying Amazon Ads…",
+           "wait_long": "Still working. This can take up to a minute."},
 }
 
 
@@ -84,8 +89,23 @@ def _assistant_bubble(text: str) -> str:
             f'padding:10px 14px;font-size:15px;line-height:1.6">{body}</div></div>')
 
 
-_TYPING = ('<div class="ia-dots" style="padding:6px 4px">'
-           '<span></span><span></span><span></span></div>')
+def _typing(labels: dict) -> str:
+    """Dots, then a line saying the wait is normal, then one saying it is long.
+
+    Both lines ship in the markup and surface on a CSS delay. They cannot be
+    pushed from Python: `ask_followup` is synchronous, so the Streamlit script
+    thread is held for the whole turn and nothing repaints until the answer is
+    back. The browser keeps animating regardless, which is why the timing lives
+    in CSS. Measured before this existed: 32.8s median wait, 60.1s worst, and
+    three dots that looked identical whether it took three seconds, a minute, or
+    had died.
+    """
+    return ('<div class="ia-dots" style="padding:6px 4px">'
+            '<span></span><span></span><span></span></div>'
+            '<div class="ia-wait">'
+            f'<span>{html.escape(labels["wait_tools"])}</span>'
+            f'<span>{html.escape(labels["wait_long"])}</span>'
+            '</div>')
 
 
 _CLIP_SVG = ('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
@@ -189,7 +209,8 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                   lang: str = "es",
                   pending_text: str | None = None,
                   standalone: bool = False,
-                  annotate=None) -> None:
+                  annotate=None,
+                  ads_scope: dict | None = None) -> None:
     """session_id=None mounts the chat before the analysis is ready: questions
     stay in the thread and are answered locally with pending_text until a real
     session arrives on a later mount.
@@ -200,7 +221,11 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
 
     annotate, when given, is applied to every assistant text at display time
     (bubbles and the copied transcript), e.g. to append the item behind the
-    row ids the AI cites. History keeps the raw text."""
+    row ids the AI cites. History keeps the raw text.
+
+    ads_scope is the client's Amazon Ads account the AM picked in the sidebar
+    ({account_id, profile_id, requested_by}); every turn carries it so the
+    provider's Amazon tools answer about that account."""
     L = _L.get(lang, _L["es"])
     show = annotate or (lambda text: text)
     subtitle = L["subtitle"]
@@ -228,15 +253,37 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
         .st-key-{anchor} button:hover {{background: #C63600; color: #fff;}}
         .st-key-{anchor} button svg {{display: none;}}
         .st-key-{anchor} button p {{font-size: 24px; margin: 0; line-height: 1;}}
+        /* The panel is exactly as tall as its three parts and never scrolls
+           itself: the thread box owns the only scrollbar. Streamlit gives the
+           popover body a max-height and an overflow of its own, which produced
+           a second bar spanning the whole panel and fought the thread's drag
+           handle — a box cannot be resized past a parent that clips it. */
         [data-testid="stPopoverBody"] {{min-width: min(420px, 92vw);
                                         max-width: min(460px, 94vw);
-                                        border-radius: 16px; padding: 0.4rem;}}
+                                        border-radius: 16px;
+                                        padding: 10px !important;
+                                        max-height: none !important;
+                                        overflow: visible !important;}}
+        /* The header is an iframe and Streamlit's block wrapper zeroes the
+           padding around it, so it sat flush against the frame while the input
+           below had room. Same 10px on all four sides. */
+        [data-testid="stPopoverBody"] > div {{padding: 0 !important;}}
+        [data-testid="stPopoverBody"] iframe {{display: block;}}
+        .st-key-{anchor}_body [data-testid="stForm"] {{border: none; padding: 0;}}
         .ia-dots span {{width:7px; height:7px; border-radius:99px;
             background:#B4B2A9; display:inline-block; margin-right:4px;
             animation: iaDot 1s infinite;}}
         .ia-dots span:nth-child(2) {{animation-delay:.15s;}}
         .ia-dots span:nth-child(3) {{animation-delay:.3s;}}
         @keyframes iaDot {{0%,60%,100%{{opacity:.25}} 30%{{opacity:1}}}}
+        .ia-wait {{position:relative; height:17px; margin:-2px 0 4px 4px;}}
+        .ia-wait span {{position:absolute; left:0; top:0; opacity:0;
+            font-size:12.5px; color:#8A867C; white-space:nowrap;}}
+        .ia-wait span:nth-child(1) {{animation: iaFadeIn .4s 8s forwards,
+                                                iaFadeOut .4s 25s forwards;}}
+        .ia-wait span:nth-child(2) {{animation: iaFadeIn .4s 25.2s forwards;}}
+        @keyframes iaFadeIn {{to {{opacity:1}}}}
+        @keyframes iaFadeOut {{to {{opacity:0}}}}
         </style>""",
         unsafe_allow_html=True,
     )
@@ -256,13 +303,32 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                     for t in history)) if history else ""
                 _chat_header(title, subtitle, plain, L["copy"], L["close"])
                 if history:
+                    # Newest first in the DOM, `column-reverse` in the CSS: the
+                    # pair puts the latest message at the visual bottom AND
+                    # starts the box scrolled there, which a plain `column` box
+                    # does not. Measured on this panel before the change: the
+                    # last answer was never fully visible, a median of 26% of it
+                    # showed, and in 9 of 48 conversations none of it did — the
+                    # AM waited half a minute and got their own old question.
+                    # The closing question is the last line of nearly every
+                    # answer, so it was the first thing to fall below the fold.
+                    # Streamlit strips <script> from st.markdown even with
+                    # unsafe_allow_html, so scrolling it from JS is not on the
+                    # table here; this does it in CSS.
                     thread = "".join(
                         _user_bubble(t["text"]) if t["role"] == "user"
                         else _assistant_bubble(show(t["text"]))
-                        for t in history)
+                        for t in reversed(history))
+                    # `resize` gives the AM the drag handle they asked for: a
+                    # long answer about a dozen campaigns does not fit in half a
+                    # viewport, and until now the box was a fixed 480px with no
+                    # way out. `height` rather than `max-height` because a box
+                    # only resizes from a height it already has, and `min-height`
+                    # keeps a drag from collapsing it to nothing.
                     st.markdown(
-                        '<div style="display:flex;flex-direction:column;'
-                        'max-height:min(52vh, 480px);overflow-y:auto;'
+                        '<div style="display:flex;flex-direction:column-reverse;'
+                        'height:min(52vh, 480px);min-height:140px;'
+                        'max-height:88vh;resize:vertical;overflow-y:auto;'
                         'background:#FAF8F4;border-radius:12px;'
                         f'padding:10px">{thread}</div>',
                         unsafe_allow_html=True)
@@ -276,8 +342,22 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                 # Declared before the input so the in-flight exchange renders
                 # ABOVE it: the question is visible while the answer arrives.
                 live = st.container()
-                question = st.chat_input(L["placeholder"],
-                                         key=f"aichat_{chat_id}_q")
+                # A form, not st.chat_input. Inside a popover that also holds a
+                # fragment, chat_input renders and accepts text but its submit
+                # never arrives — typed or pasted, the box keeps the text and
+                # nothing happens. Reproduced in isolation: chat_input works on
+                # its own, inside a popover, and inside a fragment, and fails on
+                # the two together; a form submits in all four. The text area is
+                # also draggable, which is the other thing the panel was missing.
+                with st.form(f"aichat_{chat_id}_form", clear_on_submit=True,
+                             border=False):
+                    question = st.text_area(
+                        L["placeholder"], key=f"aichat_{chat_id}_q",
+                        placeholder=L["placeholder"], height=72,
+                        label_visibility="collapsed")
+                    sent = st.form_submit_button(L["send"], use_container_width=True,
+                                                 type="primary")
+                question = (question or "").strip() if sent else ""
                 if question:
                     sid = st.session_state.get(sid_key)
                     if not sid and not standalone:
@@ -290,11 +370,11 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                     # session so a tool-answerable question never waits for
                     # the analysis. The analysis session takes over once ready.
                     with live:
-                        st.markdown(_user_bubble(question) + _TYPING,
+                        st.markdown(_user_bubble(question) + _typing(L),
                                     unsafe_allow_html=True)
                         try:
                             text, new_sid = runtime.ask_followup(
-                                agent, sid, question)
+                                agent, sid, question, ads_scope=ads_scope)
                             st.session_state[sid_key] = new_sid
                         except AIError as e:
                             text = f"{L['error']}: {e}"

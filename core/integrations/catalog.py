@@ -72,6 +72,16 @@ class Integration:
     scopes: tuple[str, ...] = ()
     authorize_url: str = ""
     token_url: str = ""
+    # Whether a refresh returns a replacement token that must be persisted
+    # (Mercado Libre) or echoes the same one (Login with Amazon).
+    refresh_rotates: bool = True
+    # Days a consent stays valid from the date it was given; 0 = until revoked.
+    # Login with Amazon: 365, fixed at consent, not extended by refreshing.
+    refresh_token_lifetime_days: int = 0
+    # One authorization reaches many client accounts (an agency user invited
+    # into each client's Amazon Ads), listed in `integration_accounts`. For
+    # Mercado Libre the connection IS the client account.
+    discovers_accounts: bool = False
 
     @property
     def available(self) -> bool:
@@ -175,12 +185,50 @@ _CATALOG: tuple[Integration, ...] = (
         category="ads",
         auth_kind=OAUTH2,
         storage=SEALED,
-        state=COMING_SOON,
+        state=AVAILABLE,
         order=30,
-        pending_reason="Esperando la credencial de Amazon.",
+        consumer="worker de integraciones",
+        # `profile:user_id` is the narrowest Login with Amazon identity scope:
+        # only the user id, which is what keys the authorization row.
+        scopes=("advertising::campaign_management", "profile:user_id"),
+        authorize_url="https://www.amazon.com/ap/oa",
+        # Global: a code from any regional consent host is exchanged here.
+        token_url="https://api.amazon.com/auth/o2/token",
+        refresh_rotates=False,
+        refresh_token_lifetime_days=365,
+        discovers_accounts=True,
         fields=(
-            CredentialField(key="client_id", label="LwA Client ID", secret=False),
-            CredentialField(key="client_secret", label="LwA Client Secret", secret=True),
+            CredentialField(
+                key="client_id",
+                label="LwA Client ID",
+                secret=False,
+                help_text=(
+                    "Del Security Profile en developer.amazon.com (Login with Amazon). "
+                    "En Web Settings, Allowed Return URLs tiene que contener exactamente "
+                    "la INTEGRATIONS_REDIRECT_URI del servidor. No es secreto."
+                ),
+            ),
+            CredentialField(
+                key="client_secret",
+                label="LwA Client Secret",
+                secret=True,
+                help_text="Se guarda sellado. No se vuelve a mostrar.",
+            ),
+            # The consent host only picks which Amazon login page the employee
+            # sees: a code from any of the three works for every region, and
+            # the client accounts are discovered on all regions regardless.
+            CredentialField(
+                key="authorize_url",
+                label="URL de autorización",
+                secret=False,
+                help_text=(
+                    "No hace falta cambiarla por tener clientes en otros continentes. "
+                    "NA: https://www.amazon.com/ap/oa · EU: https://eu.account.amazon.com/ap/oa · "
+                    "FE: https://apac.account.amazon.com/ap/oa. El token se canjea siempre "
+                    "contra api.amazon.com."
+                ),
+                default="https://www.amazon.com/ap/oa",
+            ),
         ),
     ),
     Integration(

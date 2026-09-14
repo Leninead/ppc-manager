@@ -37,6 +37,8 @@ TABLES = [
     ("integration_connections", "id"),      # refresh_token_sealed idem
     ("integration_pending_grants", "id"),   # verifier_sealed / code_sealed idem
     ("integration_settings", "clave"),
+    # Client accounts per authorization (Amazon Ads) — 006_integration_accounts.sql.
+    ("integration_accounts", "id"),
     # Meli API bridge (M36) — 003_meli_api.sql + 004_meli_ads_unique.sql.
     ("meli_auth_identities", "id"),         # refresh_token_sealed idem
     ("meli_ingestion_runs", "id"),

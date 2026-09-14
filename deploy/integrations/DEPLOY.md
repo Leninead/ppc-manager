@@ -97,6 +97,44 @@ docker inspect --format '{{.Name}} {{.State.Health.Status}}' \
 ```
 
 
+### 2b. El AI provider: chats que consultan Amazon Ads
+
+Los chats de STR, SQP y DataDive pueden preguntarle al MCP oficial de Amazon Ads
+sobre la cuenta de cliente que el AM elige en la barra lateral. Quien abre esa
+sesión es `capybaras-ai-provider` (repo hermano): lee el portal con su propio
+rol `integ_provider` (migración 008) y abre el material sellado con la clave
+privada del worker, que monta de sólo lectura desde `ppc-manager_integrations_keys`.
+La app nunca ve un token: sólo manda `{account_id, profile_id}` y el secreto
+compartido.
+
+```
+# 1. Migrar (008 crea el rol) — ver §1
+# 2. Acuñar el JWT del rol y un secreto compartido
+sh scripts/mint_jwt.sh integ_provider   # → PORTAL_PROVIDER_JWT   (.env del provider)
+openssl rand -hex 32                    # → CLAUDE_PROVIDER_SECRET (acá)
+                                        #   = PROVIDER_SHARED_SECRET (allá)
+# 3. ../capybaras-ai-provider/.env: PORTAL_PROVIDER_JWT, PROVIDER_SHARED_SECRET
+#    (PORTAL_REST_URL queda en http://rest-gateway: el provider se une a la red
+#    ppc-manager_web y al volumen de claves; los nombres salen del proyecto
+#    compose, PORTAL_NETWORK / PORTAL_KEYS_VOLUME si el proyecto no se llama así)
+# 4. Levantar el provider (corre como uid 10001, el del worker) y recrear la app
+(cd ../capybaras-ai-provider && docker compose up -d --build)
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.db.yml up -d app
+# 5. Chequeo
+curl -s http://127.0.0.1:3111/health | grep -o '"amazon_ads":[a-z]*'   # true
+```
+
+En la app: barra lateral → **Cuenta Amazon Ads** → elegir cliente y marketplace
+→ abrir el chat de STR, SQP o DataDive y preguntar por las campañas de hoy. Por
+cada turno con herramientas queda una fila `ai_tools_used` en `integration_audit`
+(cuenta, perfil y nombres de las tools; nunca argumentos).
+
+```
+docker exec agency-db psql -U postgres -d agency_os -c \
+  "select actor, resultado, detalle from integration_audit where accion='ai_tools_used' order by id desc limit 5"
+```
+
+
 ### 3. Smoke end-to-end (portal → receiver → worker)
 
 ```
@@ -162,7 +200,7 @@ docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compo
 #    Portal Integraciones → Mercado Libre → Cargar credencial (client_id + secret reales)
 #    → Conectar cuenta → Preparar autorización → Abrir el proveedor
 #    → autorizar en MELI con la cuenta del cliente
-#    → volver a la app; en 5 min (o corriendo grants manualmente) la cuenta aparece conectada
+#    → volver a la app; en 2 min (o corriendo grants manualmente) la cuenta aparece conectada
 
 # 7. Correr el worker inmediatamente para no esperar el cron
 docker compose ... run --rm integrations-worker python -m core.integrations.worker grants
@@ -173,6 +211,43 @@ docker compose ... run --rm integrations-worker python -m core.integrations.work
 
 **Cuando el E2E ngrok pasa**, el DEPLOY al VPS es sólo cambiar `APP_DOMAIN` por
 `app.capybaras.agency` y registrar esa URL como Redirect URI en el DevCenter.
+
+### 5b. E2E real con Amazon Ads (vía cloudflared, sin cuenta)
+
+Mismo truco con `cloudflared`, que no pide token para un quick tunnel y no
+obliga a tocar `APP_DOMAIN`: el Host se fija en `app.localhost` para que el
+Caddy local rutee igual.
+
+```
+# 1. Túnel hacia el Caddy local (el hostname *.trycloudflare.com cambia en cada arranque)
+cloudflared tunnel --url https://localhost:443 --no-tls-verify \
+  --http-host-header app.localhost --origin-server-name app.localhost
+
+# 2. En .env, SOLO la redirect URI (APP_DOMAIN queda en app.localhost)
+INTEGRATIONS_REDIRECT_URI=https://<hostname>.trycloudflare.com/oauth/callback
+
+# 3. Registrar esa misma URL en Login with Amazon: developer.amazon.com →
+#    Login with Amazon → engranaje del Security Profile → Web Settings → Edit →
+#    Allowed Return URLs (no Allowed Origins) → Save
+
+# 4. Recrear la app para que tome la redirect URI
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.db.yml up -d --force-recreate app
+
+# 5. Abrir la app POR EL TÚNEL (Chrome no siempre llega a localhost:8501):
+#    Integraciones → Amazon Ads → Agregar credential (Client ID + Secret del Security Profile)
+#    → Cuentas conectadas → Autorizar con mi cuenta de Amazon → consentir con el usuario
+#    de Amazon de Capybaras → "Autorización recibida"
+
+# 6. Canjear YA (el code vive 5 minutos) y listar las cuentas
+docker compose ... run --rm integrations-worker python -m core.integrations.worker grants
+
+# 7. Al terminar, sacar la URL del túnel de Allowed Return URLs y volver .env a
+#    https://app.localhost/oauth/callback
+```
+
+Un quick tunnel pierde la conexión QUIC cada pocos minutos por inactividad y
+reconecta solo con el mismo hostname; si el redirect de Amazon cae justo en un
+corte, reintentar el link alcanza.
 
 ---
 
@@ -234,10 +309,24 @@ propiedad sobrevive a los deploys.
 `https://app.capybaras.agency/oauth/callback` — la barra final NO se pone,
 tiene que ser byte-a-byte lo que después va en `INTEGRATIONS_REDIRECT_URI`.
 
-**Amazon Ads** (cuando se active): LWA console → Security Profile → Web
-settings → Allowed Return URLs: **la misma URL**. El receptor es genérico
-(ver el docstring de `services/integrations_receiver/app.py`), no hay que
-levantar otro.
+**Amazon Ads**: developer.amazon.com → Login with Amazon → el Security Profile
+cuyo Client ID va a cargar el admin → ⚙️ Web Settings → Allowed Return URLs:
+**la misma URL**, byte a byte. El receptor es genérico (ver el docstring de
+`services/integrations_receiver/app.py`), no hay que levantar otro.
+
+Dos cosas que son de Amazon y no del stack:
+
+- La app de la agencia tiene que estar **aprobada para la Ads API y con el
+  acceso asignado a ese Client ID** (el link del mail de aprobación, abierto en
+  incógnito con la cuenta que aplicó). Hasta ese paso la pantalla de
+  consentimiento responde `unknown scope` para `advertising::campaign_management`.
+- Quien autoriza es un **empleado de Capybaras con su usuario de Amazon**, al
+  que cada cliente invitó a su cuenta de Ads. Una autorización alcanza todas
+  las cuentas que ese usuario ve, en NA, EU y FE; el worker las escribe en
+  `integration_accounts` (migración 006). No hay nada que mandarle al cliente.
+- Los refresh tokens de Amazon **vencen a los 365 días fijos** desde el
+  consentimiento. La pantalla avisa 45 días antes y ofrece Reautorizar; el
+  worker marca `needs_reauth` al vencer.
 
 **Walmart** (cuando se active): mismo criterio.
 
@@ -299,9 +388,13 @@ cd /srv/ppc-manager
 sh deploy/db/migrate.sh
 ```
 
-Idempotente. Deja las cuatro migraciones que esta rama trae —
-`002_integrations.sql`, `003_meli_api.sql`, `004_meli_ads_unique.sql` y
-`005_notifications_insert.sql` — aplicadas y registradas en `schema_migrations`.
+Idempotente. Deja las migraciones del portal —
+`002_integrations.sql`, `003_meli_api.sql`, `004_meli_ads_unique.sql`,
+`005_notifications_insert.sql`, `006_integration_accounts.sql` (cuentas de
+clientes por autorización, Amazon Ads) y `007_receiver_records_provider_error.sql`
+(el receptor puede escribir `error` en el grant) — aplicadas y registradas en
+`schema_migrations`. Jenkins corre este mismo script en cada deploy (etapa
+`DB migrate`), así que a mano sólo hace falta en una instalación nueva.
 
 Ojo: `deploy/db/schema.sql` corre **una sola vez**, al inicializar el volumen
 `pgdata`. Una base que ya existía de antes de esta rama nunca lo vuelve a
@@ -381,12 +474,54 @@ dos, un `state` inexistente igual da 200 y el HTML "Autorización recibida" — 
 deliberado, para no filtrar qué states están en vuelo.
 
 
+## 5b. Conectar el AI provider al portal (chats con Amazon Ads)
+
+`capybaras-ai-provider` vive en `/srv/capybaras-ai-provider` con su propio
+compose. Para que los chats consulten Amazon Ads necesita tres cosas de este
+stack, y ninguna se copia a mano: la red `ppc-manager_web` (ahí responde
+`rest-gateway`), el volumen `ppc-manager_integrations_keys` (lo monta de sólo
+lectura; por eso su imagen corre como uid 10001, el del worker) y un JWT del
+rol `integ_provider`, que crea la migración 008.
+
+```
+cd /srv/ppc-manager
+sh scripts/mint_jwt.sh integ_provider   # → PORTAL_PROVIDER_JWT
+openssl rand -hex 32                    # → CLAUDE_PROVIDER_SECRET acá = PROVIDER_SHARED_SECRET allá
+```
+
+En `/srv/ppc-manager/.env`: `CLAUDE_PROVIDER_SECRET`. En
+`/srv/capybaras-ai-provider/.env`: `PORTAL_PROVIDER_JWT`, `PROVIDER_SHARED_SECRET`
+(y `PORTAL_REST_URL=http://rest-gateway`, que es el default). Después:
+
+```
+cd /srv/capybaras-ai-provider
+# una sola vez: los volúmenes creados por la imagen vieja son de uid 1000
+docker compose run --rm --user root --entrypoint sh provider \
+  -c 'chown -R 10001:10001 /app/data /home/provider'
+docker compose up -d --build
+# sin curl en la imagen: el health se lee con python
+docker compose exec provider python -c "import urllib.request as u;print(u.urlopen('http://localhost:3111/health').read().decode())" \
+  | grep -o '"amazon_ads": *[a-z]*'   # true
+
+cd /srv/ppc-manager
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.db.yml up -d app
+```
+
+Qué puede hacer ese rol, y nada más: leer la cuenta del cliente y sus perfiles,
+la autorización que la sostiene (con su refresh token sellado) y la credencial
+de sistema; marcar `needs_reauth` una autorización cuando Login with Amazon la
+da por muerta; e insertar en `integration_audit`. El provider expone al modelo
+sólo las herramientas de lectura de Amazon (más las que inician reportes):
+ninguna crea, modifica ni borra.
+
+
 ## 6. Programar los cron del worker
 
 ```
 # /etc/cron.d/integrations-worker (root o el usuario que corre docker)
-*/5  * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker grants  >>/var/log/integrations-worker.log 2>&1
-*/20 * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker refresh >>/var/log/integrations-worker.log 2>&1
+*/2  * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker grants   >>/var/log/integrations-worker.log 2>&1
+*/20 * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker refresh  >>/var/log/integrations-worker.log 2>&1
+0 6 * * *    root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker discover >>/var/log/integrations-worker.log 2>&1
 # Ingesta MELI: 1 vez al día, al cierre. Se corre tarde porque las métricas
 # del día quedan firmes cuando MELI cierra su ventana (visitas/ventas/ads);
 # los reportes que la app muestra a la mañana siguiente ya son definitivos.
@@ -403,18 +538,27 @@ imagen— una rotación con bug quema los tokens de toda la flota en una noche, 
 el rollback no los devuelve. Si levantás el stack a mano, poné el tag:
 `IMAGE_TAG=<sha> docker compose … up -d`.
 
-- `grants` cada 5 min: canjea los codes que dejó el receptor **y sincroniza
-  de una la cuenta que acaba de conectarse**. Sin ese primer sync la cuenta
-  quedaba Activa y vacía hasta las 23:30 — hasta un día entero mirando una
-  conexión que anda y no muestra nada.
-- `refresh` cada 20 min: rota los refresh tokens con margen de 30 días.
+- `grants` cada 2 min: canjea los codes que dejó el receptor **y sincroniza
+  de una la cuenta de Mercado Libre que acaba de conectarse**. Sin ese primer
+  sync la cuenta quedaba Activa y vacía hasta las 23:30 — hasta un día entero
+  mirando una conexión que anda y no muestra nada. Cada 2 y no cada 5 porque
+  un code de Login with Amazon vence a los **5 minutos** y cada corrida
+  arranca un contenedor: con `*/5` el peor caso llegaba tarde y el grant
+  quedaba `fallido` con un mensaje que parecía otra cosa.
+- `refresh` cada 20 min: rota los refresh tokens con margen de 30 días
+  (Mercado Libre) o sólo comprueba que sigan vivos (Amazon no rota), y marca
+  `needs_reauth` los consentimientos que pasaron su vida útil.
+- `discover` 1 vez al día: vuelve a listar las cuentas de clientes que cada
+  autorización de Amazon alcanza. Es lo que hace aparecer un cliente nuevo que
+  invitó al empleado sin pedirle que autorice de nuevo. Se puede correr a mano
+  después de una aprobación o una invitación.
 - `ingest` 1 vez al día 23:30: trae items, visitas, ventas y métricas de
   ads de TODAS las cuentas. Corre al cierre porque las métricas del día
   quedan firmes recién ahí; el AM abre el módulo a la mañana con el día
   anterior completo. También es el reintento del primer sync: si el de
   conexión falló, esta corrida lo levanta sin que nadie haga nada.
 
-**El intervalo de `grants` es ahora la espera que siente el operador.** Con 5
+**El intervalo de `grants` es ahora la espera que siente el operador.** Con 2
 minutos, conectar y ver datos es cuestión de minutos; si querés que se sienta
 inmediato, bajalo a `* * * * *`. Correrlo más seguido es barato: cuando no hay
 autorizaciones pendientes el comando sale al toque sin tocar la API de Mercado
@@ -468,10 +612,11 @@ docker exec agency-db psql -U postgres -d agency_os -tAc   "select has_column_pr
    y da consentimiento.
 4. Redirige a `/oauth/callback` del receptor, que sella el code y lo deja
    en `integration_pending_grants.code_sealed`.
-5. La próxima corrida de `worker grants` (≤5 min) canjea el code, consulta
-   `/users/me` a Mercado Libre y guarda nickname + site_id + refresh token
-   cifrado en `integration_connections`. Por eso el operador nunca tipea el
-   nombre de la cuenta ni el país.
+5. La próxima corrida de `worker grants` (≤2 min) canjea el code, pregunta la
+   identidad al resolver del proveedor (`/users/me` en Mercado Libre;
+   `/user/profile` + `/v2/profiles` en Amazon) y guarda nombre + marketplace +
+   refresh token cifrado en `integration_connections`. Por eso el operador
+   nunca tipea el nombre de la cuenta ni el país.
 6. La cuenta aparece en 🔑 Cuentas conectadas con su nickname real y el
    chip del marketplace (`MLA`, `MLM`, …), estado **Activa**.
 7. **Esa misma corrida** sincroniza la cuenta recién conectada: trae items,
@@ -501,6 +646,13 @@ tail -50 /var/log/integrations-worker.log
   tiene webhook: se polea.
 - **Backup de la clave privada del worker.** Vive en el volumen Docker
   `integrations_keys`. Si se pierde, todos los refresh tokens actuales
-  quedan ilegibles y hay que reautorizar TODOS los clientes de MELI. El
-  `deploy/db/backup.sh` de hoy hace `pg_dump` de la base pero NO toca ese
-  volumen — agregarlo al backup es una tarea aparte.
+  quedan ilegibles y hay que reautorizar TODOS los clientes de MELI y todas
+  las autorizaciones de Amazon. `deploy/db/backup.sh` lo empaqueta junto con
+  el `pg_dump` (ver paso 5); lo que hay que verificar es que ese script esté
+  en el cron del VPS.
+- **El sellado v2 no se puede deshacer con un rollback.** Desde esta versión
+  `crypto.seal` escribe `v2:` (envelope AES-GCM + RSA) y la imagen anterior
+  sólo abre `v1:`. Si hace falta volver a una imagen previa después de que el
+  worker nuevo corrió, lo sellado entre medio (verifiers, codes, la credencial
+  de Amazon, tokens de MELI rotados) queda ilegible para el worker viejo:
+  frenar el cron del worker antes del rollback y reautorizar lo afectado.

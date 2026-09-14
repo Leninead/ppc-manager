@@ -6,6 +6,82 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Los chats consultan el MCP oficial de Amazon Ads (2026-09-09)
+
+**Cualquier persona con un chat en la app puede preguntarle a Amazon Ads.** En la barra
+lateral aparece **Cuenta Amazon Ads**: un selector con las cuentas de clientes descubiertas
+por el portal, una opción por marketplace, sólo las que cuelgan de una autorización activa.
+Con una elegida, los chats de STR, SQP y DataDive reciben herramientas read-only del MCP
+oficial de Amazon (campañas, ad groups, targets, presupuestos, estado, cuentas y reportes)
+fijadas a esa cuenta y ese perfil. Sin cuenta elegida el chat sigue como antes, y el agente
+sabe decir que falta elegirla.
+
+**Las credenciales no salen del portal; quien las usa es el AI provider.** La app manda
+sólo `ads_scope = {account_id, profile_id, requested_by}` y el secreto compartido
+`CLAUDE_PROVIDER_SECRET` (header `X-Provider-Token`). `capybaras-ai-provider` lee el portal
+con su propio rol `integ_provider` (migración 008: SELECT acotado por columna sobre cuentas,
+autorizaciones y la credencial; UPDATE de `estado/last_error`; INSERT en auditoría), abre el
+refresh token y el client secret con la clave de sellado del worker montada de sólo lectura,
+acuña el access token de Login with Amazon y abre la sesión con el MCP de Amazon de la región
+de la cuenta. Ni la app ni el subproceso de Claude ven un token. Si Amazon da por muerto el
+grant, el provider marca la autorización `needs_reauth` y el chat lo dice en una línea.
+
+**Qué cambia en el código.** `core/ads_account_picker.py` (opciones puras + selector de la
+barra lateral, con caché de 2 min), `ai/runtime.usable_tools()` (Amazon Ads sólo con cuenta
+elegida), `ai/client.ask(ads_scope=)` con el header, `core/ai_tab` → `core/ai_chat` pasan el
+scope en cada turno; los agentes `str` y `sqp` declaran `tools: amazon_ads` y `datadive`
+suma el perfil; cada prompt explica cuándo usar las herramientas, que `query_campaign`
+exige `adProductFilter`, que los reportes son asincrónicos y que nada se modifica desde ahí.
+Deploy: `deploy/integrations/DEPLOY.md` §2b (local) y §5b (VPS).
+
+### Added — Amazon Ads entra al portal de integraciones (2026-09-09)
+
+**El segundo proveedor del portal, con las mismas dos pantallas.** El admin carga el LwA
+Client ID y el Client Secret en Integraciones, con la URL de autorización pre-cargada. En
+Cuentas conectadas aparece la banda de Amazon Ads. Sin ingesta de reportes: este cambio es
+sólo la autorización y el descubrimiento de cuentas.
+
+**Quien autoriza es el empleado, no el cliente.** Confirmado con un AM: a cada persona de
+Capybaras la invitan con su correo a Seller Central y a Ads de cada cliente. Un solo
+consentimiento del empleado, con su usuario de Amazon, alcanza todas las cuentas de clientes
+que ese usuario ve, en NA, EU y FE. Por eso Amazon separa dos cosas que en Mercado Libre
+coinciden: la **autorización** (del empleado, con su token, su fecha de consentimiento y su
+vencimiento) sigue en `integration_connections`; la **cuenta del cliente** (una por entidad
+de Amazon, con región, países y tipo) vive en la tabla nueva `integration_accounts`
+(migración 006). La pantalla muestra primero las autorizaciones y debajo las cuentas.
+
+**Lo que Login with Amazon hace distinto, como datos del catálogo y no como `if slug ==`.**
+`refresh_rotates=False`: el refresh devuelve siempre el mismo token y puede omitirlo, y el
+worker lo conserva en vez de fallar. `refresh_token_lifetime_days=365`: los consentimientos
+vencen a fecha fija; la pantalla avisa desde 45 días antes con el botón Reautorizar en la
+fila, y `worker refresh` marca `needs_reauth` los vencidos. `discovers_accounts=True`: el
+worker resuelve la identidad con un registro por proveedor (`/users/me` para Mercado Libre;
+`/user/profile` más `/v2/profiles` en tres regiones para Amazon) en lugar de la rama
+`slug == "mercado_libre"` que dejaba a cualquier otro proveedor con `cuenta_externa_id`
+vacío, pisando la cuenta anterior en cada canje.
+
+**El sellado pasa a v2 antes del primer token de Amazon.** `crypto.seal` era RSA-OAEP directo,
+que con 4096 bits acepta 446 bytes de texto plano: entra un token de Mercado Libre (40
+caracteres) y no uno de Amazon (450 típicos, 2048 según la doc). El fallo llegaba con el
+code ya gastado. Ahora una clave AES-256-GCM aleatoria cifra el secreto y RSA envuelve la
+clave; las filas `v1:` siguen abriéndose sin re-sellar nada.
+
+**Tres cosas alrededor que este despliegue iba a pisar.** El punto ámbar del menú se pinta
+también sobre Cuentas conectadas, que es donde está Reautorizar y donde entran los no-admin.
+El diálogo de conectar abre un grant nuevo en cada click en vez de reutilizar un `state` ya
+gastado en la segunda cuenta de la sesión. El receptor deja registrada en el grant una
+negación o un `unknown scope` en vez de dejarlo vencer en silencio; para eso la migración
+007 le da a `web_user` UPDATE sobre la columna `error`, que 002 no incluía y respondía 403 (lo
+mostró el E2E). Y el cron de `grants` pasa a `*/2`, porque un code de Amazon vive 5 minutos.
+Comando nuevo `worker discover` para que un cliente que invitó al empleado aparezca sin
+reautorizar.
+
+**Probado contra Amazon de verdad el 2026-09-09**, en el stack local con un túnel HTTPS
+al callback: credencial sellada en v2, consentimiento con `advertising::campaign_management`
+más `profile:user_id`, canje, 30 perfiles descubiertos en NA/EU/FE agrupados en 15 cuentas
+de clientes, refresh sin rotación, `discover`, vencimiento a 45 y 365 días, reautorización
+sobre la misma fila, y la negación registrada como `fallido`.
+
 ### Changed — El host de autorización de Mercado Libre sale de la credencial, no del código (2026-09-09)
 
 **Una cuenta CBT no se podía conectar, y el error no decía por qué.** El catálogo tenía

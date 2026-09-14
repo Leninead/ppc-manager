@@ -5,11 +5,14 @@
 # `role` claim, all signed with PGRST_JWT_SECRET — that is what PostgREST
 # verifies and what the column-level GRANTs key off:
 #
-#   web_user      SUPABASE_KEY  (the app) and INTEGRATIONS_RECEIVER_JWT
-#   integ_worker  INTEGRATIONS_WORKER_JWT — the only role that reads sealed columns
+#   web_user        SUPABASE_KEY  (the app) and INTEGRATIONS_RECEIVER_JWT
+#   integ_worker    INTEGRATIONS_WORKER_JWT — reads and writes sealed columns
+#   integ_provider  PORTAL_PROVIDER_JWT, in capybaras-ai-provider's .env — reads
+#                   the Amazon Ads rows the chats need (migration 008)
 #
 #   sh scripts/mint_jwt.sh web_user      >> .env   # then name it
 #   sh scripts/mint_jwt.sh integ_worker
+#   sh scripts/mint_jwt.sh integ_provider
 #
 # PGRST_JWT_SECRET is read from the environment, or from ./.env if unset.
 set -eu

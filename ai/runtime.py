@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from ai import client
+from core import chat_skills
 
 _AGENTS_DIR = Path(__file__).parent / "agents"
 _TTL_S = 24 * 3600
@@ -158,14 +159,45 @@ _CHAT_RULES = (_CHAT_RULES_PATH.read_text(encoding="utf-8")
                if _CHAT_RULES_PATH.exists() else "")
 
 
+AMAZON_ADS_TOOLS = "amazon_ads"
+
+# Tool calls one chat turn may chain before the provider gives up. Hitting it is
+# a 502 and the AM loses the whole answer, text included — which is what
+# happened to "dame todas las campañas activas" and "listame los portfolios" in
+# the end-to-end run at 8: since the chat started returning complete listings,
+# a paginated read plus a report plus the account lookup no longer fits.
+# 20 is bounded by the 600s timeout below, not by this number.
+_MAX_TOOL_TURNS = 20
+
+
 def agent_tools(slug: str) -> list:
     """Provider tool profiles declared in the agent's frontmatter (`tools:`)."""
     meta = _agent(slug)["meta"]
     return [t.strip() for t in str(meta.get("tools") or "").split(",") if t.strip()]
 
 
-def ask_followup(slug: str, session_id: str | None,
-                 question: str) -> tuple[str, str]:
+def usable_tools(slug: str, ads_scope: dict | None) -> list:
+    """The agent's tool profiles that can actually run in this turn.
+
+    Two things leave a profile out, and both exist so the provider is never sent
+    a request it must refuse. Amazon Ads tools need a client account resolved;
+    without one the profile is dropped. And a profile the provider has not
+    configured is dropped too: it answers 503 for the WHOLE turn, so DataDive
+    without its key was taking down a DataDive chat that could still have talked
+    about the analysis on screen.
+
+    `available_tools()` returning None means the provider could not be asked. We
+    send what we have: the turn is about to fail on its own, with a better
+    message than anything we could invent here.
+    """
+    served = client.available_tools()
+    return [t for t in agent_tools(slug)
+            if (t != AMAZON_ADS_TOOLS or ads_scope)
+            and (served is None or t in served)]
+
+
+def ask_followup(slug: str, session_id: str | None, question: str,
+                 ads_scope: dict | None = None) -> tuple[str, str]:
     """One chat turn. Synchronous.
 
     session_id=None opens a fresh conversation instead of resuming one, so a
@@ -173,17 +205,57 @@ def ask_followup(slug: str, session_id: str | None,
 
     An agent whose prompt frontmatter declares `tools:` gets those provider
     tool profiles on chat turns only — the analysis itself stays deterministic.
+    `ads_scope` ({account_id, profile_id, requested_by}) is the client's
+    Amazon Ads account the chat is pinned to, when the AM picked one.
     """
     agent = _agent(slug)
     system = agent["system"] + ("\n\n" + _CHAT_RULES if _CHAT_RULES else "")
-    tools = agent_tools(slug) or None
+    tools = usable_tools(slug, ads_scope) or None
+    session_id = _session_to_resume(session_id, bool(tools))
+    # Uploaded from Sistema, not from the repo. A broken registry costs a skill,
+    # never the turn — see core.chat_skills.enabled_payload.
+    skills = chat_skills.enabled_payload()
     resp = client.ask(system=system, input_text=question, context=[],
                       model=agent["meta"].get("model", "opus"),
                       effort=agent["meta"].get("effort") or None,
                       session_id=session_id, timeout_s=600,
-                      max_turns=8 if tools else 1, tools=tools,
+                      max_turns=_MAX_TOOL_TURNS if tools else 1, tools=tools,
+                      ads_scope=ads_scope if tools and AMAZON_ADS_TOOLS in tools else None,
+                      skills=skills or None,
                       tag=f"{slug}-chat")
-    return resp.get("text", ""), resp.get("session_id") or session_id
+    new_session = resp.get("session_id") or session_id
+    if new_session:
+        _TOOLED_TURNS[new_session] = bool(tools)
+    return resp.get("text", ""), new_session
+
+
+# session_id -> whether that turn ran with tools. Bounded because a Streamlit
+# process holds a handful of chats, not a queue.
+_TOOLED_TURNS: dict[str, bool] = {}
+_TOOLED_TURNS_MAX = 256
+
+
+def _session_to_resume(session_id: str | None, has_tools: bool) -> str | None:
+    """The session to continue, or None to start fresh.
+
+    A turn that runs without tools answers, correctly, that it cannot do the
+    thing. Resuming that same conversation once tools arrive puts the model's
+    own refusal in its history, and it follows the thread instead of re-reading
+    its toolbox: observed in production on 2026-09-10, where the second turn
+    opened with "Sigo sin poder traerlo" while holding all 17 tools.
+
+    So the first tooled turn of a thread starts a new conversation. The AM loses
+    nothing they can see — the panel keeps every message — and the model stops
+    arguing with a version of itself that was right at the time.
+    """
+    if not session_id or not has_tools:
+        return session_id
+    if _TOOLED_TURNS.get(session_id, True):
+        return session_id
+    _TOOLED_TURNS.pop(session_id, None)
+    if len(_TOOLED_TURNS) > _TOOLED_TURNS_MAX:
+        _TOOLED_TURNS.clear()
+    return None
 
 
 def _run(analysis: Analysis) -> None:

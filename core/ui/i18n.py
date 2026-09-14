@@ -134,18 +134,30 @@ _ES: dict[str, str] = {
 **Qué es esta pantalla**
 
 Es el lugar donde la agencia conecta las cuentas de sus clientes contra
-cada proveedor (Mercado Libre hoy, Amazon o Walmart cuando estén
-disponibles). Cualquier empleado puede conectar o quitar una cuenta: no
+cada proveedor (Mercado Libre y Amazon Ads hoy, Walmart cuando esté
+disponible). Cualquier empleado puede conectar o quitar una cuenta: no
 hace falta ser admin.
 
-**Cómo se usa**
+**Mercado Libre: autoriza el vendedor**
 
-1. Ubicá el proveedor donde vas a operar la cuenta del cliente.
-2. Apretá **Conectar cuenta nueva**. Se genera un link único.
-3. Pasáselo al vendedor (o abrilo vos si ya estás con él): va a Mercado
+1. Apretá **Conectar cuenta nueva**. Se genera un link único.
+2. Pasáselo al vendedor (o abrilo vos si ya estás con él): va a Mercado
    Libre, se loguea con SU usuario y aprueba a la app.
-4. Cuando termina, la cuenta aparece acá con el nickname de Mercado
+3. Cuando termina, la cuenta aparece acá con el nickname de Mercado
    Libre y el país (`MLA` = Argentina, `MLM` = México, etc.).
+
+**Amazon Ads: autorizás vos**
+
+1. Apretá **Autorizar con mi cuenta de Amazon** y entrá con el usuario de
+   Amazon que usás para trabajar: el correo de Capybaras que los clientes
+   invitaron a su cuenta.
+2. Amazon nos devuelve todas las cuentas de clientes que ese usuario ve,
+   en todas las regiones. Aparecen solas debajo de tu autorización, con
+   país, tipo y región. No hace falta cargar nada.
+3. Cada autorización vence a los 365 días. Desde 45 días antes la fila
+   avisa y muestra **Reautorizar**: es volver a entrar con el mismo usuario.
+4. Si a tu usuario lo invitan a un cliente nuevo, sistemas corre
+   `worker discover` y la cuenta aparece sin reautorizar.
 
 **Qué no está acá**
 
@@ -215,10 +227,10 @@ conectar cuentas nuevas.
         "una vez en el servidor."
     ),
     "accounts.connect_dialog_body": (
-        "Abrí el link para que el vendedor autorice a la app desde su cuenta "
-        "de **{provider}**. No hay campos: el nombre y el país los tomamos "
+        "Abrí el link para autorizar a la app desde la cuenta de "
+        "**{provider}**. No hay campos: el nombre y el marketplace los tomamos "
         "automáticamente al conectarse. Cuando termine, la cuenta aparece en "
-        "el listado con su nickname y país."
+        "el listado."
     ),
     "accounts.btn_open_consent": "Abrir {provider} para autorizar",
     "accounts.btn_close": "Cerrar",
@@ -231,6 +243,44 @@ conectar cuentas nuevas.
     "accounts.btn_cancel": "Cancelar",
     "accounts.btn_disconnect": "Desconectar",
     "accounts.toast_disconnected": "Cuenta desconectada.",
+    # Amazon Ads: the employee authorizes, not the seller. Per-provider
+    # variants resolved by `t_provider`.
+    "accounts.btn_connect_new.amazon_ads": "Autorizar con mi cuenta de Amazon",
+    "accounts.dialog_connect_title.amazon_ads": "Autorizar con Amazon",
+    "accounts.btn_open_consent.amazon_ads": "Entrar a Amazon y autorizar",
+    "accounts.connect_dialog_body.amazon_ads": (
+        "Vas a autorizar a la app con **tu** usuario de Amazon: el correo de "
+        "Capybaras que los clientes invitaron a su cuenta de Ads, no una "
+        "cuenta personal. Amazon pide permiso para administrar campañas y para "
+        "leer tu identificador de usuario. Cuando termines, en unos minutos "
+        "aparecen acá todas las cuentas de clientes que ese usuario ve."
+    ),
+    "accounts.dialog_remove_title.amazon_ads": "Quitar autorización",
+    "accounts.remove_dialog_body.amazon_ads": (
+        "Vas a quitar la autorización de **{user}** en **{provider}**. Las "
+        "cuentas de clientes que sólo esa autorización alcanza dejan de estar "
+        "disponibles hasta que alguien vuelva a autorizar. El registro queda "
+        "para auditoría."
+    ),
+    "accounts.status_expiring_one": "Vence en 1 día",
+    "accounts.status_expiring_other": "Vence en {n} días",
+    "accounts.status_expires_today": "Vence hoy",
+    "accounts.status_no_authorization": "Sin autorización activa",
+    "accounts.verdict_expiring_one": "1 autorización vence en menos de {days} días.",
+    "accounts.verdict_expiring_other": "{n} autorizaciones vencen en menos de {days} días.",
+    "accounts.authorizations_heading": "Autorizaciones",
+    "accounts.accounts_heading": "Cuentas de clientes",
+    "accounts.provider_no_authorizations": "Todavía nadie autorizó su cuenta de Amazon.",
+    "accounts.auth_row_title": "Autorización de {user}",
+    "accounts.auth_row_consented": "autorizada el {date}",
+    "accounts.auth_row_reaches_one": "alcanza 1 cuenta",
+    "accounts.auth_row_reaches_other": "alcanza {n} cuentas",
+    "accounts.auth_no_accounts": "sin cuentas publicitarias visibles",
+    "accounts.auth_discovery_errors": "Amazon no respondió en {regions}",
+    "accounts.account_row_meta": "{type} · {region} · vista por {user}",
+    "accounts.account_type.seller": "Seller",
+    "accounts.account_type.vendor": "Vendor",
+    "accounts.account_type.agency": "Agencia",
 
     # ── Integraciones (M38) ───────────────────────────────────────────────
     "integrations.sop_md": """**Dos niveles de credential, con radios de impacto distintos.**
@@ -275,7 +325,7 @@ Lo que todavía no existe no ocupa una fila: va en una sola oración al pie.""",
     ),
     "integrations.page.admin_only_info": (
         "Esta pantalla es sólo para admin. Para conectar la cuenta de un "
-        "cliente, andá a **🛒 Mercado Libre** en el menú de Marketplaces."
+        "cliente, andá a **🔑 Cuentas conectadas** en el menú Sistema."
     ),
     "integrations.sop.expander_title": "📘 Cómo usar este módulo",
     "integrations.verdict.no_db": "El portal no está conectado a la base.",
@@ -452,19 +502,31 @@ _EN: dict[str, str] = {
 **What this screen is**
 
 This is where the agency connects its clients' accounts to each provider
-(Mercado Libre today; Amazon and Walmart once they're available). Any
+(Mercado Libre and Amazon Ads today; Walmart once it's available). Any
 employee can connect or remove an account — you don't need to be an
 admin.
 
-**How to use it**
+**Mercado Libre: the seller authorizes**
 
-1. Find the provider you'll be running the client's account on.
-2. Click **Connect a new account**. A one-time link is generated.
-3. Hand it to the seller (or open it yourself if you're with them): it
+1. Click **Connect a new account**. A one-time link is generated.
+2. Hand it to the seller (or open it yourself if you're with them): it
    takes them to Mercado Libre, where they log in with THEIR user and
    approve the app.
-4. Once they're done, the account shows up here with its Mercado Libre
+3. Once they're done, the account shows up here with its Mercado Libre
    nickname and country (`MLA` = Argentina, `MLM` = Mexico, etc.).
+
+**Amazon Ads: you authorize**
+
+1. Click **Authorize with my Amazon account** and sign in with the Amazon
+   user you work with: the Capybaras email the clients invited into their
+   account.
+2. Amazon returns every client account that user can see, in every
+   region. They appear on their own under your authorization, with
+   country, type and region. Nothing to type.
+3. Each authorization expires after 365 days. From 45 days before, the
+   row warns and shows **Reauthorize**: just sign in again with the same user.
+4. If your user gets invited into a new client, systems runs
+   `worker discover` and the account appears without reauthorizing.
 
 **What's not here**
 
@@ -530,10 +592,10 @@ connect new accounts.
         "once on the server."
     ),
     "accounts.connect_dialog_body": (
-        "Open the link so the seller can authorize the app from their "
-        "**{provider}** account. There are no fields to fill in — we pick up "
-        "the name and country automatically once they connect. When they're "
-        "done, the account shows up in the list with its nickname and country."
+        "Open the link to authorize the app from the **{provider}** account. "
+        "There are no fields to fill in — we pick up the name and marketplace "
+        "automatically once it connects. When it's done, the account shows up "
+        "in the list."
     ),
     "accounts.btn_open_consent": "Open {provider} to authorize",
     "accounts.btn_close": "Close",
@@ -546,6 +608,42 @@ connect new accounts.
     "accounts.btn_cancel": "Cancel",
     "accounts.btn_disconnect": "Disconnect",
     "accounts.toast_disconnected": "Account disconnected.",
+    "accounts.btn_connect_new.amazon_ads": "Authorize with my Amazon account",
+    "accounts.dialog_connect_title.amazon_ads": "Authorize with Amazon",
+    "accounts.btn_open_consent.amazon_ads": "Sign in to Amazon and authorize",
+    "accounts.connect_dialog_body.amazon_ads": (
+        "You're about to authorize the app with **your** Amazon user: the "
+        "Capybaras email the clients invited into their Ads account, not a "
+        "personal account. Amazon asks for permission to manage campaigns and "
+        "to read your user id. Once you're done, every client account that "
+        "user can see shows up here within a few minutes."
+    ),
+    "accounts.dialog_remove_title.amazon_ads": "Remove authorization",
+    "accounts.remove_dialog_body.amazon_ads": (
+        "You're about to remove **{user}**'s authorization on **{provider}**. "
+        "Client accounts reached only through that authorization become "
+        "unavailable until someone authorizes again. The record is kept for "
+        "auditing."
+    ),
+    "accounts.status_expiring_one": "Expires in 1 day",
+    "accounts.status_expiring_other": "Expires in {n} days",
+    "accounts.status_expires_today": "Expires today",
+    "accounts.status_no_authorization": "No active authorization",
+    "accounts.verdict_expiring_one": "1 authorization expires in less than {days} days.",
+    "accounts.verdict_expiring_other": "{n} authorizations expire in less than {days} days.",
+    "accounts.authorizations_heading": "Authorizations",
+    "accounts.accounts_heading": "Client accounts",
+    "accounts.provider_no_authorizations": "Nobody has authorized their Amazon account yet.",
+    "accounts.auth_row_title": "Authorization by {user}",
+    "accounts.auth_row_consented": "authorized on {date}",
+    "accounts.auth_row_reaches_one": "reaches 1 account",
+    "accounts.auth_row_reaches_other": "reaches {n} accounts",
+    "accounts.auth_no_accounts": "no advertising accounts visible",
+    "accounts.auth_discovery_errors": "Amazon did not answer in {regions}",
+    "accounts.account_row_meta": "{type} · {region} · seen by {user}",
+    "accounts.account_type.seller": "Seller",
+    "accounts.account_type.vendor": "Vendor",
+    "accounts.account_type.agency": "Agency",
 
     # ── Integraciones (M38) ───────────────────────────────────────────────
     "integrations.sop_md": """**Two levels of credential, with different blast radii.**
@@ -590,7 +688,7 @@ What does not exist yet does not take up a row: it goes in a single sentence at 
     ),
     "integrations.page.admin_only_info": (
         "This screen is admin-only. To connect a client's account, go to "
-        "**🛒 Mercado Libre** in the Marketplaces menu."
+        "**🔑 Connected accounts** in the System menu."
     ),
     "integrations.sop.expander_title": "📘 How to use this module",
     "integrations.verdict.no_db": "The portal is not connected to the database.",
@@ -802,6 +900,21 @@ def tn(key: str, n: int, **kwargs) -> str:
     """
     variant = f"{key}_one" if n == 1 else f"{key}_other"
     return t(variant, n=n, **kwargs)
+
+
+def t_provider(key: str, slug: str, **kwargs) -> str:
+    """`key`, or its per-provider variant `<key>.<slug>` when the catalog has one.
+
+    Some sentences are true for one provider and false for the others — a
+    Mercado Libre account is authorized by the seller, an Amazon Ads one by the
+    employee — and a neutral wording for both would say nothing. The variant
+    is declared in Spanish, the source language, so its presence there decides;
+    the parity test keeps English in step.
+    """
+    variant = f"{key}.{slug}"
+    if variant in _ES:
+        return t(variant, **kwargs)
+    return t(key, **kwargs)
 
 
 def page_label(routing_key: str) -> str:

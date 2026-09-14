@@ -4,12 +4,18 @@ Separate from the integrations portal — which holds the agency's own app
 credentials (`client_id`, `client_secret`, API keys) and is admin-only —
 this screen manages the CLIENT accounts the agency wires against each
 provider. Any employee may connect or remove one: the system credential
-is already loaded, here we only open the OAuth consent for the seller
-and persist the returned refresh token.
+is already loaded, here we only open the OAuth consent and persist the
+returned refresh token.
 
-Multi-provider by design: when Amazon or Walmart light up, the list
-grows straight from the catalog — no parallel flow in each marketplace
-module.
+Two shapes of provider share the screen, told apart by the catalog:
+
+- Mercado Libre: the seller authorizes their own account, so one
+  authorization is one client account, one row.
+- Amazon Ads (`discovers_accounts`): a Capybaras employee authorizes with
+  their own Amazon user, which every client invited into their account.
+  One authorization reaches many client accounts, so the band shows the
+  authorizations first (who, when, when it expires) and the client accounts
+  the worker discovered under them.
 
 Visual language mirrors ``modules/pages/integrations.py``: a 1180px
 column, band headers with a provider name + tag + count, tabular rows
@@ -22,11 +28,13 @@ from __future__ import annotations
 
 import html
 import os
+import re
 
 import streamlit as st
 
-from core.integrations import catalog, crypto, oauth, roles
-from core.integrations.store import (SEALING_KEY_SETTING, StoreError, open_stores)
+from core.integrations import catalog, consent_expiry, crypto, oauth, roles
+from core.integrations.store import (ACTIVE_STATUS, NEEDS_REAUTH, REVOKED_STATUS,
+                                     SEALING_KEY_SETTING, StoreError, open_stores)
 from core.ui import i18n, palette
 
 _REDIRECT_URI_ENV = "INTEGRATIONS_REDIRECT_URI"
@@ -36,6 +44,10 @@ _REDIRECT_URI_ENV = "INTEGRATIONS_REDIRECT_URI"
 _PENDING_REMOVE = "accounts_pending_remove"
 _CONNECT_URL_KEY = "accounts_connect_consent_url"
 _CONNECT_SLUG_KEY = "accounts_connect_slug"
+
+# Derived on every render from consent_date + the catalog lifetime; never
+# written to the database, whose vocabulary stays activo/needs_reauth/revocado.
+EXPIRING_SOON = "expiring_soon"
 
 # Column weights: dot, account+chip, meta, status, reauth slot, remove.
 # The reauth slot stays empty for healthy rows so every row keeps the same
@@ -54,20 +66,37 @@ _STYLE = (
 )
 
 
-def _status_html() -> dict[str, str]:
-    """Status pill markup, keyed by the value the database stores.
+def _row_status(connection, integration) -> str:
+    """The status to paint: what the database says, unless a live consent is
+    inside the expiry warning window, which the database does not know."""
+    status = (connection.status or "").strip().lower()
+    if status == ACTIVE_STATUS and consent_expiry.is_expiring_soon(
+        connection.consent_date, integration.refresh_token_lifetime_days
+    ):
+        return EXPIRING_SOON
+    return status
 
-    The keys are `integration_connections.status` values and are never
-    translated; only the label inside the pill is. Built per call rather than
+
+def _status_pill_html(status: str, connection=None, integration=None) -> str:
+    """Status pill markup for a derived status. Built per call rather than
     once at import time, so a language switch repaints the pills instead of
-    freezing them in whatever language was active when the module first loaded.
-    """
-    return {
-        "activo": palette.status_pill_html("ok", i18n.t("accounts.status_active")),
-        "needs_reauth": palette.status_pill_html(
-            "warn", i18n.t("accounts.status_needs_reauth")
-        ),
-    }
+    freezing them in whatever language was active when the module first loaded."""
+    if status == ACTIVE_STATUS:
+        return palette.status_pill_html("ok", i18n.t("accounts.status_active"))
+    if status == NEEDS_REAUTH:
+        return palette.status_pill_html("warn", i18n.t("accounts.status_needs_reauth"))
+    if status == EXPIRING_SOON and connection is not None and integration is not None:
+        left = consent_expiry.days_left(connection.consent_date,
+                                        integration.refresh_token_lifetime_days) or 0
+        label = (i18n.t("accounts.status_expires_today") if left == 0
+                 else i18n.tn("accounts.status_expiring", left))
+        return palette.status_pill_html("warn", label)
+    return palette.status_pill_html("idle", html.escape(status or "—"))
+
+
+def _dot_color(status: str) -> str:
+    return {ACTIVE_STATUS: palette.OK, NEEDS_REAUTH: palette.WARN,
+            EXPIRING_SOON: palette.WARN}.get(status, palette.IDLE)
 
 
 def _header() -> None:
@@ -76,31 +105,52 @@ def _header() -> None:
     st.divider()
 
 
-def _verdict(connections_by_slug: dict, providers: list) -> None:
-    """One-line summary that answers "does anything need me right now?"."""
-    live_slugs = [i.slug for i in providers if i.available and i.connects_accounts]
-    needs = 0
-    total_live = 0
-    for slug in live_slugs:
-        for c in connections_by_slug.get(slug, []):
-            status = (c.status or "").strip().lower()
-            if status == "revocado":
-                continue
-            total_live += 1
-            if status == "needs_reauth":
+def _attention_counts(connections_by_slug: dict, providers: list) -> tuple[int, int]:
+    """(needs reauth, expiring soon) across the live providers' authorizations."""
+    needs = expiring = 0
+    for integration in providers:
+        if not (integration.available and integration.connects_accounts):
+            continue
+        for connection in connections_by_slug.get(integration.slug, []):
+            status = _row_status(connection, integration)
+            if status == NEEDS_REAUTH:
                 needs += 1
+            elif status == EXPIRING_SOON:
+                expiring += 1
+    return needs, expiring
+
+
+def _verdict(connections_by_slug: dict, accounts_by_slug: dict, providers: list) -> None:
+    """One-line summary that answers "does anything need me right now?"."""
+    live = [i for i in providers if i.available and i.connects_accounts]
+    needs, expiring = _attention_counts(connections_by_slug, providers)
     if needs:
         title = i18n.tn("accounts.verdict_needs_reauth", needs)
+    elif expiring:
+        title = i18n.tn("accounts.verdict_expiring", expiring,
+                        days=consent_expiry.EXPIRY_WARNING_DAYS)
     else:
         title = i18n.t("accounts.verdict_all_clear")
+
+    # What the agency operates: client accounts. For a provider that discovers
+    # them the authorization is not the account, so its accounts are counted.
+    total_accounts = 0
+    for integration in live:
+        if integration.discovers_accounts:
+            total_accounts += len(accounts_by_slug.get(integration.slug, []))
+        else:
+            total_accounts += sum(
+                1 for c in connections_by_slug.get(integration.slug, [])
+                if (c.status or "").strip().lower() != REVOKED_STATUS
+            )
     coming = sum(1 for i in providers if not i.available)
     detail_parts = [
         i18n.t(
             "accounts.verdict_detail",
-            accounts=total_live,
-            account_word=i18n.tn("accounts.word_account", total_live),
-            providers=len(live_slugs),
-            provider_word=i18n.tn("accounts.word_provider", len(live_slugs)),
+            accounts=total_accounts,
+            account_word=i18n.tn("accounts.word_account", total_accounts),
+            providers=len(live),
+            provider_word=i18n.tn("accounts.word_provider", len(live)),
         )
     ]
     if coming:
@@ -133,28 +183,34 @@ def render(username: str = "", role: str = roles.USER) -> None:
     if not providers:
         st.info(i18n.t("accounts.empty_no_providers"))
         return
+    accounts_by_slug = (
+        connection_store.accounts_by_integration_slug()
+        if any(i.discovers_accounts for i in providers) else {}
+    )
 
     st.markdown(_STYLE, unsafe_allow_html=True)
     with st.container(key="ac_lista"):
-        _verdict(connections_by_slug, providers)
+        _verdict(connections_by_slug, accounts_by_slug, providers)
         for integration in providers:
             _render_provider(
                 integration,
                 connections_by_slug.get(integration.slug, []),
+                accounts_by_slug.get(integration.slug, []),
                 credentials_by_slug.get(integration.slug),
             )
 
     # Signal fallback: `_dialog_remove_account` opens here to avoid nested dialogs.
     pending = st.session_state.pop(_PENDING_REMOVE, None)
     if pending:
-        provider_slug, connection_id = pending
-        _dialog_remove_account(connection_store, provider_slug, connection_id, username)
+        provider_slug, connection_id, connected_by = pending
+        _dialog_remove_account(connection_store, provider_slug, connection_id,
+                               connected_by, username)
 
 
-def _render_provider(integration, connections, credential) -> None:
-    """One provider block: header + account rows + CTA."""
+def _render_provider(integration, connections, accounts, credential) -> None:
+    """One provider block: header + rows + CTA."""
     with st.container(key=f"ac_prov_{integration.slug}"):
-        _render_provider_header(integration, connections)
+        _render_provider_header(integration, connections, accounts)
 
         if not integration.available:
             # A provider still being rolled out — no accounts, no CTA.
@@ -183,10 +239,13 @@ def _render_provider(integration, connections, credential) -> None:
             return
 
         visible = [c for c in connections
-                   if (c.status or "").strip().lower() != "revocado"]
-        if visible:
+                   if (c.status or "").strip().lower() != REVOKED_STATUS]
+        if integration.discovers_accounts:
+            _render_authorizations(integration, visible)
+            _render_client_accounts(integration, visible, accounts)
+        elif visible:
             for connection in visible:
-                _render_account_row(integration.slug, connection)
+                _render_account_row(integration, connection)
         else:
             st.markdown(
                 palette.band_note_html(i18n.t("accounts.provider_no_accounts")),
@@ -198,12 +257,15 @@ def _render_provider(integration, connections, credential) -> None:
     st.write("")
 
 
-def _render_provider_header(integration, connections) -> None:
+def _render_provider_header(integration, connections, accounts) -> None:
     """Header of a provider band: name + tag + right-side count/state."""
-    live_count = sum(
-        1 for c in connections
-        if (c.status or "").strip().lower() != "revocado"
-    )
+    if integration.discovers_accounts:
+        live_count = len(accounts)
+    else:
+        live_count = sum(
+            1 for c in connections
+            if (c.status or "").strip().lower() != REVOKED_STATUS
+        )
     if not integration.available:
         right = (
             f"<span style='font-size:12px;font-weight:600;letter-spacing:0.06em;"
@@ -229,25 +291,132 @@ def _render_provider_header(integration, connections) -> None:
     )
 
 
-def _render_account_row(provider_slug: str, connection) -> None:
-    """One row: dot · account+chip · meta · status · Remove.
+def _subheading_html(text: str) -> str:
+    return (
+        f"<div style='margin:14px 8px 4px 8px;font-size:11px;font-weight:700;"
+        f"letter-spacing:.08em;text-transform:uppercase;color:{palette.FG_SUBTLE};'>"
+        f"{html.escape(text)}</div>"
+    )
+
+
+def _render_authorizations(integration, connections) -> None:
+    """The employees who authorized, with when it expires and the fix next to it."""
+    st.markdown(_subheading_html(i18n.t("accounts.authorizations_heading")),
+                unsafe_allow_html=True)
+    if not connections:
+        st.markdown(
+            palette.band_note_html(i18n.t("accounts.provider_no_authorizations")),
+            unsafe_allow_html=True,
+        )
+        return
+    for connection in connections:
+        _render_authorization_row(integration, connection)
+
+
+def _render_authorization_row(integration, connection) -> None:
+    """One row: dot · who authorized + countries · consented on / reach · status
+    · Reauthorize (when needed) · Remove."""
+    with st.container(key=f"ac_row_{integration.slug}_{connection.id}"):
+        cells = st.columns(_ROW_WEIGHTS, gap="small", vertical_alignment="center")
+        status = _row_status(connection, integration)
+        _dot_cell(cells[0], status)
+
+        who = html.escape((connection.connected_by or "").strip() or "—")
+        cells[1].markdown(
+            f"<div style='display:flex;align-items:center;gap:10px;'>"
+            f"<span style='font-size:14.5px;font-weight:600;color:{palette.FG};"
+            f"letter-spacing:-0.005em;'>"
+            f"{i18n.t('accounts.auth_row_title', user=who)}</span>"
+            f"{palette.marketplace_chip_html(html.escape((connection.marketplace or '').strip()))}</div>",
+            unsafe_allow_html=True,
+        )
+
+        discovery = (connection.metadata or {}).get("discovery") or {}
+        reached = int(discovery.get("accounts") or 0)
+        errors = discovery.get("errors") or {}
+        parts = []
+        if connection.consent_date:
+            parts.append(i18n.t("accounts.auth_row_consented",
+                                date=html.escape(str(connection.consent_date)[:10])))
+        if reached:
+            parts.append(i18n.tn("accounts.auth_row_reaches", reached))
+        else:
+            parts.append(i18n.t("accounts.auth_no_accounts"))
+        if errors:
+            parts.append(i18n.t("accounts.auth_discovery_errors",
+                                regions=html.escape(", ".join(sorted(errors)))))
+        cells[2].markdown(_meta_html(" · ".join(parts)), unsafe_allow_html=True)
+
+        cells[3].markdown(_status_pill_html(status, connection, integration),
+                          unsafe_allow_html=True)
+        _reauth_cell(cells[4], integration.slug, connection.id, status)
+        _remove_cell(cells[5], integration.slug, connection)
+
+
+def _render_client_accounts(integration, connections, accounts) -> None:
+    """The client accounts the worker discovered, each carrying the state of
+    the authorization it was last seen through."""
+    st.markdown(_subheading_html(i18n.t("accounts.accounts_heading")),
+                unsafe_allow_html=True)
+    if not accounts:
+        st.markdown(
+            palette.band_note_html(i18n.t("accounts.provider_no_accounts")),
+            unsafe_allow_html=True,
+        )
+        return
+    by_id = {c.id: c for c in connections}
+    for account in accounts:
+        _render_client_account_row(integration, account, by_id.get(account.connection_id))
+
+
+def _render_client_account_row(integration, account, connection) -> None:
+    """One row: dot · client + countries · type / region / seen by · status."""
+    with st.container(key=f"ac_row_{integration.slug}_acc_{account.id}"):
+        cells = st.columns(_ROW_WEIGHTS, gap="small", vertical_alignment="center")
+        status = _row_status(connection, integration) if connection else ""
+        _dot_cell(cells[0], status)
+
+        name = html.escape(account.client or account.name or "—")
+        countries = html.escape(" ".join(account.marketplaces))
+        cells[1].markdown(
+            f"<div style='display:flex;align-items:center;gap:10px;'>"
+            f"<span style='font-size:14.5px;font-weight:600;color:{palette.FG};"
+            f"letter-spacing:-0.005em;'>{name}</span>"
+            f"{palette.marketplace_chip_html(countries)}</div>",
+            unsafe_allow_html=True,
+        )
+
+        type_key = f"accounts.account_type.{account.account_type}"
+        type_label = i18n.t(type_key)
+        if type_label == type_key:
+            type_label = account.account_type or "—"
+        seen_by = html.escape((connection.connected_by if connection else "") or "—")
+        cells[2].markdown(
+            _meta_html(i18n.t("accounts.account_row_meta",
+                              type=html.escape(type_label),
+                              region=html.escape(account.region or "—"),
+                              user=f"<span style='color:{palette.FG};'>{seen_by}</span>")),
+            unsafe_allow_html=True,
+        )
+
+        if connection is None:
+            pill = palette.status_pill_html("idle", i18n.t("accounts.status_no_authorization"))
+        else:
+            pill = _status_pill_html(status, connection, integration)
+        cells[3].markdown(pill, unsafe_allow_html=True)
+
+
+def _render_account_row(integration, connection) -> None:
+    """One Mercado Libre row: dot · account+chip · meta · status · Remove.
 
     Every cell uses inline HTML so the row height and vertical alignment
     stay consistent — a Streamlit ``st.markdown`` paragraph adds its own
     line-height that would break the 48px strip.
     """
-    with st.container(key=f"ac_row_{provider_slug}_{connection.id}"):
+    with st.container(key=f"ac_row_{integration.slug}_{connection.id}"):
         cells = st.columns(_ROW_WEIGHTS, gap="small", vertical_alignment="center")
-        status = (connection.status or "").strip().lower()
-
-        # Dot glyph — carries the same green as the status label so it reads
-        # at a glance without needing to look right.
-        dot_color = {"activo": palette.OK, "needs_reauth": palette.WARN}.get(status, palette.IDLE)
-        cells[0].markdown(
-            f"<div style='width:6px;height:6px;border-radius:50%;"
-            f"background:{dot_color};margin-left:16px;'></div>",
-            unsafe_allow_html=True,
-        )
+        status = _row_status(connection, integration)
+        _dot_cell(cells[0], status)
 
         client = html.escape(connection.client or "—")
         marketplace = html.escape((connection.marketplace or "").strip())
@@ -272,53 +441,89 @@ def _render_account_row(provider_slug: str, connection) -> None:
             unsafe_allow_html=True,
         )
 
-        cells[3].markdown(
-            _status_html().get(status,
-                               palette.status_pill_html("idle",
-                                                        html.escape(status or "—"))),
-            unsafe_allow_html=True,
-        )
+        cells[3].markdown(_status_pill_html(status, connection, integration),
+                          unsafe_allow_html=True)
+        _reauth_cell(cells[4], integration.slug, connection.id, status)
+        _remove_cell(cells[5], integration.slug, connection)
 
-        # A row that says "needs reauth" has to offer the fix, or the reader
-        # is told there is a problem and left without the button that solves
-        # it. Same OAuth dialog: the exchange upserts on the external account
-        # id, so reauthorizing updates this row instead of creating a second.
-        if status == "needs_reauth":
-            with cells[4]:
-                if st.button(
-                    i18n.t("accounts.btn_reauth"),
-                    key=f"accounts_reauth_{provider_slug}_{connection.id}",
-                    icon=":material/refresh:",
-                    type="tertiary",
-                    use_container_width=False,
-                ):
-                    st.session_state[_CONNECT_SLUG_KEY] = provider_slug
-                    _dialog_connect_account(provider_slug)
 
-        # Action — tertiary so it reads as a link, not a button.
-        with cells[5]:
-            if st.button(
-                i18n.t("accounts.btn_remove"),
-                key=f"accounts_del_{provider_slug}_{connection.id}",
-                icon=":material/link_off:",
-                type="tertiary",
-                use_container_width=False,
-            ):
-                st.session_state[_PENDING_REMOVE] = (provider_slug, connection.id)
-                st.rerun()
+def _meta_html(inner_html: str) -> str:
+    """Secondary text cut to one line: a wrapping cell stretches its row and
+    breaks the grid the list is built on. The full text lives in the tooltip."""
+    return (
+        f"<span title='{html.escape(_strip_tags(inner_html), quote=True)}' "
+        f"style='display:block;font-size:12.5px;color:{palette.FG_MUTED};"
+        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{inner_html}</span>"
+    )
+
+
+def _strip_tags(markup: str) -> str:
+    return re.sub(r"<[^>]+>", "", markup)
+
+
+def _dot_cell(cell, status: str) -> None:
+    """Dot glyph — carries the same color as the status label so it reads
+    at a glance without needing to look right."""
+    cell.markdown(
+        f"<div style='width:6px;height:6px;border-radius:50%;"
+        f"background:{_dot_color(status)};margin-left:16px;'></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _reauth_cell(cell, provider_slug: str, connection_id, status: str) -> None:
+    """A row that says "needs reauth" or "expires soon" has to offer the fix,
+    or the reader is told there is a problem and left without the button that
+    solves it. Same OAuth dialog: the exchange upserts on the external account
+    id, so reauthorizing updates this row instead of creating a second."""
+    if status not in (NEEDS_REAUTH, EXPIRING_SOON):
+        return
+    with cell:
+        if st.button(
+            i18n.t("accounts.btn_reauth"),
+            key=f"accounts_reauth_{provider_slug}_{connection_id}",
+            icon=":material/refresh:",
+            type="tertiary",
+            use_container_width=False,
+        ):
+            _open_connect_dialog(provider_slug)
+
+
+def _remove_cell(cell, provider_slug: str, connection) -> None:
+    """Action — tertiary so it reads as a link, not a button."""
+    with cell:
+        if st.button(
+            i18n.t("accounts.btn_remove"),
+            key=f"accounts_del_{provider_slug}_{connection.id}",
+            icon=":material/link_off:",
+            type="tertiary",
+            use_container_width=False,
+        ):
+            st.session_state[_PENDING_REMOVE] = (
+                provider_slug, connection.id, connection.connected_by or "")
+            st.rerun()
 
 
 def _render_connect_cta(provider_slug: str) -> None:
     """Outline CTA sitting below the account rows of a provider."""
     with st.container(key=f"ac_cta_{provider_slug}"):
         if st.button(
-            i18n.t("accounts.btn_connect_new"),
+            i18n.t_provider("accounts.btn_connect_new", provider_slug),
             icon=":material/add:",
             key=f"accounts_btn_connect_{provider_slug}",
             use_container_width=False,
         ):
-            st.session_state[_CONNECT_SLUG_KEY] = provider_slug
-            _dialog_connect_account(provider_slug)
+            _open_connect_dialog(provider_slug)
+
+
+def _open_connect_dialog(provider_slug: str) -> None:
+    """Every open starts a fresh grant. The consent URL is cached in session
+    state only so the dialog's own reruns do not burn one grant each; a state
+    that was already consented and exchanged must never be offered again."""
+    st.session_state.pop(_CONNECT_URL_KEY, None)
+    st.session_state.pop(f"{_CONNECT_URL_KEY}_slug", None)
+    st.session_state[_CONNECT_SLUG_KEY] = provider_slug
+    _dialog_connect_account(provider_slug)
 
 
 def _dialog_connect_account(provider_slug: str) -> None:
@@ -330,7 +535,7 @@ def _dialog_connect_account(provider_slug: str) -> None:
     Streamlit derives the dialog's fragment id from the wrapped function's
     name, which does not change, so the dialog keeps its identity across runs.
     """
-    open_dialog = st.dialog(i18n.t("accounts.dialog_connect_title"))(
+    open_dialog = st.dialog(i18n.t_provider("accounts.dialog_connect_title", provider_slug))(
         _connect_account_body
     )
     open_dialog(provider_slug)
@@ -339,9 +544,9 @@ def _dialog_connect_account(provider_slug: str) -> None:
 def _connect_account_body(provider_slug: str) -> None:
     """Field-less OAuth flow, single-step. The consent URL is prepared as the
     dialog opens — no intermediate "Preparar autorización" click that would
-    force a rerun and close the dialog. The account name and country come
-    from the worker via /users/me after the token exchange, not from the
-    operator.
+    force a rerun and close the dialog. Who the account is comes from the
+    provider's identity resolver in the worker after the token exchange, not
+    from the operator.
     """
     integration = catalog.by_slug(provider_slug)
     if integration is None:
@@ -369,10 +574,10 @@ def _connect_account_body(provider_slug: str) -> None:
         st.error(i18n.t("accounts.error_missing_public_key"))
         return
 
-    # Prepare the grant on the FIRST render of this dialog instance. Keyed by
-    # provider slug so opening for a different provider doesn't reuse a stale
-    # URL. If the user closes and reopens for the same provider, the previous
-    # pending grant expires on its own via `_expire_pending_grants` (30 min TTL).
+    # Prepare the grant on the FIRST render of this dialog instance and keep
+    # it across the dialog's own reruns. `_open_connect_dialog` clears it, so
+    # each click on Connect or Reauthorize starts a new grant; the previous
+    # pending row expires on its own via `_expire_pending_grants`.
     slug_key = f"{_CONNECT_URL_KEY}_slug"
     if (st.session_state.get(slug_key) != provider_slug
             or not st.session_state.get(_CONNECT_URL_KEY)):
@@ -380,8 +585,8 @@ def _connect_account_body(provider_slug: str) -> None:
             grant = oauth.start_grant()
             connection_store.open_grant(
                 slug=provider_slug,
-                # Placeholders: the worker replaces both with real values from
-                # /users/me during the token exchange.
+                # Placeholders: the worker replaces both with what the
+                # provider's identity resolver returns during the exchange.
                 client=f"_pending_{grant.state[:12]}",
                 marketplace="",
                 state=grant.state,
@@ -390,10 +595,9 @@ def _connect_account_body(provider_slug: str) -> None:
             )
             url = oauth.consent_url(
                 # From the stored credential, falling back to the catalog: the
-                # host depends on where the agency registered its app (a country
-                # site, or Global Selling for CBT) and cannot be worked out
-                # here — the seller's site only arrives with /users/me, which
-                # needs the token this very link is meant to obtain. The
+                # host depends on where the agency registered its app (a
+                # Mercado Libre country site or Global Selling; an Amazon
+                # regional login pool) and cannot be worked out here. The
                 # fallback keeps credentials saved before the field existed
                 # working untouched.
                 authorize_url=(str(public.get("authorize_url") or "").strip()
@@ -410,9 +614,10 @@ def _connect_account_body(provider_slug: str) -> None:
         st.session_state[slug_key] = provider_slug
 
     consent = st.session_state[_CONNECT_URL_KEY]
-    st.markdown(i18n.t("accounts.connect_dialog_body", provider=integration.name))
+    st.markdown(i18n.t_provider("accounts.connect_dialog_body", provider_slug,
+                                provider=integration.name))
     st.link_button(
-        i18n.t("accounts.btn_open_consent", provider=integration.name),
+        i18n.t_provider("accounts.btn_open_consent", provider_slug, provider=integration.name),
         consent, type="primary", use_container_width=True,
     )
     if st.button(i18n.t("accounts.btn_close"), key="accounts_connect_close",
@@ -424,24 +629,25 @@ def _connect_account_body(provider_slug: str) -> None:
 
 
 def _dialog_remove_account(connection_store, provider_slug: str, connection_id,
-                           username: str) -> None:
+                           connected_by: str, username: str) -> None:
     """Open the remove dialog with its title in the current language.
 
     Same reason as `_dialog_connect_account`: the decorator would otherwise
     freeze the title at import time.
     """
-    open_dialog = st.dialog(i18n.t("accounts.dialog_remove_title"))(
+    open_dialog = st.dialog(i18n.t_provider("accounts.dialog_remove_title", provider_slug))(
         _remove_account_body
     )
-    open_dialog(connection_store, provider_slug, connection_id, username)
+    open_dialog(connection_store, provider_slug, connection_id, connected_by, username)
 
 
 def _remove_account_body(connection_store, provider_slug: str, connection_id,
-                         username: str) -> None:
+                         connected_by: str, username: str) -> None:
     """Soft-revoke the account. The row itself stays for auditing."""
     integration = catalog.by_slug(provider_slug)
     provider_name = integration.name if integration else provider_slug
-    st.markdown(i18n.t("accounts.remove_dialog_body", provider=provider_name))
+    st.markdown(i18n.t_provider("accounts.remove_dialog_body", provider_slug,
+                                provider=provider_name, user=connected_by or "—"))
     col_cancel, col_remove = st.columns(2)
     if col_cancel.button(i18n.t("accounts.btn_cancel"), key="accounts_remove_cancel",
                          use_container_width=True):
@@ -451,7 +657,7 @@ def _remove_account_body(connection_store, provider_slug: str, connection_id,
         try:
             connection_store.set_status(
                 connection_id=connection_id,
-                status="revocado",
+                status=REVOKED_STATUS,
                 user=username or "",
                 slug=provider_slug,
             )

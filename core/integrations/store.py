@@ -8,8 +8,9 @@ representation forces a SELECT and PostgREST answers 403.
 cannot be reused for this.
 
 With no database configured, or before the migration has run, `open_stores()`
-returns None and the page renders in its unconfigured state. Jenkins does not run
-migrations on deploy, so a missing table is expected, not exceptional.
+returns None and the page renders in its unconfigured state. Jenkins applies the
+migrations after `compose up`, so a table missing for a moment is expected, not
+exceptional.
 """
 from __future__ import annotations
 
@@ -28,6 +29,9 @@ CREDENTIALS_TABLE = "integration_credentials"
 CONNECTIONS_TABLE = "integration_connections"
 PENDING_GRANTS_TABLE = "integration_pending_grants"
 AUDIT_TABLE = "integration_audit"
+# Client accounts an authorization reaches, for providers where one consent
+# covers many (Amazon Ads). Written by the worker; the app only reads.
+ACCOUNTS_TABLE = "integration_accounts"
 
 # Setting key that stores the public sealing key.
 SEALING_KEY_SETTING = "sealing_public_key"
@@ -54,7 +58,11 @@ _CREDENTIAL_COLUMNS = (
 _CONNECTION_COLUMNS = (
     "id,integration_slug,cliente,cuenta_externa_id,nombre_externo,marketplace,"
     "estado,scopes,consent_date,last_sync_at,last_error,conectado_por,"
-    "token_rotated_at,created_at,updated_at"
+    "token_rotated_at,metadata,created_at,updated_at"
+)
+_ACCOUNT_COLUMNS = (
+    "id,integration_slug,cuenta_externa_id,nombre_externo,tipo,region,marketplaces,"
+    "cliente,connection_id,profiles,first_seen_at,last_seen_at"
 )
 
 
@@ -90,10 +98,33 @@ class Connection:
     last_sync_at: str
     last_error: str
     consent_date: str
+    metadata: dict = field(default_factory=dict)
 
     @property
     def is_healthy(self) -> bool:
         return self.status == ACTIVE_STATUS
+
+
+@dataclass(frozen=True)
+class ClientAccount:
+    """A client's advertising account reached through an authorization.
+
+    Only for providers with `discovers_accounts`; for Mercado Libre the
+    `Connection` itself is the client account.
+    """
+
+    id: int
+    slug: str
+    external_id: str
+    name: str
+    account_type: str
+    region: str
+    marketplaces: tuple[str, ...]
+    client: str
+    connection_id: int | None
+    profiles: tuple[dict, ...]
+    first_seen_at: str
+    last_seen_at: str
 
 
 def fingerprint(value: str) -> str:
@@ -384,6 +415,26 @@ class ConnectionStore:
             grouped.setdefault(connection.slug, []).append(connection)
         return grouped
 
+    def accounts_by_integration_slug(self) -> dict[str, list[ClientAccount]]:
+        """Client accounts discovered by the worker, grouped by provider.
+
+        A missing table (migration not applied yet) reads as no accounts, not
+        as a broken page: the authorizations still render on their own.
+        """
+        try:
+            rows = self._rest.select(
+                ACCOUNTS_TABLE,
+                {"select": _ACCOUNT_COLUMNS, "order": "nombre_externo.asc"},
+            )
+        except Exception as exc:
+            log.warning("integrations: could not read client accounts (%s)", exc)
+            return {}
+        grouped: dict[str, list[ClientAccount]] = {}
+        for row in rows:
+            account = _to_client_account(row)
+            grouped.setdefault(account.slug, []).append(account)
+        return grouped
+
     def open_grant(
         self,
         *,
@@ -522,6 +573,25 @@ def _to_connection(row: dict) -> Connection:
         last_sync_at=row.get("last_sync_at") or "",
         last_error=row.get("last_error") or "",
         consent_date=row.get("consent_date") or "",
+        metadata=row.get("metadata") or {},
+    )
+
+
+def _to_client_account(row: dict) -> ClientAccount:
+    connection_id = row.get("connection_id")
+    return ClientAccount(
+        id=int(row.get("id") or 0),
+        slug=row.get("integration_slug", ""),
+        external_id=row.get("cuenta_externa_id") or "",
+        name=row.get("nombre_externo") or "",
+        account_type=row.get("tipo") or "",
+        region=row.get("region") or "",
+        marketplaces=tuple(row.get("marketplaces") or ()),
+        client=row.get("cliente") or "",
+        connection_id=int(connection_id) if connection_id is not None else None,
+        profiles=tuple(row.get("profiles") or ()),
+        first_seen_at=row.get("first_seen_at") or "",
+        last_seen_at=row.get("last_seen_at") or "",
     )
 
 

@@ -10,7 +10,14 @@ and a server.
 
     python -m core.integrations.worker keys      install / verify the keypair
     python -m core.integrations.worker grants    exchange authorization codes
-    python -m core.integrations.worker refresh   rotate refresh tokens
+    python -m core.integrations.worker refresh   rotate refresh tokens, expire consents
+    python -m core.integrations.worker discover  re-list the client accounts each
+                                                 authorization reaches, without
+                                                 asking anyone to consent again
+
+Provider-specific knowledge lives in two places only: the catalog (hosts,
+scopes, whether the refresh token rotates, how long a consent lives) and the
+identity resolver registered per slug below. Everything else here is generic.
 """
 from __future__ import annotations
 
@@ -24,8 +31,10 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from core.integrations import catalog, crypto, oauth
+from core.integrations import amazon_identity, catalog, crypto, oauth
+from core.integrations.connection_identity import ConnectionIdentity
 from core.integrations.store import (
+    ACCOUNTS_TABLE,
     SEALING_KEY_SETTING,
     CONNECTIONS_TABLE,
     CREDENTIALS_TABLE,
@@ -39,6 +48,10 @@ REDIRECT_URI_ENV = "INTEGRATIONS_REDIRECT_URI"
 
 # A code is worth minutes; a stale pending row is noise that hides real failures.
 GRANT_TTL_MINUTES = 30
+# Login with Amazon codes die after 5 minutes, Mercado Libre's after 10. A code
+# received earlier than this cannot be exchanged any more, and trying reads as
+# "the permission expired", which sends the operator after the wrong cause.
+CODE_TTL_MINUTES = 10
 # Refresh with room to spare rather than at the cliff.
 REFRESH_BEFORE_DAYS = 30
 
@@ -133,7 +146,8 @@ def command_grants() -> int:
     pending_rows = rest.select(
         PENDING_GRANTS_TABLE,
         {
-            "select": "id,integration_slug,cliente,marketplace,state,verifier_sealed,code_sealed",
+            "select": "id,integration_slug,cliente,marketplace,state,verifier_sealed,"
+                      "code_sealed,solicitado_por",
             "estado": "eq.recibido",
             "order": "created_at.asc",
         },
@@ -160,7 +174,7 @@ def command_grants() -> int:
             rest.update(
                 PENDING_GRANTS_TABLE,
                 {"id": f"eq.{pending['id']}"},
-                {"estado": "fallido", "error": str(exc)[:500]},
+                {"estado": "fallido", "error": _grant_failure_text(exc)},
             )
             rest.audit("grant_failed", slug=slug, actor="worker", detail={"error": type(exc).__name__})
             print(f"error {slug} · {pending['cliente']}: {exc}")
@@ -170,6 +184,14 @@ def command_grants() -> int:
     # later authorization in `recibido`.
     _first_sync_meli(connected)
     return 1 if failed_count else 0
+
+
+def _grant_failure_text(exc: Exception) -> str:
+    """`invalid_grant` on an authorization code means the code expired or was
+    already used — the worker got there late — not that a permission lapsed."""
+    if isinstance(exc, oauth.NeedsReauth):
+        return f"el código de autorización venció o ya fue usado; hay que autorizar de nuevo ({exc})"[:500]
+    return str(exc)[:500]
 
 
 def _first_sync_meli(clients: list[str]) -> None:
@@ -258,18 +280,56 @@ def _fetch_meli_identity(access_token: str) -> tuple[str, str]:
     return nickname, site_id
 
 
-def _resolve_client_slug(rest: _Rest, slug: str, client_base: str, external_account_id: str,
-                   site_id: str) -> str:
-    """Resolve slug collisions: same nickname across two MELI accounts.
+def _meli_identity(tokens: oauth.TokenSet, *, client_id: str, requested_by: str) -> ConnectionIdentity:
+    """The seller who consented is the client account: one row, named after the
+    nickname, disambiguated by site on a collision."""
+    _ = (client_id, requested_by)
+    nickname, site_id = _fetch_meli_identity(tokens.access_token)
+    return ConnectionIdentity(
+        external_id=tokens.user_id,
+        client_base=nickname,
+        external_name=nickname,
+        marketplace=site_id,
+        collision_suffix=site_id.lower(),
+    )
+
+
+# Who a token belongs to is the one question each provider answers its own way.
+_IDENTITY_RESOLVERS = {
+    _MELI_SLUG: _meli_identity,
+    amazon_identity.SLUG: amazon_identity.resolve_identity,
+}
+
+
+def _resolve_identity(slug: str, tokens: oauth.TokenSet, *, client_id: str,
+                      requested_by: str, pending: dict | None = None) -> ConnectionIdentity:
+    resolver = _IDENTITY_RESOLVERS.get(slug)
+    if resolver is not None:
+        return resolver(tokens, client_id=client_id, requested_by=requested_by)
+    if not tokens.user_id:
+        # Without a stable id every grant would upsert onto the same
+        # (slug, '') row and silently overwrite the previous account's token.
+        raise WorkerError(f"{slug} returned no account id and has no identity resolver")
+    placeholders = pending or {}
+    return ConnectionIdentity(
+        external_id=tokens.user_id,
+        client_base=placeholders.get("cliente") or tokens.user_id,
+        marketplace=placeholders.get("marketplace") or "",
+    )
+
+
+def _resolve_client_slug(rest: _Rest, table: str, slug: str, client_base: str,
+                         external_account_id: str, suffix: str) -> str:
+    """Resolve slug collisions: same label across two different accounts.
 
     The unique constraint is (integration_slug, cuenta_externa_id) — two
     accounts *can* share the `cliente` label, but that leaves the agency
     guessing which is which. If the base slug is already taken by a
-    different external id, suffix it with the site.
+    different external id, suffix it (site for MELI, region for Amazon).
     """
     try:
         rows = rest.select(
-            CONNECTIONS_TABLE,
+            table,
             {
                 "select": "cuenta_externa_id",
                 "integration_slug": f"eq.{slug}",
@@ -282,9 +342,9 @@ def _resolve_client_slug(rest: _Rest, slug: str, client_base: str, external_acco
         # itself is the authoritative check.
         return client_base
     others = [f for f in rows if str(f.get("cuenta_externa_id") or "") != external_account_id]
-    if not others:
+    if not others or not suffix:
         return client_base
-    return f"{client_base}-{site_id.lower()}"
+    return f"{client_base}-{suffix}"
 
 
 def _exchange_grant(rest: _Rest, pending: dict, private_pem: str,
@@ -292,10 +352,10 @@ def _exchange_grant(rest: _Rest, pending: dict, private_pem: str,
     """Close one grant and return the `cliente` slug the connection ended up on.
 
     The slug is the caller's only way to know *which* account just came online:
-    for Mercado Libre the pending row carried a `_pending_xxx` placeholder and
-    the real one is resolved here from /users/me. `command_grants` uses it to
-    sync that account immediately instead of leaving it empty until the nightly
-    ingest.
+    the pending row carries a `_pending_xxx` placeholder and the real one is
+    resolved here by the provider's identity resolver. `command_grants` uses it
+    to sync a Mercado Libre account immediately instead of leaving it empty
+    until the nightly ingest.
     """
     slug = pending["integration_slug"]
     integration = catalog.by_slug(slug)
@@ -315,15 +375,11 @@ def _exchange_grant(rest: _Rest, pending: dict, private_pem: str,
         verifier=verifier,
     )
 
-    # For Mercado Libre we auto-fill `cliente` and `marketplace` from
-    # /users/me: the connect dialog asks the operator for nothing, so the
-    # pending row carries placeholder values that must be resolved here.
-    client = pending.get("cliente") or ""
-    marketplace = pending.get("marketplace") or ""
-    if slug == _MELI_SLUG:
-        nickname, site_id = _fetch_meli_identity(tokens.access_token)
-        client = _resolve_client_slug(rest, slug, _slugify(nickname), tokens.user_id, site_id)
-        marketplace = site_id
+    requested_by = pending.get("solicitado_por") or ""
+    identity = _resolve_identity(slug, tokens, client_id=client_id,
+                                 requested_by=requested_by, pending=pending)
+    client = _resolve_client_slug(rest, CONNECTIONS_TABLE, slug, _slugify(identity.client_base),
+                                  identity.external_id, identity.collision_suffix)
 
     public_pem = crypto.public_from_private(private_pem)
 
@@ -335,30 +391,94 @@ def _exchange_grant(rest: _Rest, pending: dict, private_pem: str,
         {
             "integration_slug": slug,
             "cliente": client,
-            "cuenta_externa_id": tokens.user_id,
-            "marketplace": marketplace,
+            "cuenta_externa_id": identity.external_id,
+            "nombre_externo": identity.external_name,
+            "marketplace": identity.marketplace,
             "refresh_token_sealed": crypto.seal(tokens.refresh_token, public_pem),
             "token_rotated_at": _now_iso(),
             "access_expires_at": _expiry_iso(tokens.expires_in),
-            "scopes": list(tokens.scopes),
+            # Login with Amazon does not echo the scopes back; the catalog knows.
+            "scopes": list(tokens.scopes) or list(integration.scopes),
             "estado": "activo",
             # The merge only overwrites columns in the payload: without this a
             # successful exchange would leave the previous error visible on screen.
             "last_error": "",
             "consent_date": date.today().isoformat(),
-            "conectado_por": pending.get("solicitado_por") or "",
+            "conectado_por": requested_by,
+            "metadata": identity.metadata,
         },
         on_conflict="integration_slug,cuenta_externa_id",
     )
+    if integration.discovers_accounts:
+        _store_discovered_accounts(rest, slug, identity)
+
     rest.update(PENDING_GRANTS_TABLE, {"id": f"eq.{pending['id']}"}, {"estado": "canjeado"})
-    rest.audit("grant_exchanged", slug=slug, actor="worker", detail={"cliente": client})
+    rest.audit("grant_exchanged", slug=slug, actor="worker",
+               detail={"cliente": client, "accounts": len(identity.accounts)})
     return client
+
+
+def _connection_id(rest: _Rest, slug: str, external_id: str) -> int | None:
+    rows = rest.select(
+        CONNECTIONS_TABLE,
+        {
+            "select": "id",
+            "integration_slug": f"eq.{slug}",
+            "cuenta_externa_id": f"eq.{external_id}",
+            "limit": "1",
+        },
+    )
+    return int(rows[0]["id"]) if rows else None
+
+
+def _store_discovered_accounts(rest: _Rest, slug: str, identity: ConnectionIdentity,
+                               connection_id: int | None = None) -> None:
+    """One `integration_accounts` row per client account the authorization
+    reaches, keyed by the provider's entity id so the same client seen by two
+    employees is one row that points at whoever saw it last.
+
+    `cliente` is only written for a row that does not exist yet: it is the
+    label the agency may edit later, and a re-discovery must not undo that.
+    """
+    if connection_id is None:
+        connection_id = _connection_id(rest, slug, identity.external_id)
+    existing = {
+        str(row.get("cuenta_externa_id") or "")
+        for row in rest.select(
+            ACCOUNTS_TABLE,
+            {"select": "cuenta_externa_id", "integration_slug": f"eq.{slug}"},
+        )
+    }
+    seen_at = _now_iso()
+    for account in identity.accounts:
+        row = {
+            "integration_slug": slug,
+            "cuenta_externa_id": account.external_id,
+            "nombre_externo": account.name,
+            "tipo": account.account_type,
+            "region": account.region,
+            "marketplaces": list(account.marketplaces),
+            "connection_id": connection_id,
+            "profiles": list(account.profiles),
+            "last_seen_at": seen_at,
+            "updated_at": seen_at,
+        }
+        if account.external_id not in existing:
+            row["cliente"] = _resolve_client_slug(
+                rest, ACCOUNTS_TABLE, slug, _slugify(account.name),
+                account.external_id, account.region.lower(),
+            )
+        rest.upsert(ACCOUNTS_TABLE, row, on_conflict="integration_slug,cuenta_externa_id")
+    log.info("%s: %d client accounts recorded for %s", slug, len(identity.accounts),
+             identity.external_id)
 
 
 def command_refresh() -> int:
     rest = _rest_worker()
     private_pem = ensure_keys(rest)
     public_pem = crypto.public_from_private(private_pem)
+
+    _expire_consents(rest)
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=REFRESH_BEFORE_DAYS)).isoformat()
     connections = rest.select(
@@ -380,17 +500,7 @@ def command_refresh() -> int:
             print(f"ok    {connection['integration_slug']} · {connection['cliente']}")
         except oauth.NeedsReauth as exc:
             failed_count += 1
-            rest.update(
-                CONNECTIONS_TABLE,
-                {"id": f"eq.{connection['id']}"},
-                {"estado": "needs_reauth", "last_error": str(exc)[:500]},
-            )
-            rest.audit(
-                "token_refresh_failed",
-                slug=connection["integration_slug"],
-                actor="worker",
-                detail={"cliente": connection["cliente"]},
-            )
+            _mark_needs_reauth(rest, connection, exc)
             print(f"reauth {connection['integration_slug']} · {connection['cliente']}")
         except Exception as exc:
             failed_count += 1
@@ -399,7 +509,29 @@ def command_refresh() -> int:
     return 1 if failed_count else 0
 
 
-def _rotate_token(rest: _Rest, connection: dict, private_pem: str, public_pem: str) -> None:
+def _mark_needs_reauth(rest: _Rest, connection: dict, exc: Exception) -> None:
+    rest.update(
+        CONNECTIONS_TABLE,
+        {"id": f"eq.{connection['id']}"},
+        {"estado": "needs_reauth", "last_error": str(exc)[:500]},
+    )
+    rest.audit(
+        "token_refresh_failed",
+        slug=connection["integration_slug"],
+        actor="worker",
+        detail={"cliente": connection["cliente"]},
+    )
+
+
+def _rotate_token(rest: _Rest, connection: dict, private_pem: str, public_pem: str) -> oauth.TokenSet:
+    """Mint a fresh access token and persist whatever the provider handed back.
+
+    A rotating provider (Mercado Libre) has already spent the old token by the
+    time this returns, so the replacement is persisted before anything else can
+    fail — and the previous generation is kept so a crash here does not orphan
+    the account. A non-rotating one (Login with Amazon) keeps its token; only
+    the timestamps move, which is what makes this pass a liveness probe.
+    """
     slug = connection["integration_slug"]
     integration = catalog.by_slug(slug)
     if integration is None:
@@ -412,31 +544,125 @@ def _rotate_token(rest: _Rest, connection: dict, private_pem: str, public_pem: s
         client_id=client_id,
         client_secret=client_secret,
         refresh_token=current_token,
+        rotates=integration.refresh_rotates,
     )
-    # The old token is already spent by the call above, so the replacement is
-    # persisted before anything else can fail — and the previous generation is
-    # kept so a crash here does not orphan the account.
-    rest.update(
+    changes = {
+        "token_rotated_at": _now_iso(),
+        "access_expires_at": _expiry_iso(tokens.expires_in),
+        "last_error": "",
+    }
+    if integration.refresh_rotates or tokens.refresh_token != current_token:
+        changes["refresh_token_sealed"] = crypto.seal(tokens.refresh_token, public_pem)
+    if integration.refresh_rotates:
+        changes["refresh_token_prev_sealed"] = connection["refresh_token_sealed"]
+    rest.update(CONNECTIONS_TABLE, {"id": f"eq.{connection['id']}"}, changes)
+    rest.audit("token_refresh", slug=slug, actor="worker", detail={"cliente": connection["cliente"]})
+    return tokens
+
+
+def _expire_consents(rest: _Rest) -> None:
+    """A consent past its provider's lifetime is dead whether or not the token
+    still answers: mark it before anyone relies on it. Never breaks the run."""
+    today = date.today()
+    for integration in catalog.all_integrations():
+        lifetime = integration.refresh_token_lifetime_days
+        if lifetime <= 0:
+            continue
+        cutoff = (today - timedelta(days=lifetime)).isoformat()
+        try:
+            rows = rest.select(
+                CONNECTIONS_TABLE,
+                {
+                    "select": "id,cliente,consent_date",
+                    "integration_slug": f"eq.{integration.slug}",
+                    "estado": "eq.activo",
+                    "consent_date": f"lt.{cutoff}",
+                },
+            )
+            for row in rows:
+                rest.update(
+                    CONNECTIONS_TABLE,
+                    {"id": f"eq.{row['id']}"},
+                    {"estado": "needs_reauth",
+                     "last_error": f"el consentimiento venció ({lifetime} días)"},
+                )
+                rest.audit("consent_expired", slug=integration.slug, actor="worker",
+                           detail={"cliente": row.get("cliente"),
+                                   "consent_date": row.get("consent_date")})
+                print(f"expired {integration.slug} · {row.get('cliente')}")
+        except Exception as exc:
+            log.warning("could not expire consents for %s: %s", integration.slug, exc)
+
+
+def command_discover() -> int:
+    """Re-run identity discovery on every live authorization of a provider whose
+    accounts are discovered, so a client added to an employee's Amazon user
+    shows up without asking that employee to consent again."""
+    rest = _rest_worker()
+    private_pem = ensure_keys(rest)
+    public_pem = crypto.public_from_private(private_pem)
+
+    slugs = [i.slug for i in catalog.all_integrations() if i.discovers_accounts]
+    if not slugs:
+        print("no integration discovers accounts")
+        return 0
+    connections = rest.select(
         CONNECTIONS_TABLE,
-        {"id": f"eq.{connection['id']}"},
         {
-            "refresh_token_sealed": crypto.seal(tokens.refresh_token, public_pem),
-            "refresh_token_prev_sealed": connection["refresh_token_sealed"],
-            "token_rotated_at": _now_iso(),
-            "access_expires_at": _expiry_iso(tokens.expires_in),
-            "last_error": "",
+            "select": "id,integration_slug,cliente,cuenta_externa_id,refresh_token_sealed,conectado_por",
+            "integration_slug": f"in.({','.join(slugs)})",
+            "estado": "eq.activo",
         },
     )
-    rest.audit("token_refresh", slug=slug, actor="worker", detail={"cliente": connection["cliente"]})
+    if not connections:
+        print("no authorizations to discover")
+        return 0
+
+    failed_count = 0
+    for connection in connections:
+        slug = connection["integration_slug"]
+        try:
+            tokens = _rotate_token(rest, connection, private_pem, public_pem)
+            client_id, _ = _active_credential(rest, slug, private_pem)
+            identity = _resolve_identity(slug, tokens, client_id=client_id,
+                                         requested_by=connection.get("conectado_por") or "")
+            if identity.external_id != connection["cuenta_externa_id"]:
+                raise WorkerError(
+                    f"token answers for {identity.external_id}, row is {connection['cuenta_externa_id']}"
+                )
+            rest.update(
+                CONNECTIONS_TABLE,
+                {"id": f"eq.{connection['id']}"},
+                {"marketplace": identity.marketplace, "metadata": identity.metadata},
+            )
+            _store_discovered_accounts(rest, slug, identity, connection_id=int(connection["id"]))
+            print(f"ok    {slug} · {connection['cliente']} · {len(identity.accounts)} accounts")
+        except oauth.NeedsReauth as exc:
+            failed_count += 1
+            _mark_needs_reauth(rest, connection, exc)
+            print(f"reauth {slug} · {connection['cliente']}")
+        except Exception as exc:
+            failed_count += 1
+            log.error("could not discover %s: %s", connection["id"], exc)
+            print(f"error  {slug} · {connection['cliente']}: {exc}")
+    return 1 if failed_count else 0
 
 
 def _expire_pending_grants(rest: _Rest) -> None:
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=GRANT_TTL_MINUTES)).isoformat()
+    now = datetime.now(timezone.utc)
+    stale_pending = (now - timedelta(minutes=GRANT_TTL_MINUTES)).isoformat()
+    stale_received = (now - timedelta(minutes=CODE_TTL_MINUTES)).isoformat()
     try:
         rest.update(
             PENDING_GRANTS_TABLE,
-            {"estado": "eq.pendiente", "created_at": f"lt.{cutoff}"},
+            {"estado": "eq.pendiente", "created_at": f"lt.{stale_pending}"},
             {"estado": "vencido"},
+        )
+        rest.update(
+            PENDING_GRANTS_TABLE,
+            {"estado": "eq.recibido", "updated_at": f"lt.{stale_received}"},
+            {"estado": "vencido",
+             "error": "el código de autorización venció antes de que el worker lo canjeara"},
         )
     except Exception as exc:
         log.warning("could not expire old grants: %s", exc)
@@ -455,10 +681,15 @@ def _expiry_iso(expires_in: int) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(prog="integrations.worker")
-    parser.add_argument("command", choices=("keys", "grants", "refresh"))
+    parser.add_argument("command", choices=("keys", "grants", "refresh", "discover"))
     args = parser.parse_args(argv)
 
-    commands = {"keys": command_keys, "grants": command_grants, "refresh": command_refresh}
+    commands = {
+        "keys": command_keys,
+        "grants": command_grants,
+        "refresh": command_refresh,
+        "discover": command_discover,
+    }
     try:
         return commands[args.command]()
     except (WorkerError, crypto.SealError, requests.RequestException) as exc:

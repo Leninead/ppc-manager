@@ -645,6 +645,14 @@ def render():
 
     file_sqp = st.file_uploader("Sube tu SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="sqp")
     if not file_sqp:
+        # El montaje del final de render() nunca se alcanza sin archivo, que es
+        # justo la pantalla donde el AM llega primero. El chat no depende del
+        # SQP: tiene cuenta, tools y las skills de la agencia.
+        from core import ai_tab
+        _lang = ai_tab.app_language()
+        ai_tab.mount_analysis_chat(
+            "sqp", None, lang=_lang,
+            labels=ai_tab.ai_labels(_lang, {"chat": "Análisis IA — SQP"}))
         return
 
     df = read_sqp(file_sqp)
@@ -836,13 +844,15 @@ def render():
                                            labels=ai_labels_sqp,
                                            render_result=_render_result)
 
-    # Outside st.tabs so the bubble shows on every tab of the module.
-    if analysis is not None:
-        from core import ai_tab
-        chat_labels = _sqp_row_labels(st.session_state.get(
-            "sqp_ai_records_store", {}).get(analysis.digest, []))
-        chat_field_names = ai_labels_sqp.get("field_names")
-        ai_tab.mount_analysis_chat(
-            "sqp", analysis, lang=ai_lang, labels=ai_labels_sqp,
-            annotate=lambda text: ai_tab.annotate_row_ids(
-                ai_tab.humanize_fields(text, chat_field_names), chat_labels))
+    # Outside st.tabs so the bubble shows on every tab of the module, and
+    # unconditionally: the chat has tools, an account and the agency's skills
+    # before any file exists, so hiding it until an upload made it look like a
+    # feature of the file instead of one of the module.
+    from core import ai_tab
+    chat_labels = _sqp_row_labels(st.session_state.get(
+        "sqp_ai_records_store", {}).get(getattr(analysis, "digest", None), []))
+    chat_field_names = ai_labels_sqp.get("field_names")
+    ai_tab.mount_analysis_chat(
+        "sqp", analysis, lang=ai_lang, labels=ai_labels_sqp,
+        annotate=lambda text: ai_tab.annotate_row_ids(
+            ai_tab.humanize_fields(text, chat_field_names), chat_labels))

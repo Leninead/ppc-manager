@@ -110,7 +110,9 @@ def health(response: Response) -> dict[str, str]:
 @app.get("/oauth/callback", response_class=Response)
 def oauth_callback(request: Request, code: str = "", state: str = "",
                    error: str = "", error_description: str = "") -> Response:
-    """Mercado Libre lands here after the vendor consents.
+    """Any provider lands here after the person consents — Mercado Libre and
+    Login with Amazon today (Amazon also appends a `scope` query param, which
+    is ignored).
 
     Success path: look up the pending grant by `state`, seal the `code` with
     the portal's public key, mark the row as received. The worker picks it up
@@ -120,8 +122,11 @@ def oauth_callback(request: Request, code: str = "", state: str = "",
     should not learn which ones are in flight.
     """
     if error:
-        # Mercado Libre reports user-side denial with error=access_denied.
-        # Show it plainly so the AM knows to try again; don't 500.
+        # A denial (access_denied) or a misconfigured app (invalid_scope,
+        # unauthorized_client) comes back here with the state. Record it on
+        # the pending row so the failure is visible to the team, not only on
+        # the tab the person just closed; then show it plainly, don't 500.
+        _record_provider_error(state, error, error_description, request)
         return _render(
             "Autorización cancelada",
             f"El proveedor devolvió: {error}. {error_description}".strip(),
@@ -229,6 +234,25 @@ async def notifications(request: Request) -> Response:
             log.error("could not persist notification: %s", exc)
 
     return Response(status_code=200)
+
+
+def _record_provider_error(state: str, error: str, description: str,
+                           request: Request) -> None:
+    """Mark the pending grant `fallido` with what the provider said. Best
+    effort: the person still gets the page whether or not the write lands."""
+    if not state:
+        return
+    try:
+        rest = _rest()
+        rest.update(
+            PENDING_GRANTS_TABLE,
+            {"state": f"eq.{state}", "estado": "eq.pendiente"},
+            {"estado": "fallido", "error": f"{error}: {description}".strip(": ")[:500]},
+        )
+        log.info("provider error %s recorded for state %s (ip=%s)",
+                 error, state[:8], _client_ip(request))
+    except Exception as exc:
+        log.warning("could not record provider error for state %s: %s", state[:8], exc)
 
 
 # ── plumbing ──────────────────────────────────────────────────────────────

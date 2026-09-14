@@ -35,6 +35,9 @@ services:
       AGENCY_OS_INNOVATION_BACKEND: local
       # Do NOT set AGENCY_OS_LOCAL_MODE in prod — it disables login (app.py:166).
       CLAUDE_PROVIDER_URL: ${CLAUDE_PROVIDER_URL:-http://ai-provider:3111}  # AI gateway, over ai-net
+      # X-Provider-Token: lets a chat name a client's Amazon Ads account. Same
+      # value as PROVIDER_SHARED_SECRET in the provider's .env.
+      CLAUDE_PROVIDER_SECRET: ${CLAUDE_PROVIDER_SECRET:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       DATADIVE_API_KEY: ${DATADIVE_API_KEY:-}
       # Portal: web_user JWT (never the worker's), the public half of the
