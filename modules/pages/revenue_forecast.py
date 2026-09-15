@@ -4517,23 +4517,68 @@ def _loaded_float(value: Any) -> Optional[float]:
     return None if math.isnan(f) else f
 
 
-def _month_metrics(row: dict) -> dict:
-    """Las 5 métricas del dashboard de una fila (historical/actual/forecast).
+def _ratio_pct(num: Optional[float], den: Optional[float]) -> Optional[float]:
+    """num / den * 100, o None si falta alguno o el divisor es 0."""
+    if num is None or not den:
+        return None
+    return num / den * 100
 
-    ACOS y TACOS se CALCULAN desde spend / ventasPPC / revenue, con las mismas
-    fórmulas que `_build_history_df`; división por cero o dato faltante → None.
+
+# ACOS / TACOS NO salen de la misma fuente en el real y en el proyectado:
+#   - REAL (`_month_actual_metrics`): se CALCULAN desde el spend / ventasPPC /
+#     revenue que efectivamente pasaron. Una key "acos"/"tacos" en la fila se
+#     ignora.
+#   - PROYECTADO (`_month_forecast_metrics`): se LEEN de f["acos"] / f["tacos"],
+#     que el motor escribió respetando los overrides acosTarget / tacosTarget del
+#     AM. Recalcularlos es el bug F6.3c (chart ≠ tabla, ver `_acos_tacos_chart`).
+#     El cálculo queda SOLO como fallback para una fila sin el valor.
+
+def _month_actual_metrics(row: dict) -> dict:
+    """Las 5 métricas del dashboard de una fila REAL (historical o actual).
+
+    ACOS y TACOS se CALCULAN desde spend / ventasPPC / revenue (mismas fórmulas
+    que `_build_history_df`); división por cero o dato faltante → None. Nunca se
+    lee una key "acos"/"tacos" de la fila: el real es lo que pasó con el gasto.
     """
     revenue = _loaded_float(row.get("revenue"))
     spend = _loaded_float(row.get("spend"))
     vppc = _loaded_float(row.get("ventasPPC"))
-    acos = (spend / vppc * 100) if (spend is not None and vppc) else None
-    tacos = (spend / revenue * 100) if (spend is not None and revenue) else None
     return {
         "revenue": revenue,
         "ventasPPC": vppc,
         "spend": spend,
-        "acos": acos,
-        "tacos": tacos,
+        "acos": _ratio_pct(spend, vppc),
+        "tacos": _ratio_pct(spend, revenue),
+    }
+
+
+def _month_forecast_metrics(row: dict) -> dict:
+    """Las 5 métricas del dashboard de una fila de FORECAST (snapshot).
+
+    ACOS y TACOS se LEEN de `row["acos"]` / `row["tacos"]` cuando están cargados
+    (criterio `_loaded_float`; un 0 es dato). Recién si no están se calculan
+    desde spend / ventasPPC / revenue, y si tampoco se puede → None.
+
+    NO "simplificar" a calcular siempre: el motor escribe acos/tacos respetando
+    los overrides acosTarget / tacosTarget del AM, y la tabla y el chart de M31
+    los LEEN (ver el docstring de `_acos_tacos_chart`, bug F6.3c: chart ≠
+    tabla). Recalcular hace que el dashboard muestre un número distinto del que
+    el AM ve en M31. Medido sobre filas del motor: con tacosTarget difiere por
+    el redondeo del spend (8.3298 vs 8.33), y diverge en serio en los bordes —
+    spend 0 con acosTarget (tabla 15, cálculo None), sin acosTarget (tabla 0,
+    cálculo None), revenue 0 (tabla 0, cálculo None).
+    """
+    revenue = _loaded_float(row.get("revenue"))
+    spend = _loaded_float(row.get("spend"))
+    vppc = _loaded_float(row.get("ventasPPC"))
+    acos = _loaded_float(row.get("acos"))
+    tacos = _loaded_float(row.get("tacos"))
+    return {
+        "revenue": revenue,
+        "ventasPPC": vppc,
+        "spend": spend,
+        "acos": acos if acos is not None else _ratio_pct(spend, vppc),
+        "tacos": tacos if tacos is not None else _ratio_pct(spend, revenue),
     }
 
 
@@ -4578,20 +4623,20 @@ def _month_actual(cur: dict, period: str) -> Optional[dict]:
         (r for r in cur.get("historical", []) if r.get("date") == key), None
     )
     if hist_row is not None and _loaded_float(hist_row.get("spend")) is not None:
-        return {**_month_metrics(hist_row), "partial": False, "source": "historical"}
+        return {**_month_actual_metrics(hist_row), "partial": False, "source": "historical"}
 
     act_row = next(
         (r for r in cur.get("actual", []) if r.get("date") == key), None
     )
     if act_row is not None:
         return {
-            **_month_metrics(act_row),
+            **_month_actual_metrics(act_row),
             "partial": act_row.get("partial"),
             "source": "actual",
         }
 
     if hist_row is not None:
-        return {**_month_metrics(hist_row), "partial": False, "source": "historical"}
+        return {**_month_actual_metrics(hist_row), "partial": False, "source": "historical"}
     return None
 
 
@@ -4603,9 +4648,19 @@ def _month_forecast(cur: dict, period: str) -> Optional[dict]:
     mes → None, sin extrapolar ni caer al forecast activo: un denominador
     inventado es peor que una celda vacía.
 
-    ACOS y TACOS se recalculan desde spend / ventasPPC / revenue del snapshot
-    (mismas fórmulas que `_month_actual`), así los dos lados del dashboard usan
-    la misma definición.
+    ACOS y TACOS se LEEN de la fila del snapshot (`row["acos"]` / `row["tacos"]`)
+    y sólo si faltan se calculan desde spend / ventasPPC / revenue. Coherencia
+    con F6.3c: el motor los escribió respetando los overrides acosTarget /
+    tacosTarget del AM, y la tabla y el chart de M31 los leen (ver
+    `_acos_tacos_chart` y `_month_forecast_metrics`). Recalcularlos mostraría
+    en el dashboard un ACOS proyectado distinto del que el AM ve en M31.
+
+    CONSECUENCIA: el ACOS real y el ACOS proyectado NO salen de la misma
+    definición. El real (`_month_actual`) se calcula desde el gasto que
+    efectivamente pasó; el proyectado es el target que el AM fijó (si no fijó
+    acosTarget, el motor escribe 0.0 y eso es lo que sale, igual que en la
+    tabla). Comparar los dos —el delta en puntos del mockup— es justamente lo
+    que el dashboard quiere mostrar, pero son dos cosas distintas.
 
     Args:
         cur: dict del cliente.
@@ -4627,7 +4682,7 @@ def _month_forecast(cur: dict, period: str) -> Optional[dict]:
     if row is None:
         return None
     return {
-        **_month_metrics(row),
+        **_month_forecast_metrics(row),
         "source": "baseline",
         "snapshot_name": baseline.get("name"),
         "snapshot_created_at": baseline.get("created_at"),
