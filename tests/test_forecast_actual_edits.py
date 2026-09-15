@@ -100,10 +100,16 @@ class TestBuildActualDf:
         assert pd.isna(df.iloc[0]["TACOS%"])
 
     def test_spend_y_ventas_ppc_son_float64_no_object(self):
-        """Load-bearing (bug G1). Si estas columnas pasan a `object` —mezclando
-        float con '' por ejemplo— Streamlit 1.43.2 las marca Arrow-incompatibles
-        y DESHABILITA la edición en el data_editor. El síntoma en producción es
-        un editor congelado sin error visible; acá es un test en rojo.
+        """Pin de dtype de Spend / Ventas PPC.
+
+        Ojo con la causa: object NO congela el editor. Streamlit 1.43.2
+        deshabilita las columnas que `is_colum_type_arrow_incompatible`
+        (streamlit/dataframe_util.py:1036) marca incompatibles, y a una columna
+        object le pregunta a pandas qué contiene vía `infer_dtype`. Lo que rompe
+        es MEZCLAR float y '' (bug G1): eso da "mixed" y la columna queda
+        deshabilitada, sin error visible. Este test fija float64 para no
+        depender de la inferencia; el efecto real sobre el editor lo cubre
+        `test_render_actual_table_spend_editable_con_todo_none`.
         """
         df = rf._build_actual_df([
             _row("2026-06-01", spend=None, ventas_ppc=None),
