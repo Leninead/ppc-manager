@@ -1947,6 +1947,43 @@ def _update_historical_row(idx: int, field: str, value: Any, state: Optional[Any
     return True
 
 
+def _update_actual_row(idx: int, field: str, value: Any, state: Optional[Any] = None) -> bool:
+    """Actualiza un campo (spend / ventasPPC) de una fila de la capa `actual`.
+
+    Espejo de `_update_historical_row`, pero sobre `c["actual"]`. NUNCA escribe
+    sobre `historical`: un mes cerrado vive en las dos capas con la misma fecha,
+    y apuntar a la lista equivocada pisaría el spend que el AM ya cargó ahí.
+
+    Args:
+        idx: índice del registro en `actual` (NO en el sort desc del UI).
+        field: 'spend' o 'ventasPPC'.
+        value: nuevo valor (None / '' / NaN / número).
+        state: dict-like; default `st.session_state`.
+
+    Returns:
+        True si se aplicó; False si el field no es editable, no hay cliente
+        activo o idx está fuera de rango.
+    """
+    if state is None:
+        state = st.session_state
+    if field not in ("spend", "ventasPPC"):
+        return False
+    c = _cur_client(state)
+    if c is None:
+        return False
+    actual = c.get("actual", [])
+    if not (0 <= idx < len(actual)):
+        return False
+    if value == "" or value is None or (isinstance(value, float) and math.isnan(value)):
+        actual[idx][field] = None
+    else:
+        try:
+            actual[idx][field] = float(value)
+        except (ValueError, TypeError):
+            actual[idx][field] = None
+    return True
+
+
 def _update_account_config(
     field: str, value: Any, state: Optional[Any] = None,
 ) -> bool:
@@ -2091,7 +2128,8 @@ def _build_history_df(historical: list[dict], currency: str = "USD") -> pd.DataF
     mapearse de vuelta a `historical[i]` sin perder el orden de carga.
 
     Normalización Arrow-safe:
-        - spend / ventasPPC None → '' (data_editor maneja strings vacíos OK).
+        - spend / ventasPPC None → NaN (NO '': mezclar str y float vuelve la
+          columna object y Streamlit 1.43.2 deshabilita la edición — bug G1).
         - Resto de números: NaN ya viene de pandas si parseNum devuelve 0,
           acá los dejamos float — Arrow los tolera.
     """
@@ -2165,6 +2203,91 @@ def _apply_history_edits(
         # Solo escribimos los 2 campos editables — el resto del df es display-only.
         _update_historical_row(idx, "spend", row.get("Spend", ""), state=state)
         _update_historical_row(idx, "ventasPPC", row.get("Ventas PPC", ""), state=state)
+        written += 1
+    return written
+
+
+# Columnas numéricas del editor que pueden venir enteras en None. pandas arma
+# esas columnas como `object` (medido: `_build_history_df` con todo el spend en
+# None da object), y un `object` es justo lo que congela el data_editor (G1).
+_ACTUAL_FLOAT_COLS = ("Spend", "Ventas PPC", "ACOS%", "TACOS%")
+
+
+def _build_actual_df(actual: list[dict], currency: str = "USD") -> pd.DataFrame:
+    """Construye el DataFrame del `st.data_editor` de la capa `actual`.
+
+    Espejo de `_build_history_df`: mismas columnas, mismo orden, mismo sort DESC
+    y `_idx` apuntando a la lista cruda. Reusa esa función en vez de duplicarla,
+    así las dos tablas no pueden divergir en fórmulas.
+
+    Dos diferencias:
+        - "Mes" marca el mes parcial: "Julio 2026 (parcial · 12 d)" con días
+          medidos, "Julio 2026 (parcial)" sin días, "Julio 2026" si `partial` es
+          False o None. Existe para que el AM no cargue el spend de 12 días
+          creyendo que carga el mes completo.
+        - Spend / Ventas PPC / ACOS% / TACOS% se fuerzan a float64 aunque todas
+          las filas vengan en None. En `actual` ese es el caso NORMAL (el uploader
+          deja spend=None), y sin el cast la columna nace object.
+
+    Args:
+        actual: filas de la capa `actual`. Para mostrar el parcial resuelto,
+            pasarlas antes por `_resolve_partial` (devuelve copias en el mismo
+            orden, así `_idx` sigue siendo válido contra la lista cruda).
+        currency: moneda del cliente (se pasa tal cual a `_build_history_df`).
+
+    Returns:
+        DataFrame con columnas `_idx | Mes | Revenue | Units | Sessions | CVR% |
+        AOV | Spend | Ventas PPC | ACOS% | TACOS%`. Lista vacía → DataFrame
+        vacío con esas columnas.
+    """
+    df = _build_history_df(actual, currency=currency)
+    if df.empty:
+        return df
+
+    labels = []
+    for i in df["_idx"]:
+        r = actual[int(i)]
+        try:
+            year, month, _ = r["date"].split("-")
+            label = f"{_MONTHS_FULL[int(month) - 1]} {year}"
+        except (ValueError, KeyError, IndexError, AttributeError):
+            label = r.get("date", "")
+        if r.get("partial") is True:
+            days = r.get("days_covered")
+            if isinstance(days, int) and not isinstance(days, bool):
+                label += f" (parcial · {days} d)"
+            else:
+                label += " (parcial)"
+        labels.append(label)
+    df["Mes"] = labels
+
+    for col in _ACTUAL_FLOAT_COLS:
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
+    return df
+
+
+def _apply_actual_edits(
+    edited_df: pd.DataFrame, state: Optional[Any] = None,
+) -> int:
+    """Re-aplica las ediciones de Spend / Ventas PPC del editor de `actual`.
+
+    Espejo de `_apply_history_edits`: lee `_idx` (oculto) y escribe vía
+    `_update_actual_row`, que normaliza ''/NaN → None y castea a float.
+
+    Args:
+        edited_df: DataFrame devuelto por el `st.data_editor` de `actual`.
+        state: dict-like; default `st.session_state`.
+
+    Returns:
+        Cantidad de filas escritas.
+    """
+    if edited_df is None or edited_df.empty:
+        return 0
+    written = 0
+    for _, row in edited_df.iterrows():
+        idx = int(row["_idx"])
+        _update_actual_row(idx, "spend", row.get("Spend", ""), state=state)
+        _update_actual_row(idx, "ventasPPC", row.get("Ventas PPC", ""), state=state)
         written += 1
     return written
 
@@ -3768,6 +3891,70 @@ def _render_actual_upload(cur: dict) -> None:
         if st.session_state.get(k_sig) != sig:
             st.session_state[k_sig] = sig
             st.rerun()
+
+
+def _render_actual_table(cur: dict) -> None:
+    """Editor de Spend / Ventas PPC sobre la capa `actual` (el mes real).
+
+    Función aparte y NO al final de `_render_actual_upload` a propósito: esa
+    función corta con `return` cuando no hay archivo subido y en cada camino de
+    error, y un bloque agregado abajo quedaría invisible justo cuando el AM
+    vuelve a la pantalla sin re-subir nada.
+
+    Display vs escritura: las filas se muestran pasadas por `_resolve_partial`
+    (copias en el mismo orden, así `_idx` sigue siendo válido), pero las
+    ediciones van sobre `cur["actual"]` crudo vía `_update_actual_row`. El
+    `partial` resuelto contra HOY no se persiste: mañana la respuesta cambia.
+
+    NO llama `_try_persist()`: el AM guarda con el botón 💾, igual que el editor
+    del histórico.
+    """
+    st.markdown("##### Mes real — inversión de Ads")
+    actual = cur.get("actual", [])
+    if not actual:
+        st.caption(
+            "Sin mes real cargado. Subí primero el reporte en \"Cargar mes real\" "
+            "para poder cargar su Spend y Ventas PPC."
+        )
+        return
+    st.caption(
+        "Spend y Ventas PPC del mes real (manual — el Business Report no los "
+        "trae). Un mes marcado \"parcial\" todavía está corriendo: cargá el "
+        "gasto de los días que cubre el reporte, no el del mes completo."
+    )
+
+    df = _build_actual_df(
+        _resolve_partial(actual), currency=cur.get("currency", "USD"),
+    )
+
+    # data_editor: solo Spend y Ventas PPC editables; el resto read-only.
+    edited = st.data_editor(
+        df,
+        key=f"rf_actual_editor_{cur['id']}",
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "_idx": None,  # ocultar índice interno
+            "Mes": st.column_config.TextColumn("Mes", disabled=True),
+            "Revenue": st.column_config.NumberColumn("Revenue", format="%.2f", disabled=True),
+            "Units": st.column_config.NumberColumn("Units", format="%d", disabled=True),
+            "Sessions": st.column_config.NumberColumn("Sessions", format="%d", disabled=True),
+            "CVR%": st.column_config.NumberColumn("CVR%", format="%.2f", disabled=True),
+            "AOV": st.column_config.NumberColumn("AOV", format="%.2f", disabled=True),
+            "Spend": st.column_config.NumberColumn(
+                "Spend", format="%.2f", help="Inversión de Ads del mes real (manual).",
+            ),
+            "Ventas PPC": st.column_config.NumberColumn(
+                "Ventas PPC", format="%.2f", help="Ventas atribuidas a Ads del mes real (manual).",
+            ),
+            "ACOS%": st.column_config.NumberColumn("ACOS%", format="%.1f", disabled=True),
+            "TACOS%": st.column_config.NumberColumn("TACOS%", format="%.1f", disabled=True),
+        },
+    )
+
+    if edited is not None and not edited.equals(df):
+        _apply_actual_edits(edited)
+        st.rerun()
 
 
 def _render_quick_stats(cur: dict) -> None:
@@ -6073,6 +6260,7 @@ def render() -> None:
     _render_upload_and_demo(cur)
     st.markdown("")
     _render_actual_upload(cur)
+    _render_actual_table(cur)
     st.markdown("")
     _render_quick_stats(cur)
     st.markdown("")
