@@ -4476,6 +4476,164 @@ def _get_baseline_snapshot(cur: dict) -> Optional[dict]:
     return None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# B1c — Resolver de un mes para el dashboard global ("proyecté / pasó")
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Funciones puras: sin Streamlit, sin session_state, sin `date.today()`. Las
+# consume el dashboard global en el bloque 2, que piensa en meses ("YYYY-MM"),
+# no en fechas.
+
+_MONTH_PERIOD_RE = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])(?:-01)?$")
+
+
+def _month_key(period: Any) -> Optional[str]:
+    """Normaliza "YYYY-MM" (o "YYYY-MM-01") a la fecha de fila "YYYY-MM-01".
+
+    Returns:
+        La key "YYYY-MM-01", o None si `period` no es un mes válido.
+    """
+    if not isinstance(period, str):
+        return None
+    m = _MONTH_PERIOD_RE.match(period.strip())
+    if m is None:
+        return None
+    return f"{m.group(1)}-{m.group(2)}-01"
+
+
+def _loaded_float(value: Any) -> Optional[float]:
+    """Valor numérico cargado, o None si es "sin dato".
+
+    Mismo criterio que `_update_actual_row`: None, '' y NaN son los tres "sin
+    dato". Un NaN que pasara como dato rompería el denominador de ACOS/TACOS.
+    Un 0 SÍ es dato.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        f = float(value)
+    except (ValueError, TypeError):
+        return None
+    return None if math.isnan(f) else f
+
+
+def _month_metrics(row: dict) -> dict:
+    """Las 5 métricas del dashboard de una fila (historical/actual/forecast).
+
+    ACOS y TACOS se CALCULAN desde spend / ventasPPC / revenue, con las mismas
+    fórmulas que `_build_history_df`; división por cero o dato faltante → None.
+    """
+    revenue = _loaded_float(row.get("revenue"))
+    spend = _loaded_float(row.get("spend"))
+    vppc = _loaded_float(row.get("ventasPPC"))
+    acos = (spend / vppc * 100) if (spend is not None and vppc) else None
+    tacos = (spend / revenue * 100) if (spend is not None and revenue) else None
+    return {
+        "revenue": revenue,
+        "ventasPPC": vppc,
+        "spend": spend,
+        "acos": acos,
+        "tacos": tacos,
+    }
+
+
+def _month_actual(cur: dict, period: str) -> Optional[dict]:
+    """El actual ("esto pasó") de un mes, para el dashboard global.
+
+    Regla de prioridad:
+        1. Si el mes existe en `historical` CON spend cargado → ese es el actual.
+        2. Si no, se busca en `actual`.
+        3. Si no está en `actual` pero sí en `historical` (sin spend) → sale de
+           `historical` con spend None y ratios None. El revenue del mes es un
+           dato real; devolver None diría "no hay dato", que es falso.
+        4. Si no está en ninguna capa → None (NO un dict de ceros: un cero es un
+           dato y "no hay dato" no es cero).
+
+    El orden existe para que el AM no cargue el mismo número dos veces: los meses
+    cerrados ya los carga en `historical` con la tabla de siempre.
+
+    "Spend cargado" usa el mismo criterio que `_update_actual_row`: None, '' y
+    NaN son "sin dato". Si `historical` tiene spend pero NO ventasPPC (el AM
+    cargó el gasto y todavía no las ventas PPC), SIGUE GANANDO `historical`, con
+    ventasPPC None y acos None: el AM ya declaró el mes cerrado al cargarle el
+    spend, y no se cae a `actual` por un campo faltante.
+
+    Args:
+        cur: dict del cliente.
+        period: mes "YYYY-MM" (también se acepta "YYYY-MM-01").
+
+    Returns:
+        {"revenue", "ventasPPC", "spend", "acos", "tacos", "partial", "source"},
+        o None si el mes no existe o `period` es inválido. `source` es
+        "historical" o "actual". `partial` es False para `historical` (sus filas
+        no llevan cobertura); para `actual` es el valor guardado tal cual —
+        True/False medido, o None cuando la cobertura es desconocida (BR
+        mensual). Resolverlo contra hoy es de `_resolve_partial`, no de acá.
+    """
+    key = _month_key(period)
+    if key is None:
+        return None
+
+    hist_row = next(
+        (r for r in cur.get("historical", []) if r.get("date") == key), None
+    )
+    if hist_row is not None and _loaded_float(hist_row.get("spend")) is not None:
+        return {**_month_metrics(hist_row), "partial": False, "source": "historical"}
+
+    act_row = next(
+        (r for r in cur.get("actual", []) if r.get("date") == key), None
+    )
+    if act_row is not None:
+        return {
+            **_month_metrics(act_row),
+            "partial": act_row.get("partial"),
+            "source": "actual",
+        }
+
+    if hist_row is not None:
+        return {**_month_metrics(hist_row), "partial": False, "source": "historical"}
+    return None
+
+
+def _month_forecast(cur: dict, period: str) -> Optional[dict]:
+    """El forecast ("esto proyecté") de un mes, leído del snapshot BASELINE.
+
+    Nunca lee el forecast vivo del cliente: el cumplimiento se mide contra el
+    plan oficial marcado con ⭐. Sin baseline → None. Baseline que no cubre ese
+    mes → None, sin extrapolar ni caer al forecast activo: un denominador
+    inventado es peor que una celda vacía.
+
+    ACOS y TACOS se recalculan desde spend / ventasPPC / revenue del snapshot
+    (mismas fórmulas que `_month_actual`), así los dos lados del dashboard usan
+    la misma definición.
+
+    Args:
+        cur: dict del cliente.
+        period: mes "YYYY-MM" (también se acepta "YYYY-MM-01").
+
+    Returns:
+        {"revenue", "ventasPPC", "spend", "acos", "tacos", "source",
+        "snapshot_name", "snapshot_created_at"} con source="baseline", o None.
+    """
+    key = _month_key(period)
+    if key is None:
+        return None
+    baseline = _get_baseline_snapshot(cur)
+    if baseline is None:
+        return None
+    row = next(
+        (r for r in baseline.get("forecast") or [] if r.get("date") == key), None
+    )
+    if row is None:
+        return None
+    return {
+        **_month_metrics(row),
+        "source": "baseline",
+        "snapshot_name": baseline.get("name"),
+        "snapshot_created_at": baseline.get("created_at"),
+    }
+
+
 def _build_snapshot_comparison_df(cur: dict, snapshot_ids: list) -> pd.DataFrame:
     """Tabla comparativa: una fila por snapshot, los 8 totales como columnas.
 
