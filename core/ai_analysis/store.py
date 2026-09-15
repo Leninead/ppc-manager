@@ -5,6 +5,7 @@ The app reads and asks through the migration's functions; only the analysis work
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
@@ -34,7 +35,10 @@ TRIGGER_MANUAL = "manual"
 
 _SUMMARY_COLUMNS = ("id,module,subject_id,window_start,window_end,lang,params,params_digest,input_digest,"
                     "agent_version,status,trigger,requested_by,job_id,source_last_success_at,result,model,"
-                    "duration_ms,created_at,finished_at")
+                    "duration_ms,created_at,finished_at,negative_records,harvest_records")
+_LATEST_COLUMNS = "id,module,subject_id,window_start,window_end,lang,params,finished_at,synthesis:result->synthesis"
+_RECORDS_COLUMNS = "id,negative_records,harvest_records"
+_LATEST_ROWS_PER_SUBJECT = 4
 _ERROR_MAX_CHARS = 500
 
 
@@ -167,12 +171,46 @@ class AiAnalysisStore:
 
     def history(self, module: str, subject_id: str, *, limit: int,
                 exclude_id: int | None = None) -> list[StoredAnalysis]:
-        """Finished analyses of the account, newest first, without their row records."""
+        """Finished analyses of the account, newest first."""
         params = {"select": _SUMMARY_COLUMNS, "module": f"eq.{module}", "subject_id": f"eq.{subject_id}",
                   "status": f"eq.{STATUS_DONE}", "order": "finished_at.desc,id.desc", "limit": str(limit)}
         if exclude_id is not None:
             params["id"] = f"neq.{exclude_id}"
         return [StoredAnalysis.from_row(row) for row in self._rest.select(ANALYSES_TABLE, params)]
+
+    def latest_by_subject(self, module: str, subject_ids: Iterable[str]) -> list[StoredAnalysis]:
+        """The newest finished analysis of each subject, with its synthesis and row records, in subject order.
+
+        PostgREST cannot limit rows per subject, so one read covers most of them and a subject whose
+        newest analysis did not fit in it is read on its own.
+        """
+        wanted = list(dict.fromkeys(str(subject_id) for subject_id in subject_ids))
+        if not wanted:
+            return []
+        limit = len(wanted) * _LATEST_ROWS_PER_SUBJECT
+        rows = self._rest.select(ANALYSES_TABLE, {
+            "select": _LATEST_COLUMNS, "module": f"eq.{module}", "status": f"eq.{STATUS_DONE}",
+            "subject_id": _in_filter(wanted), "order": "finished_at.desc,id.desc", "limit": str(limit),
+        })
+        newest: dict[str, dict] = {}
+        for row in rows:
+            newest.setdefault(row["subject_id"], row)
+        if len(rows) >= limit:
+            for subject_id in wanted:
+                if subject_id not in newest:
+                    found = self._rest.select(ANALYSES_TABLE, {
+                        "select": _LATEST_COLUMNS, "module": f"eq.{module}", "status": f"eq.{STATUS_DONE}",
+                        "subject_id": f"eq.{subject_id}", "order": "finished_at.desc,id.desc", "limit": "1",
+                    })
+                    if found:
+                        newest[subject_id] = found[0]
+        if not newest:
+            return []
+        records = {row["id"]: row for row in self._rest.select(ANALYSES_TABLE, {
+            "select": _RECORDS_COLUMNS, "id": _in_filter(sorted(row["id"] for row in newest.values())),
+        })}
+        return [_with_synthesis_only({**newest[subject_id], **records.get(newest[subject_id]["id"], {})})
+                for subject_id in wanted if subject_id in newest]
 
     def settings(self, module: str, subject_id: str) -> AnalysisSettings | None:
         rows = self._rest.select(SETTINGS_TABLE, {"select": "params,updated_by,updated_at",
@@ -263,6 +301,10 @@ class AiAnalysisStore:
         self._rest.update(ANALYSES_TABLE, {"id": f"eq.{analysis_id}"}, {
             "status": STATUS_FAILED, "error_message": message[:_ERROR_MAX_CHARS], "finished_at": now.isoformat(),
         })
+
+
+def _with_synthesis_only(row: dict) -> StoredAnalysis:
+    return StoredAnalysis.from_row({**row, "result": {"synthesis": row.get("synthesis") or {}}})
 
 
 def _settings(row: dict) -> AnalysisSettings:

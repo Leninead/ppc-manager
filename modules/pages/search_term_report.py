@@ -13,7 +13,12 @@ import pandas as pd
 import plotly.express as px
 
 from ai.agent_call import build_agent_call
-from core.ai_analysis.chat_context import PREVIOUS_ANALYSES, analysis_chat_documents
+from core.ai_analysis.chat_context import (
+    PREVIOUS_ANALYSES,
+    analysis_chat_documents,
+    current_analysis_text,
+    in_memory_analysis,
+)
 from core.ai_analysis.store import TRIGGER_SCHEDULED, AiAnalysisStore
 from core.bulk_export import build_adgroup_negative, write_bulk_excel
 from core.integrations.store import StoreError
@@ -418,8 +423,7 @@ def _render_negatives_bulk(candidates, unfiltered_frame, source, day, *, price_m
 
 # STR-only UI strings; everything shared comes from core/ai_tab's label base.
 _STR_LABELS = {
-    "es": {"chat": "Análisis IA — STR",
-           "caption": "Análisis ejecutivo generado por IA sobre los "
+    "es": {"caption": "Análisis ejecutivo generado por IA sobre los "
                       "candidatos detectados",
            "disabled": "Análisis IA deshabilitado (AI_ENABLED=0).",
            "table_neg": "Candidatos a negativizar (Alta/Media) — lectura IA",
@@ -433,8 +437,7 @@ _STR_LABELS = {
            "cat_dudosa": "revisar categoría",
            "neg_word": "negativos", "harv_word": "harvest",
            "camp_word": "campañas"},
-    "en": {"chat": "AI Analysis — STR",
-           "caption": "AI-generated executive analysis over the detected "
+    "en": {"caption": "AI-generated executive analysis over the detected "
                       "candidates",
            "disabled": "AI analysis disabled (AI_ENABLED=0).",
            "table_neg": "Negative candidates (High/Med) — AI read",
@@ -697,7 +700,10 @@ def _stored_analysis_caption(stored):
 
 
 def _render_stored_analysis(source, ai_input, params, *, lang, labels):
-    """Tab 4 for Amazon Ads data: the stored analysis of exactly these data and parameters, never an older one."""
+    """Tab 4 for Amazon Ads data: the stored analysis of exactly these data and parameters, never an older one.
+
+    Returns it with the state the app chat is told, or None with the state that explains why there is none."""
+    from core.app_chat import AnalysisState
     feedback = st.session_state.pop(_AI_REQUEST_FEEDBACK_KEY, None)
     if feedback:
         st.toast(feedback)
@@ -708,7 +714,7 @@ def _render_stored_analysis(source, ai_input, params, *, lang, labels):
     except (requests.RequestException, StoreError) as exc:
         log.warning("stored analysis for %s could not be read: %s", source.profile_id, exc)
         st.error("No se pudo leer el análisis IA guardado. Probá de nuevo en unos segundos.")
-        return None
+        return None, AnalysisState.MISSING
 
     if stored is not None:
         st.caption(_stored_analysis_caption(stored))
@@ -717,17 +723,17 @@ def _render_stored_analysis(source, ai_input, params, *, lang, labels):
                               list(stored.params.get("brand_terms") or []), labels, source.currency_code,
                               # Same fingerprint, so these are the campaign figures the stored analysis read.
                               campaign_records=ai_input.data.campanas)
-        return stored
+        return stored, AnalysisState.CURRENT
     if job is not None and job.is_open:
         _render_analysis_generating(source.profile_id, call.input_digest, job)
-        return None
+        return None, AnalysisState.RUNNING
     if job is not None and job.status == "failed":
         st.error(f"El análisis IA de estos datos falló: {job.error_message or job.error_class}")
         if st.button("Reintentar", key="str_ai_retry_job"):
             _retry_analysis_job(job)
-        return None
+        return None, AnalysisState.FAILED
     _render_analysis_request(source, ai_input, params, call.input_digest, lang=lang)
-    return None
+    return None, AnalysisState.MISSING
 
 
 def _render_analysis_generating(profile_id, input_digest, job):
@@ -814,6 +820,42 @@ def _analysis_chat_context(source, stored):
     return docs, key
 
 
+def _share_stored_analysis(source, stored, state) -> None:
+    """The app chat reads the account's analysis on screen and its earlier ones, and whether there is one."""
+    from ai.config import AI_ENABLED
+    from core import ai_tab, app_chat
+    from core.ai_analysis.account_summaries import account_labels
+    if not AI_ENABLED:
+        app_chat.withdraw_analysis("str")
+        return
+    docs, key = _analysis_chat_context(source, stored)
+    if not docs:
+        if state == app_chat.AnalysisState.RUNNING:
+            app_chat.report_running("str")
+        elif state == app_chat.AnalysisState.FAILED:
+            app_chat.report_failed("str")
+        else:
+            app_chat.withdraw_analysis("str")
+        return
+    profiles = search_term_source._available_profiles()
+    subject = account_labels(profiles).get(source.profile_id, source.label)
+    country_code = next((profile.country_code for profile in profiles if profile.profile_id == source.profile_id), "")
+    row_labels = _str_row_labels(stored.negative_records, stored.harvest_records) if stored is not None else {}
+    app_chat.share_analysis(app_chat.ChatAnalysis(
+        module="str", key=f"str:{key}", subject=subject,
+        documents=tuple({"title": f"Search Term Report · {subject} · {doc['title']}", "content": doc["content"]}
+                        for doc in docs),
+        annotate=partial(ai_tab.annotate_row_ids, labels_by_id=row_labels),
+        country_code=country_code, profile_id=source.profile_id), state=state)
+
+
+def _file_analysis_reading(analysis, *, params, lang, negative_records, harvest_records, currency_code) -> str:
+    """Read from the analysis itself, so one finished after the AM left the page carries its own moment."""
+    snapshot = in_memory_analysis(analysis.result, params=params, lang=lang, finished_at=analysis.finished_at,
+                                  negative_records=negative_records, harvest_records=harvest_records)
+    return current_analysis_text(snapshot, currency_code)
+
+
 def render():
     _restore_parked_inputs()
     st.header("Search Term Report")
@@ -883,14 +925,8 @@ def render():
     if source is None:
         # A period without searches must not wipe brand terms, prices and filters typed before it.
         _park_inputs(_all_input_keys())
-        # El montaje del final de render() nunca se alcanza sin archivo, que es
-        # justo la pantalla donde el AM llega primero. El chat no depende del
-        # STR: tiene cuenta, tools y las skills de la agencia.
-        from core import ai_tab
-        _lang = ai_tab.app_language()
-        ai_tab.mount_analysis_chat(
-            "str", None, lang=_lang,
-            labels=ai_tab.ai_labels(_lang, {"chat": "Análisis IA — STR"}))
+        from core import app_chat
+        app_chat.withdraw_analysis("str")
         return
 
     df_raw = source.frame
@@ -946,8 +982,9 @@ def render():
     # Pre-init for tab4 (IA) scope
     df_neg = pd.DataFrame()
     df_harv = pd.DataFrame()
-    analysis = None  # AI run; the chat mount after the tabs reads it
+    analysis = None  # AI run; without one the page withdraws its analysis from the app chat
     stored_analysis = None  # the stored analysis tab 4 shows for API data; the chat reads it too
+    stored_state = None  # why tab 4 shows it or not, as the app chat is told
     candidates = None
     ai_labels_str = None
 
@@ -1586,7 +1623,6 @@ def render():
         str_labels = _STR_LABELS.get(ai_lang, _STR_LABELS["es"])
         st.subheader(str_labels["title"])
         st.caption(str_labels["caption"])
-        # The chat mounts after the tabs whether or not AI analysis is enabled, so its labels exist either way.
         ai_labels_str = ai_tab.ai_labels(ai_lang, str_labels)
 
         from ai.config import AI_ENABLED
@@ -1621,8 +1657,8 @@ def render():
                     st.caption("El análisis IA cubre todos los portfolios de la cuenta, no sólo los filtrados.")
                 if existing_exact_kws:
                     st.caption("El análisis IA guardado no usa el Campaign CSV de anti-canibalización.")
-                stored_analysis = _render_stored_analysis(source, ai_input, ai_params, lang=ai_lang,
-                                                          labels=ai_labels_str)
+                stored_analysis, stored_state = _render_stored_analysis(source, ai_input, ai_params, lang=ai_lang,
+                                                                        labels=ai_labels_str)
             else:
                 if price_notice:
                     st.info(price_notice)
@@ -1644,6 +1680,13 @@ def render():
                     ai_tab.render_analysis(analysis, slug="str",
                                            labels=ai_labels_str,
                                            render_result=_render_result)
+                    ai_tab.publish_analysis_to_chat(
+                        "str", analysis, ai_data, module_label="Search Term Report", subject=source.label,
+                        reading=partial(_file_analysis_reading, params=ai_params.as_dict(), lang=ai_lang,
+                                        negative_records=render_neg, harvest_records=render_harv,
+                                        currency_code=currency_code),
+                        annotate=partial(ai_tab.annotate_row_ids,
+                                         labels_by_id=_str_row_labels(render_neg, render_harv)))
 
     # ══════════════════════════════════════════════════════════════
     # TAB 5: Por Campana (NUEVO)
@@ -1784,23 +1827,8 @@ def render():
                 use_container_width=True, key="str_camp_dl",
             )
 
-    # Outside st.tabs so the bubble shows on every tab of the module, and
-    # unconditionally: the chat has tools, an account and the agency's skills
-    # before any file exists, so hiding it until an upload made it look like a
-    # feature of the file instead of one of the module.
-    from core import ai_tab
+    from core import app_chat
     if source.source != SOURCE_FILE:
-        chat_docs, chat_key = _analysis_chat_context(source, stored_analysis)
-        chat_labels = (_str_row_labels(stored_analysis.negative_records, stored_analysis.harvest_records)
-                       if stored_analysis is not None else {})
-        ai_tab.mount_analysis_chat(
-            "str", None, lang=ai_lang, labels=ai_labels_str,
-            annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels),
-            context_docs=chat_docs, context_key=chat_key)
-        return
-    chat_neg, chat_harv = st.session_state.get("str_ai_records_store", {}).get(
-        getattr(analysis, "digest", None), ([], []))
-    chat_labels = _str_row_labels(chat_neg, chat_harv)
-    ai_tab.mount_analysis_chat(
-        "str", analysis, lang=ai_lang, labels=ai_labels_str,
-        annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels))
+        _share_stored_analysis(source, stored_analysis, stored_state or app_chat.AnalysisState.MISSING)
+    elif analysis is None:
+        app_chat.withdraw_analysis("str")

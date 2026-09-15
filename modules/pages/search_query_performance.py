@@ -1,6 +1,7 @@
 import hashlib
 import io
 import unicodedata
+from functools import partial
 
 import numpy as np
 import streamlit as st
@@ -482,8 +483,7 @@ _SQP_FIELD_NAMES = {
 }
 
 _SQP_LABELS = {
-    "es": {"chat": "Análisis IA — SQP",
-           "caption": "Diagnóstico de funnel, precio y oportunidad por query, "
+    "es": {"caption": "Diagnóstico de funnel, precio y oportunidad por query, "
                       "generado por IA sobre las señales calculadas",
            "disabled": "Análisis IA deshabilitado (AI_ENABLED=0).",
            "no_cols": "Necesitás columnas de Search Query e Impressions "
@@ -497,8 +497,7 @@ _SQP_LABELS = {
            "title": "Análisis IA",
            "col_item": "Query",
            "field_names": _SQP_FIELD_NAMES["es"]},
-    "en": {"chat": "AI Analysis — SQP",
-           "caption": "Per-query funnel, price and opportunity diagnosis, "
+    "en": {"caption": "Per-query funnel, price and opportunity diagnosis, "
                       "AI-generated over the computed signals",
            "disabled": "AI analysis disabled (AI_ENABLED=0).",
            "no_cols": "The SQP file needs Search Query and Impressions "
@@ -548,6 +547,12 @@ def _sqp_synthesis_for_display(synthesis, field_names, row_labels):
         synthesis,
         lambda text: annotate_row_ids(humanize_fields(text, field_names),
                                       row_labels))
+
+
+def _sqp_chat_annotation(text, *, field_names, row_labels):
+    """A chat answer as the AM reads it: glossary names for leaked columns, then the query behind each row id."""
+    from core.ai_tab import annotate_row_ids, humanize_fields
+    return annotate_row_ids(humanize_fields(text, field_names), row_labels)
 
 
 def _sqp_row_labels(signal_records):
@@ -645,14 +650,8 @@ def render():
 
     file_sqp = st.file_uploader("Sube tu SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="sqp")
     if not file_sqp:
-        # El montaje del final de render() nunca se alcanza sin archivo, que es
-        # justo la pantalla donde el AM llega primero. El chat no depende del
-        # SQP: tiene cuenta, tools y las skills de la agencia.
-        from core import ai_tab
-        _lang = ai_tab.app_language()
-        ai_tab.mount_analysis_chat(
-            "sqp", None, lang=_lang,
-            labels=ai_tab.ai_labels(_lang, {"chat": "Análisis IA — SQP"}))
+        from core import app_chat
+        app_chat.withdraw_analysis("sqp")
         return
 
     df = read_sqp(file_sqp)
@@ -681,7 +680,7 @@ def render():
     has_cols = bool(imp_total and imp_brand and query_col)
     df_ms  = None
     df_gap = None
-    analysis = None  # AI run; the floating chat mount after the tabs reads it
+    analysis = None  # AI run; without one the page withdraws its analysis from the app chat
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Vista General", "📈 Market Share", "🕳️ Gap Analysis", "🤖 Análisis IA",
@@ -797,6 +796,7 @@ def render():
             st.info(sqp_labels["no_cols"])
         else:
             from core import ai_tab
+            from ai.agents.sqp import chat_document as sqp_chat_document
             from ai.agents.sqp.context import SqpData
 
             brand_terms_raw = st.text_input(
@@ -843,16 +843,14 @@ def render():
                     ai_tab.render_analysis(analysis, slug="sqp",
                                            labels=ai_labels_sqp,
                                            render_result=_render_result)
+                    ai_tab.publish_analysis_to_chat(
+                        "sqp", analysis, ai_data, module_label="Search Query Performance",
+                        subject=f"marca {brand or 'no detectada'} · semana {report_week}",
+                        reading=lambda analysis, _rec=render_records: sqp_chat_document.reading_text(
+                            analysis.result, _rec),
+                        annotate=partial(_sqp_chat_annotation, field_names=sqp_labels["field_names"],
+                                         row_labels=_sqp_row_labels(render_records)))
 
-    # Outside st.tabs so the bubble shows on every tab of the module, and
-    # unconditionally: the chat has tools, an account and the agency's skills
-    # before any file exists, so hiding it until an upload made it look like a
-    # feature of the file instead of one of the module.
-    from core import ai_tab
-    chat_labels = _sqp_row_labels(st.session_state.get(
-        "sqp_ai_records_store", {}).get(getattr(analysis, "digest", None), []))
-    chat_field_names = ai_labels_sqp.get("field_names")
-    ai_tab.mount_analysis_chat(
-        "sqp", analysis, lang=ai_lang, labels=ai_labels_sqp,
-        annotate=lambda text: ai_tab.annotate_row_ids(
-            ai_tab.humanize_fields(text, chat_field_names), chat_labels))
+    if analysis is None:
+        from core import app_chat
+        app_chat.withdraw_analysis("sqp")

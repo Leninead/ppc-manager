@@ -6,6 +6,35 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Un chat IA en toda la app (2026-09-15)
+
+**El chat está en todas las pantallas, desde Inicio.** Una sola burbuja, para todos los usuarios, con un hilo que
+acompaña al AM de una pantalla a otra. Reemplaza a los tres chats que tenían Search Term Report, Search Query
+Performance y DataDive. Con `AI_ENABLED=0` no aparece.
+
+**Elige la fuente según la pregunta.** Lo atiende un agente nuevo (`ai/agents/orchestrator/`) que tiene a mano los
+análisis de la app, las herramientas del MCP de Amazon Ads (estructura de las cuentas en vivo) y las de DataDive.
+De cada análisis abierto en la sesión recibe los documentos que leyó su agente y la lectura de la IA, unida por
+row_id; además, la síntesis del último análisis de Search Terms guardado de cada cuenta de Amazon Ads conectada,
+para contestar sobre un cliente que el AM no abrió. Sabe qué pantalla está abierta y si un análisis está
+desactualizado, generándose o falló, y un análisis que termina mientras el AM está en otra pantalla le llega igual.
+Cuando cambian los análisis del AM abre otra sesión con el provider y le pasa la conversación visible, así no
+olvida lo que ya se habló; el análisis guardado nuevo de otra cuenta no la reinicia. Las filas se citan con su
+término: en las síntesis sin tabla el row_id se reemplaza por el término, y cada respuesta queda anotada con los
+análisis del momento, así navegar a otro cliente no le pega términos ajenos.
+
+**Arreglos que venían en el camino.** El chat de DataDive nunca anotaba el término detrás de un K12 (leía la clave
+de sesión equivocada); SQP con un archivo sin las columnas de impresiones, sin filas analizables o con la IA apagada
+tiraba `UnboundLocalError`; el CSS del panel del chat cambiaba el aspecto de todos los popovers de la app.
+
+Qué cambia en el código: `core/app_chat.py` (nuevo), `ai/agents/orchestrator/`, `ai/agents/synthesis_text.py`,
+`ai/agents/row_annotation.py` (`annotate_row_ids` sale de `core/ai_tab`, que lo reexporta),
+`ai/agents/{sqp,datadive}/chat_document.py`, `core/ai_analysis/account_summaries.py`,
+`AiAnalysisStore.latest_by_subject` (y `history` trae los records), `core/ai_tab.publish_analysis_to_chat`
+(reemplaza a `mount_analysis_chat`), `ai/runtime.ask_followup(note=, thread=)`,
+`core/ai_chat.floating_chat(session_key=, turn=)` (el turno se arma al enviar, no en cada render) sin los
+parámetros del chat por módulo, y el montaje al final de `app.py`. Sin migraciones ni cambios en el provider.
+
 ### Added — El Search Term Report se actualiza solo desde Amazon Ads (2026-09-14)
 
 **M2 lee los search terms por API.** Con cuentas de Amazon Ads conectadas, el módulo arranca con el bloque "Datos de

@@ -1,17 +1,19 @@
-"""Reusable floating AI chat, pinned to the bottom-right of the page.
+"""Floating AI chat, pinned to the bottom-right of the page.
 
-Any module can mount it over an existing provider conversation:
+The app mounts one, for every page, through core.app_chat:
 
     from core.ai_chat import floating_chat
-    floating_chat(chat_id=f"str_{analysis.digest}", agent="str",
-                  session_id=analysis.session_id)
+    floating_chat(chat_id="app", agent="orchestrator",
+                  session_key=key_of_the_analyses, turn=what_a_question_is_sent_with)
 
 History is kept per chat_id in session_state; every answer resumes the same
-provider session, so the AI keeps the full analysed context. Mount it OUTSIDE
-st.tabs so the bubble shows on every tab of the module.
+provider session until the documents change. Mount it OUTSIDE st.tabs so the
+bubble shows on every tab.
 """
 import html
 import json
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -19,29 +21,47 @@ import streamlit.components.v1 as components
 from ai import runtime
 from ai.client import AIError
 
+
+@dataclass(frozen=True)
+class ChatTurn:
+    """What a question is sent with, built only when the AM sends one.
+
+    documents open a session (a new session_key starts another one, and that
+    turn carries the visible thread). note is app state sent ahead of the
+    question and never shown. ads_scope is the Amazon Ads account the tools use.
+    annotate is applied once to the answer when it arrives, e.g. to append the
+    item behind the row ids it cites."""
+
+    documents: list = field(default_factory=list)
+    note: str | None = None
+    ads_scope: dict | None = None
+    annotate: Callable[[str], str] | None = None
+
 _ACCENT = "#E84000"
 
 _L = {
-    "es": {"subtitle": "responde sobre este análisis",
-           "empty": "Pregunta sobre el análisis: por qué una advertencia, "
-                    "qué priorizar, cómo leer una cifra.",
-           "placeholder": "Escribí tu repregunta...", "send": "Enviar",
+    "es": {"title": "Chat IA",
+           "subtitle": "análisis de la app y Amazon Ads",
+           "empty": "Preguntá por un análisis de la app, una cuenta de "
+                    "Amazon Ads o un niche de DataDive.",
+           "placeholder": "Escribí tu pregunta...", "send": "Enviar",
            "copy": "Copiar chat", "copied": "Copiado",
            "copy_fail": "No se pudo copiar",
            "close": "Cerrar",
            "error": "No se pudo responder",
            # Aparecen solas, por CSS, a los 8 y a los 25 segundos.
-           "wait_tools": "Consultando Amazon Ads…",
+           "wait_tools": "Buscando los datos…",
            "wait_long": "Sigue trabajando. Puede tardar hasta un minuto."},
-    "en": {"subtitle": "answers about this analysis",
-           "empty": "Ask about the analysis: why a warning, what to "
-                    "prioritize, how to read a number.",
-           "placeholder": "Type your follow-up...", "send": "Send",
+    "en": {"title": "AI chat",
+           "subtitle": "app analyses and Amazon Ads",
+           "empty": "Ask about an analysis in the app, an Amazon Ads "
+                    "account or a DataDive niche.",
+           "placeholder": "Type your question...", "send": "Send",
            "copy": "Copy chat", "copied": "Copied",
            "copy_fail": "Copy failed",
            "close": "Close",
            "error": "Could not answer",
-           "wait_tools": "Querying Amazon Ads…",
+           "wait_tools": "Looking up the data…",
            "wait_long": "Still working. This can take up to a minute."},
 }
 
@@ -204,53 +224,35 @@ if (b) {{
 </script>""", height=66)
 
 
-def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
-                  title: str = "Análisis IA",
-                  lang: str = "es",
-                  pending_text: str | None = None,
-                  standalone: bool = False,
-                  annotate=None,
-                  ads_scope: dict | None = None,
-                  context_docs: list | None = None,
-                  context_key: str | None = None) -> None:
-    """session_id=None mounts the chat before the analysis is ready: questions
-    stay in the thread and are answered locally with pending_text until a real
-    session arrives on a later mount.
+def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | None],
+                  turn: Callable[[], ChatTurn], title: str | None = None, lang: str = "es") -> None:
+    """Every question is answered by the provider; the first one opens the session.
 
-    standalone=True instead lets those early questions open their own provider
-    session and be answered for real — for agents whose tools can answer without
-    the analysis. The analysis session takes over as soon as it exists.
-
-    annotate, when given, is applied to every assistant text at display time
-    (bubbles and the copied transcript), e.g. to append the item behind the
-    row ids the AI cites. History keeps the raw text.
-
-    ads_scope is the client's Amazon Ads account the AM picked in the sidebar
-    ({account_id, profile_id, requested_by}); every turn carries it so the
-    provider's Amazon tools answer about that account.
-
-    context_docs are stored analyses the chat opens its session with, instead of
-    resuming the analysis's own session; a new context_key (another analysis on
-    screen) starts a new session with the new documents."""
+    `session_key` runs on every render of every page, so it stays cheap; a new
+    key opens a new session. `turn` runs only when a question is sent, because
+    that is when its documents are needed and because the chat body reruns
+    alone: what the page computed on its last full run can be stale by then
+    (an analysis that finished in the background).
+    History keeps each answer's raw text for the model and its annotated text
+    for the bubbles and the transcript."""
     L = _L.get(lang, _L["es"])
-    show = annotate or (lambda text: text)
+    title = title or L["title"]
     subtitle = L["subtitle"]
     anchor = f"aichat_{chat_id}_anchor"
+    panel = f"aichat_{chat_id}_panel"
     hist_key = f"aichat_{chat_id}_hist"
     sid_key = f"aichat_{chat_id}_sid"
-    base_key = f"aichat_{chat_id}_base"
     context_key_key = f"aichat_{chat_id}_context"
     history = st.session_state.setdefault(hist_key, [])
-    # Re-seed when the underlying analysis session changed (e.g. the registry
-    # evicted and the same digest was recomputed): a stale chain would resume
-    # a branch that may no longer exist.
-    if session_id and st.session_state.get(base_key) != session_id:
-        st.session_state[base_key] = session_id
-        st.session_state[sid_key] = session_id
-    if context_docs is not None and st.session_state.get(context_key_key) != context_key:
-        st.session_state[context_key_key] = context_key
-        st.session_state[sid_key] = None
-    st.session_state.setdefault(sid_key, session_id)
+
+    def _sync_session() -> None:
+        key = session_key()
+        if st.session_state.get(context_key_key) != key:
+            st.session_state[context_key_key] = key
+            st.session_state[sid_key] = None
+
+    _sync_session()
+    st.session_state.setdefault(sid_key, None)
 
     st.markdown(
         f"""<style>
@@ -267,8 +269,11 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
            itself: the thread box owns the only scrollbar. Streamlit gives the
            popover body a max-height and an overflow of its own, which produced
            a second bar spanning the whole panel and fought the thread's drag
-           handle — a box cannot be resized past a parent that clips it. */
-        [data-testid="stPopoverBody"] {{min-width: min(420px, 92vw);
+           handle — a box cannot be resized past a parent that clips it.
+           The body is portaled away from the anchor, so it is matched by the
+           panel it holds: every other popover of the app keeps its own look. */
+        [data-testid="stPopoverBody"]:has(.st-key-{panel}) {{
+                                        min-width: min(420px, 92vw);
                                         max-width: min(460px, 94vw);
                                         border-radius: 16px;
                                         padding: 10px !important;
@@ -277,9 +282,9 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
         /* The header is an iframe and Streamlit's block wrapper zeroes the
            padding around it, so it sat flush against the frame while the input
            below had room. Same 10px on all four sides. */
-        [data-testid="stPopoverBody"] > div {{padding: 0 !important;}}
-        [data-testid="stPopoverBody"] iframe {{display: block;}}
-        .st-key-{anchor}_body [data-testid="stForm"] {{border: none; padding: 0;}}
+        [data-testid="stPopoverBody"]:has(.st-key-{panel}) > div {{padding: 0 !important;}}
+        .st-key-{panel} iframe {{display: block;}}
+        .st-key-{panel} [data-testid="stForm"] {{border: none; padding: 0;}}
         .ia-dots span {{width:7px; height:7px; border-radius:99px;
             background:#B4B2A9; display:inline-block; margin-right:4px;
             animation: iaDot 1s infinite;}}
@@ -309,7 +314,7 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                             or st.session_state.get("username") or "AM")
                 plain = (title + "\n\n" + "\n\n".join(
                     (f"{user_lbl}: " + t["text"]) if t["role"] == "user"
-                    else ("Capybaras AI: " + show(t["text"]))
+                    else ("Capybaras AI: " + t.get("shown", t["text"]))
                     for t in history)) if history else ""
                 _chat_header(title, subtitle, plain, L["copy"], L["close"])
                 if history:
@@ -327,7 +332,7 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                     # table here; this does it in CSS.
                     thread = "".join(
                         _user_bubble(t["text"]) if t["role"] == "user"
-                        else _assistant_bubble(show(t["text"]))
+                        else _assistant_bubble(t.get("shown", t["text"]))
                         for t in reversed(history))
                     # `resize` gives the AM the drag handle they asked for: a
                     # long answer about a dozen campaigns does not fit in half a
@@ -359,38 +364,40 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                 # its own, inside a popover, and inside a fragment, and fails on
                 # the two together; a form submits in all four. The text area is
                 # also draggable, which is the other thing the panel was missing.
-                with st.form(f"aichat_{chat_id}_form", clear_on_submit=True,
-                             border=False):
+                # Keyed by turn: clear_on_submit left the sent question in the
+                # browser, and the next full run (any page change) sent it back.
+                with st.form(f"aichat_{chat_id}_form", border=False):
                     question = st.text_area(
-                        L["placeholder"], key=f"aichat_{chat_id}_q",
+                        L["placeholder"], key=f"aichat_{chat_id}_q_{len(history)}",
                         placeholder=L["placeholder"], height=72,
                         label_visibility="collapsed")
                     sent = st.form_submit_button(L["send"], use_container_width=True,
                                                  type="primary")
                 question = (question or "").strip() if sent else ""
                 if question:
+                    _sync_session()
+                    sending = turn()
                     sid = st.session_state.get(sid_key)
-                    if not sid and not standalone:
-                        # Analysis not ready: answer locally, spend nothing.
-                        history.append({"role": "user", "text": question})
-                        history.append({"role": "assistant",
-                                        "text": pending_text or L["error"]})
-                        st.rerun(scope="fragment")
-                    # standalone: sid may be None — the turn opens its own
-                    # session so a tool-answerable question never waits for
-                    # the analysis. The analysis session takes over once ready.
                     with live:
                         st.markdown(_user_bubble(question) + _typing(L),
                                     unsafe_allow_html=True)
                         try:
                             text, new_sid = runtime.ask_followup(
-                                agent, sid, question, ads_scope=ads_scope,
-                                context_docs=context_docs)
+                                agent, sid, question, ads_scope=sending.ads_scope,
+                                context_docs=sending.documents, note=sending.note,
+                                thread=list(history))
                             st.session_state[sid_key] = new_sid
+                            # Annotated once, against the analyses it was answered
+                            # from: the page shown later may reuse the same row ids.
+                            shown = sending.annotate(text) if sending.annotate else text
+                            answer = {"role": "assistant", "text": text, "shown": shown}
                         except AIError as e:
-                            text = f"{L['error']}: {e}"
+                            failure = f"{L['error']}: {e}"
+                            answer = {"role": "assistant", "text": failure, "shown": failure,
+                                      "error": True}
                     history.append({"role": "user", "text": question})
-                    history.append({"role": "assistant", "text": text})
+                    history.append(answer)
                     st.rerun(scope="fragment")
 
-            _chat_body()
+            with st.container(key=panel):
+                _chat_body()

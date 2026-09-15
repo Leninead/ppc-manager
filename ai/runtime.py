@@ -162,7 +162,9 @@ def usable_tools(slug: str, ads_scope: dict | None) -> list:
 
 def ask_followup(slug: str, session_id: str | None, question: str,
                  ads_scope: dict | None = None,
-                 context_docs: list | None = None) -> tuple[str, str]:
+                 context_docs: list | None = None,
+                 note: str | None = None,
+                 thread: list | None = None) -> tuple[str, str]:
     """One chat turn. Synchronous.
 
     session_id=None opens a fresh conversation instead of resuming one, so a
@@ -172,8 +174,12 @@ def ask_followup(slug: str, session_id: str | None, question: str,
     tool profiles on chat turns only — the analysis itself stays deterministic.
     `ads_scope` ({account_id, profile_id, requested_by}) is the client's
     Amazon Ads account the chat is pinned to, when the AM picked one.
-    `context_docs` are the stored analyses the chat talks about; they go with
-    every turn that opens a session, and a resumed session already has them.
+    `context_docs` are the analyses the chat talks about; they go with every
+    turn that opens a session, and a resumed session already has them.
+    `note` is app state the model must know on every turn (the page the AM is
+    on); it precedes the question and is never shown in the thread.
+    `thread` is the visible conversation so far: a turn that opens a new
+    session carries it, so the model does not forget what was already said.
     """
     agent = _agent(slug)
     system = agent["system"] + ("\n\n" + _CHAT_RULES if _CHAT_RULES else "")
@@ -182,8 +188,9 @@ def ask_followup(slug: str, session_id: str | None, question: str,
     # Uploaded from Sistema, not from the repo. A broken registry costs a skill,
     # never the turn — see core.chat_skills.enabled_payload.
     skills = chat_skills.enabled_payload()
-    context = [] if session_id else list(context_docs or [])
-    resp = client.ask(system=system, input_text=question, context=context,
+    context = [] if session_id else _opening_context(context_docs, thread)
+    input_text = f"{note}\n\n{question}" if note else question
+    resp = client.ask(system=system, input_text=input_text, context=context,
                       model=agent["meta"].get("model", "opus"),
                       effort=agent["meta"].get("effort") or None,
                       session_id=session_id, timeout_s=600,
@@ -195,6 +202,42 @@ def ask_followup(slug: str, session_id: str | None, question: str,
     if new_session:
         _TOOLED_TURNS[new_session] = bool(tools)
     return resp.get("text", ""), new_session
+
+
+CONVERSATION_TITLE = "Conversación previa de este chat, tal como la ve el AM en su panel"
+_CONVERSATION_TURNS = 12
+_CONVERSATION_CHARS = 12_000
+
+
+def conversation_document(thread: list | None) -> dict | None:
+    """The last turns of the visible thread, for a session that has to start over.
+
+    A new session opens whenever the documents change, and without this the
+    model answers the next question as if nothing had been said. Answers go as
+    the AM saw them, with the item behind each row id: the new documents may
+    give those ids to other rows. Failed turns stay out, and turns are dropped
+    whole, oldest first, so the last question is never cut in half.
+    """
+    turns = [turn for turn in (thread or []) if turn.get("text") and not turn.get("error")]
+    lines = [("AM: " if turn["role"] == "user" else "Asistente: ") + str(turn.get("shown") or turn["text"])
+             for turn in turns[-_CONVERSATION_TURNS:]]
+    kept, used = [], 0
+    for line in reversed(lines):
+        if kept and used + len(line) > _CONVERSATION_CHARS:
+            break
+        kept.append(line[:_CONVERSATION_CHARS])
+        used += len(line) + 2
+    if not kept:
+        return None
+    return {"title": CONVERSATION_TITLE, "content": "\n\n".join(reversed(kept))}
+
+
+def _opening_context(context_docs: list | None, thread: list | None) -> list:
+    context = list(context_docs or [])
+    conversation = conversation_document(thread)
+    if conversation:
+        context.append(conversation)
+    return context
 
 
 # session_id -> whether that turn ran with tools. Bounded because a Streamlit

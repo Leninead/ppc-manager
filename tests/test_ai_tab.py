@@ -195,6 +195,14 @@ class TestRenderKit:
         assert annotate_row_ids("", m) == ""
         assert annotate_row_ids("H59", {}) == "H59"
 
+    def test_replace_row_ids_writes_the_item_where_no_table_travels(self):
+        from ai.agents.row_annotation import replace_row_ids
+        m = {"N01": "brita filter", "N10": "zero water"}
+        assert replace_row_ids("Negativizar N01 y N10; N100 no", m) == \
+            "Negativizar «brita filter» y «zero water»; N100 no"
+        assert replace_row_ids("N01", {"N01": ""}) == "N01"
+        assert replace_row_ids("sin ids", {}) == "sin ids"
+
     def test_map_synthesis_text_touches_only_prose(self):
         s = {"situation": "s", "week_actions": ["a", "b"], "mid_term": [],
              "risks": [{"type": "T", "urgency": "ALTA", "detail": "d"}],
@@ -225,7 +233,7 @@ import time
 import streamlit as st
 from core import ai_tab
 
-labels = ai_tab.ai_labels("es", {{"chat": "smoke chat"}})
+labels = ai_tab.ai_labels("es")
 analysis = ai_tab.resolve_analysis(
     slug="{_FAKE_SLUG}", payload="payload-1",
     file_signature="sig-1", labels=labels)
@@ -240,8 +248,9 @@ def _render(result, a):
 if analysis is not None:
     ai_tab.render_analysis(analysis, slug="{_FAKE_SLUG}", labels=labels,
                              render_result=_render)
-ai_tab.mount_analysis_chat("{_FAKE_SLUG}", analysis, lang="es",
-                             labels=labels)
+ai_tab.publish_analysis_to_chat("{_FAKE_SLUG}", analysis, "payload-1",
+                                module_label="Smoke", subject="cuenta 1",
+                                reading=lambda a: "lectura " + a.result["marker"])
 """
 
 
@@ -268,6 +277,10 @@ class TestLifecycleSmoke:
         assert "LAYER_RESULT OK" in rendered
         assert at.session_state[f"{_FAKE_SLUG}_ai_file_sig"] == "sig-1"
         assert at.session_state[f"{_FAKE_SLUG}_ai_last_digest"]
+        shared = at.session_state["app_chat_modules"][_FAKE_SLUG]
+        assert shared.state == "current"
+        assert [(doc["title"], doc["content"]) for doc in shared.analysis.documents] == [
+            ("Smoke · cuenta 1 · Doc", "payload-1"), ("Smoke · cuenta 1 · Lectura de la IA", "lectura OK")]
 
     def test_second_run_reuses_the_registry_entry(self, monkeypatch):
         self._install_fake_agent(monkeypatch)
@@ -319,20 +332,120 @@ class TestSessionHelpers:
         assert list(fake.session_state["x_ai_records_store"]) == ["e7", "e8", "e9"]
 
 
-def test_floating_chat_annotates_assistant_text_at_display_time():
-    """annotate is applied to the assistant bubbles when they render; the
-    stored history keeps the raw text and user bubbles are untouched."""
+class TestPublishAnalysisToChat:
+    """What the app chat reads about a tab, for each state of its analysis."""
+
+    @pytest.fixture
+    def tab(self, monkeypatch):
+        from core import ai_tab, app_chat
+        state = {"selected_page": "🔍 Search Query Performance"}
+        monkeypatch.setattr(app_chat, "st", types.SimpleNamespace(session_state=state))
+        builds = []
+
+        def _build(slug, payload):
+            builds.append(payload)
+            return types.SimpleNamespace(call={"context": [{"title": "Señales", "content": f"filas de {payload}"}]})
+        monkeypatch.setattr(ai_tab.agent_call, "build_agent_call", _build)
+        return ai_tab, state, builds
+
+    @staticmethod
+    def _analysis(state="done", digest="d1"):
+        return types.SimpleNamespace(digest=digest, result={"marker": "M"}, running=state == "running",
+                                     failed=state == "failed", done=state == "done")
+
+    @staticmethod
+    def _publish(ai_tab, analysis, payload="p1"):
+        ai_tab.publish_analysis_to_chat("sqp", analysis, payload, module_label="SQP", subject="marca luna",
+                                        reading=lambda a: f"lectura {a.result['marker']} de {a.digest}",
+                                        annotate=str.upper, country_code="US")
+
+    def test_a_current_analysis_shares_its_documents_and_the_reading(self, tab, monkeypatch):
+        ai_tab, state, builds = tab
+        shown = self._analysis()
+        monkeypatch.setattr(ai_tab.ai_runtime, "peek", lambda slug, payload: shown)
+
+        self._publish(ai_tab, shown)
+
+        entry = state["app_chat_modules"]["sqp"]
+        assert (entry.state, entry.page) == ("current", "🔍 Search Query Performance")
+        assert [doc["title"] for doc in entry.analysis.documents] == [
+            "SQP · marca luna · Señales", "SQP · marca luna · Lectura de la IA"]
+        assert entry.analysis.documents[1]["content"] == "lectura M de d1"
+        assert (entry.analysis.key, entry.analysis.country_code, entry.analysis.annotate("q01")) == (
+            "sqp:d1", "US", "Q01")
+
+    def test_the_documents_are_built_once_per_analysis(self, tab, monkeypatch):
+        ai_tab, _, builds = tab
+        shown = self._analysis()
+        monkeypatch.setattr(ai_tab.ai_runtime, "peek", lambda slug, payload: shown)
+
+        self._publish(ai_tab, shown)
+        self._publish(ai_tab, shown)
+
+        assert builds == ["p1"]
+
+    def test_a_stale_analysis_stays_readable_but_flagged_and_comes_back_when_the_parameters_do(
+            self, tab, monkeypatch):
+        ai_tab, state, builds = tab
+        shown = self._analysis()
+        current = {"analysis": shown}
+        monkeypatch.setattr(ai_tab.ai_runtime, "peek", lambda slug, payload: current["analysis"])
+        self._publish(ai_tab, shown)
+
+        current["analysis"] = None  # a slider moved: the current payload has no analysis yet
+        self._publish(ai_tab, shown, payload="p2")
+        assert state["app_chat_modules"]["sqp"].state == "outdated"
+        assert state["app_chat_modules"]["sqp"].analysis.key == "sqp:d1"
+
+        current["analysis"] = shown
+        self._publish(ai_tab, shown)
+        assert state["app_chat_modules"]["sqp"].state == "current"
+        assert builds == ["p1"]
+
+    def test_a_stale_analysis_never_shared_is_not_rebuilt_from_the_current_payload(self, tab, monkeypatch):
+        ai_tab, state, builds = tab
+        monkeypatch.setattr(ai_tab.ai_runtime, "peek", lambda slug, payload: None)
+
+        self._publish(ai_tab, self._analysis(digest="old"), payload="new")
+
+        assert "sqp" not in state["app_chat_modules"]
+        assert builds == []
+
+    @pytest.mark.parametrize("analysis_state", ["running", "failed"])
+    def test_an_analysis_without_result_shares_only_its_state(self, tab, analysis_state):
+        ai_tab, state, builds = tab
+
+        self._publish(ai_tab, self._analysis(analysis_state))
+
+        entry = state["app_chat_modules"]["sqp"]
+        assert (entry.state, entry.analysis, builds) == (analysis_state, None, [])
+
+    def test_no_analysis_withdraws_what_the_tab_had_shared(self, tab, monkeypatch):
+        ai_tab, state, _ = tab
+        shown = self._analysis()
+        monkeypatch.setattr(ai_tab.ai_runtime, "peek", lambda slug, payload: shown)
+        self._publish(ai_tab, shown)
+
+        self._publish(ai_tab, None)
+
+        assert "sqp" not in state["app_chat_modules"]
+
+
+def test_floating_chat_shows_each_answer_as_annotated_when_it_arrived():
+    """The bubbles print the annotation stored with the answer, never a new one;
+    the history keeps the raw text and user bubbles are untouched."""
     from streamlit.testing.v1 import AppTest
 
     script = '''
 import streamlit as st
-from core.ai_chat import floating_chat
+from core.ai_chat import ChatTurn, floating_chat
 
 st.session_state["aichat_t_hist"] = [
     {"role": "user", "text": "que es H59"},
-    {"role": "assistant", "text": "Frenar H59 esta semana"}]
-floating_chat(chat_id="t", agent="str", session_id="s1", title="T",
-              annotate=lambda text: text.replace("H59", "H59 (press on nails)"))
+    {"role": "assistant", "text": "Frenar H59 esta semana",
+     "shown": "Frenar H59 (press on nails) esta semana"}]
+floating_chat(chat_id="t", agent="str", title="T", session_key=lambda: "k", turn=lambda: ChatTurn(
+    annotate=lambda text: text.replace("H59", "H59 (otro cliente)")))
 st.markdown("RAW:" + st.session_state["aichat_t_hist"][1]["text"])
 '''
     at = AppTest.from_string(script)
@@ -340,5 +453,5 @@ st.markdown("RAW:" + st.session_state["aichat_t_hist"][1]["text"])
     assert not at.exception
     html = " ".join(str(m.value) for m in at.markdown)
     assert "Frenar H59 (press on nails) esta semana" in html
-    assert "que es H59 (press" not in html
+    assert "otro cliente" not in html and "que es H59 (" not in html
     assert "RAW:Frenar H59 esta semana" in html
