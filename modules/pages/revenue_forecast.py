@@ -2128,8 +2128,11 @@ def _build_history_df(historical: list[dict], currency: str = "USD") -> pd.DataF
     mapearse de vuelta a `historical[i]` sin perder el orden de carga.
 
     Normalización Arrow-safe:
-        - spend / ventasPPC None → NaN (NO '': mezclar str y float vuelve la
-          columna object y Streamlit 1.43.2 deshabilita la edición — bug G1).
+        - spend / ventasPPC None → NaN, NUNCA ''. Lo que congela la edición es
+          MEZCLAR float y '' en la misma columna (bug G1): pandas la infiere
+          "mixed" y Streamlit 1.43.2 la marca incompatible y la deshabilita
+          (`is_colum_type_arrow_incompatible`, streamlit/dataframe_util.py:1036).
+          Una columna object NO se deshabilita por ser object.
         - Resto de números: NaN ya viene de pandas si parseNum devuelve 0,
           acá los dejamos float — Arrow los tolera.
     """
@@ -2207,9 +2210,14 @@ def _apply_history_edits(
     return written
 
 
-# Columnas numéricas del editor que pueden venir enteras en None. pandas arma
-# esas columnas como `object` (medido: `_build_history_df` con todo el spend en
-# None da object), y un `object` es justo lo que congela el data_editor (G1).
+# Columnas numéricas del editor que pueden venir enteras en None. Se castean a
+# float64 como PIN de dtype, para no depender de lo que infiera pandas fila por
+# fila (con todo en None arma object). El cast NO es lo que evita el
+# congelamiento del data_editor: Streamlit 1.43.2 no deshabilita por dtype
+# object, sino las columnas que `is_colum_type_arrow_incompatible`
+# (streamlit/dataframe_util.py:1036) marca incompatibles, y a una object le
+# pregunta a pandas qué contiene vía `infer_dtype`. Todo None da "empty"
+# (editable); float mezclado con '' da "mixed" (deshabilitada — bug G1).
 _ACTUAL_FLOAT_COLS = ("Spend", "Ventas PPC", "ACOS%", "TACOS%")
 
 
@@ -2226,8 +2234,14 @@ def _build_actual_df(actual: list[dict], currency: str = "USD") -> pd.DataFrame:
           False o None. Existe para que el AM no cargue el spend de 12 días
           creyendo que carga el mes completo.
         - Spend / Ventas PPC / ACOS% / TACOS% se fuerzan a float64 aunque todas
-          las filas vengan en None. En `actual` ese es el caso NORMAL (el uploader
-          deja spend=None), y sin el cast la columna nace object.
+          las filas vengan en None (el caso NORMAL en `actual`: el uploader deja
+          spend=None). Es un pin de dtype explícito, NO lo que evita que el
+          editor se congele — sin el cast tampoco se congelaba. Lo que congela
+          es mezclar float y '' (bug G1): Streamlit 1.43.2 deshabilita las
+          columnas que `is_colum_type_arrow_incompatible`
+          (streamlit/dataframe_util.py:1036) marca incompatibles, y a una
+          columna object le pregunta a pandas qué contiene vía `infer_dtype`.
+          Por eso spend/ventasPPC van None → NaN y nunca ''.
 
     Args:
         actual: filas de la capa `actual`. Para mostrar el parcial resuelto,
@@ -2239,6 +2253,10 @@ def _build_actual_df(actual: list[dict], currency: str = "USD") -> pd.DataFrame:
         DataFrame con columnas `_idx | Mes | Revenue | Units | Sessions | CVR% |
         AOV | Spend | Ventas PPC | ACOS% | TACOS%`. Lista vacía → DataFrame
         vacío con esas columnas.
+
+    VERIFICADO (2026-09-15, AppTest sobre `_render_history_table`): con todo el
+    spend en None, `_build_history_df` devuelve Spend / Ventas PPC como object
+    y el editor NO las deshabilita (`infer_dtype` = "empty", compatible).
     """
     df = _build_history_df(actual, currency=currency)
     if df.empty:
