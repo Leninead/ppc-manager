@@ -3,9 +3,9 @@
 The application is Spanish-first: Spanish is the source language, written by
 hand in the modules, and every English string here is a translation of it.
 Only a handful of surfaces have been migrated — the shell (login, sidebar,
-search, footer), the navigation labels, and the two Sistema screens (Cuentas
-conectadas and Integraciones). Every other page still carries its Spanish
-literals inline and is unaffected by the language toggle.
+search, footer), the navigation labels, and the Sistema screens (Cuentas
+conectadas, Integraciones and Registro de solicitudes). Every other page still
+carries its Spanish literals inline and is unaffected by the language toggle.
 
 That partial coverage is deliberate and visible: `t()` falls back to Spanish
 when an English translation is missing and to the key itself when the key is
@@ -128,6 +128,7 @@ _ES: dict[str, str] = {
     "nav.page.mercado_libre": "Mercado Libre",
     "nav.page.cuentas_conectadas": "Cuentas conectadas",
     "nav.page.integraciones": "Integraciones",
+    "nav.page.registro_solicitudes": "Registro de solicitudes",
 
     # ── Cuentas conectadas (M37) ──────────────────────────────────────────
     "accounts.sop_md": """
@@ -411,6 +412,303 @@ Lo que todavía no existe no ocupa una fila: va en una sola oración al pie.""",
     "integrations.fact.pending_migration_origin": "Quedó en {origin}",
     "integrations.kind.oauth": "OAuth",
     "integrations.kind.api_key": "API key",
+
+    # ── Registro de solicitudes ───────────────────────────────────────────
+    "request_log.admin_only": (
+        "Esta pantalla es sólo para admin. Si una cuenta no se actualiza, "
+        "avisale a un admin o revisá **🔑 Cuentas conectadas** en el menú Sistema."
+    ),
+    "request_log.header_title": "Registro de solicitudes",
+    "request_log.header_caption": (
+        "Cada pedido de datos que el sistema hace a las cuentas conectadas, en "
+        "qué estado está y qué pasó cuando falla. Sólo admin."
+    ),
+    "request_log.sop_expander": "📘 Cómo leer este registro",
+    "request_log.sop_md": """
+**Qué es esta pantalla**
+
+Cada vez que el sistema le pide datos a una cuenta conectada (hoy, los términos
+de búsqueda de Amazon Ads) queda una solicitud acá: cuándo se pidió, en qué
+estado está, cuántas veces se intentó y cuántas filas guardó.
+
+**Arriba: lo que requiere atención**
+
+- *Falló hoy*: una actualización se quedó sin intentos. **Reintentar** crea una
+  solicitud nueva; la fallida queda en el historial.
+- *Primera carga fallida*: la carga inicial de una cuenta no se completó y, hasta
+  que se complete, la cuenta no recibe actualizaciones diarias. **Reintentar** la
+  vuelve a pedir.
+- *Trabada*: el sincronizador empezó una solicitud y no la terminó. Si quedó
+  soltada, se puede cancelar desde **Ver**.
+- *Datos atrasados*: pasadas las 9 de la mañana, hora del perfil, la cuenta
+  todavía no tiene los datos de ayer.
+- *Sin señales*: el sincronizador no responde hace más de 5 minutos.
+- *Requiere reautorizar* y *Vence pronto*: son de la autorización de Amazon y se
+  arreglan en **🔑 Cuentas conectadas**.
+
+**Estados de una solicitud**
+
+- *En cola*: esperando su turno.
+- *Pidiendo a Amazon*, *Esperando a Amazon* y *Guardando*: en curso. Amazon
+  puede tardar hasta 3 horas en armar un reporte.
+- *Reintentando*: falló un intento y el sistema vuelve a probar solo, cada vez
+  más espaciado. Cuando Amazon limita los pedidos, espera sin gastar un intento.
+- *Completada · día vacío*: Amazon devolvió un día sin términos y se
+  conservaron los datos que ya estaban guardados.
+- *Fallida*: se agotaron los intentos o se venció el plazo.
+- *Cancelada*: alguien la sacó de la cola, o la cuenta dejó de estar conectada.
+
+**Cómo leer cada fila**
+
+- *Pedida* está en hora de Argentina. El período pedido sigue el calendario
+  del perfil de Amazon: Estados Unidos, Canadá y México usan la hora del Pacífico.
+- *Intentos* muestra el intento actual sobre el máximo: `3/8` es el tercero de ocho.
+- *Ver* abre el detalle: los intentos uno por uno, los reportes que se pidieron
+  a Amazon, el error completo y qué conviene hacer.
+""",
+    "request_log.error_db_unavailable": (
+        "El portal todavía no está conectado a la base de datos, así que no hay "
+        "solicitudes para mostrar. Es un paso de infraestructura del servidor: "
+        "avisale al equipo de sistemas."
+    ),
+    "request_log.verdict.read_failed": (
+        "No se pudo leer el estado de las solicitudes: puede haber problemas que "
+        "esta pantalla no está mostrando."
+    ),
+    "request_log.verdict.all_clear": "Nada requiere atención.",
+    "request_log.verdict.errors_one": "1 problema requiere atención.",
+    "request_log.verdict.errors_other": "{n} problemas requieren atención.",
+    "request_log.verdict.warnings_one": "1 aviso para revisar.",
+    "request_log.verdict.warnings_other": "{n} avisos para revisar.",
+    # Noun fragments: needed only by `request_log.verdict.mixed`, which counts two
+    # different things in one sentence.
+    "request_log.word_problem_one": "problema",
+    "request_log.word_problem_other": "problemas",
+    "request_log.word_warning_one": "aviso",
+    "request_log.word_warning_other": "avisos",
+    "request_log.verdict.mixed": (
+        "{errors} {error_word} y {warnings} {warning_word} para revisar."
+    ),
+    "request_log.summary.window": "Últimas 24 h: {items}",
+    "request_log.summary.no_requests": "sin solicitudes",
+    "request_log.summary.completed_one": "1 completada",
+    "request_log.summary.completed_other": "{n} completadas",
+    "request_log.summary.open_one": "1 en curso",
+    "request_log.summary.open_other": "{n} en curso",
+    "request_log.summary.failed_one": "1 fallida",
+    "request_log.summary.failed_other": "{n} fallidas",
+    "request_log.summary.cancelled_one": "1 cancelada",
+    "request_log.summary.cancelled_other": "{n} canceladas",
+    "request_log.summary.worker_seen": "el sincronizador respondió hace {age}",
+    "request_log.summary.worker_never": "el sincronizador todavía no reportó actividad",
+    "request_log.summary.read_failed": "No se pudo leer el resumen de las últimas 24 h.",
+    "request_log.alerts.title": "Requiere atención",
+    "request_log.alerts.tag": "Alertas",
+    "request_log.alerts.count_one": "1 alerta",
+    "request_log.alerts.count_other": "{n} alertas",
+    "request_log.alerts.read_failed": (
+        "No se pudieron leer las alertas. Probá de nuevo en un minuto; si sigue, "
+        "avisale al equipo de sistemas."
+    ),
+    "request_log.alert.failed_today": "Falló hoy",
+    "request_log.alert.first_load_failed": "Primera carga fallida",
+    "request_log.alert.stuck": "Trabada",
+    "request_log.alert.stale_data": "Datos atrasados",
+    "request_log.alert.worker_silent": "Sin señales",
+    "request_log.alert.needs_reauth": "Requiere reautorizar",
+    "request_log.alert.consent_expiring": "Vence pronto",
+    "request_log.btn.retry": "Reintentar",
+    "request_log.btn.accounts": "Cuentas conectadas",
+    "request_log.btn.view": "Ver",
+    "request_log.btn.retry_now": "Reintentar ahora",
+    "request_log.btn.cancel_job": "Cancelar solicitud",
+    "request_log.btn.close": "Cerrar",
+    "request_log.btn.load_more": "Cargar más",
+    "request_log.requests.title": "Solicitudes",
+    "request_log.requests.tag": "Historial",
+    "request_log.requests.shown_one": "1 mostrada · hora de Argentina",
+    "request_log.requests.shown_other": "{n} mostradas · hora de Argentina",
+    "request_log.requests.empty": "No hay solicitudes con estos filtros.",
+    "request_log.requests.read_failed": (
+        "No se pudo leer el registro de solicitudes. Probá de nuevo en un minuto; "
+        "si sigue, avisale al equipo de sistemas."
+    ),
+    "request_log.filter.provider": "Proveedor",
+    "request_log.filter.status": "Estado",
+    "request_log.filter.account": "Cuenta",
+    "request_log.filter.period": "Período",
+    "request_log.filter.only_problems": "Solo con problemas",
+    "request_log.filter.all_providers": "Todos",
+    "request_log.filter.all_statuses": "Todos",
+    "request_log.filter.all_accounts": "Todas",
+    "request_log.period.day": "Últimas 24 h",
+    "request_log.period.week": "Últimos 7 días",
+    "request_log.period.month": "Últimos 30 días",
+    "request_log.period.all": "Todo el historial",
+    "request_log.column.status": "Estado",
+    "request_log.column.account": "Cuenta",
+    "request_log.column.request": "Solicitud",
+    "request_log.column.requested": "Pedida",
+    "request_log.column.duration": "Duración",
+    "request_log.column.attempts": "Intentos",
+    "request_log.column.rows": "Filas",
+    "request_log.status.pending": "En cola",
+    "request_log.status.running": "En curso",
+    "request_log.status.requesting": "Pidiendo a Amazon",
+    "request_log.status.waiting": "Esperando a Amazon",
+    "request_log.status.saving": "Guardando",
+    "request_log.status.retrying": "Reintentando",
+    "request_log.status.completed": "Completada",
+    "request_log.status.completed_empty_day": "Completada · día vacío",
+    "request_log.status.completed_warning": "Completada · con aviso",
+    "request_log.status.failed": "Fallida",
+    "request_log.status.cancelled": "Cancelada",
+    "request_log.kind.sp_search_terms": "Search terms",
+    "request_log.kind.portfolio_names": "Nombres de portfolio",
+    "request_log.kind.ai_str_analysis": "Análisis IA de search terms",
+    "request_log.trigger.scheduled_daily": "Diaria",
+    "request_log.trigger.scheduled_deep": "Semanal",
+    "request_log.trigger.backfill": "Primera carga",
+    "request_log.trigger.manual": "Manual",
+    "request_log.trigger.retry": "Reintento",
+    "request_log.request_title": "{trigger} · {kind}",
+    "request_log.request_title_by": "{trigger} · {user}",
+    "request_log.window_one": "{start} → {end} · 1 día",
+    "request_log.window_other": "{start} → {end} · {n} días",
+    "request_log.sub.next_attempt": "próximo intento {time}",
+    "request_log.sub.reports_ready": "{saved} de {total} reportes listos",
+    "request_log.sub.portfolios_one": "1 portfolio",
+    "request_log.sub.portfolios_other": "{n} portfolios",
+    "request_log.duration.waiting": "en espera",
+    "request_log.duration.running": "{elapsed} · en curso",
+    "request_log.time.yesterday": "ayer {time}",
+    "request_log.time.dated": "{day} {month} {time}",
+    "request_log.date.short": "{day} {month}",
+    "request_log.detail.dialog_title": "Detalle de la solicitud",
+    "request_log.detail.eyebrow": "{provider} · {kind} · #{job_id}",
+    "request_log.detail.read_failed": (
+        "No se pudo leer la solicitud. Probá de nuevo en un minuto."
+    ),
+    "request_log.detail.not_found": "La solicitud ya no existe.",
+    "request_log.detail.account": "Cuenta",
+    "request_log.detail.profile": "Perfil de Amazon",
+    "request_log.detail.window": "Período pedido",
+    "request_log.detail.origin": "Origen",
+    "request_log.detail.created": "Creada",
+    "request_log.detail.finished": "Terminó",
+    "request_log.detail.gave_up": "Se dejó de intentar",
+    "request_log.detail.cancelled_at": "Cancelada",
+    "request_log.detail.next_attempt": "Próximo intento",
+    "request_log.detail.deadline": "Plazo",
+    "request_log.detail.rows": "Filas guardadas",
+    "request_log.detail.attempts": "Intentos",
+    "request_log.origin.scheduled_daily": "Programada, actualización diaria",
+    "request_log.origin.scheduled_deep": "Programada, repaso semanal de 42 días",
+    "request_log.origin.backfill": "Primera carga de la cuenta",
+    "request_log.origin.manual": "Pedida a mano por {user}",
+    "request_log.origin.retry": "Reintento de la #{job_id}, pedido por {user}",
+    "request_log.detail.timeline": "Qué pasó",
+    "request_log.detail.created_event": "Creada",
+    "request_log.detail.attempt": "Intento {n}",
+    "request_log.detail.rows_saved_one": "1 fila guardada.",
+    "request_log.detail.rows_saved_other": "{count} filas guardadas.",
+    "request_log.detail.reports": "Reportes en Amazon",
+    "request_log.detail.report_window": "Tramo",
+    "request_log.detail.report_id": "Report ID",
+    "request_log.detail.report_status": "Estado",
+    "request_log.detail.report_rows": "Filas",
+    "request_log.detail.reports_empty": (
+        "Todavía no se pidió ningún reporte para esta solicitud."
+    ),
+    "request_log.detail.reports_read_failed": (
+        "No se pudieron leer los reportes de esta solicitud."
+    ),
+    "request_log.chunk.to_request": "Sin pedir",
+    "request_log.chunk.requested": "Pedido",
+    "request_log.chunk.saving": "Guardando",
+    "request_log.chunk.saved": "Guardado",
+    "request_log.chunk.failed": "Falló",
+    "request_log.detail.error": "Error",
+    "request_log.detail.warning": "Aviso",
+    "request_log.detail.retry_caption": (
+        "Reintentar crea una solicitud nueva y esta queda en el historial."
+    ),
+    "request_log.detail.cancel_caption": (
+        "Cancelar la saca de la cola; lo que ya se guardó queda guardado."
+    ),
+    "request_log.detail.cancel_abandoned_caption": (
+        "El sincronizador soltó esta solicitud a mitad de camino. Cancelarla la "
+        "cierra; lo que ya se guardó queda guardado."
+    ),
+    "request_log.flash.retried": (
+        "Se creó la solicitud #{new_job_id} para reintentar la #{job_id}."
+    ),
+    "request_log.flash.not_retryable": (
+        "La solicitud #{job_id} no se puede reintentar: sólo se reintentan las "
+        "fallidas o canceladas de cuentas que siguen conectadas."
+    ),
+    "request_log.flash.cancelled": "Solicitud #{job_id} cancelada.",
+    "request_log.flash.not_cancellable": (
+        "La solicitud #{job_id} ya no estaba en cola ni trabada, así que no se canceló."
+    ),
+    "request_log.hint.needs_reauth": (
+        "La autorización de Amazon dejó de funcionar. Reautorizá en Sistema → "
+        "Cuentas conectadas y después reintentá."
+    ),
+    "request_log.hint.connection_unavailable": (
+        "La autorización que usa esta cuenta no está activa. Revisala en Sistema "
+        "→ Cuentas conectadas y después reintentá."
+    ),
+    "request_log.hint.access_denied": (
+        "El usuario de Amazon que autorizó no tiene permiso sobre esta cuenta. "
+        "Pedile al cliente que lo vuelva a invitar, o autorizá con otro usuario."
+    ),
+    "request_log.hint.report_failed": (
+        "Es una falla del lado de Amazon y reintentar suele alcanzar. Si no, la "
+        "actualización diaria de mañana vuelve a pedir estos días y el domingo se "
+        "piden los últimos 42."
+    ),
+    "request_log.hint.report_timed_out": (
+        "Amazon tardó más de tres horas en armar el reporte. Reintentar suele "
+        "alcanzar; si se repite, es carga del lado de Amazon."
+    ),
+    "request_log.hint.duplicate": (
+        "Amazon respondió que ya estaba armando este mismo reporte, pero no dijo "
+        "cuál. Esperá unos minutos y reintentá."
+    ),
+    "request_log.hint.deadline": (
+        "Se venció el plazo antes de completarse. La próxima actualización "
+        "programada vuelve a pedir estos días; si los necesitás antes, reintentá."
+    ),
+    "request_log.hint.throttled": (
+        "Amazon limitó la cantidad de pedidos. El sistema espera solo sin gastar "
+        "intentos; reintentá más tarde si hace falta."
+    ),
+    "request_log.hint.invalid_rows": (
+        "El reporte vino con datos que no pasan la validación. Reintentar pide uno "
+        "nuevo; si se repite, pasale este error al equipo de sistemas."
+    ),
+    "request_log.hint.invalid_job": (
+        "La solicitud quedó mal armada y no se puede ejecutar. Pasale este error "
+        "al equipo de sistemas."
+    ),
+    "request_log.hint.save_crashed": (
+        "El sincronizador se cortó dos veces guardando este tramo, casi siempre por "
+        "un reporte demasiado grande. Pasale este error al equipo de sistemas antes "
+        "de reintentar."
+    ),
+    "request_log.hint.network": (
+        "Hubo un problema de red hablando con Amazon o con la base de datos. "
+        "Reintentar suele alcanzar."
+    ),
+    "request_log.hint.amazon_api": (
+        "Amazon rechazó el pedido. Reintentar suele alcanzar; si se repite, pasale "
+        "este error al equipo de sistemas."
+    ),
+    "request_log.hint.default": (
+        "Reintentar suele alcanzar. Si vuelve a fallar, pasale este error al "
+        "equipo de sistemas."
+    ),
 }
 
 
@@ -496,6 +794,7 @@ _EN: dict[str, str] = {
     "nav.page.mercado_libre": "Mercado Libre",
     "nav.page.cuentas_conectadas": "Connected Accounts",
     "nav.page.integraciones": "Integrations",
+    "nav.page.registro_solicitudes": "Request log",
 
     # ── Cuentas conectadas (M37) ──────────────────────────────────────────
     "accounts.sop_md": """
@@ -774,6 +1073,300 @@ What does not exist yet does not take up a row: it goes in a single sentence at 
     "integrations.fact.pending_migration_origin": "Still in {origin}",
     "integrations.kind.oauth": "OAuth",
     "integrations.kind.api_key": "API key",
+
+    # ── Registro de solicitudes ───────────────────────────────────────────
+    "request_log.admin_only": (
+        "This screen is admin-only. If an account is not updating, let an admin "
+        "know or check **🔑 Connected accounts** in the System menu."
+    ),
+    "request_log.header_title": "Request log",
+    "request_log.header_caption": (
+        "Every data request the system makes to the connected accounts, where it "
+        "stands and what happened when it fails. Admin only."
+    ),
+    "request_log.sop_expander": "📘 How to read this log",
+    "request_log.sop_md": """
+**What this screen is**
+
+Every time the system asks a connected account for data (today, the Amazon Ads
+search terms) a request lands here: when it was asked for, where it stands, how
+many times it was tried and how many rows it saved.
+
+**At the top: what needs attention**
+
+- *Failed today*: an update ran out of attempts. **Retry** creates a new
+  request; the failed one stays in the history.
+- *First load failed*: an account's initial load did not complete and, until it
+  does, the account gets no daily updates. **Retry** asks for it again.
+- *Stuck*: the sync worker started a request and never finished it. If the
+  worker let go of it, it can be cancelled from **View**.
+- *Data behind*: past 9 in the morning, profile time, the account still lacks
+  yesterday's data.
+- *No signal*: the sync worker has not answered for more than 5 minutes.
+- *Needs reauthorization* and *Expiring soon*: they belong to the Amazon
+  authorization and are fixed under **🔑 Connected accounts**.
+
+**Request states**
+
+- *Queued*: waiting for its turn.
+- *Asking Amazon*, *Waiting for Amazon* and *Saving*: in progress. Amazon can
+  take up to 3 hours to build a report.
+- *Retrying*: an attempt failed and the system tries again on its own, spacing
+  the attempts out. When Amazon throttles requests it waits without spending an
+  attempt.
+- *Completed · empty day*: Amazon returned a day with no search terms and the
+  data already saved was kept.
+- *Failed*: attempts ran out or the deadline passed.
+- *Cancelled*: someone took it off the queue, or the account stopped being
+  connected.
+
+**How to read each row**
+
+- *Requested* is in Argentina time. The requested period follows the Amazon
+  profile's calendar: the United States, Canada and Mexico use Pacific time.
+- *Attempts* shows the current attempt over the maximum: `3/8` is the third of eight.
+- *View* opens the detail: each attempt, the reports asked from Amazon, the full
+  error and what to do about it.
+""",
+    "request_log.error_db_unavailable": (
+        "The portal is not connected to the database yet, so there are no "
+        "requests to show. It's a server infrastructure step: let the systems "
+        "team know."
+    ),
+    "request_log.verdict.read_failed": (
+        "The request status could not be read: there may be problems this screen "
+        "is not showing."
+    ),
+    "request_log.verdict.all_clear": "Nothing needs attention.",
+    "request_log.verdict.errors_one": "1 problem needs attention.",
+    "request_log.verdict.errors_other": "{n} problems need attention.",
+    "request_log.verdict.warnings_one": "1 warning to review.",
+    "request_log.verdict.warnings_other": "{n} warnings to review.",
+    "request_log.word_problem_one": "problem",
+    "request_log.word_problem_other": "problems",
+    "request_log.word_warning_one": "warning",
+    "request_log.word_warning_other": "warnings",
+    "request_log.verdict.mixed": (
+        "{errors} {error_word} and {warnings} {warning_word} to review."
+    ),
+    "request_log.summary.window": "Last 24 h: {items}",
+    "request_log.summary.no_requests": "no requests",
+    "request_log.summary.completed_one": "1 completed",
+    "request_log.summary.completed_other": "{n} completed",
+    "request_log.summary.open_one": "1 in progress",
+    "request_log.summary.open_other": "{n} in progress",
+    "request_log.summary.failed_one": "1 failed",
+    "request_log.summary.failed_other": "{n} failed",
+    "request_log.summary.cancelled_one": "1 cancelled",
+    "request_log.summary.cancelled_other": "{n} cancelled",
+    "request_log.summary.worker_seen": "the sync worker answered {age} ago",
+    "request_log.summary.worker_never": "the sync worker has not reported yet",
+    "request_log.summary.read_failed": "The last 24 h summary could not be read.",
+    "request_log.alerts.title": "Needs attention",
+    "request_log.alerts.tag": "Alerts",
+    "request_log.alerts.count_one": "1 alert",
+    "request_log.alerts.count_other": "{n} alerts",
+    "request_log.alerts.read_failed": (
+        "The alerts could not be read. Try again in a minute; if it persists, let "
+        "the systems team know."
+    ),
+    "request_log.alert.failed_today": "Failed today",
+    "request_log.alert.first_load_failed": "First load failed",
+    "request_log.alert.stuck": "Stuck",
+    "request_log.alert.stale_data": "Data behind",
+    "request_log.alert.worker_silent": "No signal",
+    "request_log.alert.needs_reauth": "Needs reauthorization",
+    "request_log.alert.consent_expiring": "Expiring soon",
+    "request_log.btn.retry": "Retry",
+    "request_log.btn.accounts": "Connected accounts",
+    "request_log.btn.view": "View",
+    "request_log.btn.retry_now": "Retry now",
+    "request_log.btn.cancel_job": "Cancel request",
+    "request_log.btn.close": "Close",
+    "request_log.btn.load_more": "Load more",
+    "request_log.requests.title": "Requests",
+    "request_log.requests.tag": "History",
+    "request_log.requests.shown_one": "1 shown · Argentina time",
+    "request_log.requests.shown_other": "{n} shown · Argentina time",
+    "request_log.requests.empty": "No requests match these filters.",
+    "request_log.requests.read_failed": (
+        "The request log could not be read. Try again in a minute; if it persists, "
+        "let the systems team know."
+    ),
+    "request_log.filter.provider": "Provider",
+    "request_log.filter.status": "Status",
+    "request_log.filter.account": "Account",
+    "request_log.filter.period": "Period",
+    "request_log.filter.only_problems": "Only with problems",
+    "request_log.filter.all_providers": "All",
+    "request_log.filter.all_statuses": "All",
+    "request_log.filter.all_accounts": "All",
+    "request_log.period.day": "Last 24 h",
+    "request_log.period.week": "Last 7 days",
+    "request_log.period.month": "Last 30 days",
+    "request_log.period.all": "Full history",
+    "request_log.column.status": "Status",
+    "request_log.column.account": "Account",
+    "request_log.column.request": "Request",
+    "request_log.column.requested": "Requested",
+    "request_log.column.duration": "Duration",
+    "request_log.column.attempts": "Attempts",
+    "request_log.column.rows": "Rows",
+    "request_log.status.pending": "Queued",
+    "request_log.status.running": "In progress",
+    "request_log.status.requesting": "Asking Amazon",
+    "request_log.status.waiting": "Waiting for Amazon",
+    "request_log.status.saving": "Saving",
+    "request_log.status.retrying": "Retrying",
+    "request_log.status.completed": "Completed",
+    "request_log.status.completed_empty_day": "Completed · empty day",
+    "request_log.status.completed_warning": "Completed · with a warning",
+    "request_log.status.failed": "Failed",
+    "request_log.status.cancelled": "Cancelled",
+    "request_log.kind.sp_search_terms": "Search terms",
+    "request_log.kind.portfolio_names": "Portfolio names",
+    "request_log.kind.ai_str_analysis": "Search terms AI analysis",
+    "request_log.trigger.scheduled_daily": "Daily",
+    "request_log.trigger.scheduled_deep": "Weekly",
+    "request_log.trigger.backfill": "First load",
+    "request_log.trigger.manual": "Manual",
+    "request_log.trigger.retry": "Retry",
+    "request_log.request_title": "{trigger} · {kind}",
+    "request_log.request_title_by": "{trigger} · {user}",
+    "request_log.window_one": "{start} → {end} · 1 day",
+    "request_log.window_other": "{start} → {end} · {n} days",
+    "request_log.sub.next_attempt": "next attempt {time}",
+    "request_log.sub.reports_ready": "{saved} of {total} reports ready",
+    "request_log.sub.portfolios_one": "1 portfolio",
+    "request_log.sub.portfolios_other": "{n} portfolios",
+    "request_log.duration.waiting": "waiting",
+    "request_log.duration.running": "{elapsed} · running",
+    "request_log.time.yesterday": "yesterday {time}",
+    "request_log.time.dated": "{month} {day} {time}",
+    "request_log.date.short": "{month} {day}",
+    "request_log.detail.dialog_title": "Request detail",
+    "request_log.detail.eyebrow": "{provider} · {kind} · #{job_id}",
+    "request_log.detail.read_failed": (
+        "The request could not be read. Try again in a minute."
+    ),
+    "request_log.detail.not_found": "The request no longer exists.",
+    "request_log.detail.account": "Account",
+    "request_log.detail.profile": "Amazon profile",
+    "request_log.detail.window": "Requested period",
+    "request_log.detail.origin": "Origin",
+    "request_log.detail.created": "Created",
+    "request_log.detail.finished": "Finished",
+    "request_log.detail.gave_up": "Gave up",
+    "request_log.detail.cancelled_at": "Cancelled",
+    "request_log.detail.next_attempt": "Next attempt",
+    "request_log.detail.deadline": "Deadline",
+    "request_log.detail.rows": "Rows saved",
+    "request_log.detail.attempts": "Attempts",
+    "request_log.origin.scheduled_daily": "Scheduled, daily update",
+    "request_log.origin.scheduled_deep": "Scheduled, weekly 42-day pass",
+    "request_log.origin.backfill": "The account's first load",
+    "request_log.origin.manual": "Requested by hand by {user}",
+    "request_log.origin.retry": "Retry of #{job_id}, requested by {user}",
+    "request_log.detail.timeline": "What happened",
+    "request_log.detail.created_event": "Created",
+    "request_log.detail.attempt": "Attempt {n}",
+    "request_log.detail.rows_saved_one": "1 row saved.",
+    "request_log.detail.rows_saved_other": "{count} rows saved.",
+    "request_log.detail.reports": "Reports on Amazon",
+    "request_log.detail.report_window": "Chunk",
+    "request_log.detail.report_id": "Report ID",
+    "request_log.detail.report_status": "Status",
+    "request_log.detail.report_rows": "Rows",
+    "request_log.detail.reports_empty": "No report has been requested for this request yet.",
+    "request_log.detail.reports_read_failed": (
+        "The reports of this request could not be read."
+    ),
+    "request_log.chunk.to_request": "Not requested",
+    "request_log.chunk.requested": "Requested",
+    "request_log.chunk.saving": "Saving",
+    "request_log.chunk.saved": "Saved",
+    "request_log.chunk.failed": "Failed",
+    "request_log.detail.error": "Error",
+    "request_log.detail.warning": "Warning",
+    "request_log.detail.retry_caption": (
+        "Retrying creates a new request and this one stays in the history."
+    ),
+    "request_log.detail.cancel_caption": (
+        "Cancelling takes it off the queue; whatever was already saved stays saved."
+    ),
+    "request_log.detail.cancel_abandoned_caption": (
+        "The sync worker let go of this request halfway. Cancelling closes it; "
+        "whatever was already saved stays saved."
+    ),
+    "request_log.flash.retried": (
+        "Request #{new_job_id} was created to retry #{job_id}."
+    ),
+    "request_log.flash.not_retryable": (
+        "Request #{job_id} cannot be retried: only failed or cancelled requests "
+        "of accounts that are still connected can."
+    ),
+    "request_log.flash.cancelled": "Request #{job_id} cancelled.",
+    "request_log.flash.not_cancellable": (
+        "Request #{job_id} was no longer queued or stalled, so it was not cancelled."
+    ),
+    "request_log.hint.needs_reauth": (
+        "The Amazon authorization stopped working. Reauthorize under System → "
+        "Connected accounts and then retry."
+    ),
+    "request_log.hint.connection_unavailable": (
+        "The authorization this account uses is not active. Check it under "
+        "System → Connected accounts and then retry."
+    ),
+    "request_log.hint.access_denied": (
+        "The Amazon user who authorized has no permission on this account. Ask "
+        "the client to invite them again, or authorize with another user."
+    ),
+    "request_log.hint.report_failed": (
+        "It is a failure on Amazon's side and retrying is usually enough. If not, "
+        "tomorrow's daily update asks for these days again and on Sunday the last "
+        "42 are requested."
+    ),
+    "request_log.hint.report_timed_out": (
+        "Amazon took more than three hours to build the report. Retrying is "
+        "usually enough; if it repeats, it is load on Amazon's side."
+    ),
+    "request_log.hint.duplicate": (
+        "Amazon answered that it was already building this same report, but did "
+        "not say which one. Wait a few minutes and retry."
+    ),
+    "request_log.hint.deadline": (
+        "The deadline passed before it could finish. The next scheduled update "
+        "asks for these days again; if you need them sooner, retry."
+    ),
+    "request_log.hint.throttled": (
+        "Amazon throttled the requests. The system waits on its own without "
+        "spending attempts; retry later if needed."
+    ),
+    "request_log.hint.invalid_rows": (
+        "The report came with data that fails validation. Retrying asks for a new "
+        "one; if it repeats, pass this error to the systems team."
+    ),
+    "request_log.hint.invalid_job": (
+        "The request was built wrong and cannot run. Pass this error to the "
+        "systems team."
+    ),
+    "request_log.hint.save_crashed": (
+        "The sync worker died twice while saving this chunk, almost always because "
+        "the report was too large. Pass this error to the systems team before "
+        "retrying."
+    ),
+    "request_log.hint.network": (
+        "There was a network problem talking to Amazon or the database. Retrying "
+        "is usually enough."
+    ),
+    "request_log.hint.amazon_api": (
+        "Amazon rejected the request. Retrying is usually enough; if it repeats, "
+        "pass this error to the systems team."
+    ),
+    "request_log.hint.default": (
+        "Retrying is usually enough. If it fails again, pass this error to the "
+        "systems team."
+    ),
 }
 
 _CATALOG: dict[str, dict[str, str]] = {"es": _ES, "en": _EN}
@@ -823,6 +1416,7 @@ _PAGE_KEYS: dict[str, str] = {
     "🛒 Mercado Libre": "nav.page.mercado_libre",
     "🔑 Cuentas conectadas": "nav.page.cuentas_conectadas",
     "🔌 Integraciones": "nav.page.integraciones",
+    "🧾 Registro de solicitudes": "nav.page.registro_solicitudes",
 }
 
 # `navigation.Section.title` → catalog key. The title is also the identifier of

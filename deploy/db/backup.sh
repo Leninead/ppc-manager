@@ -22,6 +22,17 @@ if docker volume inspect "$KEYS_VOL" >/dev/null 2>&1; then
     tar czf "/dst/$(basename "$KEYS_OUT")" -C /src .
 fi
 
+# Amazon Ads raw reports: Amazon keeps search terms 65 days, so these files are the only way to replay older days.
+# Files are write-once, so an incremental mirror is enough; the mirror keeps them a bit longer than the worker's 180 days.
+RAW_VOL="${RAW_VOL:-ppc-manager_ads_raw}"
+RAW_KEEP_DAYS="${RAW_KEEP_DAYS:-190}"
+if docker volume inspect "$RAW_VOL" >/dev/null 2>&1; then
+  mkdir -p "$DIR/ads_raw"
+  docker run --rm -v "$RAW_VOL":/src:ro -v "$DIR/ads_raw":/dst alpine \
+    sh -c "cp -a -n /src/. /dst/ && find /dst -type f -mtime +$RAW_KEEP_DAYS -delete && find /dst -mindepth 1 -type d -empty -delete"
+  echo "$(date -Is) ads raw mirror OK -> $DIR/ads_raw ($(du -sh "$DIR/ads_raw" | cut -f1))"
+fi
+
 # Rotation: keep the newest $KEEP of each kind.
 ls -1t "$DIR"/agency_os_*.dump         2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm -f
 ls -1t "$DIR"/integrations_keys_*.tgz  2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm -f

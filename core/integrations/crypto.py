@@ -135,6 +135,21 @@ def private_key_path() -> Path:
     return Path(os.environ.get(PRIVATE_KEY_FILE_ENV, DEFAULT_PRIVATE_KEY_FILE))
 
 
+def read_existing_private_key() -> str:
+    """The worker's private key, env var first, then the key file. Never creates one:
+    a fresh key would silently orphan every secret sealed with the published one."""
+    from_env = os.environ.get(PRIVATE_KEY_ENV, "").strip()
+    if from_env:
+        return from_env.replace("\\n", "\n")
+    target = private_key_path()
+    if not target.is_file():
+        raise SealError(f"no private key: {PRIVATE_KEY_ENV} is not set and {target} does not exist")
+    try:
+        return target.read_text(encoding="ascii")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SealError(f"could not read the private key at {target}: {exc}") from exc
+
+
 def load_or_create_private_key() -> tuple[str, str, bool]:
     """The worker's own keypair, generated on first run. → (private, public, created).
 

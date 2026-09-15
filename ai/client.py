@@ -140,6 +140,11 @@ def ask(*, system: str, input_text: str, context: list, model: str,
     try:
         r = requests.post(f"{config.PROVIDER_URL}/v1/answer", json=payload,
                           headers=headers, timeout=timeout_s)
+    except requests.exceptions.ReadTimeout as e:
+        # Reached but silent: pointing at a stopped container would send someone to the wrong place.
+        _log({**base, "status": "timeout", "error": str(e)})
+        raise ProviderDown(
+            f"El AI provider no respondió en {timeout_s} s y el pedido se cortó.") from e
     except requests.exceptions.RequestException as e:
         _log({**base, "status": "provider_down", "error": str(e)})
         raise ProviderDown(

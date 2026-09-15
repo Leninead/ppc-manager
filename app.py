@@ -7,7 +7,7 @@ import re
 
 from core.i18n import _I18N
 from core import navigation
-from core.integrations.notice import accounts_needing_reauth
+from core.integrations.notice import accounts_needing_reauth, sync_alert_counts
 from core.ui import sidebar as _sidebar
 from core.ui import i18n
 from core.constants import _BR_OPTIONAL_COLS, _PAGES
@@ -59,6 +59,7 @@ from modules.mercado_libre.main import render as render_mercado_libre
 from modules.pages.accounts import render as render_accounts
 from modules.pages.integrations import render as render_integrations
 from modules.pages.chat_skills_page import render as render_chat_skills
+from modules.pages.request_log import render as render_request_log
 from core.integrations.roles import is_admin as _role_is_admin
 from core.integrations.roles import resolve_role as _resolve_role
 import streamlit_authenticator as stauth
@@ -147,10 +148,18 @@ _REAUTH_NOTICE_PAGES = ("🔌 Integraciones", "🔑 Cuentas conectadas")
 
 def _nav_label(page: str) -> str:
     """Visible text for a destination: no emoji, plus an amber dot on the two
-    Sistema screens when an authorization has stopped working or is about to."""
+    Sistema screens when an authorization has stopped working or is about to,
+    and a red or amber dot on the request log when the sync has open alerts."""
     label = navigation.visible_label(page)
     if page in _REAUTH_NOTICE_PAGES and accounts_needing_reauth():
         return f"{label} :orange[●]"
+    # Checked only for admins: the page is hidden from everyone else, and the count costs a read.
+    if page == navigation.REQUEST_LOG and _is_admin:
+        errors, warnings = sync_alert_counts()
+        if errors:
+            return f"{label} :red[●]"
+        if warnings:
+            return f"{label} :orange[●]"
     return label
 
 
@@ -376,3 +385,6 @@ if selected == "🔌 Integraciones":
 
 if selected == "🧠 Skills":
     render_chat_skills(username=_username, role=_role)
+
+if selected == "🧾 Registro de solicitudes":
+    render_request_log(username=_username, role=_role)

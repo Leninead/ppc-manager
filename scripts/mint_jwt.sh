@@ -9,6 +9,7 @@
 #   integ_worker    INTEGRATIONS_WORKER_JWT — reads and writes sealed columns
 #   integ_provider  PORTAL_PROVIDER_JWT, in capybaras-ai-provider's .env — reads
 #                   the Amazon Ads rows the chats need (migration 008)
+#   ai_worker       AI_WORKER_JWT — reads search terms, writes stored AI analyses (migration 010)
 #
 #   sh scripts/mint_jwt.sh web_user      >> .env   # then name it
 #   sh scripts/mint_jwt.sh integ_worker

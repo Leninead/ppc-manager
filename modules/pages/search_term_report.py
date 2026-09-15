@@ -1,52 +1,130 @@
-import hashlib
+import html
 import io
+import logging
+import re
+import unicodedata
+from functools import partial
+from types import SimpleNamespace
 
+import numpy as np
+import requests
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+from ai.agent_call import build_agent_call
+from core.ai_analysis.chat_context import PREVIOUS_ANALYSES, analysis_chat_documents
+from core.ai_analysis.store import TRIGGER_SCHEDULED, AiAnalysisStore
+from core.bulk_export import build_adgroup_negative, write_bulk_excel
+from core.integrations.store import StoreError
+from core.integrations.sync_jobs import SyncJobStore
+from core.currency_format import currency_symbol, money
+from core.excel_text import force_text_cells
 from core.helpers import kpi_card
+from core.search_term_analysis import (
+    ANALYSIS_MODULE,
+    CANONICAL_LANG,
+    CANONICAL_WINDOW_DAYS,
+    DEFAULT_HARVEST_MIN_CLICKS,
+    DEFAULT_PRODUCT_PRICE,
+    DEFAULT_TARGET_ACOS,
+    StrAnalysisParams,
+    build_analysis_input,
+    normalized_brand_terms,
+    rule_two_cvr,
+    sorted_harvest,
+)
+from core.search_term_analysis import detect_columns as _detect_cols
+from core.search_term_analysis import harvest_candidate_rows as _harvest_candidate_rows
+from core.search_term_analysis import negative_candidate_rows as _negative_candidate_rows
+from core.search_term_analysis import numeric_column as _to_num
+from core.search_term_analysis import uses_dollar_price as _uses_dollar_price
+from core.search_term_frame import SOURCE_FILE
+from core.search_term_negatives import (
+    ACTION_NEGATIVE,
+    AD_GROUP_STATE_UNVERIFIED_NOTE,
+    EXACT_GUARD_PARTIAL_NOTE,
+    ad_group_guards,
+    evaluate_candidates,
+    negative_key,
+    select_for_bulk,
+)
+from modules.pages import search_term_source
+from modules.pages.search_term_source import DISPLAY_TIMEZONE, date_range_label, render_source_picker
+
+log = logging.getLogger(__name__)
+
+DEFAULT_PRIORITY_FILTER = ["Alta", "Media"]
+RELEASED_RANKING_KEY = "neg_released_ranking"
+LIBERAR_COLUMN = "Liberar"
+# Big accounts reach hundreds of thousands of terms: draw and chart a slice, build their files only on request.
+TABLE_ROW_LIMIT = 1_000
+SCATTER_POINT_LIMIT = 2_000
+EAGER_EXPORT_ROW_LIMIT = 5_000
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_VIEW_ORDER_LABELS = {"Winners": "las de menor ACoS", "Top Sales": "las de mayor venta"}
+
+_INPUT_KEYS = (
+    "str_portfolio_filter", "str_target_acos_tab1", "str_brand_terms", "str_f_camp", "str_f_match",
+    "str_f_acos_max", "str_f_spend_min", "str_vista", "neg_target_acos", "neg_prio_filter",
+    "harv_target_acos", "harv_min_clicks", "harv_include_dupes",
+)
+_PRICE_KEY_PREFIXES = ("neg_precio", "harv_precio")
+_PARKED_INPUTS_KEY = "str_parked_inputs"
+_PORTFOLIO_OPTIONS_KEY = "str_portfolio_filter_options"
 
 
-@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
-def _load_str(data, name):
-    """Cached reader for STR files."""
-    buf = io.BytesIO(data)
-    return pd.read_excel(buf) if name.endswith(".xlsx") else pd.read_csv(buf)
+def _price_key(base_key, currency_code):
+    """One price input per currency: a price typed for dollars must never carry over to pesos or yen."""
+    code = (currency_code or "").strip().upper()
+    return base_key if _uses_dollar_price(code) else f"{base_key}_{code}"
 
 
-def _detect_cols(df):
-    """Auto-detect STR column names, return dict of canonical -> actual column name."""
-    def _find(keywords, exclude=None):
-        for c in df.columns:
-            cl = c.lower()
-            if all(k in cl for k in keywords):
-                if exclude and any(e in cl for e in exclude):
-                    continue
-                return c
-        return None
-
-    return {
-        "search_term": _find(["customer search term"]) or _find(["search term"]) or _find(["query"]),
-        "spend":       _find(["spend"]),
-        "sales":       _find(["sales"], exclude=["other", "advertised"]),
-        "orders":      _find(["order"], exclude=["other"]) or _find(["purchases"]),
-        "clicks":      _find(["clicks"]) or _find(["click"]),
-        "impressions": _find(["impressions"]) or _find(["impression"]),
-        "acos":        _find(["acos"]),
-        "ctr":         _find(["ctr"]) or _find(["click-through"]),
-        "cvr":         _find(["conversion"]) or _find(["cvr"]),
-        "campaign":    _find(["campaign name"]) or _find(["campaign"]),
-        "ad_group":    _find(["ad group"]),
-        "match_type":  _find(["match type"]) or _find(["targeting type"]),
-        "portfolio":   _find(["portfolio name"]) or _find(["portfolio"]),
-    }
+def _seed_input(key, default):
+    """First value for a widget without a default of its own: Streamlit warns on a default plus a session value."""
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 
-def _to_num(df, col):
-    if col and col in df.columns:
-        return pd.to_numeric(df[col].astype(str).str.replace(r"[MX$,%]", "", regex=True).str.replace(",", ""), errors="coerce").fillna(0)
-    return pd.Series(0, index=df.index)
+def _park_inputs(keys):
+    """Re-stores inputs whose widgets are not drawn this run, so Streamlit does not drop what the AM typed."""
+    parked = set(st.session_state.get(_PARKED_INPUTS_KEY, ()))
+    for key in keys:
+        if key in st.session_state:
+            st.session_state[key] = st.session_state[key]
+            parked.add(key)
+    if parked:
+        st.session_state[_PARKED_INPUTS_KEY] = tuple(sorted(parked))
+
+
+def _restore_parked_inputs():
+    """Writes parked values again in the run that draws their widgets; unwritten, the page would show defaults."""
+    for key in st.session_state.pop(_PARKED_INPUTS_KEY, ()):
+        if key in st.session_state:
+            st.session_state[key] = st.session_state[key]
+
+
+def _all_input_keys():
+    price_keys = [key for key in st.session_state.keys()
+                  if isinstance(key, str) and key.startswith(_PRICE_KEY_PREFIXES)]
+    return (*_INPUT_KEYS, *price_keys)
+
+
+def _xlsx_bytes(frame, **to_excel_options):
+    """One-sheet .xlsx whose text cells stay text: search terms and campaign names are typed by people."""
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        frame.to_excel(writer, index=False, **to_excel_options)
+        force_text_cells(writer.book)
+    return buffer.getvalue()
+
+
+def released_ranking_keys(previously_released, releasable_exclusions, liberar_flags):
+    """Release keys after the AM ticks «Liberar»: rows shown now follow their box, rows not shown keep theirs."""
+    shown = {negative_key(exclusion.candidate) for exclusion in releasable_exclusions}
+    ticked = {negative_key(exclusion.candidate)
+              for exclusion, ticked_box in zip(releasable_exclusions, liberar_flags) if ticked_box}
+    return frozenset((set(previously_released) - shown) | ticked)
 
 
 def _classify_term_type(term, brand_terms):
@@ -59,25 +137,80 @@ def _classify_term_type(term, brand_terms):
     return "Generic"
 
 
-def _classify_status(row, target_acos):
-    """Classify a row into an action status."""
-    spend = row["_spend"]
-    sales = row["_sales"]
-    orders = row["_orders"]
-    clicks = row["_clicks"]
-    acos = (spend / sales * 100) if sales > 0 else 0
+def _classify_statuses(frame, target_acos):
+    """Action status per row (Escalar / OK / Reducir / Revisar / Negativa? / —), first matching rule wins."""
+    spend, sales, orders, clicks = frame["_spend"], frame["_sales"], frame["_orders"], frame["_clicks"]
+    acos = (spend / sales.where(sales > 0) * 100).fillna(0)
+    conditions = [
+        (orders >= 3) & (acos > 0) & (acos < target_acos * 0.5),
+        (sales > 0) & (acos <= target_acos),
+        (sales > 0) & (acos > target_acos * 1.5),
+        (clicks > 10) & (orders == 0),
+        (clicks >= 3) & (sales == 0) & (spend > 0),
+    ]
+    labels = ["Escalar", "OK", "Reducir", "Revisar", "Negativa?"]
+    return pd.Series(np.select(conditions, labels, default="—"), index=frame.index)
 
-    if orders >= 3 and acos > 0 and acos < target_acos * 0.5:
-        return "Escalar"
-    if sales > 0 and acos <= target_acos:
-        return "OK"
-    if sales > 0 and acos > target_acos * 1.5:
-        return "Reducir"
-    if clicks > 10 and orders == 0:
-        return "Revisar"
-    if clicks >= 3 and sales == 0 and spend > 0:
-        return "Negativa?"
-    return "—"
+
+def _drawn_rows(frame, order_column=None):
+    """(the rows to draw, whether some were left out); `order_column` picks the biggest rows of an unordered frame."""
+    if len(frame) <= TABLE_ROW_LIMIT:
+        return frame, False
+    if order_column is not None:
+        frame = frame.sort_values(order_column, ascending=False, kind="stable")
+    return frame.head(TABLE_ROW_LIMIT), True
+
+
+def _brand_match_caption(frame, brand_terms, currency_code):
+    terms = ", ".join(brand_terms)
+    brand_rows = frame["_term_type"] == "Brand"
+    matched = int(brand_rows.sum())
+    if not matched:
+        return f"Marca aplicada ({terms}): ningún término de búsqueda la contiene."
+    brand_spend = frame.loc[brand_rows, "_spend"].sum()
+    total_spend = frame["_spend"].sum()
+    share = f" ({brand_spend / total_spend * 100:.1f}%)" if total_spend > 0 else ""
+    return (f"Marca aplicada ({terms}): {_dot_thousands(matched)} de {_dot_thousands(len(frame))} términos la "
+            f"contienen · {money(brand_spend, currency_code)} de gasto{share}.")
+
+
+def _dot_thousands(number):
+    return f"{number:,}".replace(",", ".")
+
+
+def _drawn_rows_caption(total_rows, what, exported_rows=None):
+    exported = "todas" if exported_rows is None or exported_rows == total_rows else _dot_thousands(exported_rows)
+    return (f"Mostrando {_dot_thousands(TABLE_ROW_LIMIT)} de {_dot_thousands(total_rows)} filas ({what}). "
+            f"La descarga en Excel trae {exported}.")
+
+
+def _harvest_export_rows(harvest, *, include_existing_exact):
+    """The harvest rows the Excel carries: without the terms already running as active Exact unless asked for."""
+    if include_existing_exact or "Ya en Exact" not in harvest.columns:
+        return harvest
+    return harvest[harvest["Ya en Exact"] == ""]
+
+
+def _xlsx_download(label, build, *, file_name, key, row_count, fingerprint):
+    """Download button for an .xlsx; past EAGER_EXPORT_ROW_LIMIT rows the file is built only when asked for."""
+    if row_count <= EAGER_EXPORT_ROW_LIMIT:
+        st.download_button(label, data=build(), file_name=file_name, mime=XLSX_MIME,
+                           use_container_width=True, key=key)
+        return
+    prepared_key = f"{key}_prepared"
+    prepared = st.session_state.get(prepared_key)
+    if prepared is None or prepared[0] != fingerprint:
+        if not st.button(f"Preparar el archivo ({_dot_thousands(row_count)} filas)", key=f"{key}_prepare",
+                         use_container_width=True,
+                         icon=":material/download:"):
+            st.caption("Es un archivo grande: se arma cuando lo pedís y puede tardar un poco.")
+            return
+        with st.spinner("Armando el archivo…"):
+            prepared = (fingerprint, build())
+            # Saved before the spinner closes: a widget event during the build stops the run at that st call.
+            st.session_state[prepared_key] = prepared
+    st.download_button(label, data=prepared[1], file_name=file_name, mime=XLSX_MIME,
+                       use_container_width=True, key=key)
 
 
 def _is_brand_campaign(name):
@@ -137,7 +270,150 @@ def _build_str_excel(df_f, df_original, kpi_dict, brand_terms):
             if not tt.empty:
                 tt.to_excel(writer, sheet_name="Por Tipo Termino", index=False)
 
+        force_text_cells(writer.book)
+
     return buf.getvalue()
+
+
+def _amount_unit(currency_code):
+    """Unit shown in amount labels: the dollar sign for USD or an unknown currency, else the code."""
+    code = (currency_code or "").strip().upper()
+    return currency_symbol(code) if code in ("", "USD") else code
+
+
+def _missing_data_reasons(frame):
+    """What each candidate lacks to be applied in Amazon: a campaign name, then an ad group; "" when nothing."""
+    campaign_blank = frame["Campaign"].astype(str).str.strip() == ""
+    ad_group_blank = frame["Ad Group"].astype(str).str.strip() == ""
+    return pd.Series(np.select([campaign_blank, ad_group_blank], ["Sin Campaign Name", "Sin Ad Group"], default=""),
+                     index=frame.index)
+
+
+def _bulk_selected_candidates(candidates, exclusions):
+    """The Negativo candidates that made it into the bulk, in the order of select_for_bulk's rows."""
+    excluded = {id(exclusion.candidate) for exclusion in exclusions}
+    return [candidate for candidate in candidates
+            if candidate.action == ACTION_NEGATIVE and id(candidate) not in excluded]
+
+
+def _bulk_metadata_frame(selected_candidates):
+    return pd.DataFrame([{
+        "Search Term": candidate.search_term,
+        "Campaign": candidate.campaign,
+        "Ad Group": candidate.ad_group,
+        "Portfolio": candidate.portfolio,
+        "Clicks": candidate.clicks,
+        "Impressions": candidate.impressions,
+        "Spend": candidate.spend,
+        "Regla": candidate.rule,
+        "Match Type": candidate.match_type,
+        "Prioridad": candidate.priority,
+    } for candidate in selected_candidates])
+
+
+def _bulk_exclusion_frame(exclusions):
+    return pd.DataFrame([{
+        "Search Term": exclusion.candidate.search_term,
+        "Campaign": exclusion.candidate.campaign,
+        "Ad Group": exclusion.candidate.ad_group,
+        "Regla": exclusion.candidate.rule,
+        "Motivo": exclusion.reason,
+    } for exclusion in exclusions])
+
+
+def _unique_by_negative_key(exclusions):
+    seen = set()
+    unique = []
+    for exclusion in exclusions:
+        key = negative_key(exclusion.candidate)
+        if key not in seen:
+            seen.add(key)
+            unique.append(exclusion)
+    return unique
+
+
+def _release_frame(releasable_exclusions, released):
+    return pd.DataFrame([{
+        LIBERAR_COLUMN: negative_key(exclusion.candidate) in released,
+        "Search Term": exclusion.candidate.search_term,
+        "Campaign": exclusion.candidate.campaign,
+        "Ad Group": exclusion.candidate.ad_group,
+        "Portfolio": exclusion.candidate.portfolio,
+        "Regla": exclusion.candidate.rule,
+        "Motivo": exclusion.reason,
+    } for exclusion in releasable_exclusions])
+
+
+def _render_release_editor(releasable_exclusions):
+    """«Liberar» boxes for the protected-portfolio rows (INV-11.3); returns the keys the AM released."""
+    released = frozenset(st.session_state.get(RELEASED_RANKING_KEY, frozenset()))
+    if not releasable_exclusions:
+        return released
+    st.caption("Los términos de portfolios RANKING o sin nombre sincronizado quedan afuera. Marcá «Liberar» "
+               "en los que sí querés negativizar.")
+    release_frame = _release_frame(releasable_exclusions, released)
+    edited = st.data_editor(
+        release_frame, key="neg_release_editor", hide_index=True, use_container_width=True,
+        disabled=[column for column in release_frame.columns if column != LIBERAR_COLUMN],
+        column_config={LIBERAR_COLUMN: st.column_config.CheckboxColumn(
+            LIBERAR_COLUMN, help="Incluye este término en el bulk aunque su portfolio esté protegido.")},
+    )
+    released = released_ranking_keys(released, releasable_exclusions, edited[LIBERAR_COLUMN].tolist())
+    st.session_state[RELEASED_RANKING_KEY] = released
+    return released
+
+
+def _bulk_file_name(source_label, currency_code, day):
+    ascii_label = unicodedata.normalize("NFKD", source_label).encode("ascii", "ignore").decode("ascii")
+    label_slug = re.sub(r"[^a-z0-9]+", "-", ascii_label.casefold()).strip("-") or "cuenta"
+    currency = re.sub(r"[^A-Z0-9]", "", (currency_code or "").upper()) or "SIN-MONEDA"
+    return f"negativos_bulk_{label_slug}_{currency}_{day.isoformat()}.xlsx"
+
+
+def _render_negatives_bulk(candidates, unfiltered_frame, source, day, *, price_missing):
+    """Ad-group negatives bulk from Amazon Ads data: the download plus what stayed out and why."""
+    try:
+        guards = ad_group_guards(unfiltered_frame)
+        _, unreleased_exclusions = select_for_bulk(candidates, unfiltered_frame, guards=guards)
+    except ValueError as exc:
+        log.error("negatives bulk could not be built for %s: %s", source.label, exc)
+        st.error("No se pudo armar el bulk de negativos con estos datos. Quedó registrado en el log.")
+        return
+    st.caption(EXACT_GUARD_PARTIAL_NOTE)
+    st.caption(AD_GROUP_STATE_UNVERIFIED_NOTE)
+    # The download sits above the release boxes but is built from what they say, so it is filled in last.
+    download_slot = st.container()
+    exclusions_heading_slot = st.container()
+    releasable = _unique_by_negative_key([exclusion for exclusion in unreleased_exclusions if exclusion.releasable])
+    released = _render_release_editor(releasable)
+    bulk_rows, exclusions = select_for_bulk(candidates, unfiltered_frame, released_ranking=released, guards=guards)
+
+    with download_slot:
+        if bulk_rows:
+            bulk_df, invalid_df = build_adgroup_negative(bulk_rows)
+            if not invalid_df.empty:
+                log.warning("negatives bulk for %s: %d rows failed bulk validation", source.label, len(invalid_df))
+                st.caption(f"{len(invalid_df)} negativos no pasaron la validación del bulk de Amazon y quedaron afuera.")
+            if not bulk_df.empty:
+                metadata_df = _bulk_metadata_frame(_bulk_selected_candidates(candidates, exclusions))
+                st.download_button(
+                    "Descargar bulk de negativos (.xlsx)",
+                    data=b"" if price_missing else write_bulk_excel(bulk_df, metadata_df),
+                    file_name=_bulk_file_name(source.label, source.currency_code, day),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True, key="neg_bulk_dl", disabled=price_missing,
+                )
+        else:
+            st.info("Ningún candidato a negativo pasa los controles para ir al bulk.")
+
+    if exclusions:
+        exclusions_heading_slot.markdown(f"**Quedaron afuera del bulk ({len(exclusions)})**")
+        protected_keys = {negative_key(exclusion.candidate) for exclusion in releasable}
+        other_exclusions = [exclusion for exclusion in exclusions
+                            if not (exclusion.releasable and negative_key(exclusion.candidate) in protected_keys)]
+        if other_exclusions:
+            st.dataframe(_bulk_exclusion_frame(other_exclusions), use_container_width=True, hide_index=True,
+                         height=min(38 + 35 * len(other_exclusions), 400))
 
 
 # STR-only UI strings; everything shared comes from core/ai_tab's label base.
@@ -183,21 +459,21 @@ _STR_BADGE_COLORS = {
 }
 
 
-def _str_neg_metrics(rec):
+def _str_neg_metrics(rec, currency_code=""):
     return [f"{int(rec.get('Clicks', 0))} clicks",
             f"{int(rec.get('Orders', 0))} ord",
-            f"${float(rec.get('Spend', 0)):.2f}",
+            money(float(rec.get('Spend', 0)), currency_code),
             f"{int(rec.get('Impressions', 0))} impr"]
 
 
-def _str_harv_metrics(rec, already_exact_label="ya en exact"):
+def _str_harv_metrics(rec, already_exact_label="ya en exact", currency_code=""):
     metrics = [f"{int(rec.get('Clicks', 0))} clicks",
                f"{int(rec.get('Orders', 0))} ord",
                f"ACoS {float(rec.get('ACoS', 0)):.1f}%"]
     if rec.get("CVR%") is not None:
         metrics.append(f"CVR {float(rec['CVR%']):.1f}%")
     if rec.get("Bid Sugerido") is not None:
-        metrics.append(f"bid ${float(rec['Bid Sugerido']):.2f}")
+        metrics.append(f"bid {money(float(rec['Bid Sugerido']), currency_code)}")
     # Tab 3 fills the column with "Ya en Exact activo" or "", never a yes/no.
     if str(rec.get("Ya en Exact", "")).strip():
         metrics.append(already_exact_label)
@@ -240,9 +516,20 @@ def _str_ai_rows(records, opinions, prefix, brand_terms, labels, metrics_fn):
     return rows
 
 
-def _str_campaign_rows(campaigns):
-    return [{"item": c.get("campaign", ""), "reasoning": c.get("diagnostico", "")}
+def _str_campaign_rows(campaigns, campaign_records, currency_code=""):
+    """AI campaign diagnoses with the figures of the campaign the AI read, matched by exact name."""
+    by_name = {str(record.get("Campaign", "")): record for record in campaign_records or []}
+    return [{"item": c.get("campaign", ""), "reasoning": c.get("diagnostico", ""),
+             "metrics": _str_campaign_metrics(by_name[c.get("campaign", "")], currency_code)
+             if c.get("campaign", "") in by_name else []}
             for c in campaigns]
+
+
+def _str_campaign_metrics(record, currency_code=""):
+    return [money(float(record.get("Spend", 0)), currency_code),
+            f"ACoS {float(record.get('ACoS', 0)):.1f}%",
+            f"{int(record.get('Orders', 0))} ord",
+            f"{int(record.get('Clicks', 0))} clicks"]
 
 
 def _str_row_labels(neg_records, harv_records):
@@ -258,7 +545,7 @@ def _str_row_labels(neg_records, harv_records):
 
 
 def _render_str_ai_result(result, analysis, neg_records, harv_records,
-                          brand_terms, labels):
+                          brand_terms, labels, currency_code="", campaign_records=None):
     from core import ai_tab
     from ai.agents.str.context import NEG_PREFIX, HARV_PREFIX
     row_labels = _str_row_labels(neg_records, harv_records)
@@ -290,21 +577,245 @@ def _render_str_ai_result(result, analysis, neg_records, harv_records,
     if neg_records:
         st.markdown(ai_tab.opinion_table_html(
             _str_ai_rows(neg_records, negs, NEG_PREFIX, brand_terms, labels,
-                         _str_neg_metrics),
+                         lambda rec: _str_neg_metrics(rec, currency_code)),
             labels["table_neg"], labels, badge_colors), unsafe_allow_html=True)
     if harv_records:
         st.markdown(ai_tab.opinion_table_html(
             _str_ai_rows(harv_records, harvs, HARV_PREFIX, brand_terms, labels,
-                         lambda rec: _str_harv_metrics(rec, labels["already_exact"])),
+                         lambda rec: _str_harv_metrics(rec, labels["already_exact"],
+                                                       currency_code)),
             labels["table_harv"], labels, badge_colors), unsafe_allow_html=True)
     if campaigns:
         st.markdown(ai_tab.opinion_table_html(
-            _str_campaign_rows(campaigns), labels["table_camp"],
-            {**labels, "col_item": labels["col_campaign"]}, badge_colors),
+            _str_campaign_rows(campaigns, campaign_records, currency_code), labels["table_camp"],
+            {**labels, "col_item": labels["col_campaign"]}, badge_colors, diagnosis_column=False),
             unsafe_allow_html=True)
 
 
+_SEEDED_ACCOUNT_KEY = "str_ai_seeded_account"
+_AI_REQUEST_FEEDBACK_KEY = "str_ai_request_feedback"
+AI_STATUS_TTL_SECONDS = 15
+AI_GENERATING_POLL = "10s"
+_AI_REQUEST_FEEDBACK = {
+    "created": "Análisis IA pedido: se genera en unos minutos.",
+    "already_running": "Ya se está generando el análisis de estos datos.",
+    "already_done": "Ya existe el análisis de estos datos.",
+}
+
+
+def _price_input(label, key, currency_code, amount_unit):
+    """A price input; outside dollars it starts empty, because 30 pesos or yen would price every rule wrong.
+
+    Each currency keeps one widget signature: changing its arguments would make Streamlit reset the value.
+    """
+    if _uses_dollar_price(currency_code):
+        _seed_input(key, DEFAULT_PRODUCT_PRICE)
+        return st.number_input(label, min_value=1.0, step=1.0, key=key)
+    return st.number_input(label, min_value=1.0, value=None, step=1.0, key=key,
+                           placeholder=f"Precio en {amount_unit}")
+
+
+def _seed_account_parameters(source):
+    """Loads the account's saved analysis parameters, or the defaults, into the inputs when the AM opens an account."""
+    if st.session_state.get(_SEEDED_ACCOUNT_KEY) == source.profile_id:
+        return
+    try:
+        settings = _load_account_settings(source.profile_id)
+    except (requests.RequestException, StoreError) as exc:
+        log.warning("analysis parameters for %s could not be read: %s", source.profile_id, exc)
+        return
+    st.session_state[_SEEDED_ACCOUNT_KEY] = source.profile_id
+    params = (StrAnalysisParams.from_dict(settings.params, source.currency_code) if settings
+              else StrAnalysisParams.defaults(source.currency_code))
+    st.session_state["neg_target_acos"] = params.target_acos
+    st.session_state["harv_target_acos"] = params.harvest_target_acos
+    st.session_state["harv_min_clicks"] = params.harvest_min_clicks
+    st.session_state["str_brand_terms"] = ", ".join(params.brand_terms)
+    for base_key, price in (("neg_precio", params.price), ("harv_precio", params.harvest_price)):
+        key = _price_key(base_key, source.currency_code)
+        if price is None:
+            st.session_state.pop(key, None)
+        else:
+            st.session_state[key] = price
+
+
+def _analysis_store():
+    rest = search_term_source._open_rest()
+    return AiAnalysisStore(rest) if rest is not None else None
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_account_settings(profile_id):
+    store = _analysis_store()
+    return store.settings(ANALYSIS_MODULE, profile_id) if store is not None else None
+
+
+@st.cache_data(ttl=AI_STATUS_TTL_SECONDS, show_spinner=False)
+def _load_stored_analysis(profile_id, input_digest):
+    store = _analysis_store()
+    return store.done_for_input(ANALYSIS_MODULE, profile_id, input_digest) if store is not None else None
+
+
+@st.cache_data(ttl=AI_STATUS_TTL_SECONDS, show_spinner=False)
+def _load_analysis_job(profile_id, input_digest):
+    store = _analysis_store()
+    return store.latest_job_for_input(ANALYSIS_MODULE, profile_id, input_digest) if store is not None else None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_analysis_history(profile_id, exclude_id):
+    store = _analysis_store()
+    if store is None:
+        return []
+    return store.history(ANALYSIS_MODULE, profile_id, limit=PREVIOUS_ANALYSES, exclude_id=exclude_id)
+
+
+def _forget_analysis_reads():
+    for loader in (_load_account_settings, _load_stored_analysis, _load_analysis_job, _load_analysis_history):
+        loader.clear()
+
+
+def _missing_price_notice(params):
+    """What the analysis leaves out while a price is missing; None when both prices are loaded."""
+    if params.price is None and params.harvest_price is None:
+        return ("Sin precio del producto: este análisis no evalúa la Regla 3 (gasto sin conversión) ni sugiere bids. "
+                "Cargá el precio en Negatives Mining y en Harvest Candidates y pedí el análisis de nuevo.")
+    if params.price is None:
+        return ("Sin precio en Negatives Mining: este análisis no evalúa la Regla 3 (gasto sin conversión). "
+                "Cargalo y pedí el análisis de nuevo.")
+    if params.harvest_price is None:
+        return ("Sin precio en Harvest Candidates: este análisis no sugiere bids. Cargalo y pedí el análisis de nuevo.")
+    return None
+
+
+def _stored_analysis_caption(stored):
+    moment = stored.finished_at.astimezone(DISPLAY_TIMEZONE).strftime("%d/%m %H:%M") if stored.finished_at else "?"
+    origin = ("generado automáticamente al llegar los datos" if stored.trigger == TRIGGER_SCHEDULED
+              else f"pedido por {stored.requested_by}")
+    return (f"Análisis del {date_range_label(stored.window_start, stored.window_end)} · {origin} · "
+            f"listo el {moment}.")
+
+
+def _render_stored_analysis(source, ai_input, params, *, lang, labels):
+    """Tab 4 for Amazon Ads data: the stored analysis of exactly these data and parameters, never an older one."""
+    feedback = st.session_state.pop(_AI_REQUEST_FEEDBACK_KEY, None)
+    if feedback:
+        st.toast(feedback)
+    call = build_agent_call(ANALYSIS_MODULE, ai_input.data)
+    try:
+        stored = _load_stored_analysis(source.profile_id, call.input_digest)
+        job = None if stored is not None else _load_analysis_job(source.profile_id, call.input_digest)
+    except (requests.RequestException, StoreError) as exc:
+        log.warning("stored analysis for %s could not be read: %s", source.profile_id, exc)
+        st.error("No se pudo leer el análisis IA guardado. Probá de nuevo en unos segundos.")
+        return None
+
+    if stored is not None:
+        st.caption(_stored_analysis_caption(stored))
+        _render_str_ai_result(stored.result, SimpleNamespace(elapsed=int((stored.duration_ms or 0) / 1000)),
+                              stored.negative_records, stored.harvest_records,
+                              list(stored.params.get("brand_terms") or []), labels, source.currency_code,
+                              # Same fingerprint, so these are the campaign figures the stored analysis read.
+                              campaign_records=ai_input.data.campanas)
+        return stored
+    if job is not None and job.is_open:
+        _render_analysis_generating(source.profile_id, call.input_digest, job)
+        return None
+    if job is not None and job.status == "failed":
+        st.error(f"El análisis IA de estos datos falló: {job.error_message or job.error_class}")
+        if st.button("Reintentar", key="str_ai_retry_job"):
+            _retry_analysis_job(job)
+        return None
+    _render_analysis_request(source, ai_input, params, call.input_digest, lang=lang)
+    return None
+
+
+def _render_analysis_generating(profile_id, input_digest, job):
+    @st.fragment(run_every=AI_GENERATING_POLL)
+    def _poll():
+        _load_stored_analysis.clear()
+        _load_analysis_job.clear()
+        current = _load_analysis_job(profile_id, input_digest) or job
+        if _load_stored_analysis(profile_id, input_digest) is not None or not current.is_open:
+            st.rerun()
+        requested = current.created_at.astimezone(DISPLAY_TIMEZONE).strftime("%H:%M") if current.created_at else "?"
+        st.status(f"Generando el análisis IA de estos datos · pedido a las {requested}. "
+                  "Puede tardar unos minutos.", state="running")
+
+    _poll()
+
+
+def _render_analysis_request(source, ai_input, params, input_digest, *, lang):
+    try:
+        settings = _load_account_settings(source.profile_id)
+    except (requests.RequestException, StoreError):
+        settings = None
+    account_params = (StrAnalysisParams.from_dict(settings.params, source.currency_code) if settings
+                      else StrAnalysisParams.defaults(source.currency_code))
+    window_days = ((source.window_end - source.window_start).days + 1
+                   if source.window_start and source.window_end else 0)
+    from core import ai_tab
+    if params == account_params and lang == CANONICAL_LANG and window_days == CANONICAL_WINDOW_DAYS:
+        body = ("Todavía no hay un análisis de estos datos. Se genera solo cuando llegan datos nuevos de Amazon "
+                "Ads; si no querés esperar, pedilo ahora.")
+    else:
+        body = ("No hay un análisis con estos parámetros, este período o este idioma. Generalo para esta "
+                "configuración: los parámetros quedan guardados para la cuenta.")
+    st.markdown(ai_tab.ai_notice_html("Análisis IA pendiente", body), unsafe_allow_html=True)
+    if not st.button("Generar análisis IA", key="str_ai_request", type="primary"):
+        return
+    store = _analysis_store()
+    if store is None or source.window_start is None or source.window_end is None:
+        st.error("No hay base de datos configurada para pedir el análisis.")
+        return
+    username = search_term_source._current_username()
+    try:
+        if params != account_params:
+            store.save_settings(ANALYSIS_MODULE, source.profile_id, params.as_dict(), username)
+        outcome = store.request_analysis(
+            ANALYSIS_MODULE, source.profile_id, window_start=source.window_start, window_end=source.window_end,
+            lang=lang, params=params.as_dict(), input_digest=input_digest, requested_by=username)
+    except StoreError as exc:
+        st.error(str(exc))
+        return
+    _forget_analysis_reads()
+    message = _AI_REQUEST_FEEDBACK.get(outcome.reason)
+    if message is None:
+        st.warning("No se pudo pedir el análisis para esta cuenta o este período.")
+        return
+    # A toast sent right before st.rerun() is dropped with the run; the next run shows it.
+    st.session_state[_AI_REQUEST_FEEDBACK_KEY] = message
+    st.rerun()
+
+
+def _retry_analysis_job(job):
+    rest = search_term_source._open_rest()
+    if rest is None:
+        st.error("No hay base de datos configurada para reintentar.")
+        return
+    try:
+        SyncJobStore(rest).retry(job.id, search_term_source._current_username())
+    except StoreError as exc:
+        st.error(str(exc))
+        return
+    _forget_analysis_reads()
+    st.rerun()
+
+
+def _analysis_chat_context(source, stored):
+    """The documents the chat opens with for Amazon Ads data, and the key that changes when they do."""
+    try:
+        previous = _load_analysis_history(source.profile_id, stored.id if stored is not None else None)
+    except (requests.RequestException, StoreError) as exc:
+        log.warning("analysis history for %s could not be read: %s", source.profile_id, exc)
+        previous = []
+    docs = analysis_chat_documents(stored, previous, currency_code=source.currency_code)
+    key = f"{source.profile_id}:{stored.id if stored is not None else '-'}:{'-'.join(str(a.id) for a in previous)}"
+    return docs, key
+
+
 def render():
+    _restore_parked_inputs()
     st.header("Search Term Report")
     st.caption("Analisis de terminos de busqueda con metricas de ACoS, gasto y ventas totales.")
     st.divider()
@@ -315,22 +826,63 @@ def render():
             st.markdown("**🎯 Para qué sirve**")
             st.caption("Analizar search terms de campañas SP para negativizar, harvestear y clasificar por estado.")
         with col2:
-            st.markdown("**📂 Archivo necesario**")
-            st.caption("STR → Amazon Ads → Reports → Advertising Reports → SP Search Term (.xlsx o .csv, 30 días).")
+            st.markdown("**📥 De dónde salen los datos**")
+            st.caption("Solos desde Amazon Ads si la cuenta está conectada (Sistema → Cuentas conectadas). Si no, "
+                       "subís el reporte a mano.")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Search Query Performance (M3) para validar contra datos del mercado.")
-        st.markdown("**▶️ Pasos:**")
+
+        st.markdown("**🔄 Datos automáticos (cuenta conectada)**")
         st.markdown(
-            "1. Subí el STR\n"
-            "2. Ingresá precio promedio del producto + brand terms + Target ACoS\n"
-            "3. Revisá Tab 1 (12 KPIs), Tab 2 (Negatives), Tab 3 (Harvest con anti-canibalización)\n"
-            "4. Opcional: subí Campaign CSV en Tab 3 para cruzar con Exact activos\n"
-            "5. Descargá bulk de negativos y/o harvest"
+            "- No hace falta bajar ni subir nada: el reporte se actualiza solo todos los días con los datos hasta "
+            "ayer (hora de la cuenta). Una cuenta recién conectada trae sus últimos 65 días.\n"
+            "- Elegís **Cuenta**, **País** y **Período** (7, 14, 30 o 60 días, o un rango de hasta 60).\n"
+            "- **Actualizar ahora** pide datos nuevos a Amazon si no querés esperar a la actualización diaria "
+            "(una vez cada 30 minutos). Cuando llegan, aparece **Cargar datos nuevos**.\n"
+            "- El **análisis IA** ya está hecho y guardado: se genera solo cuando llegan datos nuevos y lo ve todo "
+            "el equipo. Si cambiás parámetros, período o idioma, se pide con **Generar análisis IA**.\n"
+            "- Con el precio cargado se puede descargar el **bulk de negativos** para subir a Amazon."
         )
 
-    file_str = st.file_uploader("Sube tu STR (.xlsx o .csv)", type=["xlsx", "csv"], key="str")
-    if not file_str:
+        st.markdown("**📂 Archivo manual (Subir archivo manualmente)**")
+        st.markdown(
+            "- Para una cuenta que no está conectada, o para analizar un reporte puntual: el Search Term Report de "
+            "Sponsored Products que bajás de la consola de Amazon Ads (.xlsx o .csv). Sirve el formato viejo y el "
+            "nuevo de la consola.\n"
+            "- Si el archivo trae varias cuentas, elegís cuál ver; si una cuenta tiene montos en dos monedas, se "
+            "separan, nunca se suman.\n"
+            "- El archivo queda solo en tu sesión: no se guarda ni se mezcla con los datos automáticos.\n"
+            "- El **análisis IA** se genera en el momento y solo para vos. Si falta el precio, espera a que lo "
+            "cargues o a que lo pidas con el botón.\n"
+            "- El **bulk de negativos no está disponible**: el archivo no trae el match type de origen que exigen "
+            "las reglas para subirlo."
+        )
+
+        st.markdown("**⚖️ En qué se diferencian**")
+        st.markdown(
+            "| | Automático | Archivo manual |\n"
+            "|---|---|---|\n"
+            "| Actualización | Sola, todos los días (y *Actualizar ahora*) | Cada vez que subís un archivo |\n"
+            "| Se guarda | Sí, para todo el equipo | No, solo tu sesión |\n"
+            "| Análisis IA | Guardado y listo al entrar | Se genera al subir, solo para vos |\n"
+            "| Bulk de negativos | Sí | No |"
+        )
+
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Elegí cuenta, país y período, o subí el archivo si la cuenta no está conectada\n"
+            "2. Revisá precio promedio del producto (fuera de USD arranca vacío: sin precio no corre la Regla 3 "
+            "ni hay bid sugerido), brand terms (Enter para aplicar) y Target ACoS\n"
+            "3. Revisá Tab 1 (12 KPIs), Tab 2 (Negatives), Tab 3 (Harvest con anti-canibalización) y Tab 4 (Análisis IA)\n"
+            "4. Opcional: subí Campaign CSV en Tab 3 para cruzar con Exact activos\n"
+            "5. Descargá el bulk de negativos (datos automáticos) y los Excel de candidatos"
+        )
+
+    source = render_source_picker()
+    if source is None:
+        # A period without searches must not wipe brand terms, prices and filters typed before it.
+        _park_inputs(_all_input_keys())
         # El montaje del final de render() nunca se alcanza sin archivo, que es
         # justo la pantalla donde el AM llega primero. El chat no depende del
         # STR: tiene cuenta, tools y las skills de la agencia.
@@ -341,8 +893,14 @@ def render():
             labels=ai_tab.ai_labels(_lang, {"chat": "Análisis IA — STR"}))
         return
 
-    df_raw = _load_str(file_str.getvalue(), file_str.name)
-    st.success(f"{len(df_raw)} filas cargadas")
+    df_raw = source.frame
+    currency_code = source.currency_code
+    amount_unit = _amount_unit(currency_code)
+    money_format = partial(money, currency_code=currency_code)
+    if source.source == SOURCE_FILE:
+        st.success(f"{len(df_raw)} filas cargadas")
+    elif source.profile_id:
+        _seed_account_parameters(source)
 
     cols = _detect_cols(df_raw)
 
@@ -366,10 +924,14 @@ def render():
         portfolios = []
 
     if portfolios:
+        # A different portfolio list starts with every portfolio selected, as a brand new filter did.
+        if st.session_state.get(_PORTFOLIO_OPTIONS_KEY) != tuple(portfolios):
+            st.session_state["str_portfolio_filter"] = portfolios
+        _seed_input("str_portfolio_filter", portfolios)
+        st.session_state[_PORTFOLIO_OPTIONS_KEY] = tuple(portfolios)
         selected_ports = st.multiselect(
             "Filtrar por Portfolio",
             options=portfolios,
-            default=portfolios,
             key="str_portfolio_filter",
         )
         if selected_ports and len(selected_ports) < len(portfolios):
@@ -378,12 +940,15 @@ def render():
         else:
             df = df_raw.copy()
     else:
+        _park_inputs(("str_portfolio_filter",))
         df = df_raw.copy()
 
     # Pre-init for tab4 (IA) scope
     df_neg = pd.DataFrame()
     df_harv = pd.DataFrame()
     analysis = None  # AI run; the chat mount after the tabs reads it
+    stored_analysis = None  # the stored analysis tab 4 shows for API data; the chat reads it too
+    candidates = None
     ai_labels_str = None
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -399,7 +964,8 @@ def render():
     # ══════════════════════════════════════════════════════════════
     with tab1:
         # ── Target ACoS slider ──────────────────────────────────
-        target_acos = st.slider("Target ACoS (%)", 10, 80, 30, key="str_target_acos_tab1")
+        _seed_input("str_target_acos_tab1", DEFAULT_TARGET_ACOS)
+        target_acos = st.slider("Target ACoS (%)", 10, 80, key="str_target_acos_tab1")
 
         # ── Brand terms input ───────────────────────────────────
         brand_input = st.text_input(
@@ -415,6 +981,9 @@ def render():
             df["_term_type"] = df[st_col].apply(lambda t: _classify_term_type(t, brand_terms))
         else:
             df["_term_type"] = "Generic"
+        if brand_terms:
+            # The KPIs below ignore the brand, so without this line an applied term looks like it did nothing.
+            st.caption(_brand_match_caption(df, brand_terms, currency_code))
 
         # ── 12 KPIs ────────────────────────────────────────────
         total_spend = df["_spend"].sum()
@@ -435,9 +1004,9 @@ def render():
         # Row 1
         r1c1, r1c2, r1c3, r1c4 = st.columns(4)
         with r1c1:
-            st.markdown(kpi_card("Total Spend", f"${total_spend:,.2f}"), unsafe_allow_html=True)
+            st.markdown(kpi_card("Total Spend", html.escape(money(total_spend, currency_code))), unsafe_allow_html=True)
         with r1c2:
-            st.markdown(kpi_card("Total Sales", f"${total_sales:,.2f}"), unsafe_allow_html=True)
+            st.markdown(kpi_card("Total Sales", html.escape(money(total_sales, currency_code))), unsafe_allow_html=True)
         with r1c3:
             acos_delta = acos_val - target_acos
             st.markdown(kpi_card("ACoS", f"{acos_val:.1f}%", delta=acos_delta, delta_good=False), unsafe_allow_html=True)
@@ -458,7 +1027,7 @@ def render():
         # Row 3
         r3c1, r3c2, r3c3, r3c4 = st.columns(4)
         with r3c1:
-            st.markdown(kpi_card("CPC Promedio", f"${cpc_val:.2f}"), unsafe_allow_html=True)
+            st.markdown(kpi_card("CPC Promedio", html.escape(money(cpc_val, currency_code))), unsafe_allow_html=True)
         with r3c2:
             st.markdown(kpi_card("Orders", f"{total_orders:,.0f}"), unsafe_allow_html=True)
         with r3c3:
@@ -478,16 +1047,24 @@ def render():
             camp_options = ["Todas"]
             if camp_col and camp_col in df.columns:
                 camp_options += sorted(df[camp_col].dropna().astype(str).unique())
+            # A kept campaign that is not in this data would make Streamlit fail to draw the filter.
+            if st.session_state.get("str_f_camp") not in camp_options:
+                st.session_state["str_f_camp"] = "Todas"
             selected_camp = st.selectbox("Campana", camp_options, key="str_f_camp")
         with fc2:
             match_options = []
             if match_col and match_col in df.columns:
                 match_options = sorted(df[match_col].dropna().astype(str).str.strip().unique())
-            selected_match = st.multiselect("Match Type", match_options, default=[], key="str_f_match")
+            if not set(st.session_state.get("str_f_match") or []) <= set(match_options):
+                st.session_state["str_f_match"] = []
+            _seed_input("str_f_match", [])
+            selected_match = st.multiselect("Match Type", match_options, key="str_f_match")
         with fc3:
-            acos_max = st.number_input("ACoS max %", value=0, min_value=0, key="str_f_acos_max")
+            _seed_input("str_f_acos_max", 0)
+            acos_max = st.number_input("ACoS max %", min_value=0, key="str_f_acos_max")
         with fc4:
-            spend_min = st.number_input("Spend min $", value=0.0, min_value=0.0, step=0.5, key="str_f_spend_min")
+            _seed_input("str_f_spend_min", 0.0)
+            spend_min = st.number_input(f"Spend min {amount_unit}", min_value=0.0, step=0.5, key="str_f_spend_min")
 
         vista = st.radio(
             "Vista rapida",
@@ -520,10 +1097,15 @@ def render():
             df_f = df_f.sort_values("_spend", ascending=False)
 
         # ── Estado column ──────────────────────────────────────
-        df_f["_estado"] = df_f.apply(lambda r: _classify_status(r, target_acos), axis=1)
+        df_f["_estado"] = _classify_statuses(df_f, target_acos)
 
         # ── Show table ─────────────────────────────────────────
-        st.caption(f"Mostrando {len(df_f)} de {len(df)} filas")
+        # Views other than Todos are already sorted by what they are about.
+        df_drawn, rows_left_out = _drawn_rows(df_f, order_column="_spend" if vista == "Todos" else None)
+        if rows_left_out:
+            st.caption(_drawn_rows_caption(len(df_f), _VIEW_ORDER_LABELS.get(vista, "las de mayor gasto")))
+        else:
+            st.caption(f"Mostrando {len(df_f)} de {len(df)} filas")
 
         # Pick display columns
         display_cols = []
@@ -543,8 +1125,8 @@ def render():
             }
             return colors.get(val, "color:#999")
 
-        styled = df_f[display_cols].style.map(_color_estado, subset=["_estado"])
-        st.dataframe(styled, use_container_width=True, height=min(38 + 35 * len(df_f), 600))
+        styled = df_drawn[display_cols].style.map(_color_estado, subset=["_estado"])
+        st.dataframe(styled, use_container_width=True, height=min(38 + 35 * len(df_drawn), 600))
 
         # ── Charts ─────────────────────────────────────────────
         st.markdown("---")
@@ -554,12 +1136,16 @@ def render():
             st.markdown("**Spend vs Sales**")
             if len(df_f) > 0 and df_f["_spend"].sum() > 0:
                 hover_col = cols["search_term"] if cols["search_term"] and cols["search_term"] in df_f.columns else None
+                scatter_rows = df_f[df_f["_spend"] > 0]
+                if len(scatter_rows) > SCATTER_POINT_LIMIT:
+                    scatter_rows = scatter_rows.nlargest(SCATTER_POINT_LIMIT, "_spend")
+                    st.caption(f"Se grafican los {_dot_thousands(SCATTER_POINT_LIMIT)} términos de mayor gasto.")
                 fig_scatter = px.scatter(
-                    df_f[df_f["_spend"] > 0],
+                    scatter_rows,
                     x="_spend", y="_sales",
                     color="_term_type",
                     hover_data=[hover_col] if hover_col else None,
-                    labels={"_spend": "Spend ($)", "_sales": "Sales ($)", "_term_type": "Tipo"},
+                    labels={"_spend": f"Spend ({amount_unit})", "_sales": f"Sales ({amount_unit})", "_term_type": "Tipo"},
                     color_discrete_map={"Brand": "#06b6d4", "Generic": "#6366f1", "Long-tail": "#f59e0b"},
                 )
                 # Breakeven line
@@ -625,8 +1211,8 @@ def render():
             tt_group["% Spend"] = tt_group.apply(
                 lambda r: round(r["Spend"] / total_spend * 100, 1) if total_spend > 0 else 0, axis=1
             )
-            tt_group["Spend"] = tt_group["Spend"].apply(lambda x: f"${x:,.2f}")
-            tt_group["Sales"] = tt_group["Sales"].apply(lambda x: f"${x:,.2f}")
+            tt_group["Spend"] = tt_group["Spend"].apply(money_format)
+            tt_group["Sales"] = tt_group["Sales"].apply(money_format)
             st.dataframe(tt_group, use_container_width=True, hide_index=True)
 
         # ── Download Excel multi-sheet ─────────────────────────
@@ -635,15 +1221,15 @@ def render():
         _today = date.today().isoformat()
 
         kpi_dict = {
-            "Total Spend": f"${total_spend:,.2f}",
-            "Total Sales": f"${total_sales:,.2f}",
+            "Total Spend": money(total_spend, currency_code),
+            "Total Sales": money(total_sales, currency_code),
             "ACoS": f"{acos_val:.1f}%",
             "ROAS": f"{roas_val:.2f}x",
             "Impressions": f"{total_imps:,.0f}",
             "Clicks": f"{total_clicks:,.0f}",
             "CTR": f"{ctr_val:.2f}%",
             "CVR": f"{cvr_val:.2f}%",
-            "CPC": f"${cpc_val:.2f}",
+            "CPC": money(cpc_val, currency_code),
             "Orders": f"{total_orders:,.0f}",
             "% Waste": f"{pct_waste:.1f}%",
             "% Con Ventas": f"{pct_conv:.1f}%",
@@ -651,24 +1237,23 @@ def render():
             "Fecha": _today,
         }
 
-        try:
-            excel_bytes = _build_str_excel(df_f, df, kpi_dict, brand_terms)
-        except Exception as e:
-            st.warning(f"Error generando Excel: {e}")
-            buf_fallback = io.BytesIO()
-            df_f.to_excel(buf_fallback, index=False)
-            excel_bytes = buf_fallback.getvalue()
+        def _str_analysis_excel():
+            try:
+                return _build_str_excel(df_f, df, kpi_dict, brand_terms)
+            except Exception as e:
+                log.exception("STR analysis workbook failed, falling back to the plain table")
+                st.warning(f"Error generando Excel: {e}")
+                return _xlsx_bytes(df_f)
 
-        st.download_button(
-            "\u2b07\ufe0f Descargar STR Analizado (Excel)",
-            data=excel_bytes,
-            file_name=f"STR_analizado_{_today}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True, key="str_dl",
+        _xlsx_download(
+            "\u2b07\ufe0f Descargar STR Analizado (Excel)", _str_analysis_excel,
+            file_name=f"STR_analizado_{_today}.xlsx", key="str_dl", row_count=len(df_f),
+            fingerprint=(source.signature, tuple(st.session_state.get("str_portfolio_filter") or ()), selected_camp,
+                         tuple(selected_match), acos_max, spend_min, vista, target_acos, tuple(brand_terms), _today),
         )
 
     # ══════════════════════════════════════════════════════════════
-    # TAB 2: Negatives Mining (SIN CAMBIOS)
+    # TAB 2: Negatives Mining
     # ══════════════════════════════════════════════════════════════
     with tab2:
         st.subheader("Negatives Mining")
@@ -676,81 +1261,45 @@ def render():
 
         nc1, nc2 = st.columns(2)
         with nc1:
-            target_acos = st.slider("Target ACoS (%)", 10, 80, 30, key="neg_target_acos")
+            _seed_input("neg_target_acos", DEFAULT_TARGET_ACOS)
+            target_acos = st.slider("Target ACoS (%)", 10, 80, key="neg_target_acos")
         with nc2:
-            precio_producto = st.number_input(
-                "Precio promedio del producto ($)",
-                min_value=1.0, value=30.0, step=1.0, key="neg_precio",
+            neg_price_key = _price_key("neg_precio", currency_code)
+            precio_producto = _price_input(f"Precio promedio del producto ({amount_unit})", neg_price_key,
+                                           currency_code, amount_unit)
+        price_missing = precio_producto is None
+        if price_missing:
+            st.warning(
+                f"Ingresá el precio promedio del producto en {amount_unit}. Mientras no esté, no se aplica la "
+                "Regla 3 (gasto sin conversión), el bulk de negativos queda deshabilitado y el análisis IA se "
+                "genera sin esa regla."
             )
 
         # CVR promedio del STR cargado
         total_clicks = df["_clicks"].sum()
         total_orders = df["_orders"].sum()
-        cvr_avg = (total_orders / total_clicks * 100) if total_clicks > 0 else 10.0
-        st.info(f"CVR promedio del archivo: **{cvr_avg:.2f}%** — "
-                f"Threshold dinamico Regla 2: **{max(10, round((1 / (cvr_avg / 100)) * 2))} clicks**")
-
-        # Thresholds
+        cvr_avg, cvr_is_reference = rule_two_cvr(total_clicks, total_orders)
         clicks_threshold = max(10, round((1 / (cvr_avg / 100)) * 2))
-        spend_threshold = precio_producto * 0.50
+        if cvr_is_reference:
+            st.info(f"Sin órdenes en estos datos: se usa un CVR de referencia de **{cvr_avg:.0f}%**, no un CVR "
+                    f"medido — Threshold dinamico Regla 2: **{clicks_threshold} clicks**")
+        else:
+            st.info(f"CVR promedio del archivo: **{cvr_avg:.2f}%** — "
+                    f"Threshold dinamico Regla 2: **{clicks_threshold} clicks**")
+
+        # Rule 3 needs the product price; an infinite threshold switches it off while the price is missing.
+        spend_threshold = float("inf") if price_missing else precio_producto * 0.50
 
         st_col = cols["search_term"]
         if not st_col:
+            _park_inputs(("neg_prio_filter",))
             st.warning("No se encontro columna 'Customer Search Term' en el archivo.")
         else:
-            candidates = []
-            for idx, row in df.iterrows():
-                term = str(row[st_col]).strip() if st_col else ""
-                clicks = row["_clicks"]
-                orders = row["_orders"]
-                spend = row["_spend"]
-                imps = row["_imps"]
-                acos_r = row["_acos"]
-                ctr_r = row["_ctr"]
-                campaign = str(row[cols["campaign"]]).strip() if cols["campaign"] and pd.notna(row.get(cols["campaign"])) else ""
-                ad_group = str(row[cols["ad_group"]]).strip() if cols["ad_group"] and pd.notna(row.get(cols["ad_group"])) else ""
-
-                matched_rules = []
-
-                # Regla 2 — No conversion por CVR (threshold dinamico)
-                if clicks >= clicks_threshold and orders == 0:
-                    matched_rules.append(("R2 — Sin conversion (CVR)", "negativeExact", "Alta"))
-
-                # Regla 3 — Gasto sin conversion
-                if spend >= spend_threshold and orders == 0:
-                    matched_rules.append(("R3 — Gasto sin conversion", "negativeExact", "Alta"))
-
-                # Regla 5 — CTR bajo por irrelevancia
-                if imps >= 2500 and ctr_r < 0.18 and orders == 0:
-                    matched_rules.append(("R5 — CTR bajo + irrelevancia", "negativePhrase", "Media"))
-
-                # Regla 4 — ACoS extremo (ya con ventas)
-                if acos_r > 70 and 0 < orders < 5:
-                    matched_rules.append(("R4 — ACoS extremo", "negativeExact", "Media"))
-
-                # Regla 1 — Irrelevancia obvia (pocos clicks, 0 orders)
-                if clicks >= 1 and orders == 0 and not matched_rules:
-                    matched_rules.append(("R1 — Revisar manualmente", "negativeExact", "Revisar"))
-
-                if matched_rules:
-                    # Use highest priority rule
-                    rule, match_type, priority = matched_rules[0]
-                    candidates.append({
-                        "Search Term": term,
-                        "Campaign": campaign,
-                        "Ad Group": ad_group,
-                        "Clicks": int(clicks),
-                        "Impressions": int(imps),
-                        "Spend": round(spend, 2),
-                        "Orders": int(orders),
-                        "ACoS": round(acos_r, 1) if orders > 0 else 0,
-                        "Regla": rule,
-                        "Match Type": match_type,
-                        "Prioridad": priority,
-                    })
+            candidates = evaluate_candidates(df, cols, clicks_threshold=clicks_threshold,
+                                             spend_threshold=spend_threshold)
 
             if candidates:
-                df_neg = pd.DataFrame(candidates)
+                df_neg = pd.DataFrame(_negative_candidate_rows(candidates))
                 prio_order = {"Alta": 0, "Media": 1, "Revisar": 2}
                 df_neg["_sort"] = df_neg["Prioridad"].map(prio_order)
                 df_neg = df_neg.sort_values(["_sort", "Spend"], ascending=[True, False]).drop(columns=["_sort"])
@@ -765,9 +1314,9 @@ def render():
                 mc3.metric("Media", n_media)
                 mc4.metric("Revisar", n_review)
 
+                _seed_input("neg_prio_filter", DEFAULT_PRIORITY_FILTER)
                 prio_filter = st.multiselect(
-                    "Filtrar por prioridad", ["Alta", "Media", "Revisar"],
-                    default=["Alta", "Media"], key="neg_prio_filter",
+                    "Filtrar por prioridad", ["Alta", "Media", "Revisar"], key="neg_prio_filter",
                 )
                 df_show = df_neg[df_neg["Prioridad"].isin(prio_filter)] if prio_filter else df_neg
 
@@ -776,10 +1325,14 @@ def render():
                     if val == "Media": return "background-color: #FFEB9C; color: #9C5700"
                     return "background-color: #F5F5F5; color: #666"
 
+                # df_show is already sorted by priority, then spend.
+                neg_drawn, neg_left_out = _drawn_rows(df_show)
+                if neg_left_out:
+                    st.caption(_drawn_rows_caption(len(df_show), "por prioridad y gasto"))
                 st.dataframe(
-                    df_show.style.map(_color_prio, subset=["Prioridad"]),
+                    neg_drawn.style.map(_color_prio, subset=["Prioridad"]),
                     use_container_width=True,
-                    height=min(38 + 35 * len(df_show), 800),
+                    height=min(38 + 35 * len(neg_drawn), 800),
                 )
 
                 # Export de la tabla de candidatos
@@ -790,17 +1343,11 @@ def render():
                     # Que le falta a cada candidato para poder ejecutarse. Sin
                     # Campaign Name o Ad Group el termino no se puede aplicar ni
                     # a mano: el AM tiene que completar el dato primero.
-                    def _row_invalid_reason(r):
-                        if not str(r.get("Campaign", "")).strip():
-                            return "Sin Campaign Name"
-                        if not str(r.get("Ad Group", "")).strip():
-                            return "Sin Ad Group"
-                        return ""
-                    df_export["Falta dato"] = df_export.apply(_row_invalid_reason, axis=1)
+                    df_export["Falta dato"] = _missing_data_reasons(df_export)
 
                     metadata_df = df_export[
                         ["Search Term", "Campaign", "Ad Group", "Clicks", "Impressions",
-                         "Spend", "Orders", "ACoS", "Match Type", "Regla", "Prioridad",
+                         "Spend", "Orders", "ACoS", "Acción", "Match Type", "Regla", "Prioridad",
                          "Falta dato"]
                     ].copy()
 
@@ -813,34 +1360,30 @@ def render():
                             "aplicar en Amazon, ni siquiera a mano."
                         )
 
-                    # TODO(M2-bulkfile): restaurar la descarga cuando el modulo lea el Bulk
-                    # File. Los constructores ya existen en core.bulk_export; lo que falta
-                    # son los IDs, que salen de core.bulk_parser.parse_bulk_str().
-                    st.warning(
-                        "**La descarga de bulk esta temporalmente deshabilitada.** "
-                        "Para que Amazon acepte un bulk hacen falta los IDs numericos "
-                        "de campana y ad group, y el Search Term Report standalone no "
-                        "los trae: por eso los archivos de negativos que este modulo "
-                        "generaba antes rebotaban al subirlos. "
-                        "El modulo esta migrando al Bulk File de Amazon, que si los trae. "
-                        "Mientras tanto, la tabla de arriba se puede seguir usando para "
-                        "revisar los candidatos y armar el bulk a mano."
-                    )
-
                     from datetime import date as _date_neg
-                    _neg_today = _date_neg.today().isoformat()
-                    _buf_neg = io.BytesIO()
-                    metadata_df.to_excel(_buf_neg, index=False)
-                    st.download_button(
-                        "Descargar candidatos a negativo (.xlsx)",
-                        data=_buf_neg.getvalue(),
-                        file_name=f"negativos_candidatos_{_neg_today}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True, key="neg_dl",
+                    _neg_today = _date_neg.today()
+                    if source.bulk_ready:
+                        visible_candidates = [c for c in candidates if not prio_filter or c.priority in prio_filter]
+                        _render_negatives_bulk(visible_candidates, df_raw, source, _neg_today,
+                                               price_missing=price_missing)
+                    else:
+                        st.warning(
+                            "El bulk se habilita con datos de Amazon Ads conectados: el archivo "
+                            "manual no trae el match type de origen que exigen las reglas de "
+                            "negativización."
+                        )
+
+                    _xlsx_download(
+                        "Descargar candidatos a negativo (.xlsx)", lambda: _xlsx_bytes(metadata_df),
+                        file_name=f"negativos_candidatos_{_neg_today.isoformat()}.xlsx", key="neg_dl",
+                        row_count=len(metadata_df),
+                        fingerprint=(source.signature, tuple(st.session_state.get("str_portfolio_filter") or ()),
+                                     tuple(prio_filter), clicks_threshold, spend_threshold, _neg_today),
                     )
                 else:
                     st.info("No hay candidatos visibles para exportar.")
             else:
+                _park_inputs(("neg_prio_filter",))
                 st.success("No se encontraron candidatos a negativizar con las reglas actuales.")
 
     # ══════════════════════════════════════════════════════════════
@@ -852,11 +1395,17 @@ def render():
 
         hc1, hc2, hc3 = st.columns(3)
         with hc1:
-            harv_target_acos = st.slider("Target ACoS (%)", 10, 80, 30, key="harv_target_acos")
+            _seed_input("harv_target_acos", DEFAULT_TARGET_ACOS)
+            harv_target_acos = st.slider("Target ACoS (%)", 10, 80, key="harv_target_acos")
         with hc2:
-            harv_precio = st.number_input("Precio promedio ($)", min_value=1.0, value=30.0, step=1.0, key="harv_precio")
+            harv_price_key = _price_key("harv_precio", currency_code)
+            harv_precio = _price_input(f"Precio promedio ({amount_unit})", harv_price_key, currency_code, amount_unit)
         with hc3:
-            harv_min_clicks = st.number_input("Clicks minimos para CVR", min_value=5, value=15, step=1, key="harv_min_clicks")
+            _seed_input("harv_min_clicks", DEFAULT_HARVEST_MIN_CLICKS)
+            harv_min_clicks = st.number_input("Clicks minimos para CVR", min_value=5, step=1, key="harv_min_clicks")
+        if harv_precio is None:
+            st.warning(f"Ingresá el precio promedio en {amount_unit}. Mientras no esté, el bid sugerido queda vacío, "
+                       "también en el análisis IA.")
 
         # ── Anti-canibalizacion: Campaign CSV opcional ────────────
         st.markdown("---")
@@ -899,61 +1448,11 @@ def render():
         if not st_col:
             st.warning("No se encontro columna 'Customer Search Term' en el archivo.")
         else:
-            harvests = []
-            for _, row in df.iterrows():
-                term = str(row[st_col]).strip()
-                clicks = row["_clicks"]
-                orders = row["_orders"]
-                spend = row["_spend"]
-                sales = row["_sales"]
+            harvests = _harvest_candidate_rows(df, cols, min_clicks=harv_min_clicks, price=harv_precio,
+                                               target_acos=harv_target_acos)
 
-                if orders == 0 or clicks == 0:
-                    continue
-
-                cvr_row = orders / clicks * 100
-                acos_row = (spend / sales * 100) if sales > 0 else 999
-                campaign = str(row[cols["campaign"]]).strip() if cols["campaign"] and pd.notna(row.get(cols["campaign"])) else ""
-                ad_group = str(row[cols["ad_group"]]).strip() if cols["ad_group"] and pd.notna(row.get(cols["ad_group"])) else ""
-
-                matched = []
-                best_prio = None
-
-                # Regla 1 — Principal (SOP Capybaras)
-                if orders >= 3 and acos_row <= 25.0:
-                    matched.append("Regla principal")
-                    best_prio = "Alta"
-
-                # Regla 2 — CVR alto
-                if cvr_row >= 10.0 and clicks >= harv_min_clicks and orders >= 1:
-                    matched.append("CVR alto")
-                    best_prio = best_prio or "Alta"
-
-                # Regla 3 — Volumen (ranking benefit)
-                if orders >= 5:
-                    matched.append("Volumen")
-                    if not best_prio:
-                        best_prio = "Media"
-
-                if matched:
-                    bid = max(0.10, round((cvr_row / 100) * harv_precio * (harv_target_acos / 100), 2))
-                    harvests.append({
-                        "Search Term": term,
-                        "Campaign": campaign,
-                        "Ad Group": ad_group,
-                        "Clicks": int(clicks),
-                        "Orders": int(orders),
-                        "ACoS": round(acos_row, 1),
-                        "CVR%": round(cvr_row, 1),
-                        "Bid Sugerido": bid,
-                        "Regla": " + ".join(matched),
-                        "Prioridad": best_prio,
-                    })
-
-            if harvests:
-                df_harv = pd.DataFrame(harvests)
-                prio_order = {"Alta": 0, "Media": 1}
-                df_harv["_sort"] = df_harv["Prioridad"].map(prio_order)
-                df_harv = df_harv.sort_values(["_sort", "Orders"], ascending=[True, False]).drop(columns=["_sort"])
+            if not harvests.empty:
+                df_harv = sorted_harvest(harvests)
 
                 # ── Anti-canibalizacion: marcar duplicados ────────────
                 if existing_exact_kws:
@@ -969,21 +1468,22 @@ def render():
 
                 n_alta  = (df_harv["Prioridad"] == "Alta").sum()
                 n_media = (df_harv["Prioridad"] == "Media").sum()
-                avg_bid = df_harv["Bid Sugerido"].mean()
+                avg_bid = pd.to_numeric(df_harv["Bid Sugerido"], errors="coerce").mean()
+                avg_bid_text = money(avg_bid, currency_code) if pd.notna(avg_bid) else "—"
 
                 if existing_exact_kws:
                     hm1, hm2, hm3, hm4, hm5 = st.columns(5)
                     hm1.metric("Total candidatos", len(df_harv))
                     hm2.metric("Alta", n_alta)
                     hm3.metric("Media", n_media)
-                    hm4.metric("Bid promedio", f"${avg_bid:.2f}")
+                    hm4.metric("Bid promedio", avg_bid_text)
                     hm5.metric("Ya en Exact", n_dupes)
                 else:
                     hm1, hm2, hm3, hm4 = st.columns(4)
                     hm1.metric("Total candidatos", len(df_harv))
                     hm2.metric("Alta", n_alta)
                     hm3.metric("Media", n_media)
-                    hm4.metric("Bid promedio", f"${avg_bid:.2f}")
+                    hm4.metric("Bid promedio", avg_bid_text)
 
                 def _color_harv_prio(val):
                     if val == "Alta": return "background-color: #C6EFCE; color: #276221"
@@ -993,15 +1493,23 @@ def render():
                     if val and "Ya en Exact" in str(val): return "background-color: #FFF3E0; color: #BF360C"
                     return ""
 
-                style_cols = ["Prioridad"]
-                styled_harv = df_harv.style.map(_color_harv_prio, subset=["Prioridad"])
+                # The checkbox below renders after the table; its stored value already decides the export.
+                incluir_dupes = bool(st.session_state.get("harv_include_dupes"))
+                df_harv_export = _harvest_export_rows(df_harv, include_existing_exact=incluir_dupes)
+
+                # df_harv is already sorted by priority, then orders.
+                harv_drawn, harv_left_out = _drawn_rows(df_harv)
+                if harv_left_out:
+                    st.caption(_drawn_rows_caption(len(df_harv), "por prioridad y órdenes",
+                                                   exported_rows=len(df_harv_export)))
+                styled_harv = harv_drawn.style.map(_color_harv_prio, subset=["Prioridad"])
                 if existing_exact_kws:
                     styled_harv = styled_harv.map(_color_exact_dup, subset=["Ya en Exact"])
 
                 st.dataframe(
                     styled_harv,
                     use_container_width=True,
-                    height=min(38 + 35 * len(df_harv), 800),
+                    height=min(38 + 35 * len(harv_drawn), 800),
                 )
 
                 # Export bulk-ready formato Amazon
@@ -1015,27 +1523,19 @@ def render():
                         value=False,
                         key="harv_include_dupes",
                     )
-                    df_harv_export = df_harv if incluir_dupes else df_harv[df_harv["Ya en Exact"] == ""]
                     if not incluir_dupes:
                         st.caption(f"Exportando {len(df_harv_export)} keywords nuevas (excluidas {n_dupes} que ya estan en Exact).")
                     else:
                         st.caption("Exportando TODAS las keywords incluyendo las que ya estan en Exact.")
                 else:
-                    df_harv_export = df_harv
                     st.caption("Campaign Name y Ad Group Name vacios — el AM los completa antes de subir.")
 
                 # Export de la tabla de candidatos
                 # Que le falta a cada candidato para poder ejecutarse. Sin
                 # Campaign Name o Ad Group el termino no se puede aplicar ni
                 # a mano: el AM tiene que completar el dato primero.
-                def _row_invalid_reason(r):
-                    if not str(r.get("Campaign", "")).strip():
-                        return "Sin Campaign Name"
-                    if not str(r.get("Ad Group", "")).strip():
-                        return "Sin Ad Group"
-                    return ""
                 df_harv_export = df_harv_export.copy()
-                df_harv_export["Falta dato"] = df_harv_export.apply(_row_invalid_reason, axis=1)
+                df_harv_export["Falta dato"] = _missing_data_reasons(df_harv_export)
 
                 metadata_cols = ["Search Term", "Campaign", "Ad Group", "Clicks", "Orders",
                                  "ACoS", "CVR%", "Bid Sugerido", "Regla", "Prioridad"]
@@ -1069,14 +1569,12 @@ def render():
 
                 from datetime import date as _date_harv
                 _harv_today = _date_harv.today().isoformat()
-                _buf_harv = io.BytesIO()
-                metadata_df.to_excel(_buf_harv, index=False)
-                st.download_button(
-                    "Descargar candidatos de harvest (.xlsx)",
-                    data=_buf_harv.getvalue(),
-                    file_name=f"harvest_candidatos_{_harv_today}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True, key="harv_dl",
+                _xlsx_download(
+                    "Descargar candidatos de harvest (.xlsx)", lambda: _xlsx_bytes(metadata_df),
+                    file_name=f"harvest_candidatos_{_harv_today}.xlsx", key="harv_dl", row_count=len(metadata_df),
+                    fingerprint=(source.signature, tuple(st.session_state.get("str_portfolio_filter") or ()),
+                                 harv_target_acos, harv_precio, harv_min_clicks, frozenset(existing_exact_kws),
+                                 st.session_state.get("harv_include_dupes"), _harv_today),
                 )
             else:
                 st.info("No se encontraron candidatos de harvest con los criterios actuales.")
@@ -1088,77 +1586,64 @@ def render():
         str_labels = _STR_LABELS.get(ai_lang, _STR_LABELS["es"])
         st.subheader(str_labels["title"])
         st.caption(str_labels["caption"])
+        # The chat mounts after the tabs whether or not AI analysis is enabled, so its labels exist either way.
+        ai_labels_str = ai_tab.ai_labels(ai_lang, str_labels)
 
         from ai.config import AI_ENABLED
         if not AI_ENABLED:
             st.caption(str_labels["disabled"])
         else:
-            from core import ai_tab
-            from ai.agents.str.context import StrData
-
-            # Same aggregate tab5 shows; the AI receives it as-is.
-            camp_col_ai = cols["campaign"]
-            if camp_col_ai and camp_col_ai in df.columns:
-                df_camp_ai = df.groupby(camp_col_ai).agg(
-                    Impressions=("_imps", "sum"), Clicks=("_clicks", "sum"),
-                    Spend=("_spend", "sum"), Sales=("_sales", "sum"),
-                    Orders=("_orders", "sum"),
-                ).reset_index().rename(columns={camp_col_ai: "Campaign"})
-                df_camp_ai["ACoS"] = (
-                    df_camp_ai["Spend"] / df_camp_ai["Sales"].replace(0, float("nan")) * 100
-                ).fillna(0).round(1)
-                # Without a cost column, ranking by Spend is meaningless (all
-                # zeros) and can drop the worst bleeders; clicks is the proxy.
-                rank_col = "Spend" if cols["spend"] else "Clicks"
-                df_camp_ai = df_camp_ai.sort_values(rank_col, ascending=False).round(2)
-            else:
-                df_camp_ai = pd.DataFrame()
-
-            # Same default view tab2 shows (Alta/Media), capped so Opus answers
-            # in minutes; both frames are already sorted by priority + spend.
-            df_neg_ai = (df_neg[df_neg["Prioridad"].isin(["Alta", "Media"])].head(120)
-                         if not df_neg.empty else df_neg)
-            df_harv_ai = df_harv.head(60)
-            neg_records = df_neg_ai.to_dict("records")
-            harv_records = df_harv_ai.to_dict("records")
-            has_candidates = bool(neg_records or harv_records)
-            if not has_candidates:
-                st.info(str_labels["no_rows"])
-
-            ai_data = StrData(
-                cliente="no declarado",
-                brand_terms=brand_terms,
-                target_acos=float(target_acos),
-                precio=float(precio_producto),
-                cvr=float(cvr_avg),
-                umbral_clicks=int(clicks_threshold),
-                umbral_spend=float(spend_threshold),
-                harvest_target_acos=float(harv_target_acos),
-                harvest_precio=float(harv_precio),
-                kpis=kpi_dict,
-                campanas=df_camp_ai.to_dict("records"),
-                negativos=neg_records,
-                harvest=harv_records,
-                idioma=ai_lang,
-                cost_detected=bool(cols["spend"]),
-            )
-            ai_labels_str = ai_tab.ai_labels(ai_lang, str_labels)
             st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
-            analysis = None if not has_candidates else ai_tab.resolve_analysis(
-                slug="str", payload=ai_data,
-                file_signature=hashlib.sha256(file_str.getvalue()).hexdigest()[:16],
-                labels=ai_labels_str)
-            if analysis is not None:
-                render_neg, render_harv = ai_tab.records_for_render(
-                    "str", analysis, ai_data, (neg_records, harv_records))
+            ai_params = StrAnalysisParams(
+                target_acos=int(target_acos), price=precio_producto, harvest_target_acos=int(harv_target_acos),
+                harvest_price=harv_precio, harvest_min_clicks=int(harv_min_clicks),
+                brand_terms=normalized_brand_terms(brand_terms),
+            )
+            from_api = source.source != SOURCE_FILE
+            # A stored analysis covers the whole account: the worker cannot reproduce a portfolio filter.
+            portfolio_filtered = len(df) != len(df_raw)
+            ai_frame = df_raw if from_api else df
+            ai_input = build_analysis_input(
+                ai_frame, cols, ai_params, currency_code=currency_code, lang=ai_lang,
+                candidates=None if from_api and portfolio_filtered else candidates,
+                # The anti-cannibalization CSV is a manual file: it never reaches a stored analysis.
+                existing_exact_terms=None if from_api else existing_exact_kws,
+            )
+            price_notice = _missing_price_notice(ai_params)
+            if ai_input.data is None:
+                st.info(str_labels["no_rows"])
+                if price_notice:
+                    st.info(price_notice)
+            elif from_api:
+                if price_notice:
+                    st.info(price_notice)
+                if portfolio_filtered:
+                    st.caption("El análisis IA cubre todos los portfolios de la cuenta, no sólo los filtrados.")
+                if existing_exact_kws:
+                    st.caption("El análisis IA guardado no usa el Campaign CSV de anti-canibalización.")
+                stored_analysis = _render_stored_analysis(source, ai_input, ai_params, lang=ai_lang,
+                                                          labels=ai_labels_str)
+            else:
+                if price_notice:
+                    st.info(price_notice)
+                ai_data = ai_input.data
+                # The AM is here and the page asks for the price: a file waits for it or for the click.
+                analysis = ai_tab.resolve_analysis(
+                    slug="str", payload=ai_data,
+                    file_signature=source.signature,
+                    labels=ai_labels_str, show_previous=False, auto_fire=price_notice is None)
+                if analysis is not None:
+                    render_neg, render_harv = ai_tab.records_for_render(
+                        "str", analysis, ai_data, (ai_input.negative_records, ai_input.harvest_records))
 
-                def _render_result(result, a, _n=render_neg, _h=render_harv,
-                                   _bt=list(brand_terms), _lab=ai_labels_str):
-                    _render_str_ai_result(result, a, _n, _h, _bt, _lab)
+                    def _render_result(result, a, _n=render_neg, _h=render_harv,
+                                       _bt=list(ai_params.brand_terms), _lab=ai_labels_str,
+                                       _cc=currency_code, _camps=ai_data.campanas):
+                        _render_str_ai_result(result, a, _n, _h, _bt, _lab, _cc, campaign_records=_camps)
 
-                ai_tab.render_analysis(analysis, slug="str",
-                                       labels=ai_labels_str,
-                                       render_result=_render_result)
+                    ai_tab.render_analysis(analysis, slug="str",
+                                           labels=ai_labels_str,
+                                           render_result=_render_result)
 
     # ══════════════════════════════════════════════════════════════
     # TAB 5: Por Campana (NUEVO)
@@ -1217,7 +1702,7 @@ def render():
             with kc3:
                 st.markdown(kpi_card("No Brand", str(nobrand_camps)), unsafe_allow_html=True)
             with kc4:
-                st.markdown(kpi_card("Mayor Spend", top_spend_display), unsafe_allow_html=True)
+                st.markdown(kpi_card("Mayor Spend", html.escape(top_spend_display)), unsafe_allow_html=True)
 
             st.markdown("")
 
@@ -1246,7 +1731,7 @@ def render():
             styled_camp = df_camp[display_camp_cols].style\
                 .map(_color_acos_camp, subset=["ACoS"])\
                 .map(_color_brand_tipo, subset=["Tipo"])\
-                .format({"Spend": "${:,.2f}", "Sales": "${:,.2f}", "CPC": "${:,.2f}",
+                .format({"Spend": money_format, "Sales": money_format, "CPC": money_format,
                          "ACoS": "{:.1f}%", "CTR": "{:.2f}%", "CVR": "{:.2f}%", "ROAS": "{:.2f}x",
                          "Impressions": "{:,.0f}", "Clicks": "{:,.0f}", "Orders": "{:,.0f}"})
 
@@ -1281,8 +1766,8 @@ def render():
                 show_cols = ["Campaign", "Brand", "Generic", "Long-tail", "Total", "% Brand"]
                 st.dataframe(
                     tt_pivot[show_cols].style.format({
-                        "Brand": "${:,.2f}", "Generic": "${:,.2f}",
-                        "Long-tail": "${:,.2f}", "Total": "${:,.2f}", "% Brand": "{:.1f}%"
+                        "Brand": money_format, "Generic": money_format,
+                        "Long-tail": money_format, "Total": money_format, "% Brand": "{:.1f}%"
                     }),
                     use_container_width=True, hide_index=True,
                 )
@@ -1291,11 +1776,9 @@ def render():
             st.markdown("---")
             from datetime import date as _date
             camp_today = _date.today().strftime("%Y-%m-%d")
-            buf_camp = io.BytesIO()
-            df_camp.to_excel(buf_camp, index=False)
             st.download_button(
                 "Descargar Performance por Campana (Excel)",
-                data=buf_camp.getvalue(),
+                data=_xlsx_bytes(df_camp),
                 file_name=f"STR_por_campana_{camp_today}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True, key="str_camp_dl",
@@ -1306,6 +1789,15 @@ def render():
     # before any file exists, so hiding it until an upload made it look like a
     # feature of the file instead of one of the module.
     from core import ai_tab
+    if source.source != SOURCE_FILE:
+        chat_docs, chat_key = _analysis_chat_context(source, stored_analysis)
+        chat_labels = (_str_row_labels(stored_analysis.negative_records, stored_analysis.harvest_records)
+                       if stored_analysis is not None else {})
+        ai_tab.mount_analysis_chat(
+            "str", None, lang=ai_lang, labels=ai_labels_str,
+            annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels),
+            context_docs=chat_docs, context_key=chat_key)
+        return
     chat_neg, chat_harv = st.session_state.get("str_ai_records_store", {}).get(
         getattr(analysis, "digest", None), ([], []))
     chat_labels = _str_row_labels(chat_neg, chat_harv)

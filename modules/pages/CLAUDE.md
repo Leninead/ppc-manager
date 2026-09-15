@@ -87,33 +87,70 @@ Dashboard de estado del Agency OS. Muestra 26 módulos agrupados por sección, W
 Analizar search terms de campañas SP: negativizar, harvestear, clasificar por tipo y estado. Es el módulo más usado — punto de partida del flujo semanal.
 
 ### Arquitectura
-5 tabs: Dashboard (12 KPIs + filtros + charts) | Negatives Mining (tiers dinámicos) | Harvest Candidates (anti-canibalización) | Análisis IA (capa `core/ai_tab` + agente `ai/agents/str`) | Por Campaña (groupby)
+5 tabs: Dashboard (12 KPIs + filtros + charts) | Negatives Mining (umbral dinámico por CVR) | Harvest Candidates (anti-canibalización) | Análisis IA (capa `core/ai_tab` + agente `ai/agents/str`) | Por Campaña (groupby)
 
-### Capa IA (2026-09-01 — consumidor de `core/ai_tab`)
-- Tab 4 es un consumidor de la plataforma: `ai_tab.resolve_analysis` (auto-fire al cargar, staleness de dos velocidades por hash del archivo) → `ai_tab.render_analysis` (polling, fallo → Reintentar) → `_render_str_ai_result` con el kit (`ai_chips_html`, `synthesis_html`, `opinion_table_html`) → `ai_tab.mount_analysis_chat` fuera de tabs. NO hay wiring propio ni sliders duplicados: el payload usa los valores reales de tabs 1-3.
-- Payload `StrData` (`ai/agents/str/context.py`): kpi_dict, agregado por campaña (mismo groupby de tab5, top 40 por spend — o por clicks si no hay columna de costo), `df_neg` Alta/Media top 120, `df_harv` top 60, sliders, brand terms, `cost_detected`. La IA nunca recalcula: opiniones por `row_id` posicional (`N01…`/`H01…`) sobre los MISMOS records serializados — guardados por digest en `str_ai_records_store` para que un análisis stale no cruce filas.
+### Fuente de datos (2026-09-14 — ingesta desde Amazon Ads API)
+- El uploader dejó de estar en `render()`: los datos llegan de `render_source_picker()` (`modules/pages/search_term_source.py`), que devuelve un `SearchTermSource` (`core/search_term_frame.py`) o `None`. `df_raw = source.frame`; de ahí para abajo el módulo no sabe de dónde vino la tabla.
+- **Con cuentas de Amazon Ads sincronizadas** el bloque "Datos de Amazon Ads" elige Cuenta, País (un perfil = una moneda) y Período (7/14/30/60 días o rango, tope 60), muestra el pill de frescura y ofrece "Actualizar ahora" (`request_manual_refresh`, 30 min de espera, nunca corre la ingesta en el render). Los datos cargados quedan fijados por perfil: una ingesta más nueva ofrece "Cargar datos nuevos" y recién ahí cambia `source.signature`, que es lo que re-dispara el análisis IA. La tabla guarda solo la versión más nueva de cada día, así que un rango que no está en memoria (otro período, o una carga que salió de la sesión) no se puede leer en la versión fijada: el selector fija la más nueva antes de leerlo. Si no, las filas nuevas llegarían con la firma vieja. Sin cuentas, sin base o con la lectura caída: el uploader de siempre.
+- **Archivo manual** ("Subir archivo manualmente"): `core/search_term_file.py` reconoce el export viejo de la consola (se pasa tal cual) y el CSV nuevo de 2026 ("Search term", "Total cost", "Budget currency", IDs de cuenta/campaña/ad group) que traduce a las columnas canónicas calculando ACoS/CTR/CPC/CVR. Si el CSV trae varias cuentas de anunciante, se elige la cuenta del archivo; una cuenta que anuncia en varios marketplaces (filas en USD y en MXN, por ejemplo) se separa por moneda, nunca se suma. Los IDs vienen escritos como `="…"` para Excel y se limpian al leerlos. El archivo nunca se guarda ni se mezcla con la base.
+- **Moneda: indicador, nunca selector ni conversión.** Sale del perfil de Amazon o de la columna de moneda del archivo; los montos se formatean con `core/currency_format.money()` (`MX$`, `CA$`, `¥` sin decimales; sin moneda conocida queda el `$` de siempre).
+- Datos de API y archivo manual comparten la forma canónica (`console_columns()`), con los IDs ocultos al final (`_campaign_id`, `_ad_group_id`, `_keyword_id`, `_keyword_type`, `_origin_match_type`, ...). Ningún nombre oculto puede contener "portfolio", "sales", "click", etc.: `_detect_cols` toma la primera columna que matchea. Los tests de `core/search_term_frame.py` y del provider usan `_detect_cols` real como oráculo.
+- El picker es un componente reutilizable: todas sus keys empiezan con `f"{key_prefix}_src_"` (M2 usa `str`). Otro módulo que quiera los mismos datos lo llama con su propio prefijo.
+- Estados del picker: primera carga en curso, **primera carga fallida** (pill rojo, detalle saneado y botón «Subir archivo manualmente»; nunca apunta al Registro, que es admin), reintentando, al día y desactualizada. Si una lectura falla después de haber cargado datos del mismo perfil, muestra el error y deja los últimos datos buenos a la vista.
+- Las elecciones (cuenta, país, período, cuenta del archivo) y los inputs de M2 sobreviven a un rerun donde el widget no se dibuja (`_park_inputs` / `_restore_parked_inputs`). El uploader de anti-canibalización de Tab 3 es la excepción: Streamlit no deja restaurar un `file_uploader`.
+
+### Capa IA (2026-09-01 — consumidor de `core/ai_tab`; análisis guardados desde 2026-09-15)
+- **Un solo constructor del payload**: `core/search_term_analysis.build_analysis_input(frame, cols, params, currency_code, lang)` arma `StrData` y los records, y lo usan M2 y el worker de análisis. Mismos datos + mismos parámetros → misma huella (`ai/agent_call.build_agent_call(...).input_digest`). Por eso el payload no lleva la fecha ni el Target ACoS de la pestaña 1, los brand terms van normalizados (minúsculas, sin repetidos, ordenados) y el proveedor desempata el orden de filas por IDs. `agent_version` (prompt, schema, modelo) va aparte: un cambio de prompt no invalida análisis de los mismos datos. Las tablas del payload se escriben con fin de línea `\n` fijo (`to_csv(lineterminator="\n")`): con el de pandas por defecto, la misma cuenta daba otra huella en Windows que en Linux.
+- **Datos de Amazon Ads: análisis guardado** (`ai_analyses`, migración 010). El worker `ads-ai-worker` (`core/ai_analysis/`) lo genera solo para los últimos 30 días con los parámetros de la cuenta (`ai_analysis_settings`) cuando cambian los datos o los parámetros, y nunca paga dos veces la misma huella. La pestaña 4 busca el análisis de exactamente lo que está en pantalla: si existe lo muestra con SUS records y SUS brand terms; si se está generando muestra el estado y nunca un análisis anterior; si falló, el error y "Reintentar"; si no hay, "Generar análisis IA" (manual). Pedirlo guarda los parámetros como parámetros de la cuenta (`save_ai_analysis_settings`) y encola con `request_ai_analysis`. Al abrir una cuenta, los inputs se cargan con sus parámetros guardados (o los default de su moneda). El análisis cubre todos los portfolios aunque haya filtro, e ignora el Campaign CSV de anti-canibalización (es un archivo manual).
+- **Archivo manual: en memoria, como antes** (`ai_tab.resolve_analysis`, auto-fire con archivo nuevo), pero con `show_previous=False`: un parámetro nuevo oculta el resultado anterior y ofrece el botón. Si falta un precio, `auto_fire=False`: el AM está en la pantalla que se lo pide, así que no se paga un análisis sin precio antes de que lo escriba; con los dos precios cargados se dispara solo. Nada de un archivo llega a la base: `web_user` no puede escribir `ai_analyses`.
+- **Worker, casos de borde**: un pedido manual cuyos datos cambiaron desde que el AM lo pidió falla sin llamar a la IA (`DATA_CHANGED_ERROR`: la pantalla busca la huella de lo que el AM vio); uno programado cuyos parámetros de cuenta cambiaron se cierra sin llamar a la IA (`SUPERSEDED_WARNING`); una huella cuyo pedido ya falló no cuenta como "cubierta" sino como error del tick. La espera HTTP es el límite del provider más 60 s, para que llegue su propio 504.
+- **Chat con datos de API**: abre su sesión con documentos (`core/ai_analysis/chat_context.analysis_chat_documents`): el análisis vigente con cada opinión y su término, y la síntesis de los últimos 3 análisis de la cuenta. Un análisis distinto en pantalla abre una sesión nueva (`context_key`) y el hilo visible se conserva.
+- El precio de harvest arranca vacío fuera de USD, como el de negativos. Sin precio el análisis se genera igual (decisión de Juan, 2026-09-15): sin precio de negativos no corre R3, sin precio de harvest no hay "Bid Sugerido"; Parámetros se lo dice al modelo (`_missing_price_notes`, vacío cuando hay precio, para no cambiar la huella de los análisis con precio) y la pestaña 4 lo avisa (`_missing_price_notice`). Nada inventa un precio: el que se escribe en M2 manda. Precio estimado con ventas/unidades o por moneda: pendiente de validación de Lenin.
+- "Bid Sugerido" sigue INV-1 (`suggested_bid`): CVR hasta 100%, piso 0.10 y nunca más que precio × target ACoS. Antes no tenía techo: en Shapermint US 686 de 4.167 filas pasaban el techo ($63 contra $9).
+- Payload `StrData` (`ai/agents/str/context.py`): KPIs de la cuenta, agregado por campaña (top 40 por spend, o por clicks sin columna de costo), negativos Alta/Media top 120, harvest top 60, parámetros, `cost_detected`. La IA nunca recalcula: opiniones por `row_id` posicional (`N01…`/`H01…`) sobre los MISMOS records serializados.
 - Schema de salida: `negativos[]`/`harvest[]` (`razon` → `categoria` → `advertencia`), `campanas[]` y `synthesis` en la forma canónica de la plataforma `{situation, week_actions, mid_term, risks[{type, detail, urgency}]}`.
 - Filas de display (`_str_ai_rows`, puras y testeadas): pills de métricas + campaña, badge de categoría y pista determinista "revisar categoría" cuando la categoría contradice los brand terms.
-- Tests: `tests/test_str_ai_context.py` (contrato del agente, digest, runtime con fake transport, filas de display).
+- Tests: `tests/test_str_ai_context.py` (contrato del agente, digest, runtime con fake transport, filas de display), `tests/test_search_term_analysis.py` (constructor y huella), `tests/test_str_analysis_job.py` (planificación, ejecución, worker), `tests/test_ai_analysis_chat_context.py` y los de pestaña 4 en `tests/test_search_term_source.py`.
 
 ### Reglas de negocio
 - ACoS = Spend / Sales × 100
-- Tiers negativización: LOW (<$12): 18 clicks | MID ($12-22): 22 clicks | HIGH (>$22): 28 clicks
+- Umbral de clicks para negativizar: `max(10, round(2 / CVR))` sobre el CVR del período (INV-3). Los tiers LOW/MID/HIGH por precio NO son de este módulo: viven en M11.
 - Escalar: 3+ orders AND ACoS < 50% target
 - Winners: 2+ orders
 - Term type: Brand (contiene brand terms) / Generic / Long-tail (3+ palabras)
 - Columna _estado: Escalar / OK / Reducir / Revisar / Negativa?
 - Anti-canibalización: cruza con Campaign CSV, marca duplicados Exact activos
 
+### Negatives Mining y bulk (2026-09-14 — alineado a `.claude/skills/ppc-business-invariants.md`)
+- Las reglas viven en `core/search_term_negatives.py` (puro, testeado) y cada candidato lleva una **Acción**: R2/R3/R5 → `Negativo`; **R4 (ACoS > 70 con 1-4 órdenes) → `Bajar bid`**, nunca negativo (INV-2, INV-11.4); **R1 (pocos clicks sin venta) → `Revisar manualmente`**, nunca al bulk (INV-3). Un término con órdenes nunca es `Negativo`. Match types en Title Case (`Negative Exact`/`Negative Phrase`).
+- **El bulk de negativos (nivel ad group) se habilita sólo con datos de API** (`source.bulk_ready`): `select_for_bulk(candidates, frame, released_ranking=...)` → `core.bulk_export.build_adgroup_negative` → `write_bulk_excel`. Quedan afuera, con el motivo en pantalla: el término aparece con origen Exact o Product Targeting en cualquier fila del mismo ad group (INV-11.1), campaña no habilitada, `*`, términos ASIN o ISBN, texto que Amazon rechaza (`negative_keyword_text_problem`: 80 caracteres, 4 palabras en Phrase, 10 en Exact, símbolos prohibidos), una Negative Phrase que bloquearía un término que convierte o una Exact activa del mismo ad group (plurales s/es cuentan igual), un negativo igual a una keyword propia del ad group, términos que ya corren como Exact activa (INV-11.2), duplicados, y términos con órdenes en cualquier ventana (7 o 14 días) en el mismo ad group.
+- **INV-11.1 se aplica solo al bulk** (decisión de Juan, 2026-09-15, pendiente de validación de Lenin): con datos de API, los términos de origen Exact o Product Targeting siguen en la tabla de candidatos, en su Excel y en el payload de la IA con su Acción (`Negativo` si cumplen R2/R3/R5). El texto de INV-11.1 pide sacarlos antes; si Lenin lo confirma, el filtro va en `evaluate_candidates`.
+- **Portfolios RANKING y portfolios sin nombre** (INV-11.3): quedan afuera por defecto y se liberan **uno por uno** con la casilla «Liberar» (`st.data_editor`); la clave es `negative_key(candidate)`. Sólo esas exclusiones son liberables (`BulkExclusion.releasable`).
+- Guards **parciales**, dichos en pantalla: la Exact activa y las keywords propias sólo se ven si tuvieron clicks en el período, y el estado del ad group no se verifica (se toma el estado de la campaña de su fila más nueva).
+- **Moneda distinta de USD**: el precio del producto arranca vacío (clave por moneda); mientras falte, R3 no corre, el bulk queda deshabilitado y el análisis IA se genera sin R3 ni bids sugeridos, con aviso.
+- Sin órdenes en el período, R2 usa un CVR de referencia del 10% y la pantalla lo aclara; la IA recibe el CVR medido.
+- Con archivo manual el bulk sigue deshabilitado: el export de la consola no trae el match type de origen que exigen esas reglas.
+- Todo `.xlsx` que baja M2 pasa por `core.excel_text.force_text_cells`: un término que empieza con `=` queda como texto, no como fórmula.
+
+### Cuentas grandes (2026-09-15)
+Con datos de API una cuenta puede traer cientos de miles de términos (medido: 177.843 en 30 días).
+- **Tablas**: se dibujan como máximo `TABLE_ROW_LIMIT` (1.000) filas con `_drawn_rows`, con el aviso de `_drawn_rows_caption`. El orden del recorte es el de la vista (por gasto en "Todos", prioridad y gasto en negativos, prioridad y órdenes en harvest). El Styler se aplica sobre el recorte: `st.dataframe(styler)` revienta pasadas las 262.144 celdas (`styler.render.max_elements`).
+- **Scatter**: los `SCATTER_POINT_LIMIT` (2.000) términos de mayor gasto.
+- **Excel**: `_xlsx_download` arma el archivo al vuelo hasta `EAGER_EXPORT_ROW_LIMIT` (5.000) filas; más grande, pide "Preparar el archivo" y lo guarda en sesión con un fingerprint de los filtros que lo afectan. Un filtro nuevo invalida el archivo preparado. Lo guarda antes de cerrar el spinner: un clic durante el armado corta la corrida en la siguiente llamada a `st`. Trae todas las filas de la vista; en harvest, `_harvest_export_rows` saca las que ya corren como Exact salvo que se pida incluirlas, y el aviso del recorte cuenta esas mismas filas.
+- **Cálculo por columnas**: `_classify_statuses` (np.select), `_harvest_candidate_rows`, `_missing_data_reasons`; `ad_group_guards(frame)` se calcula una vez y se pasa a los dos `select_for_bulk`. Cambiar una regla es cambiarla ahí, no volver a `df.apply(axis=1)`.
+
 ### Inputs
-- STR (.xlsx o .csv) — requerido
+- Datos de Amazon Ads (cuenta + país + período) o STR (.xlsx o .csv) subido a mano
 - Campaign CSV (.csv) — opcional (Tab 3 anti-canibalización)
 - Target ACoS (slider) + Precio — Tab 2
 - Brand terms (texto) — detección manual
 
 ### Anti-patterns
-- Negativizar sin cruzar contra Exact activo en Campaign CSV
+- Negativizar sin cruzar contra Exact activo
 - No usar thresholds fijos — usar fórmula dinámica por CVR
+- ❌ NO convertir montos entre monedas ni sumar perfiles de países distintos
+- ❌ NO leer `ads_search_term_daily` directo desde una página: se lee con `ReportProvider` (ver "Datos de Amazon Ads para otros módulos")
+- ❌ NO disparar la ingesta desde el render: la página sólo pide `request_manual_refresh`; el worker hace el resto
 
 ---
 
@@ -1267,3 +1304,70 @@ de UI: salen de `core/ui/i18n.py`, en las dos lenguas.
 - ❌ NO ofrecer una acción que no puede funcionar: si falta la base o el worker, eso es el ESTADO de la tarjeta, no un error después de que alguien tipeó un secreto.
 - ❌ NO pedirle al admin que genere la clave de cifrado desde la UI: la genera `worker keys` al instalar y publica sola la mitad pública.
 - ❌ NO dejar que una falla de red llegue a pantalla como excepción — `_mensaje_error` la traduce y el detalle va al log.
+
+---
+
+## M39 — Registro de solicitudes (`request_log.py`)
+
+**Propósito.** El historial de cada pedido de datos que el sistema hace a las cuentas conectadas y su estado
+(en cola, pidiendo/esperando a Amazon, guardando, reintentando, completada, fallida, cancelada), con las alertas
+arriba. Vive en `⚙️ Sistema → Registro de solicitudes` y es **sólo admin**.
+
+**Admin-only en dos capas, como Integraciones y Skills.** La página está en `navigation.ADMIN_ONLY` (no aparece en
+el riel ni en la búsqueda) y `render()` chequea `roles.is_admin` antes de abrir la base; los handlers de
+Reintentar/Cancelar lo vuelven a chequear. La base no distingue admin de usuario (toda la app usa el JWT `web_user`):
+lo que sí limita es que `web_user` sólo lee las tablas y escribe a través de tres funciones acotadas
+(`request_manual_refresh`, `retry_sync_job`, `cancel_sync_job`).
+
+**Genérico por proveedor.** Lee `integration_sync_jobs` (migración 009) con `core/integrations/sync_jobs.py`. Hoy
+escribe ahí el worker de Amazon Ads; Mercado Libre entra cuando `core/meli_api/ingest.py::_start_run/_finish_run`
+pasen a abrir y cerrar jobs en esta tabla, sin tocar la página.
+
+**Alertas derivadas, sin tabla propia** (`core/integrations/sync_alerts.py`): falló hoy sin completarse después,
+primera carga fallida (error, sin corte de 24 h, con Reintentar), trabada, datos que no llegaron a las 09:00 del
+perfil, worker sin latido hace más de 5 min, autorización rechazada, consentimiento que vence en 45 días. De cada cuenta y tipo sólo se alerta la última falla, y no mientras haya una
+solicitud más nueva de esa cuenta en cola, en curso o reintentando (por ejemplo, el reintento recién pedido). El punto del menú sale de `notice.sync_alert_counts()` (rojo con errores, ámbar
+con avisos) y sólo se calcula para admins. Si la lectura falla, la página dice que no pudo leer: nunca "todo al día".
+
+**Reglas.**
+- Reintentar crea una solicitud nueva (`retry_of`) con la autorización actual del perfil y la fallida queda en el
+  historial; no se puede reintentar si el perfil ya no está activo. Cancelar aplica a solicitudes en cola y a las que
+  quedaron trabadas (en curso con el lease vencido); una en curso con lease vigente no se cancela.
+- Las horas se muestran en hora de Argentina; los "días" de cada perfil (03:00, 09:00, ayer) son hora del perfil.
+- `attempts` cuenta intentos fallidos: la pantalla muestra `attempts+1` mientras corre o cuando se completó.
+- Las filas no se borran (~decenas de miles por año): no hay excepción a "sin borrados automáticos" acá.
+
+**Anti-patterns.**
+- ❌ NO mostrar `error_message` sin pasar por `sanitize_error` al escribirlo: una URL prefirmada de Amazon es una credencial.
+- ❌ NO agregar el punto de alerta al título de la sección Sistema: cambiar el label de un `st.expander` resetea si está abierto.
+- ❌ NO correr la ingesta desde la página: Reintentar sólo encola.
+
+---
+
+## Datos de Amazon Ads para otros módulos (capa compartida, 2026-09-14)
+
+La ingesta del Search Term Report NO es de M2: el servicio `ads-sync-worker` (`python -m core.amazon_ads.worker run`)
+baja los reportes una vez por perfil de Amazon y los guarda por día en `ads_search_term_daily`, con IDs de campaña /
+ad group / keyword, `keyword_type`, match type, targeting, portfolio, moneda y las atribuciones de 7 y 14 días.
+Cualquier módulo que hoy pide el STR a mano (Bid Optimizer, Análisis de Funnel, PPC Insights; Análisis Cruzado y PPC
+Audit lo sacan del Bulk File) puede leer lo mismo sin tocar la ingesta.
+
+**Cómo leer.**
+- Selector listo para usar: `render_source_picker(key_prefix="<prefijo del módulo>", allow_manual=..., module_label=...)`
+  (`modules/pages/search_term_source.py`) → `SearchTermSource` con la tabla canónica, la moneda y la firma.
+- Sin UI: `ReportProvider(rest).profiles()` y `ReportProvider(rest).search_terms(option, desde, hasta)`
+  (`core/amazon_ads/report_provider.py`, sin Streamlit). Devuelve las columnas del export de la consola
+  (`core/search_term_frame.console_columns`) más los IDs ocultos al final.
+- Vendors usan la atribución de 14 días y sellers la de 7, resuelto en el provider.
+
+**Qué hay que agregar según el módulo.**
+- Series por día (tendencias): una función SQL nueva sobre `ads_search_term_daily`; la tabla ya es diaria.
+- Módulos que esperan los IDs con nombres del Bulk File (`Campaign ID`, `Ad Group ID`): un adaptador chico, no otra ingesta.
+- Otro tipo de reporte de Amazon (targets, campañas, productos publicitados): un `job_kind` nuevo, su tabla y su
+  normalizador. La cola, los reintentos, el registro y las alertas son los mismos.
+
+**Operación.** Horarios: diaria de 14 días a las 03:00 del perfil (lunes a sábado), 42 días los domingos, carga
+inicial de 65 días (la retención de `spSearchTerm`) apenas aparece una cuenta, reintentos hasta las 23:00 del perfil.
+El crudo de cada reporte queda en el volumen `ads_raw` 180 días y se borra sólo desde `ads_report_requests` (excepción
+documentada a "sin borrados automáticos": son copias secundarias; los datos normalizados nunca se borran solos).
+Deploy, puente con la VPS y runbook: `deploy/integrations/DEPLOY.md`.

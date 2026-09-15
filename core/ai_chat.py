@@ -210,7 +210,9 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                   pending_text: str | None = None,
                   standalone: bool = False,
                   annotate=None,
-                  ads_scope: dict | None = None) -> None:
+                  ads_scope: dict | None = None,
+                  context_docs: list | None = None,
+                  context_key: str | None = None) -> None:
     """session_id=None mounts the chat before the analysis is ready: questions
     stay in the thread and are answered locally with pending_text until a real
     session arrives on a later mount.
@@ -225,7 +227,11 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
 
     ads_scope is the client's Amazon Ads account the AM picked in the sidebar
     ({account_id, profile_id, requested_by}); every turn carries it so the
-    provider's Amazon tools answer about that account."""
+    provider's Amazon tools answer about that account.
+
+    context_docs are stored analyses the chat opens its session with, instead of
+    resuming the analysis's own session; a new context_key (another analysis on
+    screen) starts a new session with the new documents."""
     L = _L.get(lang, _L["es"])
     show = annotate or (lambda text: text)
     subtitle = L["subtitle"]
@@ -233,6 +239,7 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
     hist_key = f"aichat_{chat_id}_hist"
     sid_key = f"aichat_{chat_id}_sid"
     base_key = f"aichat_{chat_id}_base"
+    context_key_key = f"aichat_{chat_id}_context"
     history = st.session_state.setdefault(hist_key, [])
     # Re-seed when the underlying analysis session changed (e.g. the registry
     # evicted and the same digest was recomputed): a stale chain would resume
@@ -240,6 +247,9 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
     if session_id and st.session_state.get(base_key) != session_id:
         st.session_state[base_key] = session_id
         st.session_state[sid_key] = session_id
+    if context_docs is not None and st.session_state.get(context_key_key) != context_key:
+        st.session_state[context_key_key] = context_key
+        st.session_state[sid_key] = None
     st.session_state.setdefault(sid_key, session_id)
 
     st.markdown(
@@ -374,7 +384,8 @@ def floating_chat(*, chat_id: str, agent: str, session_id: str | None,
                                     unsafe_allow_html=True)
                         try:
                             text, new_sid = runtime.ask_followup(
-                                agent, sid, question, ads_scope=ads_scope)
+                                agent, sid, question, ads_scope=ads_scope,
+                                context_docs=context_docs)
                             st.session_state[sid_key] = new_sid
                         except AIError as e:
                             text = f"{L['error']}: {e}"
