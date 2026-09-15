@@ -34,9 +34,8 @@ from modules.pages.revenue_forecast import (
 # Métricas con cumplimiento en % (real / forecast * 100).
 _PCT_METRICS = ("revenue", "ventasPPC", "spend")
 
-# Métricas con cumplimiento en DELTA DE PUNTOS (real - forecast), cada una con la
-# key del target que el AM fija en la fila de forecast.
-_DELTA_METRICS = (("acos", "acosTarget"), ("tacos", "tacosTarget"))
+# Métricas con cumplimiento en DELTA DE PUNTOS (real - forecast).
+_DELTA_METRICS = ("acos", "tacos")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -77,7 +76,7 @@ def _accomplishment(actual: Optional[dict], forecast: Optional[dict]) -> dict:
     actual = actual or {}
     forecast = forecast or {}
     out = {m: _pct(actual.get(m), forecast.get(m)) for m in _PCT_METRICS}
-    for metric, _target in _DELTA_METRICS:
+    for metric in _DELTA_METRICS:
         out[metric] = _delta_pts(actual.get(metric), forecast.get(metric))
     return out
 
@@ -89,10 +88,10 @@ def _accomplishment(actual: Optional[dict], forecast: Optional[dict]) -> dict:
 def _baseline_row(cur: dict, period: str) -> Optional[dict]:
     """Fila CRUDA del snapshot baseline para ese mes, o None.
 
-    Hace falta para ver `acosTarget` / `tacosTarget`, que `_month_forecast` no
-    devuelve. Se resuelve acá y no extendiendo `_month_forecast` porque "un 0.0
-    sin target no es un dato" es un criterio de ESTE consumidor: M31 muestra el
-    0.0 tal cual en su propia tabla, y su contrato no cambia.
+    Hace falta para ver `acosTarget`, que `_month_forecast` no devuelve. Se
+    resuelve acá y no extendiendo `_month_forecast` porque "un ACOS de 0 sin
+    target no es un plan" es un criterio de ESTE consumidor: M31 muestra el 0
+    tal cual en su propia tabla, y su contrato no cambia.
     """
     key = _month_key(period)
     baseline = _get_baseline_snapshot(cur)
@@ -104,13 +103,24 @@ def _baseline_row(cur: dict, period: str) -> Optional[dict]:
 
 
 def _forecast_cell(cur: dict, period: str) -> Optional[dict]:
-    """`_month_forecast` con ACOS / TACOS proyectados en 0.0 sin target → None.
+    """`_month_forecast` con el ACOS proyectado de 0 sin `acosTarget` → None.
 
-    Un 0.0 en `acos` (o `tacos`) cuya fila no tiene `acosTarget` (o `tacosTarget`)
-    cargado —criterio `_loaded_float`: None, '' y NaN son "sin dato"— se reporta
-    como None. Si llegara crudo, el dashboard le diría a Dirección "target 0%"
-    sobre algo que nadie fijó. Un 0 con target 0 explícito se respeta; un valor
+    ACOS: un `acos` de 0 cuya fila no tiene `acosTarget` cargado —criterio
+    `_loaded_float`: None, '' y NaN son "sin dato"— se reporta como None. Un
+    ACOS objetivo de 0% no describe ningún plan alcanzable (ventas publicitarias
+    infinitas por peso gastado), y llegar crudo a un PDF que ve Dirección diría
+    "target 0%". NO es que el motor escriba 0.0 cuando falta el target: al
+    generar lo rellena con el ACOS promedio o 30, y si el AM borra la celda
+    `_apply_forecast_edits` lo restaura a 30.0 (medido por el camino de la UI).
+    El camino real de aparición es que el AM escriba 0 a mano, o una fila que
+    no vino del motor. Un 0 con `acosTarget` 0 explícito se respeta, y un valor
     distinto de 0 nunca se toca.
+
+    TACOS: se reporta TAL CUAL, sin mirar `tacosTarget`. `tacosTarget` es None
+    por default en toda fila del motor, y un spend planeado de 0 da `tacos` 0.0:
+    es la proyección correcta de un mes SIN pauta, no un dato faltante. Pasarlo
+    a None escondería justo el caso donde el cumplimiento importa — gastar contra
+    un plan de cero (real 2.5 vs plan 0 = +2.5 puntos).
 
     Returns:
         Copia del dict de `_month_forecast` (no muta el snapshot), o None.
@@ -120,9 +130,8 @@ def _forecast_cell(cur: dict, period: str) -> Optional[dict]:
         return None
     forecast = dict(forecast)
     row = _baseline_row(cur, period) or {}
-    for metric, target in _DELTA_METRICS:
-        if forecast.get(metric) == 0 and _loaded_float(row.get(target)) is None:
-            forecast[metric] = None
+    if forecast.get("acos") == 0 and _loaded_float(row.get("acosTarget")) is None:
+        forecast["acos"] = None
     return forecast
 
 
@@ -165,8 +174,9 @@ def _build_agency_dashboard(
         2. ACOS / TACOS: DELTA EN PUNTOS = real - forecast, NO %. Signo crudo:
            positivo = real por encima del target, que en ACOS/TACOS es PEOR. La
            trampa obvia es invertirlo acá; no se invierte, lo colorea B3.
-        3. ACOS / TACOS proyectado 0.0 sin target cargado en la fila → None, y
-           su cumplimiento también (ver `_forecast_cell`).
+        3. ACOS proyectado 0 sin `acosTarget` cargado en la fila → None, y su
+           cumplimiento también. TACOS proyectado se reporta tal cual: un 0.0 es
+           un plan sin pauta, no un dato faltante (ver `_forecast_cell`).
         4. MtD PARCIAL CRUDO: con `partial=True` el cumplimiento se calcula igual,
            SIN prorratear el forecast por días transcurridos. `partial` viaja en
            la celda para que B3 lo marque. Prorratear es una decisión de

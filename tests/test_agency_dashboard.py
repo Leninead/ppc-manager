@@ -257,13 +257,29 @@ def test_acos_forecast_distinto_de_cero_sin_target_no_se_toca():
     assert cell["forecast"]["acos"] == 25.0
 
 
-def test_tacos_forecast_cero_sin_tacos_target_es_none():
+def test_tacos_forecast_cero_sin_tacos_target_se_preserva():
+    """tacosTarget es None por default y un spend planeado de 0 da tacos 0.0:
+    es la proyección CORRECTA de un mes sin pauta, no un dato faltante."""
     c = _client("A", historical=[_hist("2026-08-01", revenue=1000.0, spend=30.0,
                                        ventas_ppc=100.0)],
-                baseline_rows=[_fc("2026-08-01", tacos=0.0, tacos_target=None)])
+                baseline_rows=[_fc("2026-08-01", spend=0.0, ventas_ppc=0.0,
+                                   tacos=0.0, tacos_target=None)])
     cell = _cell(ad._build_agency_dashboard(["2026-08"], clients=[c]), "A", "2026-08")
-    assert cell["forecast"]["tacos"] is None
-    assert cell["accomplishment"]["tacos"] is None
+    assert cell["forecast"]["tacos"] == 0.0
+    assert cell["accomplishment"]["tacos"] == pytest.approx(3.0)
+
+
+def test_tacos_plan_sin_pauta_contra_gasto_real_da_delta_positivo():
+    """El caso que la regla vieja escondía: plan de cero pauta (tacos 0.0) y el
+    real gastó igual (TACOS 2.5) → +2.5 puntos, no una celda vacía."""
+    c = _client("A", historical=[_hist("2026-08-01", revenue=2000.0, spend=50.0,
+                                       ventas_ppc=150.0)],          # TACOS 2.5
+                baseline_rows=[_fc("2026-08-01", revenue=2000.0, spend=0.0,
+                                   ventas_ppc=0.0, tacos=0.0, tacos_target=None)])
+    cell = _cell(ad._build_agency_dashboard(["2026-08"], clients=[c]), "A", "2026-08")
+    assert cell["actual"]["tacos"] == pytest.approx(2.5)
+    assert cell["forecast"]["tacos"] == 0.0
+    assert cell["accomplishment"]["tacos"] == pytest.approx(2.5)
 
 
 def test_tacos_forecast_cero_con_tacos_target_cero_explicito_se_respeta():

@@ -4565,8 +4565,9 @@ def _month_forecast_metrics(row: dict) -> dict:
     tabla). Recalcular hace que el dashboard muestre un número distinto del que
     el AM ve en M31. Medido sobre filas del motor: con tacosTarget difiere por
     el redondeo del spend (8.3298 vs 8.33), y diverge en serio en los bordes —
-    spend 0 con acosTarget (tabla 15, cálculo None), sin acosTarget (tabla 0,
-    cálculo None), revenue 0 (tabla 0, cálculo None).
+    spend 0 con acosTarget (tabla 15, cálculo None), acosTarget forzado a None
+    en la fila (tabla 0, cálculo None; por la UI no se llega: se restaura a 30),
+    revenue 0 (tabla 0, cálculo None).
     """
     revenue = _loaded_float(row.get("revenue"))
     spend = _loaded_float(row.get("spend"))
@@ -4657,10 +4658,13 @@ def _month_forecast(cur: dict, period: str) -> Optional[dict]:
 
     CONSECUENCIA: el ACOS real y el ACOS proyectado NO salen de la misma
     definición. El real (`_month_actual`) se calcula desde el gasto que
-    efectivamente pasó; el proyectado es el target que el AM fijó (si no fijó
-    acosTarget, el motor escribe 0.0 y eso es lo que sale, igual que en la
-    tabla). Comparar los dos —el delta en puntos del mockup— es justamente lo
-    que el dashboard quiere mostrar, pero son dos cosas distintas.
+    efectivamente pasó; el proyectado es el target que fijó el AM, que nunca
+    queda vacío en una fila del motor: al generar se rellena con el ACOS promedio
+    del histórico o 30 (`generate_forecast`, L2757-2774), y si el AM borra la
+    celda `_apply_forecast_edits` lo restaura a 30.0 (L4171-4173). Un acos 0 sólo
+    aparece si el AM escribe 0 a mano. Comparar los dos —el delta en puntos del
+    mockup— es justamente lo que el dashboard quiere mostrar, pero son dos cosas
+    distintas.
 
     Args:
         cur: dict del cliente.
