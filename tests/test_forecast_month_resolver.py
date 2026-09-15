@@ -195,9 +195,20 @@ def test_valores_son_float_no_string():
 # _month_forecast
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _fc(date: str, revenue: float, spend, ventas_ppc) -> dict:
-    return {"date": date, "revenue": revenue, "spend": spend,
-            "ventasPPC": ventas_ppc, "acos": 30.0, "tacos": 0.0}
+_ABSENT = object()
+
+
+def _fc(date: str, revenue: float, spend, ventas_ppc,
+        acos=_ABSENT, tacos=_ABSENT) -> dict:
+    """Fila de forecast. acos/tacos sólo se incluyen si se pasan: sin ellos la
+    fila ejercita el fallback de cálculo."""
+    row = {"date": date, "revenue": revenue, "spend": spend,
+           "ventasPPC": ventas_ppc}
+    if acos is not _ABSENT:
+        row["acos"] = acos
+    if tacos is not _ABSENT:
+        row["tacos"] = tacos
+    return row
 
 
 def _client_with_baseline(forecast_rows: list, name="Plan Q4") -> dict:
@@ -273,3 +284,81 @@ def test_month_forecast_period_invalido_devuelve_none():
     cur = _client_with_baseline([_fc("2026-10-01", 9000.0, 900.0, 3000.0)])
     assert rf._month_forecast(cur, "octubre") is None
     assert not math.isnan(rf._month_forecast(cur, "2026-10")["revenue"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Commit 5 — ACOS/TACOS del forecast se LEEN de la fila (coherencia con F6.3c)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# El motor escribe f["acos"] / f["tacos"] respetando los overrides acosTarget /
+# tacosTarget del AM, y la tabla y el chart de M31 los leen. Recalcular desde
+# spend/ventasPPC es el bug F6.3c (ver `_acos_tacos_chart`).
+
+def test_month_forecast_acos_de_la_fila_gana_sobre_el_calculo():
+    """EL test: spend/ventasPPC darían 90%, el AM fijó 15%. Sale 15."""
+    cur = _client_with_baseline([
+        _fc("2026-10-01", 9000.0, 900.0, 1000.0, acos=15.0, tacos=10.0),
+    ])
+    m = rf._month_forecast(cur, "2026-10")
+    assert m["acos"] == 15.0
+    assert m["acos"] != 900.0 / 1000.0 * 100
+
+
+def test_month_forecast_acos_cero_de_la_fila_es_dato():
+    """Sin acosTarget el motor escribe 0.0; eso es lo que ve el AM en la tabla."""
+    cur = _client_with_baseline([
+        _fc("2026-10-01", 9000.0, 900.0, 1000.0, acos=0.0),
+    ])
+    assert rf._month_forecast(cur, "2026-10")["acos"] == 0.0
+
+
+@pytest.mark.parametrize("sin_acos", [_ABSENT, None, "", float("nan")])
+def test_month_forecast_sin_acos_cae_al_calculo(sin_acos):
+    cur = _client_with_baseline([
+        _fc("2026-10-01", 9000.0, 900.0, 3000.0, acos=sin_acos),
+    ])
+    assert rf._month_forecast(cur, "2026-10")["acos"] == 30.0   # 900 / 3000
+
+
+def test_month_forecast_sin_acos_y_sin_ventas_ppc_da_none():
+    cur = _client_with_baseline([_fc("2026-10-01", 9000.0, 900.0, None)])
+    assert rf._month_forecast(cur, "2026-10")["acos"] is None
+
+
+def test_month_forecast_tacos_de_la_fila_gana_sobre_el_calculo():
+    """Override tacosTarget 8.33: el motor redondea el spend y el cálculo da
+    otro número. Sale el de la fila."""
+    cur = _client_with_baseline([
+        _fc("2026-10-01", 9000.0, 900.0, 3000.0, tacos=8.33),
+    ])
+    m = rf._month_forecast(cur, "2026-10")
+    assert m["tacos"] == 8.33
+    assert m["tacos"] != 900.0 / 9000.0 * 100
+
+
+@pytest.mark.parametrize("sin_tacos", [_ABSENT, None, "", float("nan")])
+def test_month_forecast_sin_tacos_cae_al_calculo(sin_tacos):
+    cur = _client_with_baseline([
+        _fc("2026-10-01", 9000.0, 900.0, 3000.0, tacos=sin_tacos),
+    ])
+    assert rf._month_forecast(cur, "2026-10")["tacos"] == 10.0  # 900 / 9000
+
+
+def test_month_forecast_sin_tacos_y_sin_revenue_da_none():
+    cur = _client_with_baseline([_fc("2026-10-01", None, 900.0, 3000.0)])
+    assert rf._month_forecast(cur, "2026-10")["tacos"] is None
+
+
+def test_month_actual_ignora_acos_tacos_basura_de_la_fila():
+    """No-regresión: el real se CALCULA desde el gasto que pasó. Una key
+    acos/tacos en la fila (basura) no se lee."""
+    cur = _client(
+        historical=[_row("2026-07-01", revenue=4000.0, spend=200.0,
+                         ventas_ppc=800.0, acos=999.0, tacos=-5.0)],
+        actual=[_row("2026-08-01", revenue=2000.0, spend=100.0,
+                     ventas_ppc=400.0, partial=True, acos=777.0, tacos=123.0)],
+    )
+    jul = rf._month_actual(cur, "2026-07")
+    ago = rf._month_actual(cur, "2026-08")
+    assert (jul["acos"], jul["tacos"]) == (25.0, 5.0)
+    assert (ago["acos"], ago["tacos"]) == (25.0, 5.0)
