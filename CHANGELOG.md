@@ -6,6 +6,64 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — El Search Term Report se actualiza solo desde Amazon Ads (2026-09-14)
+
+**M2 lee los search terms por API.** Con cuentas de Amazon Ads conectadas, el módulo arranca con el bloque "Datos de
+Amazon Ads": cuenta, país y período, un indicador de qué tan frescos están los datos y el botón "Actualizar ahora".
+Subir el archivo sigue estando, detrás de "Subir archivo manualmente", y ahora también entiende el CSV nuevo de la
+consola ("Total cost", varias cuentas en un archivo, una cuenta con filas en dos monedas separada por moneda). La
+moneda es un indicador (la del perfil de Amazon o la del archivo), sin conversión.
+
+**Refresco todos los días, con reintentos el mismo día.** El servicio `ads-sync-worker` corre siempre prendido y cada
+minuto avanza las solicitudes guardadas en la base: diaria de 14 días a las 03:00 de la hora del perfil, 42 días los
+domingos, carga inicial de 65 días apenas aparece una cuenta (también las ya conectadas al deployar) y reintentos
+hasta las 23:00 del perfil. Los reportes se piden en tramos de 14 días (7 en perfiles muy grandes), se retoman por
+`reportId` después de un corte,
+cada día se reemplaza en una sola transacción con guarda anti-vaciado, y el crudo queda 180 días en el volumen
+`ads_raw`. Los portfolios se resuelven de id a nombre.
+
+**Registro de solicitudes (Sistema, sólo admin).** Historial de cada pedido a las cuentas conectadas con su estado,
+detalle de intentos y errores, Reintentar/Cancelar (también solicitudes trabadas), y alertas (fallas, primera carga
+fallida, datos atrasados, worker sin latido, autorizaciones rechazadas o por vencer) con punto en el menú. Es genérico
+por proveedor.
+
+**Bulk de negativos con IDs reales.** Con datos de API, Negatives Mining exporta el bulk a nivel ad group con los IDs
+de campaña y ad group. Las reglas se alinearon a los invariantes del SOP: R4 pasa a "Bajar bid", R1 a "Revisar
+manualmente", nada con órdenes (7 o 14 días) se negativiza, y quedan afuera (con motivo) origen Exact o Product
+Targeting en el ad group, Exact activos, keywords propias, frases que bloquearían un término que convierte, texto que
+Amazon rechaza, términos ASIN y campañas no habilitadas. Los portfolios RANKING y los sin nombre quedan afuera y se
+liberan término por término. Con moneda distinta de USD el precio arranca vacío y el bulk espera a que se cargue.
+Los `.xlsx` guardan los términos como texto. Pendiente de validación de PPC.
+
+**M2 aguanta cuentas grandes.** Con 30 días de una cuenta grande (177.843 términos) la página se caía: el estilo de
+pandas no dibuja más de 262.144 celdas, y además tardaba más de 3 minutos en armarse. Ahora las tablas muestran las 1.000 filas
+más relevantes (con aviso y el Excel completo), el gráfico de dispersión los 2.000 términos de mayor gasto, y los Excel
+de más de 5.000 filas se arman cuando se piden ("Preparar el archivo"). La clasificación de estados, harvest y las
+guardas del bulk se calculan por columnas; el resultado es idéntico al anterior sobre datos reales. Con datos más
+nuevos disponibles, cambiar el período ya no muestra filas nuevas con la etiqueta de la versión anterior: el selector
+pasa a la versión nueva, así el Excel preparado y el análisis IA no quedan viejos.
+
+**El análisis IA queda guardado y ligado a los datos.** Con datos de Amazon Ads, el análisis de M2 se genera
+solo cuando llegan datos nuevos (servicio `ads-ai-worker`) y se guarda. Todos los usuarios ven el mismo, sin
+esperar, y no se vuelve a generar mientras los datos y los parámetros no cambien. Si alguien cambia
+parámetros, período o idioma, la pestaña no muestra un análisis viejo: ofrece "Generar análisis IA" y esos
+parámetros quedan guardados para la cuenta. El chat arranca con el análisis vigente y los últimos tres de la
+cuenta. Con archivo manual el análisis sigue en memoria y nunca llega a la base. Las cuentas en otra moneda
+sin precio cargado también tienen análisis: sin la Regla 3 (gasto sin conversión) ni bids sugeridos, y la
+pestaña lo avisa. El "Bid Sugerido" de harvest respeta el techo de INV-1 (nunca más que precio × target ACoS).
+
+**Puente con la VPS.** `scripts/amazon_ads_bridge.py` re-sella en la VPS las autorizaciones de Amazon para la clave
+local y las importa en el stack local, sin túnel ni URL nueva en Amazon.
+
+Qué cambia en el código: migración `009_amazon_ads_sync.sql` (`integration_sync_jobs`, `ads_report_requests`,
+`ads_profile_sync`, `ads_search_term_daily`, `ads_portfolios`, `integration_worker_heartbeats` y sus funciones),
+migración `010_ai_analyses.sql` (`ai_analyses`, `ai_analysis_settings`, rol `ai_worker`, `claim_ai_jobs`,
+`request_ai_analysis`, `save_ai_analysis_settings`), `ai/agent_call.py`, `core/search_term_analysis.py`,
+`core/ai_analysis/`,
+`core/amazon_ads/`, `core/integrations/{sync_jobs,sync_alerts}.py`, `core/{search_term_frame,search_term_file,
+search_term_negatives,currency_format}.py`, `modules/pages/{search_term_source,request_log}.py`. Deploy:
+`deploy/integrations/DEPLOY.md` §5c.
+
 ### Added — Los chats consultan el MCP oficial de Amazon Ads (2026-09-09)
 
 **Cualquier persona con un chat en la app puede preguntarle a Amazon Ads.** En la barra

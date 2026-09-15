@@ -25,13 +25,14 @@ COPY --chown=appuser:appuser data/ /app/seed/
 
 COPY --chown=appuser:appuser docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
- && mkdir -p /app/data /app/data/integrations \
+ && mkdir -p /app/data /app/data/integrations /app/data/ads_raw \
  && chown -R appuser:appuser /app/data
-# `data/integrations` exists in the image ONLY so the worker's `integrations_keys`
-# volume inherits appuser. Docker copies the image directory's ownership onto a
-# fresh named volume, but invents a root-owned mountpoint when the path is absent
-# — which made `worker keys` die with PermissionError writing the sealing key, on
-# every host where that volume had never been created.
+# `data/integrations` and `data/ads_raw` exist in the image ONLY so the workers'
+# `integrations_keys` and `ads_raw` volumes inherit appuser. Docker copies the
+# image directory's ownership onto a fresh named volume, but invents a root-owned
+# mountpoint when the path is absent — which made `worker keys` die with
+# PermissionError writing the sealing key, on every host where that volume had
+# never been created.
 
 # No VOLUME on purpose: it would spawn an anonymous volume on a forgotten mount and lose data.
 

@@ -151,6 +151,28 @@ class TestBuildContext:
         assert "CTR%" in header
         assert first.endswith(",2.0")
 
+    def test_missing_prices_are_explained_to_the_model_and_a_priced_payload_says_nothing(self):
+        priced = build_context(_data())[1][0]["content"]
+        data = _data()
+        data.precio, data.umbral_spend = None, float("inf")
+        negatives_only = build_context(data)[1][0]["content"]
+        data.harvest_precio = None
+        no_prices = build_context(data)[1][0]["content"]
+
+        assert "NO cargado" not in priced
+        assert "NO cargado en Negatives" in negatives_only and "NO cargado en Harvest" not in negatives_only
+        assert "NO cargado en Negatives" in no_prices and "NO cargado en Harvest" in no_prices
+        assert "Umbral spend sin orders: —" in no_prices
+
+    def test_a_negative_without_impressions_gets_zero_ctr_instead_of_breaking_the_payload(self):
+        data = _data()
+        data.negativos = [_neg(clicks=1, imps=0), _neg("beta soap", clicks=40, imps=2000)]
+
+        _, docs, _ = build_context(data)
+
+        lines = docs[3]["content"].splitlines()
+        assert lines[1].endswith(",0.0") and lines[2].endswith(",2.0")
+
     def test_bleeding_campaign_is_flagged_mandatory(self):
         # Clicks 50 >= umbral 38 with 0 orders -> True; the healthy one -> False
         _, docs, _ = build_context(_data())
@@ -282,9 +304,14 @@ class TestStrDisplayRows:
         rows = _str_ai_rows([_neg()], [], NEG_PREFIX, [], self._LABELS,
                             _str_neg_metrics)
         assert rows[0]["metrics"][-1] == "@ C1 - Broad"
-        camp_rows = _str_campaign_rows([{"campaign": "Bleeder",
-                                         "diagnostico": "sangra"}])
-        assert camp_rows == [{"item": "Bleeder", "reasoning": "sangra"}]
+        camp_rows = _str_campaign_rows(
+            [{"campaign": "Bleeder", "diagnostico": "sangra"}, {"campaign": "Renamed", "diagnostico": "d"}],
+            [{"Campaign": "Bleeder", "Impressions": 5000, "Clicks": 50, "Spend": 40.0, "Sales": 0.0, "Orders": 0,
+              "ACoS": 0.0}], "USD")
+        assert camp_rows == [
+            {"item": "Bleeder", "reasoning": "sangra", "metrics": ["$40.00", "ACoS 0.0%", "0 ord", "50 clicks"]},
+            {"item": "Renamed", "reasoning": "d", "metrics": []},
+        ]
 
 
 def test_row_labels_map_positional_ids_to_terms():
@@ -325,7 +352,8 @@ result = {"negativos": [{"row_id": "N01", "razon": "r1", "categoria": "generico"
           "synthesis": {"situation": "s", "week_actions": ["Cortar N01 hoy"],
                         "mid_term": [], "risks": []}}
 labels = ai_tab.ai_labels("en", _STR_LABELS["en"])
-_render_str_ai_result(result, A(), negs, harvs, ["alpha"], labels)
+campaigns = [{"Campaign": "C1 - Broad", "Clicks": 20, "Spend": 5.0, "Orders": 0, "ACoS": 0.0}]
+_render_str_ai_result(result, A(), negs, harvs, ["alpha"], labels, campaign_records=campaigns)
 '''
     at = AppTest.from_string(script)
     at.run(timeout=30)
@@ -337,3 +365,5 @@ _render_str_ai_result(result, A(), negs, harvs, ["alpha"], labels)
     assert html.index("H01") < html.index("soap bar")
     assert "already in exact" in html
     assert "<th class=\"c-item\">Campaign</th>" in html
+    campaign_table = html[html.index("<th class=\"c-item\">Campaign</th>"):]
+    assert "c-diag" not in campaign_table and "ACoS 0.0%" in campaign_table

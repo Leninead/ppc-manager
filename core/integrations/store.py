@@ -195,6 +195,61 @@ class _Rest:
         )
         response.raise_for_status()
 
+    def insert_ignore(self, table: str, row: dict, on_conflict: str, *,
+                      timeout_s: int = _TIMEOUT_S) -> bool:
+        """Insert unless the unique key already holds a row. True if it inserted."""
+        headers = self._headers(minimal=False)
+        headers["Prefer"] = "return=representation,resolution=ignore-duplicates"
+        response = self._session.post(
+            f"{self._url}/{table}",
+            json=row,
+            params={"on_conflict": on_conflict},
+            headers=headers,
+            timeout=timeout_s,
+        )
+        response.raise_for_status()
+        return bool(response.json())
+
+    def insert_returning(self, table: str, row: dict, *, timeout_s: int = _TIMEOUT_S) -> dict:
+        response = self._session.post(
+            f"{self._url}/{table}",
+            json=row,
+            headers=self._headers(minimal=False),
+            timeout=timeout_s,
+        )
+        response.raise_for_status()
+        inserted = response.json()
+        if not inserted:
+            raise StoreError(f"{table}: the insert returned no row")
+        return inserted[0] if isinstance(inserted, list) else inserted
+
+    def rpc(self, name: str, args: dict, *, timeout_s: int = _TIMEOUT_S) -> list[dict] | dict | int | None:
+        response = self._session.post(
+            f"{self._url}/rpc/{name}",
+            json=args,
+            headers=self._rpc_headers("application/json"),
+            timeout=timeout_s,
+        )
+        response.raise_for_status()
+        return response.json() if response.content else None
+
+    def rpc_csv(self, name: str, args: dict, *, timeout_s: int = _TIMEOUT_S) -> bytes:
+        response = self._session.post(
+            f"{self._url}/rpc/{name}",
+            json=args,
+            headers=self._rpc_headers("text/csv"),
+            timeout=timeout_s,
+        )
+        response.raise_for_status()
+        return response.content
+
+    def _rpc_headers(self, accept: str) -> dict:
+        headers = self._headers(minimal=True)
+        # `Prefer: return=...` belongs to table writes; a function answers with its own result.
+        headers.pop("Prefer")
+        headers["Accept"] = accept
+        return headers
+
     def update(self, table: str, params: dict, changes: dict, stamp: bool = True) -> None:
         changes = dict(changes)
         if stamp:

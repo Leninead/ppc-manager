@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from core.currency_format import currency_symbol, money
+
 NEG_PREFIX = "N"
 HARV_PREFIX = "H"
 MAX_CAMPAIGNS = 40
@@ -17,18 +19,19 @@ class StrData:
     cliente: str
     brand_terms: list
     target_acos: float          # Negatives tab slider
-    precio: float               # Negatives tab price input
+    precio: float | None        # Negatives tab price input; None switches rule 3 off
     cvr: float                  # account CVR computed from the file
     umbral_clicks: int          # Negatives rule 2 threshold
-    umbral_spend: float         # Negatives rule 3 threshold
+    umbral_spend: float         # Negatives rule 3 threshold (inf without a price)
     harvest_target_acos: float  # Harvest tab slider
-    harvest_precio: float       # Harvest tab price input
+    harvest_precio: float | None  # Harvest tab price input; None leaves Bid Sugerido empty
     kpis: dict                  # label -> formatted value (module's kpi_dict)
     campanas: list              # per-campaign aggregate records
     negativos: list             # df_neg records, module columns as-is
     harvest: list               # df_harv records, module columns as-is
     idioma: str = "es"          # output language: "es" | "en"
     cost_detected: bool = True  # False when the STR cost column was not found
+    currency_code: str = "USD"  # account currency; "" when the file did not say
 
 
 # razon comes before categoria on purpose: autoregressive generation
@@ -124,24 +127,41 @@ def _csv(records, prefix: str | None = None) -> str:
     if prefix is not None and not df.empty:
         df = df.copy()
         df.insert(0, "row_id", make_ids(prefix, len(df)))
-    return df.to_csv(index=False)
+    # A fixed line ending keeps the stored fingerprint the same on Windows and Linux.
+    return df.to_csv(index=False, lineterminator="\n")
+
+
+def _missing_price_notes(d: StrData) -> str:
+    # Empty when both prices are loaded, so a priced payload keeps its text and its digest.
+    notes = ""
+    if d.precio is None:
+        notes += ("Precio del producto: NO cargado en Negatives — la regla R3 (gasto sin conversión) no se evaluó, "
+                  "así que la lista de negativos no incluye los términos que gastaron sin convertir por esa regla.\n")
+    if d.harvest_precio is None:
+        notes += ("Precio del producto: NO cargado en Harvest — la columna Bid Sugerido llega vacía: no hay bids "
+                  "calculados.\n")
+    return notes
 
 
 def build_context(d: StrData) -> tuple[str, list, dict]:
     marca = ", ".join(d.brand_terms) if d.brand_terms else "no declarada"
     params = (
         f"Cliente: {d.cliente}\n"
+        f"Moneda de la cuenta: {d.currency_code or 'no informada'} (símbolo {currency_symbol(d.currency_code)})\n"
         f"Brand terms declarados por el AM: {marca}\n"
         f"CVR promedio del archivo: {d.cvr:.2f}%\n"
-        f"Negatives — Target ACoS: {d.target_acos:.0f}% | Precio promedio: ${d.precio:.2f} | "
-        f"Umbral clicks sin orders: {d.umbral_clicks} | Umbral spend sin orders: ${d.umbral_spend:.2f}\n"
-        f"Harvest — Target ACoS: {d.harvest_target_acos:.0f}% | Precio promedio: ${d.harvest_precio:.2f}\n"
+        f"Negatives — Target ACoS: {d.target_acos:.0f}% | Precio promedio: {money(d.precio, d.currency_code)} | "
+        f"Umbral clicks sin orders: {d.umbral_clicks} | "
+        f"Umbral spend sin orders: {money(d.umbral_spend, d.currency_code)}\n"
+        f"Harvest — Target ACoS: {d.harvest_target_acos:.0f}% | "
+        f"Precio promedio: {money(d.harvest_precio, d.currency_code)}\n"
         f"Idioma de salida: {'en (English)' if d.idioma == 'en' else 'es (español)'}\n"
         + ("Calidad de datos: columna de costo NO detectada — Spend y ACoS llegan "
            "en 0 (inválidos) y la regla R3 quedó suprimida; la lista de negativos "
            "está incompleta por eso. Columnas válidas: Clicks, Orders, Sales, "
            "Impressions, CVR, CTR.\n" if not d.cost_detected else
            "Calidad de datos: columna de costo detectada; métricas de gasto válidas.\n")
+        + _missing_price_notes(d)
         + "Listing context: NO disponible. Estos son los únicos valores operativos válidos."
     )
     kpis = "\n".join(f"{k}: {v}" for k, v in d.kpis.items())
@@ -154,9 +174,8 @@ def build_context(d: StrData) -> tuple[str, list, dict]:
 
     negativos = pd.DataFrame(d.negativos)
     if not negativos.empty and {"Clicks", "Impressions"} <= set(negativos.columns):
-        negativos["CTR%"] = (negativos["Clicks"]
-                             / negativos["Impressions"].replace(0, pd.NA)
-                             * 100).astype(float).round(2).fillna(0)
+        impressions = negativos["Impressions"].astype(float)
+        negativos["CTR%"] = (negativos["Clicks"] / impressions.where(impressions > 0) * 100).round(2).fillna(0)
 
     docs = [
         {"title": "Parámetros", "content": params},

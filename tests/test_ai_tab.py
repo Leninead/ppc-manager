@@ -15,6 +15,7 @@ Design rules:
 - AppTest.from_string only for what needs the Streamlit runtime (house
   rule: never from_function).
 """
+import re
 import types
 
 import pytest
@@ -147,6 +148,16 @@ class TestRenderKit:
         # Rows without an id (campaign diagnoses) render exactly as before.
         plain = opinion_table_html([self._ROW], "T", ai_labels("es"), {})
         assert "monospace;font-size:13px;background:#F1EFE8" not in plain
+
+    def test_a_table_whose_rows_have_no_diagnosis_drops_that_column(self):
+        labels = ai_labels("es")
+        with_column = opinion_table_html([self._ROW], "T", labels, {})
+        without_column = opinion_table_html([self._ROW], "T", labels, {}, diagnosis_column=False)
+
+        header_cells = lambda table: len(re.findall(r"<th[ >]", table))  # noqa: E731
+        assert header_cells(with_column) == 3 and 'class="c-diag"' in with_column
+        assert header_cells(without_column) == 2 and "c-diag" not in without_column
+        assert "brita jug" in without_column
 
     def test_dollar_signs_escaped_against_latex(self):
         table = opinion_table_html([self._ROW], "T", ai_labels("es"), {})

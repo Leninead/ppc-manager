@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from core.ui import i18n
 
 HOME = "🏠 Inicio"
+REQUEST_LOG = "🧾 Registro de solicitudes"
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ SECTIONS: tuple[Section, ...] = (
         "🔑 Cuentas conectadas",
         "🔌 Integraciones",
         "🧠 Skills",
+        REQUEST_LOG,
     )),
 )
 
@@ -104,7 +106,7 @@ SECTIONS: tuple[Section, ...] = (
 # `all_pages()` deliberately keeps listing these — it is the catalog every page
 # name derives from (`core.constants._PAGES`), not the menu a given user gets.
 # Only `visible_pages()` and `filter_pages()` know about roles.
-ADMIN_ONLY: frozenset[str] = frozenset({"🔌 Integraciones", "🧠 Skills"})
+ADMIN_ONLY: frozenset[str] = frozenset({"🔌 Integraciones", "🧠 Skills", REQUEST_LOG})
 
 
 # The emoji of a destination still lives in the routing key, but a Material
@@ -150,11 +152,12 @@ _ICONS: dict[str, str] = {
     "🔑 Cuentas conectadas": ":material/key:",
     "🔌 Integraciones": ":material/power:",
     "🧠 Skills": ":material/neurology:",
+    REQUEST_LOG: ":material/history:",
 }
 
 
 def all_pages() -> list[str]:
-    """The 37 destinations of the rail, Home first."""
+    """Every destination of the rail, Home first."""
     return [HOME] + [page for section in SECTIONS for page in section.pages]
 
 

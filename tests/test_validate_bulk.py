@@ -13,6 +13,7 @@ Contrato: .claude/skills/ppc-business-invariants.md — INV-5.
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from core.bulk_parser import ErrorBulk, validate_bulk
 
@@ -299,6 +300,32 @@ def test_e8_alias_no_numerico_no_es_error():
 def test_e9_keyword_text_vacio_es_error():
     res = validate_bulk(_bulk(**{"Keyword Text": ""}))
     assert _cols(_errores(res)) == {"Keyword Text"}
+
+
+@pytest.mark.parametrize("entity_row", [{}, _neg_kw()], ids=["campaign_negative", "adgroup_negative"])
+@pytest.mark.parametrize("keyword_text, match_type, fragment", [
+    ("100% algodon", "Negative Exact", "«%»"),
+    ("bolsa de dormir 1/2 tog", "Negative Exact", "«/»"),
+    ("bolsa de dormir para bebe", "Negative Phrase", "5 palabras"),
+    ("uno dos tres cuatro cinco seis siete ocho nueve diez once", "Negative Exact", "11 palabras"),
+    ("x" * 81, "Negative Exact", "81 caracteres"),
+])
+def test_e9_negative_keyword_text_amazon_rejects_is_an_error(entity_row, keyword_text, match_type, fragment):
+    res = validate_bulk(_bulk(**{**entity_row, "Keyword Text": keyword_text, "Match Type": match_type}))
+
+    errores = _errores(res)
+    assert _cols(errores) == {"Keyword Text"}
+    assert fragment in errores[0].mensaje
+
+
+def test_e9_negative_keyword_text_within_limits_is_valid():
+    fila = _neg_kw(**{"Keyword Text": "mac & cheese bowl", "Match Type": "Negative Phrase"})
+    assert validate_bulk(_bulk(**fila)) == []
+
+
+def test_e9_positive_keyword_text_keeps_its_current_rules():
+    fila = _kw_create(**{"Keyword Text": "tallas 1/2 y 3/4 para bebe recien nacido de invierno calido"})
+    assert _errores(validate_bulk(_bulk(**fila))) == []
 
 
 # ============================================================================

@@ -39,6 +39,9 @@ OK_GLOW = "#E7F8EE"
 WARN = "#F59E0B"
 WARN_INK = "#B45309"
 WARN_GLOW = "#FEF3C7"
+ERR = "#DC2626"
+ERR_INK = "#B91C1C"
+ERR_GLOW = "#FEE2E2"
 IDLE = "#A3A3A3"
 ATTENTION_GLOW = "#FFF8F0"   # Neutral warm off-white for attention row backgrounds
 
@@ -144,11 +147,12 @@ def outline_button(prefix: str) -> str:
 def status_pill_html(kind: str, label: str) -> str:
     """Small colored dot + label used to render row status.
 
-    `kind` is one of `ok`, `warn`, `idle`; anything else falls back to idle.
+    `kind` is one of `ok`, `warn`, `err`, `idle`; anything else falls back to idle.
     """
     color, ink, glow = {
         "ok": (OK, OK_INK, OK_GLOW),
         "warn": (WARN, WARN_INK, WARN_GLOW),
+        "err": (ERR, ERR_INK, ERR_GLOW),
     }.get(kind, (IDLE, FG_MUTED, "transparent"))
     return (
         "<span style='display:inline-flex;align-items:center;gap:6px;'>"

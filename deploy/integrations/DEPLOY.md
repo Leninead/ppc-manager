@@ -249,6 +249,85 @@ Un quick tunnel pierde la conexión QUIC cada pocos minutos por inactividad y
 reconecta solo con el mismo hostname; si el redirect de Amazon cae justo en un
 corte, reintentar el link alcanza.
 
+### 5c. Ingesta del Search Term Report (Amazon Ads) en local
+
+La migración `009_amazon_ads_sync.sql` crea las tablas de la ingesta y del registro de
+solicitudes (`sh deploy/db/migrate.sh`, como el resto). El worker es un servicio más del
+overlay de base, siempre prendido:
+
+```
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.db.yml build
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.db.yml up -d ads-sync-worker
+docker logs -f agency-ads-sync-worker        # una línea por tick: perfiles, jobs, reportes, filas, errores
+```
+
+Necesita lo mismo que el `integrations-worker`: `INTEGRATIONS_WORKER_JWT` en `.env` y la clave de
+sellado ya creada en el volumen `integrations_keys` (paso 2). Mientras falte algo, loguea una vez
+que no está configurado y espera, sin reiniciarse en bucle. Sin autorizaciones de Amazon en la base
+local no hay nada que bajar: para usar las de producción, ver 5d.
+
+### 5d. Puente: usar en local las autorizaciones de Amazon de la VPS
+
+`scripts/amazon_ads_bridge.py` evita el túnel y la URL nueva en Amazon. En la VPS abre la
+credencial de Amazon Ads, las autorizaciones activas y sus cuentas con la clave de producción, y las
+vuelve a sellar para la **clave pública local**. Lo único que viaja es texto cifrado que sólo abre tu
+máquina. En producción sólo lee; en local escribe esas filas (credencial, autorizaciones con id
+remapeado, cuentas). Queda en el repo para futuras pruebas; no tiene paso de borrado.
+
+Desde Git Bash (PowerShell 5 no tiene `<` para redirigir):
+
+```
+cd /c/Users/<vos>/Desktop/Capybaras/ppc-manager
+COMPOSE="docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.db.yml"
+
+# 1) Clave pública local (es pública: se puede mover)
+PUB_B64=$(docker exec agency-db psql -U postgres -d agency_os -tAc \
+  "select valor from integration_settings where clave='sealing_public_key'" | base64 -w0)
+
+# 2) Exportar en la VPS: el script entra por ssh y el paquete sale por el mismo pipe.
+#    sudo porque /srv/ppc-manager/.env es de root (los cron del worker también corren como root).
+ssh -i <clave-ssh> ubuntu@<vps> \
+  "cd /srv/ppc-manager && sudo -n $COMPOSE run --rm -T -e BRIDGE_TARGET_PUBLIC_KEY_B64=$PUB_B64 integrations-worker python - export" \
+  < scripts/amazon_ads_bridge.py > /c/tmp/amazon_ads_bundle.json
+
+# 3) Importar en local
+MSYS_NO_PATHCONV=1 $COMPOSE run --rm -T -e BRIDGE_ALLOW_IMPORT=local \
+  -v C:/tmp/amazon_ads_bundle.json:/tmp/bundle.json:ro \
+  integrations-worker python - import --bundle /tmp/bundle.json < scripts/amazon_ads_bridge.py
+
+# 4) Refrescar las cuentas (trae zona horaria y moneda de cada perfil)
+$COMPOSE run --rm integrations-worker python -m core.integrations.worker discover
+```
+
+- Las guardas están en el script: aborta si la clave de la VPS no coincide con la publicada, si la
+  clave destino es la misma que la de origen, si falta `BRIDGE_ALLOW_IMPORT=local`, o si algún valor
+  del paquete no abre con la clave local.
+- El token de Login with Amazon no rota, así que usarlo en local no rompe producción. Tu máquina
+  queda con acceso de lectura/escritura de campañas de esos clientes: disco cifrado y no compartir el
+  paquete (tiene nombres de clientes aunque no tenga secretos en claro).
+- Los reportes que pida el worker local son pedidos reales a Amazon (sólo lectura) y comparten los
+  límites de la cuenta con producción.
+
+### 5e. Análisis IA guardados (`ads-ai-worker`) en local
+
+La migración `010_ai_analyses.sql` agrega `ai_analyses`, `ai_analysis_settings`, el rol `ai_worker` y la
+cola de análisis sobre `integration_sync_jobs`. El worker necesita su JWT y el AI provider en la red
+`ai-net`:
+
+```
+sh scripts/mint_jwt.sh ai_worker          # → AI_WORKER_JWT en .env
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.db.yml up -d ads-ai-worker
+docker logs -f agency-ads-ai-worker       # loguea sólo los ticks que encolan, corren o fallan
+```
+
+Para probar sin generar todas las cuentas (cada análisis es una llamada real a Opus contra la cuota del
+provider), un tick acotado desde el venv:
+
+```
+SUPABASE_URL=http://127.0.0.1:3002 AI_WORKER_JWT=<jwt> CLAUDE_PROVIDER_URL=http://127.0.0.1:3111 \
+  python -m core.ai_analysis.worker tick --profile-id <profile_id>
+```
+
 ---
 
 ## Deploy al VPS
@@ -515,13 +594,111 @@ sólo las herramientas de lectura de Amazon (más las que inician reportes):
 ninguna crea, modifica ni borra.
 
 
+## 5c. Worker de Amazon Ads (`ads-sync-worker`)
+
+Es el que mantiene al día el Search Term Report de cada perfil de Amazon Ads. A diferencia del
+`integrations-worker`, **no va por cron**: es un servicio siempre prendido del overlay de base
+(`docker-compose.db.yml`), así que el deploy de Jenkins lo levanta y lo actualiza solo con
+`docker compose up -d`, con el mismo `IMAGE_TAG` fijado que la app.
+
+**Qué hace, cada minuto** (`python -m core.amazon_ads.worker run`, `ADS_TICK_SECONDS` para cambiarlo):
+- Sincroniza `ads_profile_sync` desde `integration_accounts` (zona horaria, moneda, estado de la autorización).
+- Planifica por perfil, en su hora local: diaria de 14 días a las 03:00 (lunes a sábado), 42 días los
+  domingos, carga inicial de 65 días apenas aparece un perfil (incluidos los que ya estaban conectados
+  al primer deploy), nombres de portfolio una vez por día.
+- Pide los reportes a Amazon en tramos (14 días, 7 para perfiles muy grandes), los consulta, los
+  descarga, guarda el crudo en `ads_raw` y reemplaza cada día en una sola transacción.
+- Reintenta con espera creciente hasta las 23:00 del perfil y deja todo en `integration_sync_jobs`,
+  que es lo que muestra ⚙️ Sistema → 🧾 Registro de solicitudes.
+- Escribe un latido en `integration_worker_heartbeats`: si pasa más de 5 minutos sin latido, el
+  registro lo marca como alerta.
+
+**Primer deploy.**
+1. Nada que instalar a mano: Jenkins aplica `009_amazon_ads_sync.sql` en *DB migrate* y el servicio
+   arranca en *Deploy*. Como el deploy levanta los contenedores antes de migrar, el worker puede
+   arrancar sin tablas: loguea que faltan y sigue esperando.
+2. Necesita `INTEGRATIONS_WORKER_JWT` en `/srv/ppc-manager/.env` (ya está, lo usa el cron) y la clave de
+   sellado en el volumen `integrations_keys`, que monta **de sólo lectura** (nunca crea claves).
+3. Verificar:
+   ```
+   docker logs --tail 20 agency-ads-sync-worker
+   docker exec agency-db psql -U postgres -d agency_os -tAc \
+     "select last_tick_at, summary->>'profiles_active', summary->>'jobs_planned' from integration_worker_heartbeats"
+   docker exec agency-db psql -U postgres -d agency_os -tAc \
+     "select status, count(*) from integration_sync_jobs group by 1"
+   ```
+   A los pocos minutos tiene que haber jobs `backfill` en curso por cada perfil activo.
+
+**Operación.**
+- Cambiar o quitar la credencial de Amazon en Integraciones no necesita reiniciar: el worker la vuelve a
+  leer en cada refresh de token.
+- Frenarlo: `docker compose stop ads-sync-worker`. Termina el paso en curso (hasta 2 minutos,
+  `stop_grace_period`) y al volver retoma los reportes pedidos por su `reportId`. Un tramo cuyo guardado se corta
+  dos veces falla como `SaveCrashed` y hay que reintentarlo desde el Registro.
+- Rollback: si Jenkins vuelve a una imagen anterior a este worker, el pipeline lo frena (una imagen vieja
+  no tiene `core.amazon_ads`). A mano: `docker compose stop ads-sync-worker` antes de
+  `IMAGE_TAG=<tag> docker compose up -d`.
+- Logs: rotan a 10 MB × 5 (`logging:` del servicio).
+- Crudo: los reportes originales quedan 180 días en el volumen `ads_raw` y se borran sólo desde
+  `ads_report_requests` (nunca recorriendo carpetas). Es una excepción documentada a "sin borrados
+  automáticos": son copias secundarias; lo normalizado nunca se borra solo. `deploy/db/backup.sh` los
+  espeja en `/srv/backups/ads_raw`, porque Amazon guarda los search terms sólo 65 días.
+- Una cuenta que falla hoy aparece en el Registro de solicitudes con su error; "Reintentar" crea una
+  solicitud nueva. Un perfil sin la carga inicial completa también queda marcado ahí.
+
+## 5d. Worker de análisis IA (`ads-ai-worker`)
+
+Genera el análisis IA del Search Term Report (M2) cuando llegan datos nuevos por API y lo guarda en
+`ai_analyses`. M2 muestra el análisis de exactamente los datos y parámetros en pantalla; si no existe,
+ofrece generarlo con un clic y nunca muestra uno anterior.
+
+**Qué hace, cada minuto** (`python -m core.ai_analysis.worker run`, `AI_TICK_SECONDS` para cambiarlo):
+- Por cada perfil activo con datos, cuando cambió su último sync o sus parámetros guardados, arma lo que
+  leería la IA para los últimos 30 días con los parámetros de la cuenta y calcula su huella. Si ya hay un
+  análisis (o un pedido en curso) con esa huella, no hace nada; si no, encola `ai_str_analysis`.
+- Espera a que termine la ingesta en curso del perfil. Las cuentas sin precio cargado (monedas distintas de
+  USD) también se generan, sin la regla R3 ni bids sugeridos; el perfil sin filas cuenta como "nada que
+  analizar".
+- Corre hasta `AI_ANALYSIS_CONCURRENCY` (2) análisis a la vez en hilos propios; el latido
+  (`worker_name='ai_analysis'`) se escribe cada tick y el Registro alerta si pasan 5 minutos sin él.
+- Los pedidos de la pantalla ("Generar análisis IA") y los reintentos entran por la misma cola.
+
+**Primer deploy.**
+1. Jenkins aplica `010_ai_analyses.sql` en *DB migrate*.
+2. `sh scripts/mint_jwt.sh ai_worker` y dejarlo como `AI_WORKER_JWT` en `/srv/ppc-manager/.env`. Sin él,
+   el servicio loguea una vez que no está configurado y espera.
+3. El AI provider tiene que estar en `ai-net` (ya lo está para la app) y, si usa secreto compartido,
+   `CLAUDE_PROVIDER_SECRET` en el mismo `.env`. Su `REQUEST_TIMEOUT_S` tiene que ser de al menos 3600: el
+   worker espera hasta 60 minutos por análisis (la cuenta más grande tardó 14). Al 2026-09-15 la VPS tiene 3600.
+4. Verificar:
+   ```
+   docker logs --tail 20 agency-ads-ai-worker
+   docker exec agency-db psql -U postgres -d agency_os -tAc \
+     "select last_tick_at, summary->>'analyses_queued', summary->>'jobs_running' from integration_worker_heartbeats where worker_name='ai_analysis'"
+   docker exec agency-db psql -U postgres -d agency_os -tAc \
+     "select status, count(*) from ai_analyses group by 1"
+   ```
+   Al primer tick encola un análisis por cuenta con candidatos, tenga o no precio cargado (en la copia local
+   del 2026-09-15: 7 cuentas USD y 4 de otras monedas); cada uno tarda de 3 a 14 minutos
+   (medido: Dermaglós US 3-4 min, Shapermint US 14 min con 120 negativos y 60 harvest).
+
+**Operación.**
+- Costo: un análisis por cuenta cuando cambian sus datos (con la ventana de 30 días que avanza, casi uno por
+  día por cuenta), más los que se pidan desde M2 con otros parámetros, período o idioma. Nunca dos veces la
+  misma huella.
+- Frenarlo: `docker compose stop ads-ai-worker`. Devuelve a la cola los análisis en curso; la llamada al
+  provider se corta y se vuelve a pagar al retomar.
+- Rollback: igual que el worker de ingesta; el pipeline lo frena si la imagen anterior no tiene
+  `core.ai_analysis`.
+- Los análisis guardados no se borran solos (sin borrados automáticos).
+
 ## 6. Programar los cron del worker
 
 ```
 # /etc/cron.d/integrations-worker (root o el usuario que corre docker)
 */2  * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker grants   >>/var/log/integrations-worker.log 2>&1
 */20 * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker refresh  >>/var/log/integrations-worker.log 2>&1
-0 6 * * *    root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker discover >>/var/log/integrations-worker.log 2>&1
+7 * * * *    root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker discover >>/var/log/integrations-worker.log 2>&1
 # Ingesta MELI: 1 vez al día, al cierre. Se corre tarde porque las métricas
 # del día quedan firmes cuando MELI cierra su ventana (visitas/ventas/ads);
 # los reportes que la app muestra a la mañana siguiente ya son definitivos.
@@ -548,10 +725,13 @@ el rollback no los devuelve. Si levantás el stack a mano, poné el tag:
 - `refresh` cada 20 min: rota los refresh tokens con margen de 30 días
   (Mercado Libre) o sólo comprueba que sigan vivos (Amazon no rota), y marca
   `needs_reauth` los consentimientos que pasaron su vida útil.
-- `discover` 1 vez al día: vuelve a listar las cuentas de clientes que cada
+- `discover` cada hora (minuto 7): vuelve a listar las cuentas de clientes que cada
   autorización de Amazon alcanza. Es lo que hace aparecer un cliente nuevo que
-  invitó al empleado sin pedirle que autorice de nuevo. Se puede correr a mano
-  después de una aprobación o una invitación.
+  invitó al empleado sin pedirle que autorice de nuevo, y ahora también trae la zona
+  horaria y la moneda de cada perfil. Pasó de diario a cada hora porque
+  `ads-sync-worker` le arranca la carga inicial a un perfil apenas aparece: con el cron
+  diario un cliente nuevo esperaba hasta 24 h. **Este cambio se hace a mano en
+  `/etc/cron.d/integrations-worker`** (Jenkins no toca el cron).
 - `ingest` 1 vez al día 23:30: trae items, visitas, ventas y métricas de
   ads de TODAS las cuentas. Corre al cierre porque las métricas del día
   quedan firmes recién ahí; el AM abre el módulo a la mañana con el día

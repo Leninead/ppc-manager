@@ -39,6 +39,13 @@ TABLES = [
     ("integration_settings", "clave"),
     # Client accounts per authorization (Amazon Ads) — 006_integration_accounts.sql.
     ("integration_accounts", "id"),
+    # Amazon Ads scheduled sync — 009_amazon_ads_sync.sql.
+    ("integration_sync_jobs", "id"),
+    ("ads_report_requests", "id"),
+    ("ads_profile_sync", "profile_id"),
+    ("ads_search_term_daily", "profile_id"),
+    ("ads_portfolios", "profile_id"),
+    ("integration_worker_heartbeats", "worker_name"),
     # Meli API bridge (M36) — 003_meli_api.sql + 004_meli_ads_unique.sql.
     ("meli_auth_identities", "id"),         # refresh_token_sealed idem
     ("meli_ingestion_runs", "id"),

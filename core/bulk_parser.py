@@ -556,6 +556,9 @@ def validate_bulk(df: pd.DataFrame) -> list[ErrorBulk]:
 
     No muta el df recibido (INV-8).
     """
+    # core.bulk_export imports this module at load time, so the shared keyword-text limits are imported here.
+    from core.bulk_export import negative_keyword_text_problem
+
     errores: list[ErrorBulk] = []
 
     if df is None or len(df) == 0:
@@ -796,6 +799,19 @@ def validate_bulk(df: pd.DataFrame) -> list[ErrorBulk]:
                     ),
                     severidad="error",
                 ))
+            elif entity in _ENTITIES_MT_NEGATIVO:
+                problema = negative_keyword_text_problem(kw, _raw(fila.get("Match Type")))
+                if problema:
+                    errores.append(ErrorBulk(
+                        fila=i,
+                        columna="Keyword Text",
+                        valor=_trunc(kw),
+                        mensaje=(
+                            f"Amazon rechaza este Keyword Text en un '{entity}': "
+                            f"{problema}. Una sola fila asi tira el archivo entero."
+                        ),
+                        severidad="error",
+                    ))
 
         # E10. Bid
         bid_val: float | None = None

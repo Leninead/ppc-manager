@@ -174,6 +174,17 @@ pipeline {
               // image this gate just rejected.
               sh 'sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$PREV/" "$DEPLOY_DIR/.env"'
               dir("${DEPLOY_DIR}") { sh 'IMAGE_TAG=$PREV docker compose up -d' }
+              // An image from before a worker has no module for it: stop the service instead of letting it crash-loop.
+              dir("${DEPLOY_DIR}") {
+                sh '''
+                  if docker compose config --services | grep -qx ads-sync-worker; then
+                    docker run --rm --entrypoint python "$IMAGE:$PREV" -c "import core.amazon_ads.worker" >/dev/null 2>&1 || docker compose stop ads-sync-worker
+                  fi
+                  if docker compose config --services | grep -qx ads-ai-worker; then
+                    docker run --rm --entrypoint python "$IMAGE:$PREV" -c "import core.ai_analysis.worker" >/dev/null 2>&1 || docker compose stop ads-ai-worker
+                  fi
+                '''
+              }
               error("Rolled back to ${env.PREV}: deploy of ${env.SHA} failed the health gate.")
             } else {
               error("No previous image to roll back to — manual intervention needed.")

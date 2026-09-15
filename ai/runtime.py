@@ -6,22 +6,20 @@ two AMs uploading the same file share one run. Failures are terminal:
 only a human retry() relaunches.
 """
 import hashlib
-import importlib
 import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
-from ai import client
+from ai import agent_call, client
 from core import chat_skills
 
-_AGENTS_DIR = Path(__file__).parent / "agents"
+_AGENTS_DIR = agent_call.AGENTS_DIR
 _TTL_S = 24 * 3600
 _pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="ai")
 _registry: dict[tuple[str, str], "Analysis"] = {}
 _lock = threading.Lock()
-_agents: dict[str, dict] = {}
+_agents: dict[str, dict] = agent_call._agents
 
 
 class Analysis:
@@ -65,29 +63,8 @@ class Analysis:
         _pool.submit(_run, self)
 
 
-def _parse_front_matter(text: str) -> tuple[dict, str]:
-    """Flat `key: value` frontmatter between --- markers; body untouched."""
-    if not text.startswith("---"):
-        return {}, text
-    head, sep, body = text[3:].partition("\n---")
-    if not sep:
-        return {}, text
-    meta = {}
-    for line in head.strip().splitlines():
-        key, colon, value = line.partition(":")
-        if colon:
-            meta[key.strip()] = value.strip()
-    return meta, body.lstrip("\n")
-
-
-def _agent(slug: str) -> dict:
-    if slug not in _agents:
-        prompt_path = _AGENTS_DIR / slug / "prompt.md"
-        meta, body = _parse_front_matter(prompt_path.read_text(encoding="utf-8"))
-        module_path = "ai.agents." + slug.replace("/", ".") + ".context"
-        ctx = importlib.import_module(module_path)
-        _agents[slug] = {"meta": meta, "system": body, "context": ctx}
-    return _agents[slug]
+_parse_front_matter = agent_call.parse_front_matter
+_agent = agent_call.agent
 
 
 # Fail fast at import: a broken agent should stop the app at startup,
@@ -105,21 +82,10 @@ def _digest(slug: str, system: str, input_text: str, docs: list,
 
 
 def _build(slug: str, data) -> tuple[dict, str, dict]:
-    agent = _agent(slug)
-    input_text, docs, schema = agent["context"].build_context(data)
-    meta = agent["meta"]
-    model = meta.get("model", "opus")
-    effort = meta.get("effort") or None
-    # Same system prefix on analysis and chat turns keeps the provider-side
-    # prompt cache warm across the whole thread.
-    system = agent["system"] + ("\n\n" + _CHAT_RULES if _CHAT_RULES else "")
-    # Structured output is emitted through an internal tool call, which
-    # costs extra turns beyond the single answer turn.
-    call = dict(system=system, input_text=input_text, context=docs,
-                model=model, effort=effort, output_schema=schema,
-                max_turns=4 if schema else 1,
-                timeout_s=int(meta.get("timeout_s", 900)), tag=slug)
-    return call, _digest(slug, system, input_text, docs, model, effort), schema
+    built = agent_call.build_agent_call(slug, data)
+    call = built.call
+    return call, _digest(slug, call["system"], call["input_text"], call["context"], call["model"],
+                         call["effort"]), call["output_schema"]
 
 
 def peek(slug: str, data) -> "Analysis | None":
@@ -154,9 +120,7 @@ def analyze(slug: str, data) -> Analysis:
 
 # Shared chat-format contract, appended to any agent's system on follow-ups
 # so every module's chat behaves the same without duplicating the text.
-_CHAT_RULES_PATH = _AGENTS_DIR / "_shared" / "chat.md"
-_CHAT_RULES = (_CHAT_RULES_PATH.read_text(encoding="utf-8")
-               if _CHAT_RULES_PATH.exists() else "")
+_CHAT_RULES = agent_call.CHAT_RULES
 
 
 AMAZON_ADS_TOOLS = "amazon_ads"
@@ -197,7 +161,8 @@ def usable_tools(slug: str, ads_scope: dict | None) -> list:
 
 
 def ask_followup(slug: str, session_id: str | None, question: str,
-                 ads_scope: dict | None = None) -> tuple[str, str]:
+                 ads_scope: dict | None = None,
+                 context_docs: list | None = None) -> tuple[str, str]:
     """One chat turn. Synchronous.
 
     session_id=None opens a fresh conversation instead of resuming one, so a
@@ -207,6 +172,8 @@ def ask_followup(slug: str, session_id: str | None, question: str,
     tool profiles on chat turns only — the analysis itself stays deterministic.
     `ads_scope` ({account_id, profile_id, requested_by}) is the client's
     Amazon Ads account the chat is pinned to, when the AM picked one.
+    `context_docs` are the stored analyses the chat talks about; they go with
+    every turn that opens a session, and a resumed session already has them.
     """
     agent = _agent(slug)
     system = agent["system"] + ("\n\n" + _CHAT_RULES if _CHAT_RULES else "")
@@ -215,7 +182,8 @@ def ask_followup(slug: str, session_id: str | None, question: str,
     # Uploaded from Sistema, not from the repo. A broken registry costs a skill,
     # never the turn — see core.chat_skills.enabled_payload.
     skills = chat_skills.enabled_payload()
-    resp = client.ask(system=system, input_text=question, context=[],
+    context = [] if session_id else list(context_docs or [])
+    resp = client.ask(system=system, input_text=question, context=context,
                       model=agent["meta"].get("model", "opus"),
                       effort=agent["meta"].get("effort") or None,
                       session_id=session_id, timeout_s=600,

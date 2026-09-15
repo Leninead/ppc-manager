@@ -230,10 +230,16 @@ def decide_analysis_action(*, peeked_exists: bool, last_digest_exists: bool,
     return AnalysisAction.PENDING
 
 
-def resolve_analysis(*, slug: str, payload, file_signature: str, labels: dict):
+def resolve_analysis(*, slug: str, payload, file_signature: str, labels: dict,
+                     show_previous: bool = True, auto_fire: bool = True):
     """Returns the analysis to render (running, failed or done), or None when
     the user must explicitly relaunch (pending state). Owns the layer's
-    session keys for this slug."""
+    session keys for this slug.
+
+    `show_previous=False` never keeps the previous result on screen after a
+    parameter change: the banner and the button replace it.
+    `auto_fire=False` turns a new file into the pending state: nothing is
+    spent until the user clicks."""
     last_key = f"{slug}_ai_last_digest"
     sig_key = f"{slug}_ai_file_sig"
     last_digest = st.session_state.get(last_key)
@@ -249,9 +255,9 @@ def resolve_analysis(*, slug: str, payload, file_signature: str, labels: dict):
 
     if action is AnalysisAction.USE:
         analysis = peeked
-    elif action is AnalysisAction.AUTO_FIRE:
+    elif action is AnalysisAction.AUTO_FIRE and auto_fire:
         analysis = ai_runtime.analyze(slug, payload)
-    elif action is AnalysisAction.STALE:
+    elif action is AnalysisAction.STALE and show_previous:
         st.markdown(ai_notice_html(labels["stale_title"], labels["stale_body"]),
                     unsafe_allow_html=True)
         if st.button(labels["recalc"], key=f"{slug}_ai_recalc", type="primary"):
@@ -319,7 +325,8 @@ def records_for_render(slug: str, analysis, payload, records, keep: int = 8):
 
 
 def mount_analysis_chat(slug: str, analysis, *, lang: str,
-                        labels: dict, annotate=None) -> None:
+                        labels: dict, annotate=None, context_docs: list | None = None,
+                        context_key: str | None = None) -> None:
     """Mounts the floating chat. Call it at the END of render(), outside st.tabs.
 
     `analysis=None` is the normal state of a module nobody has uploaded a file
@@ -336,11 +343,20 @@ def mount_analysis_chat(slug: str, analysis, *, lang: str,
 
     An agent with provider tools usable right now answers early questions for
     real; one without them replies labels['chat_wait'] (or chat_failed) locally
-    until the analysis session exists."""
+    until the analysis session exists.
+
+    `context_docs` replaces that session with stored analyses (current and
+    earlier ones of the same report subject): every question is answered, and a
+    new `context_key` opens a fresh session over the new documents."""
+    ads_scope = ads_account_picker.request_scope()
+    if context_docs is not None:
+        floating_chat(chat_id=slug, agent=slug, session_id=None, title=labels["chat"], lang=lang,
+                      pending_text=None, standalone=True, annotate=annotate, ads_scope=ads_scope,
+                      context_docs=context_docs, context_key=context_key)
+        return
     ready = bool(analysis is not None and analysis.done and analysis.session_id)
     failed = bool(analysis is not None and analysis.failed)
     pending = labels["chat_failed"] if failed else labels["chat_wait"]
-    ads_scope = ads_account_picker.request_scope()
     floating_chat(chat_id=slug, agent=slug,
                   session_id=analysis.session_id if ready else None,
                   title=labels["chat"], lang=lang,
@@ -432,16 +448,18 @@ def synthesis_html(synthesis: dict, labels: dict) -> str:
 
 
 def opinion_table_html(rows: list, title: str, labels: dict,
-                       badge_colors: dict) -> str:
+                       badge_colors: dict, *, diagnosis_column: bool = True) -> str:
     """Custom table for per-row AI opinions: wrapping text, mobile stacking.
 
     Row contract: {row_id, item, type_tag, metrics[], badges[], confidence,
     warning, reasoning} — badges are looked up in badge_colors; row_id is
     optional and, when given, is printed ahead of the item.
+    `diagnosis_column=False` is for rows the AI gives no category to, which
+    would otherwise show a column of dashes.
     """
+    diag_header = f'<th class="c-diag">{labels["col_diag"]}</th>' if diagnosis_column else ""
     header = (f'<thead><tr><th class="c-item">{labels["col_item"]}</th>'
-              f'<th class="c-diag">{labels["col_diag"]}</th>'
-              f'<th>{labels["col_read"]}</th></tr></thead>')
+              f'{diag_header}<th>{labels["col_read"]}</th></tr></thead>')
     default_badge = "background-color:#F5F5F5;color:#616161"
     body = []
     for r in rows:
@@ -485,13 +503,14 @@ def opinion_table_html(rows: list, title: str, labels: dict,
                   f'padding:2px 7px;margin-right:8px;white-space:nowrap;'
                   f'vertical-align:middle">{escape_ai_text(r["row_id"])}'
                   f'</span>' if r.get("row_id") else "")
+        diag_cell = f'<td class="c-diag">{badges}</td>' if diagnosis_column else ""
         body.append(
             f'<tr><td class="c-item">'
             f'<div style="font-size:16px;font-weight:600;color:#1F1F1F">'
             f'{row_id}{escape_ai_text(r.get("item", ""))}</div>'
             f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;'
             f'align-items:center">{type_tag}{pills}</div>'
-            f'</td><td class="c-diag">{badges}</td>'
+            f'</td>{diag_cell}'
             f'<td class="{"ia-warn" if r.get("warning") else ""}">'
             f'{read or "—"}</td></tr>')
     return (f'<div style="font-weight:600;font-size:16px;margin:20px 0 8px">'

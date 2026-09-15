@@ -57,6 +57,8 @@ class AdsProfile:
     account_name: str
     entity_id: str
     access: str
+    timezone: str = ""
+    currency_code: str = ""
 
     def as_row(self) -> dict:
         return {
@@ -64,6 +66,8 @@ class AdsProfile:
             "country_code": self.country_code,
             "marketplace_id": self.marketplace_id,
             "access": self.access,
+            "timezone": self.timezone,
+            "currency_code": self.currency_code,
         }
 
 
@@ -167,6 +171,8 @@ def _parse_profile(raw: dict, region: str, access: str) -> AdsProfile | None:
         account_name=str(info.get("name") or "").strip(),
         entity_id=str(info.get("id") or "").strip(),
         access=access,
+        timezone=str(raw.get("timezone") or "").strip(),
+        currency_code=str(raw.get("currencyCode") or "").strip().upper(),
     )
 
 

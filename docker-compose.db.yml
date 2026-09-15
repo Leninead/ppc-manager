@@ -108,10 +108,71 @@ services:
     networks: [web]
     mem_limit: 512m
 
+  # Amazon Ads search term sync. Always on, unlike integrations-worker: no
+  # profile, so a bare `up -d` starts it. Without the worker JWT or the sealing
+  # key it logs once and idles instead of crash-looping.
+  ads-sync-worker:
+    image: ppc-manager:${IMAGE_TAG:-latest}
+    container_name: agency-ads-sync-worker
+    command: ["python", "-m", "core.amazon_ads.worker", "run"]
+    restart: unless-stopped
+    # SIGTERM is honored between jobs, report requests and saves; the default 10 s cuts a save in half.
+    stop_grace_period: 2m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    environment:
+      SUPABASE_URL: http://rest-gateway
+      INTEGRATIONS_WORKER_JWT: ${INTEGRATIONS_WORKER_JWT:-}   # soft default: see integrations-worker above
+      IMAGE_TAG: ${IMAGE_TAG:-latest}
+      ADS_RAW_DIR: /app/data/ads_raw
+    volumes:
+      - integrations_keys:/app/data/integrations:ro   # reads the key integrations-worker created, never writes it
+      - ads_raw:/app/data/ads_raw
+    # The image's healthcheck probes Streamlit, which this container does not run.
+    # Liveness is the integration_worker_heartbeats row and its worker_silent alert.
+    healthcheck:
+      disable: true
+    depends_on: [rest-gateway]
+    networks: [web]
+    mem_limit: 768m
+
+  # Generates the M2 AI analysis when new Amazon Ads data arrives and stores it (migration 010).
+  # Same image, its own database role: it reads search terms and writes only analyses, its jobs and its heartbeat.
+  ads-ai-worker:
+    image: ppc-manager:${IMAGE_TAG:-latest}
+    container_name: agency-ads-ai-worker
+    command: ["python", "-m", "core.ai_analysis.worker", "run"]
+    restart: unless-stopped
+    # SIGTERM hands running analyses back to the queue; the provider call itself cannot be paused.
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    environment:
+      SUPABASE_URL: http://rest-gateway
+      AI_WORKER_JWT: ${AI_WORKER_JWT:-}   # soft default: without it the worker logs once and idles
+      CLAUDE_PROVIDER_URL: http://ai-provider:3111
+      CLAUDE_PROVIDER_SECRET: ${CLAUDE_PROVIDER_SECRET:-}
+      IMAGE_TAG: ${IMAGE_TAG:-latest}
+      AI_LOG_DIR: /tmp/ai-log
+    healthcheck:
+      disable: true
+    depends_on: [rest-gateway]
+    networks: [web, ai-net]
+    mem_limit: 1536m
+
 networks:
   web: {}
+  ai-net:
+    external: true
 
 volumes:
   pgdata: {}
   pgadmin_data: {}
   integrations_keys: {}
+  ads_raw: {}
