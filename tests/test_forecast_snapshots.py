@@ -106,12 +106,13 @@ def test_save_snapshot_deep_copea_seasonality_y_opts():
 
 
 def test_save_snapshot_shape_y_append():
-    """El snapshot trae las 6 keys del contrato y queda en la lista del cliente."""
+    """El snapshot trae las 7 keys del contrato y queda en la lista del cliente."""
     cur = _client_con_forecast()
     snap = rf._save_forecast_snapshot(cur, "  Conservador  ", _OPTS)
 
     assert set(snap.keys()) == {
         "id", "name", "created_at", "opts", "forecast", "seasonality",
+        "is_baseline",
     }
     assert snap["name"] == "Conservador"       # se trimea
     assert snap["id"].startswith("conservador-")

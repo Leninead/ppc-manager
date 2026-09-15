@@ -2168,11 +2168,13 @@ def _build_history_df(historical: list[dict], currency: str = "USD") -> pd.DataF
             "Sessions": r.get("sessions", 0) or 0,
             "CVR%": r.get("cvr", 0) or 0,
             "AOV": rev / max(1, units),
-            # Sentinel None (→ NaN) en vez de '' — mezclar float y str hace la
-            # columna dtype object, que Streamlit 1.43.2 marca Arrow-incompatible
-            # y DESHABILITA (data_editor.py:836-843). Eso congelaba la edición en
-            # estado parcial (bug G1). None → NaN mantiene la columna float64
-            # limpia; NaN se renderiza como celda vacía en NumberColumn.
+            # Sentinel None (→ NaN) en vez de '' — MEZCLAR float y '' en la
+            # columna hace que pandas la infiera "mixed", y Streamlit 1.43.2 la
+            # marca incompatible y la DESHABILITA (is_colum_type_arrow_incompatible,
+            # streamlit/dataframe_util.py:1036; llamada en data_editor.py:836-843).
+            # Eso congelaba la edición en estado parcial (bug G1). No es por ser
+            # dtype object: todo None da object y sigue editable. NaN se
+            # renderiza como celda vacía en NumberColumn.
             "Spend": spend_f,
             "Ventas PPC": vppc_f,
             "ACOS%": acos,
@@ -4382,6 +4384,9 @@ def _save_forecast_snapshot(cur: dict, name: str, opts: dict) -> Optional[dict]:
         "seasonality": copy.deepcopy(
             cur.get("seasonality") or {"enabled": False, "indices": [1.0] * 12}
         ),
+        # B1b — plan oficial contra el que se mide el cumplimiento. Los
+        # snapshots guardados antes no tienen la key: leer con .get(…, False).
+        "is_baseline": False,
     }
     cur.setdefault("snapshots", []).append(snap)
     return snap
@@ -4419,6 +4424,56 @@ def _delete_forecast_snapshot(cur: dict, snapshot_id: str) -> bool:
         return False
     cur["snapshots"] = keep
     return True
+
+
+def _set_baseline_snapshot(cur: dict, snapshot_id: str) -> bool:
+    """Marca un snapshot como el baseline del cliente (el plan oficial).
+
+    UN baseline por cliente, no por período. La unicidad se garantiza ACÁ, no en
+    la UI: marcar uno desmarca todos los demás, así que también repara un dato
+    viejo que hubiera quedado con más de uno marcado.
+
+    TOGGLE: si `snapshot_id` ya era el baseline, se desmarca y el cliente queda
+    SIN baseline.
+
+    Retrocompat: los snapshots guardados antes de B1b no tienen la key
+    `is_baseline`; se leen con `.get(…, False)`.
+
+    Args:
+        cur: dict del cliente activo (se muta in-place si el id existe).
+        snapshot_id: id del snapshot a marcar / desmarcar.
+
+    Returns:
+        True si el id existía y se aplicó; False si no existe (sin mutar nada).
+    """
+    snaps = cur.get("snapshots", [])
+    target = next((s for s in snaps if s.get("id") == snapshot_id), None)
+    if target is None:
+        return False
+    was_baseline = target.get("is_baseline", False) is True
+    for s in snaps:
+        s["is_baseline"] = False
+    if not was_baseline:
+        target["is_baseline"] = True
+    return True
+
+
+def _get_baseline_snapshot(cur: dict) -> Optional[dict]:
+    """Snapshot baseline del cliente, o None si no hay ninguno marcado.
+
+    Si por un dato viejo hubiera más de uno marcado, devuelve el primero en
+    orden de creación (no explota).
+
+    Args:
+        cur: dict del cliente.
+
+    Returns:
+        El dict del snapshot marcado (referencia viva, no copia), o None.
+    """
+    for s in cur.get("snapshots", []):
+        if s.get("is_baseline", False) is True:
+            return s
+    return None
 
 
 def _build_snapshot_comparison_df(cur: dict, snapshot_ids: list) -> pd.DataFrame:
@@ -5211,9 +5266,11 @@ def _render_snapshots_section(cur: dict) -> None:
 
     st.markdown("")
     for s in snaps:
-        c_name, c_date, c_load, c_del = st.columns([3, 2, 1, 1])
+        is_baseline = s.get("is_baseline", False) is True
+        c_name, c_date, c_load, c_base, c_del = st.columns([3, 2, 1, 1, 1])
         with c_name:
-            st.markdown(f"**{s.get('name', '')}**")
+            prefix = "⭐ " if is_baseline else ""
+            st.markdown(f"**{prefix}{s.get('name', '')}**")
         with c_date:
             st.caption(f"{s.get('created_at', '')} · {len(s.get('forecast', []))} meses")
         with c_load:
@@ -5226,6 +5283,21 @@ def _render_snapshots_section(cur: dict) -> None:
                 if _load_forecast_snapshot(cur, s["id"]):
                     _try_persist()
                     st.success(f"Snapshot «{s.get('name', '')}» cargado.")
+                    st.rerun()
+        with c_base:
+            if st.button(
+                "⭐",
+                key=f"rf_snap_baseline_{cur['id']}_{s['id']}",
+                use_container_width=True,
+                help=(
+                    "Quitar como baseline: el cliente queda sin plan oficial."
+                    if is_baseline else
+                    "Marcar como baseline: el plan oficial contra el que se "
+                    "mide el cumplimiento del mes. Hay uno solo por cliente."
+                ),
+            ):
+                if _set_baseline_snapshot(cur, s["id"]):
+                    _try_persist()
                     st.rerun()
         with c_del:
             if st.button(
