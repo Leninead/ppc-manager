@@ -45,6 +45,7 @@ _L = {
            "empty": "Preguntá por un análisis de la app, una cuenta de "
                     "Amazon Ads o un niche de DataDive.",
            "placeholder": "Escribí tu pregunta...", "send": "Enviar",
+           "send_hint": "Enter envía · Shift+Enter agrega una línea",
            "copy": "Copiar chat", "copied": "Copiado",
            "copy_fail": "No se pudo copiar",
            "close": "Cerrar",
@@ -57,6 +58,7 @@ _L = {
            "empty": "Ask about an analysis in the app, an Amazon Ads "
                     "account or a DataDive niche.",
            "placeholder": "Type your question...", "send": "Send",
+           "send_hint": "Enter sends · Shift+Enter adds a line",
            "copy": "Copy chat", "copied": "Copied",
            "copy_fail": "Copy failed",
            "close": "Close",
@@ -224,6 +226,41 @@ if (b) {{
 </script>""", height=66)
 
 
+def _enter_sends_script(panel: str) -> str:
+    """Enter sends, Shift+Enter adds a line.
+
+    Streamlit ties a form's text area to Ctrl+Enter and offers no way to rebind it, so the
+    panel's own box is bound here; the click is the same path as the send button."""
+    selector = json.dumps(f".st-key-{panel} textarea")
+    return f"""
+const doc = window.parent.document;
+const bind = () => {{
+  const box = doc.querySelector({selector});
+  if (!box || box.dataset.entersends) return;
+  box.dataset.entersends = '1';
+  box.addEventListener('keydown', (e) => {{
+    // keyCode 229 is a composing IME on the browsers that leave isComposing unset.
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    if (!box.value.trim()) return;
+    // help= makes Streamlit render the button twice, one copy per breakpoint.
+    const buttons = box.closest('[data-testid="stForm"]')
+                       ?.querySelectorAll('[data-testid="stFormSubmitButton"] button') ?? [];
+    const send = [...buttons].find((b) => b.offsetParent !== null) ?? buttons[0];
+    if (send) send.click();
+  }});
+}};
+bind();
+// Every answer replaces the box with a fresh element while this frame stays put.
+new MutationObserver(bind).observe(doc.body, {{childList: true, subtree: true}});
+"""
+
+
+def _enter_sends(panel: str) -> None:
+    with st.container(key=f"{panel}_enter"):
+        components.html(f"<script>{_enter_sends_script(panel)}</script>", height=0)
+
+
 def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | None],
                   turn: Callable[[], ChatTurn], title: str | None = None, lang: str = "es") -> None:
     """Every question is answered by the provider; the first one opens the session.
@@ -285,6 +322,7 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
         [data-testid="stPopoverBody"]:has(.st-key-{panel}) > div {{padding: 0 !important;}}
         .st-key-{panel} iframe {{display: block;}}
         .st-key-{panel} [data-testid="stForm"] {{border: none; padding: 0;}}
+        .st-key-{panel}_enter {{display: none;}}
         .ia-dots span {{width:7px; height:7px; border-radius:99px;
             background:#B4B2A9; display:inline-block; margin-right:4px;
             animation: iaDot 1s infinite;}}
@@ -366,13 +404,16 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                 # also draggable, which is the other thing the panel was missing.
                 # Keyed by turn: clear_on_submit left the sent question in the
                 # browser, and the next full run (any page change) sent it back.
-                with st.form(f"aichat_{chat_id}_form", border=False):
+                # enter_to_submit=False takes Streamlit's English Ctrl+Enter hint off the box.
+                with st.form(f"aichat_{chat_id}_form", border=False,
+                             enter_to_submit=False):
                     question = st.text_area(
                         L["placeholder"], key=f"aichat_{chat_id}_q_{len(history)}",
                         placeholder=L["placeholder"], height=72,
                         label_visibility="collapsed")
                     sent = st.form_submit_button(L["send"], use_container_width=True,
-                                                 type="primary")
+                                                 type="primary", help=L["send_hint"])
+                _enter_sends(panel)
                 question = (question or "").strip() if sent else ""
                 if question:
                     _sync_session()
