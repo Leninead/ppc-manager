@@ -29,7 +29,7 @@ REFERENCE_CVR_PERCENT = 10.0
 DEFAULT_PRODUCT_PRICE = 30.0
 DEFAULT_TARGET_ACOS = 30
 DEFAULT_HARVEST_MIN_CLICKS = 15
-# Capped so Opus answers in minutes.
+# Capped so the model answers in minutes.
 AI_NEGATIVE_ROWS = 120
 AI_HARVEST_ROWS = 60
 AI_PRIORITIES = ("Alta", "Media")

@@ -71,7 +71,7 @@ def build_agent_call(slug: str, data) -> AgentCall:
     # Structured output is emitted through an internal tool call, which costs turns beyond the answer.
     max_turns = 4 if schema else 1
     call = dict(system=system, input_text=input_text, context=docs, model=model, effort=effort,
-                output_schema=schema, max_turns=max_turns, timeout_s=int(meta.get("timeout_s", 900)), tag=slug)
+                output_schema=schema, max_turns=max_turns, timeout_s=int(meta.get("timeout_s", 3600)), tag=slug)
     return AgentCall(
         slug=slug,
         call=call,

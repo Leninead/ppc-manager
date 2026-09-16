@@ -320,7 +320,7 @@ docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compo
 docker logs -f agency-ads-ai-worker       # loguea sólo los ticks que encolan, corren o fallan
 ```
 
-Para probar sin generar todas las cuentas (cada análisis es una llamada real a Opus contra la cuota del
+Para probar sin generar todas las cuentas (cada análisis es una llamada real al modelo contra la cuota del
 provider), un tick acotado desde el venv:
 
 ```

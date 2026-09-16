@@ -26,7 +26,9 @@ def test_agent_is_discovered_by_runtime():
     import ai.runtime as runtime
     assert "datadive" in runtime._agents
     meta = runtime._agents["datadive"]["meta"]
-    assert meta.get("model") == "claude-opus-5"
+    assert meta.get("model") == "claude-fable-5-1"
+    assert meta.get("effort") == "low"
+    assert meta.get("timeout_s") == "3600"
     assert meta.get("tools") == "datadive, amazon_ads"
 
 
@@ -45,12 +47,14 @@ def test_ask_followup_sends_datadive_tools_profile(monkeypatch):
 
     def fake_post(url, json=None, headers=None, timeout=None):
         captured.update(json or {})
+        captured["http_timeout"] = timeout
         return FakeResponse()
 
     monkeypatch.setattr(ai_client.requests, "post", fake_post)
     text, sid = runtime.ask_followup(
         "datadive", "11111111-1111-1111-1111-111111111111", "hola")
     assert captured["tools"] == ["datadive"]
+    assert captured["http_timeout"] == 3600  # a chat turn waits as long as the agent's timeout_s
     assert captured["max_turns"] > 1  # the agentic loop needs turns for tools
     assert text == "ok" and sid == "s2"
 
