@@ -22,8 +22,11 @@ clientizacion va en B2.
 """
 from __future__ import annotations
 
-from datetime import date
+import csv
+from datetime import date, datetime
+from io import BytesIO
 
+import pandas as pd
 import streamlit as st
 
 from core.supply_metrics import (
@@ -92,6 +95,14 @@ que llego, que es justo el dato que el lead time y el fill rate necesitan."""
 
 _TOPE_LINEAS = 20
 
+_DELIMITADORES_CSV = ",;\t|"
+"""Candidatos a separador del CSV. Acotados a proposito: ver `_sep_csv`."""
+
+_ENCODINGS_CSV = ("utf-8-sig", "cp1252", "latin-1")
+"""Cascada de decodificacion del CSV, en orden. Ver `_encoding_csv`."""
+
+_BOMS_UTF16 = (b"\xff\xfe", b"\xfe\xff")
+
 _KEY_OC_ABIERTA = "supply_oc_abierta"
 _KEY_ALTA_ABIERTA = "supply_oc_alta_abierta"
 """Que dialogo esta abierto, anclado en session_state.
@@ -145,6 +156,151 @@ def _fmt_num(valor) -> str:
     if f != f:  # NaN
         return ""
     return str(int(f)) if f == int(f) else f"{f:.1f}"
+
+
+def _celda_planilla(valor):
+    """Celda cruda de la planilla -> valor apto para el motor y para pantalla.
+
+    Vacio (None / NaN / NaT) -> ''. Fecha -> string. El resto viaja tal cual:
+    el motor del import ya sabe leer int, float y str.
+    """
+    try:
+        if pd.isna(valor):
+            return ""
+    except (TypeError, ValueError):
+        # pd.isna sobre algo no escalar: no es un vacio, sigue de largo.
+        pass
+    if isinstance(valor, (datetime, date)):
+        return str(valor)
+    return valor
+
+
+def _encoding_csv(data: bytes) -> str:
+    """Encoding con el que hay que leer este CSV.
+
+    Los proveedores exportan desde su propio Excel y su propio locale (Peru,
+    Ecuador, Bolivia, China, Pakistan): asumir UTF-8 en todos rechaza archivos
+    buenos. La cascada, en orden:
+
+    1. BOM de UTF-16 (`\\xff\\xfe` / `\\xfe\\xff`) -> utf-16. Es lo que escribe
+       el "Guardar como" de Excel en algunas variantes, y sin esto el archivo
+       ni se abre.
+    2. utf-8-sig. Lo mas comun, y se come el BOM de UTF-8 si lo hay.
+    3. cp1252. Lo que Excel en Windows escribe de verdad en español.
+    4. latin-1, ultimo recurso.
+
+    Por que latin-1 va ULTIMO y no segundo: nunca falla, decodifica cualquier
+    byte. Si se lo prueba antes que cp1252, un archivo que fallo UTF-8 por otra
+    razon se convierte en mojibake silencioso. cp1252 falla ruidosamente en los
+    bytes que no le corresponden, asi que filtra antes del ultimo recurso.
+
+    Args:
+        data: Bytes del archivo.
+
+    Returns:
+        Nombre del encoding. Siempre devuelve uno: latin-1 no falla.
+    """
+    if data[:2] in _BOMS_UTF16:
+        return "utf-16"
+    for encoding in _ENCODINGS_CSV:
+        try:
+            data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        return encoding
+    return "latin-1"
+
+
+def _sep_csv(data: bytes, encoding: str) -> str:
+    """Separador del CSV, sniffeado entre los candidatos razonables.
+
+    NO se usa `sep=None` de pandas: su sniffer no acota los delimitadores y con
+    un archivo de UNA columna elige cualquier caracter repetido. Con `SKU / A1 /
+    A2` elige la letra 'U' y parte los SKU en dos, en silencio y sin fallar.
+    Acotado a `, ; tab |`, ese archivo se lee como una sola columna.
+
+    Sin pistas suficientes (una columna, o archivo raro) devuelve ',': un
+    separador que no aparece deja la fila entera en una celda, que es
+    exactamente lo que se quiere para un archivo de una columna.
+
+    `encoding` lo resuelve `_encoding_csv` y lo comparte con la lectura: si el
+    sniffer mirara un texto decodificado distinto del que despues parsea pandas,
+    podria elegir un separador que en el otro texto no existe.
+
+    Args:
+        data: Bytes del archivo.
+        encoding: El que devolvio `_encoding_csv` para estos mismos bytes.
+
+    Returns:
+        El caracter separador.
+    """
+    texto = data.decode(encoding, errors="replace")
+    try:
+        return csv.Sniffer().sniff(texto[:4096], delimiters=_DELIMITADORES_CSV).delimiter
+    except csv.Error:
+        return ","
+
+
+def _leer_planilla(data: bytes, nombre: str) -> list[list]:
+    """Archivo subido -> filas crudas para `core.supply_oc_import`.
+
+    Solo LEE. No busca el header, no valida cantidades y no descarta nada: eso
+    es del motor. La extension decide el lector; el nombre es el del archivo que
+    subio el AM.
+
+    Args:
+        data: Bytes del archivo.
+        nombre: Nombre del archivo, para la extension y para el mensaje de error.
+
+    Returns:
+        Lista de filas, cada una lista de celdas. Sin None ni NaN: la celda
+        vacia es '' y las fechas vienen como string.
+
+    Raises:
+        ValueError: si la extension no es .xlsx ni .csv, o si el archivo no se
+            pudo leer. Nunca escapa una excepcion de la libreria: el AM tiene
+            que ver un mensaje, no un traceback.
+    """
+    low = str(nombre or "").lower()
+
+    if low.endswith(".xlsx"):
+        # header=None: el motor busca el header solo, en las primeras 6 filas.
+        # Con el default, pandas se come la fila 0 como nombres de columna y esa
+        # fila desaparece — justo la que el motor necesita ver.
+        # dtype=object: sin esto una columna de SKU toda numerica se castea y
+        # '001' se vuelve 1, que ya no matchea ningun SKU del maestro.
+        def _leer():
+            return pd.read_excel(BytesIO(data), header=None, dtype=object)
+    elif low.endswith(".csv"):
+        # Mismos dos motivos que arriba para header=None y dtype=object.
+        # El encoding se resuelve una vez y lo comparten el sniffer y la
+        # lectura: ver `_encoding_csv`.
+        def _leer():
+            encoding = _encoding_csv(data)
+            return pd.read_csv(
+                BytesIO(data),
+                header=None,
+                dtype=object,
+                sep=_sep_csv(data, encoding),
+                engine="python",
+                encoding=encoding,
+            )
+    else:
+        raise ValueError(
+            f"No se puede leer «{nombre}»: solo se aceptan archivos .xlsx o .csv."
+        )
+
+    try:
+        df = _leer()
+    except Exception as e:
+        # Archivo vacio, corrupto o que no es lo que dice la extension. El
+        # detalle de la libreria va al final, entre parentesis, por si sirve.
+        raise ValueError(
+            f"No se pudo leer «{nombre}». Verificá que sea una planilla válida "
+            f"y que no esté vacía ({type(e).__name__}: {e})."
+        ) from e
+
+    return [[_celda_planilla(celda) for celda in fila] for fila in df.values.tolist()]
 
 
 def _fmt_fecha(iso) -> str:
