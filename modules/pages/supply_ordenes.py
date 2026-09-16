@@ -34,6 +34,11 @@ from core.supply_metrics import (
     cambiar_estado_oc,
     generar_codigo_oc,
 )
+from core.supply_oc_import import (
+    consolidar_duplicados,
+    detectar_columnas,
+    parsear_lineas,
+)
 from core.supply_persistence import (
     ESTADOS_OC,
     get_oc,
@@ -114,6 +119,22 @@ BORRA el estado de todos sus widgets — con key o sin key. El handler termina
 leyendo el default. Es lo que hacia que la fecha elegida no llegara nunca a
 cambiar_estado_oc. Anclado en session_state, el dialogo se re-renderiza en cada
 run y su estado sobrevive."""
+
+_KEY_IMPORT = "supply_oc_import_preview"
+"""Preview del import, anclado en session_state.
+
+Guarda lo YA PARSEADO, no el archivo: Streamlit re-ejecuta el script entero en
+cada interaccion, y con el archivo guardado cada click volveria a leer y parsear
+las 150 filas."""
+
+_KEY_IMPORT_NONCE = "supply_oc_import_nonce"
+"""Contador que va en la key del uploader. Al cancelar o al crear la OC se
+incrementa, y eso le da al uploader una key nueva: sin esto el archivo sigue
+cargado en el widget y el bloque volveria a entrar en preview solo."""
+
+_KEY_IMPORT_FLASH = "supply_oc_import_flash"
+"""Mensaje de exito para el run siguiente. El st.rerun() que refresca la lista
+se lleva puesto cualquier st.success escrito antes de llamarlo."""
 
 _SOP_MD = """
 Aca se registran las ordenes de compra y se las hace avanzar por sus estados:
@@ -733,6 +754,222 @@ def _fila_oc(oc: dict, nombres: dict[str, str]) -> None:
         _abrir(_KEY_OC_ABIERTA, oc_id)
 
 
+# ── Import desde planilla ───────────────────────────────────────────────
+# Bloque inline, NO dialogo: no toca el mecanismo de despacho del final de
+# render(). El estado vive en _KEY_IMPORT y el flujo tiene dos pantallas —
+# subir archivo, y revisar el preview antes de crear la OC.
+
+
+def _limpiar_import() -> None:
+    """Borra el preview y renueva la key del uploader."""
+    st.session_state.pop(_KEY_IMPORT, None)
+    st.session_state[_KEY_IMPORT_NONCE] = (
+        int(st.session_state.get(_KEY_IMPORT_NONCE, 0)) + 1
+    )
+
+
+def _tabla_import(lineas: list[dict]) -> list[dict]:
+    """Lineas a cargar, listas para st.dataframe: todo string, nada de None."""
+    return [
+        {
+            "SKU": str(ln.get("sku") or ""),
+            "Cantidad": _fmt_num(_num(ln.get("qty"))) or "0",
+            "ETA": str(ln.get("eta") or "—"),
+        }
+        for ln in lineas
+    ]
+
+
+def _tabla_descartadas(descartadas: list[dict]) -> list[dict]:
+    """Filas salteadas, con el numero de fila del archivo. Todo string."""
+    return [
+        {
+            "Fila": _fmt_num(_num(d.get("fila"))) or "",
+            "SKU": str(d.get("valor") or ""),
+            "Motivo": str(d.get("motivo") or ""),
+        }
+        for d in descartadas
+    ]
+
+
+def _import_subir() -> None:
+    """Pantalla 1: subir la planilla y dejar el preview en session_state."""
+    st.caption(
+        "Busca una columna con SKU y otra con la cantidad en las primeras 6 "
+        "filas: el orden de las columnas no importa y los titulos de arriba se "
+        "saltean solos. La columna de fecha (o ETA) es opcional."
+    )
+
+    nonce = int(st.session_state.get(_KEY_IMPORT_NONCE, 0))
+    archivo = st.file_uploader(
+        "Planilla de la OC",
+        type=["csv", "xlsx"],
+        key=f"supply_oc_import_file_{nonce}",
+    )
+    if archivo is None:
+        return
+
+    try:
+        filas = _leer_planilla(archivo.getvalue(), archivo.name)
+    except ValueError as e:
+        st.error(str(e))
+        return
+
+    columnas = detectar_columnas(filas)
+    if columnas is None:
+        st.error(
+            "No encontre las columnas de SKU y cantidad en las primeras 6 filas "
+            "de la planilla. Revisá que el encabezado diga 'SKU' y 'Cantidad' "
+            "(o 'Qty'), y que no haya mas de 6 filas de titulo arriba."
+        )
+        return
+
+    lineas, descartadas = parsear_lineas(filas, columnas)
+    lineas, avisos = consolidar_duplicados(lineas)
+
+    st.session_state[_KEY_IMPORT] = {
+        "lineas": lineas,
+        "descartadas": descartadas,
+        "avisos": avisos,
+        "archivo": archivo.name,
+    }
+    st.rerun()
+
+
+def _import_avisos(avisos: list[dict]) -> None:
+    """Duplicados sumados y SKU que difieren solo en mayusculas."""
+    for aviso in avisos:
+        if aviso.get("tipo") == "duplicado":
+            total = _fmt_num(_num(aviso.get("qty_total"))) or "0"
+            st.info(
+                f"El SKU **{aviso.get('sku')}** aparecia "
+                f"{aviso.get('veces')} veces en la planilla: se sumo en una "
+                f"sola linea de {total} unidades."
+            )
+        elif aviso.get("tipo") == "case":
+            skus = ", ".join(str(s) for s in (aviso.get("skus") or []))
+            st.warning(
+                f"Estos SKU difieren solo en mayusculas y NO se unificaron: "
+                f"{skus} — revisá si son el mismo producto."
+            )
+
+
+def _import_crear(prov_id: str, lineas: list[dict]) -> None:
+    """Crea la OC con las lineas del preview. Mismo armado que el alta manual.
+
+    El campo 'eta' viaja en la linea: `_validate_oc` solo exige 'sku' y 'qty', y
+    `save_oc` conserva el resto de las claves.
+    """
+    oc = {
+        "id": generar_codigo_oc(prov_id),
+        "proveedor_id": prov_id,
+        "estado": "PROPUESTA",
+        "lineas": [
+            {
+                "sku": str(ln.get("sku") or ""),
+                "qty": int(_num(ln.get("qty"))),
+                "recibido": 0,
+                "eta": str(ln.get("eta") or ""),
+            }
+            for ln in lineas
+        ],
+    }
+    try:
+        save_oc(oc)
+    except ValueError as e:
+        st.error(str(e))
+        return
+
+    _limpiar_import()
+    st.session_state[_KEY_IMPORT_FLASH] = (
+        f"OC {oc['id']} creada con {len(oc['lineas'])} lineas."
+    )
+    st.rerun()
+
+
+def _import_preview(preview: dict) -> None:
+    """Pantalla 2: revisar lo parseado y confirmar."""
+    lineas = preview.get("lineas") or []
+    descartadas = preview.get("descartadas") or []
+
+    unidades = sum(_num(ln.get("qty")) for ln in lineas)
+    st.caption(f"Archivo: {preview.get('archivo') or '—'}")
+    st.markdown(
+        f"**{len(lineas)} linea{'s' if len(lineas) != 1 else ''}** · "
+        f"{_fmt_num(unidades) or '0'} unidades"
+    )
+
+    if lineas:
+        st.dataframe(
+            _tabla_import(lineas), use_container_width=True, hide_index=True
+        )
+
+    if descartadas:
+        st.warning(
+            f"{len(descartadas)} fila{'s' if len(descartadas) != 1 else ''} de "
+            "la planilla no se van a cargar:"
+        )
+        st.dataframe(
+            _tabla_descartadas(descartadas), use_container_width=True, hide_index=True
+        )
+
+    _import_avisos(preview.get("avisos") or [])
+
+    proveedores = list_proveedores()
+    activos = {
+        str(p.get("id")): str(p.get("nombre") or p.get("id")) for p in proveedores
+    }
+
+    if not lineas:
+        st.error(
+            "Ninguna fila de la planilla quedo cargable. Revisá el detalle de "
+            "arriba y volvé a subirla."
+        )
+    elif not activos:
+        st.warning("Cargá un proveedor primero en el Maestro de Proveedores.")
+    else:
+        prov_id = st.selectbox(
+            "Proveedor *",
+            options=list(activos),
+            format_func=lambda i: activos.get(i, i),
+            key="supply_oc_import_prov",
+        )
+
+    col_crear, col_cancelar, _sp = st.columns([2, 2, 4])
+    if lineas and activos:
+        if col_crear.button(
+            "Crear orden",
+            key="supply_oc_import_crear",
+            type="primary",
+            use_container_width=True,
+        ):
+            _import_crear(prov_id, lineas)
+    if col_cancelar.button(
+        "Cancelar", key="supply_oc_import_cancelar", use_container_width=True
+    ):
+        _limpiar_import()
+        st.rerun()
+
+
+def _bloque_import() -> None:
+    """Import masivo de lineas de OC desde una planilla.
+
+    Colapsado por default: la pantalla que ya usa el AM no cambia hasta que el
+    abra el bloque. Adentro NO puede haber otro expander (Streamlit no admite
+    anidarlos).
+    """
+    flash = st.session_state.pop(_KEY_IMPORT_FLASH, None)
+    if flash:
+        st.success(flash)
+
+    with st.expander("📥 Importar desde planilla", expanded=False):
+        preview = st.session_state.get(_KEY_IMPORT)
+        if preview:
+            _import_preview(preview)
+        else:
+            _import_subir()
+
+
 # ── Render principal ────────────────────────────────────────────────────
 
 
@@ -754,6 +991,8 @@ def render() -> None:
         "➕ Orden nueva", key="supply_oc_btn_alta", use_container_width=True
     ):
         _abrir(_KEY_ALTA_ABIERTA)
+
+    _bloque_import()
 
     col_prov, col_est, _sp2 = st.columns([2.5, 2.5, 3])
     filtro_prov = col_prov.selectbox(
