@@ -20,6 +20,7 @@ import streamlit as st
 from core.agency_dashboard import _build_agency_dashboard
 # El formato y el semáforo viven en un módulo compartido: los consumen esta
 # pantalla y los exports (B3b). Una sola fuente de verdad del color.
+from core.agency_dashboard_export import _build_agency_html
 from core.agency_dashboard_format import (
     _account_df,
     _build_periods,
@@ -110,6 +111,19 @@ def render(username: str = "", role: str = roles.USER) -> None:
     st.caption(
         f"{len(accounts)} cuenta{'s' if len(accounts) != 1 else ''} · "
         f"{len(periods)} meses ({periods[0]} → {periods[-1]})"
+    )
+
+    # El HTML se arma en cada run: es barato (string puro sobre datos que ya
+    # están en memoria) y así el archivo siempre refleja la ventana que el AM
+    # tiene en pantalla, sin un botón de "generar" intermedio.
+    hoy = date.today()
+    st.download_button(
+        "⬇️ Descargar HTML",
+        data=_build_agency_html(data, generated_at=hoy),
+        file_name=f"dashboard-global-agencia-{hoy.isoformat()}.html",
+        mime="text/html",
+        key="m39_dl_html",
+        help="Documento standalone: se abre con doble clic y se manda por mail.",
     )
 
     algun_parcial = False
