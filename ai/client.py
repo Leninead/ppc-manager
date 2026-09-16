@@ -105,7 +105,7 @@ def _log(record: dict) -> None:
 
 def ask(*, system: str, input_text: str, context: list, model: str,
         effort: str | None = None, output_schema: dict | None = None,
-        session_id: str | None = None, timeout_s: int = 900,
+        session_id: str | None = None, timeout_s: int = 3600,
         max_turns: int = 1, tools: list | None = None,
         ads_scope: dict | None = None, skills: list | None = None,
         tag: str = "") -> dict:

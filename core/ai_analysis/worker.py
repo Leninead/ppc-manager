@@ -36,7 +36,7 @@ TICK_SECONDS_ENV = "AI_TICK_SECONDS"
 CONCURRENCY_ENV = "AI_ANALYSIS_CONCURRENCY"
 DEFAULT_TICK_SECONDS = 60
 DEFAULT_CONCURRENCY = 2
-# Longer than the agent's 900 s timeout plus the report read; the job extends it once the call starts.
+# Covers the report read before the call; the job extends it past the provider timeout once the call starts.
 LEASE_SECONDS = 1800
 HEARTBEATS_TABLE = "integration_worker_heartbeats"
 IMAGE_TAG_ENV = "IMAGE_TAG"

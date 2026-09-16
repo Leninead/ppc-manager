@@ -130,7 +130,7 @@ AMAZON_ADS_TOOLS = "amazon_ads"
 # happened to "dame todas las campañas activas" and "listame los portfolios" in
 # the end-to-end run at 8: since the chat started returning complete listings,
 # a paginated read plus a report plus the account lookup no longer fits.
-# 20 is bounded by the 600s timeout below, not by this number.
+# 20 is bounded by the agent's timeout_s, not by this number.
 _MAX_TOOL_TURNS = 20
 
 
@@ -193,7 +193,7 @@ def ask_followup(slug: str, session_id: str | None, question: str,
     resp = client.ask(system=system, input_text=input_text, context=context,
                       model=agent["meta"].get("model", "opus"),
                       effort=agent["meta"].get("effort") or None,
-                      session_id=session_id, timeout_s=600,
+                      session_id=session_id, timeout_s=int(agent["meta"].get("timeout_s", 3600)),
                       max_turns=_MAX_TOOL_TURNS if tools else 1, tools=tools,
                       ads_scope=ads_scope if tools and AMAZON_ADS_TOOLS in tools else None,
                       skills=skills or None,

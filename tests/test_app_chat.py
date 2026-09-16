@@ -273,7 +273,9 @@ def test_a_database_that_fails_is_told_apart_from_one_with_no_analyses(monkeypat
 
 def test_the_orchestrator_is_an_agent_with_amazon_ads_and_datadive_tools():
     assert runtime.agent_tools("orchestrator") == ["amazon_ads", "datadive"]
-    assert runtime._agent("orchestrator")["meta"]["model"] == "claude-opus-5"
+    assert runtime._agent("orchestrator")["meta"]["model"] == "claude-fable-5-1"
+    assert runtime._agent("orchestrator")["meta"]["effort"] == "low"
+    assert runtime._agent("orchestrator")["meta"]["timeout_s"] == "3600"
     system = runtime._agent("orchestrator")["system"]
     for section in ("<fuentes>", "<elegir_la_fuente>", "<estado_de_la_app>", "<clientes>"):
         assert section in system
