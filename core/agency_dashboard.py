@@ -222,9 +222,21 @@ def _load_agency_clients() -> list[dict]:
     tumba el dashboard de las demás.
 
     Returns:
-        Lista de dicts de cliente, en el orden en que los lista el backend.
-        Copias profundas: `_load_forecast_client` está cacheado y devuelve la
-        misma referencia entre llamadas.
+        Lista de dicts de cliente, en el orden en que los lista el backend, en
+        COPIAS PROFUNDAS.
+
+    El deepcopy es DEFENSIVO, no una optimización: el dashboard no puede
+    depender de qué devuelve el backend de turno. Medido en este entorno:
+    `_LocalBackend` relee el archivo y devuelve un objeto nuevo por llamada, y
+    con `st.cache_data` activo el wrapper también entrega una copia — en esos
+    dos caminos la copia sobra. Pero un backend que guarde estado EN MEMORIA
+    (los fakes de los tests hoy; cualquier cache in-process mañana) devuelve la
+    referencia viva, y un consumidor que la mute ensuciaría el estado de M31 —
+    el mismo dict que el módulo persiste.
+
+    Costo medido (B2b, clientes sintéticos): ~40 ms con 80 cuentas, ~30% del
+    tiempo de carga en frío (106-168 ms). Aceptable para un dashboard que se
+    abre y se lee.
     """
     out: list[dict] = []
     for slug in _list_forecast_clients(AREA, MODULE_SLUG):
