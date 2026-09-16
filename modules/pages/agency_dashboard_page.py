@@ -49,6 +49,12 @@ _ROJO = "#FFEBEE"
 # Umbral de tolerancia para ACOS / TACOS, en PUNTOS porcentuales.
 _DELTA_TOLERANCIA = 2.0
 
+# Medio paso del formato de celda: `_fmt_acco` imprime el delta con 1 decimal
+# ("{:+.1f}"), asi que cualquier magnitud menor a 0,05 se muestra como "+0.0" y
+# es indistinguible de cero para quien mira la tabla. Por debajo de eso, el
+# color acompaña a lo que dice la celda: verde.
+_DELTA_EPS = 0.05
+
 _DEFAULT_ATRAS = 2
 _DEFAULT_ADELANTE = 3
 
@@ -174,7 +180,10 @@ def _acco_color(metric_id: str, value) -> str:
             return _AMARILLO
         return _ROJO
     # acos / tacos: delta en puntos, positivo = peor.
-    if value <= 0:
+    # El verde llega hasta +_DELTA_EPS (0,05) y no hasta 0: un delta de
+    # +1,3e-06 se muestra "+0.0" y pintarlo amarillo contradice a la celda.
+    # Bordes: +0.05 exacto va verde, +0.06 amarillo, y el rojo sigue en >2.
+    if value <= _DELTA_EPS:
         return _VERDE
     if value <= _DELTA_TOLERANCIA:
         return _AMARILLO

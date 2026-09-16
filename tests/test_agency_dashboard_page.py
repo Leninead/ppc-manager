@@ -136,6 +136,24 @@ class TestAccoColor:
         assert page._acco_color("tacos", 2.0) == page._AMARILLO
         assert page._acco_color("tacos", 2.1) == page._ROJO
 
+    def test_delta_bajo_la_resolucion_de_la_celda_es_verde(self):
+        """EL test del bug que encontró el smoke de M39: un delta de +1.3e-06
+        se muestra como "+0.0" (la celda tiene 1 decimal) y se pintaba AMARILLO.
+        Una cuenta clavada en el target no puede salir como advertencia."""
+        assert page._acco_color("acos", 0.00001) == page._VERDE
+        assert page._acco_color("tacos", 1.3e-06) == page._VERDE
+
+    def test_bordes_del_epsilon(self):
+        assert page._acco_color("acos", 0.05) == page._VERDE      # borde inferior
+        assert page._acco_color("acos", 0.06) == page._AMARILLO   # un paso más
+
+    def test_el_epsilon_no_toca_el_regimen_de_porcentaje(self):
+        """El epsilon es SOLO para el delta en puntos. Revenue sigue igual."""
+        assert page._acco_color("revenue", 92.0) == page._VERDE
+        assert page._acco_color("revenue", 87.0) == page._AMARILLO
+        assert page._acco_color("revenue", 78.0) == page._ROJO
+        assert page._acco_color("spend", 0.05) == page._ROJO      # 0,05% de plan
+
     def test_none_sin_color(self):
         assert page._acco_color("revenue", None) == ""
         assert page._acco_color("acos", None) == ""
