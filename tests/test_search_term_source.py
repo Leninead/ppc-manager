@@ -397,12 +397,21 @@ _SEARCH_TERM_ROWS = [
 ]
 
 
+_PROFILE_TZ = "America/Los_Angeles"
+
+
+def _profile_today() -> date:
+    """The app reads these rows in the profile's own zone, so the runner's clock must not name their days."""
+    return datetime.now(timezone.utc).astimezone(picker.profile_timezone(_PROFILE_TZ, "")).date()
+
+
 def _profile_row(**overrides):
-    yesterday = date.today() - timedelta(days=1)
+    today = _profile_today()
+    yesterday = today - timedelta(days=1)
     row = {"profile_id": "111", "account_id": 1, "cliente": "Luna Kids", "account_name": "Luna Kids MX",
-           "country_code": "MX", "currency_code": "MXN", "account_type": "seller", "timezone": "America/Los_Angeles",
+           "country_code": "MX", "currency_code": "MXN", "account_type": "seller", "timezone": _PROFILE_TZ,
            "status": "active", "data_from": (yesterday - timedelta(days=64)).isoformat(),
-           "data_through": yesterday.isoformat(), "refreshed_on": date.today().isoformat(),
+           "data_through": yesterday.isoformat(), "refreshed_on": today.isoformat(),
            "last_success_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(), "last_error": ""}
     row.update(overrides)
     return row
@@ -587,7 +596,7 @@ class TestPickerApp:
 
     @pytest.mark.parametrize("status", ["retrying", "failed"])
     def test_status_messages_never_send_users_to_the_admin_only_request_log(self, monkeypatch, status):
-        stale = _profile_row(refreshed_on=(date.today() - timedelta(days=3)).isoformat())
+        stale = _profile_row(refreshed_on=(_profile_today() - timedelta(days=3)).isoformat())
         job = dict(_completed_job_row(), status=status, next_attempt_at=datetime.now(timezone.utc).isoformat())
         app = _picker_app(monkeypatch, _FakeRest([stale], [job], search_term_rows=_SEARCH_TERM_ROWS))
         app.run()
@@ -613,7 +622,7 @@ class TestPickerApp:
         assert app.session_state["test_result_str"][0] == "Luna · MX"
 
     def test_chosen_period_stays_when_the_next_account_offers_fewer_periods(self, monkeypatch):
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = _profile_today() - timedelta(days=1)
         fake = _FakeRest([_profile_row(profile_id="1", cliente="Acme", country_code="US"),
                           _profile_row(profile_id="2", cliente="Nueva", country_code="US",
                                        data_from=(yesterday - timedelta(days=19)).isoformat())],
@@ -665,7 +674,7 @@ class TestPickerApp:
         app = _picker_app(monkeypatch, fake)
         app.run()
         app.selectbox(key="str_src_period").set_value("custom").run()
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = _profile_today() - timedelta(days=1)
         picked = (yesterday - timedelta(days=9), yesterday)
         app.date_input(key="str_src_custom_range").set_value(picked).run()
         loaded = app.session_state["test_result_str"]
