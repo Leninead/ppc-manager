@@ -373,7 +373,7 @@ if selected == "🏆 Case Study Studio":
     render_case_study_studio()
 
 if selected == "🌐 Dashboard Global":
-    render_agency_dashboard()
+    render_agency_dashboard(username=_username, role=_role)
 
 if selected == "📈 Monthly Forecast":
     render_revenue_forecast()
