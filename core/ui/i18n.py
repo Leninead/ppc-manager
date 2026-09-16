@@ -89,6 +89,7 @@ _ES: dict[str, str] = {
     "nav.section.supply_chain": "Supply Chain",
     "nav.section.marketplaces": "Marketplaces",
     "nav.section.sistema": "Sistema",
+    "nav.section.direccion": "Dirección",
 
     # ── Navigation: page labels (routing keys keep their emoji) ───────────
     "nav.page.inicio": "Inicio",
@@ -119,6 +120,7 @@ _ES: dict[str, str] = {
     "nav.page.monthly_forecast": "Monthly Forecast",
     "nav.page.proposal_studio": "Proposal Studio",
     "nav.page.case_study_studio": "Case Study Studio",
+    "nav.page.agency_dashboard": "Dashboard Global",
     "nav.page.knowledge_base": "Knowledge Base",
     "nav.page.flat_file_migrator": "Flat File Migrator",
     "nav.page.sku_progress_report": "SKU Progress Report",
@@ -760,6 +762,7 @@ _EN: dict[str, str] = {
     "nav.section.supply_chain": "Supply Chain",
     "nav.section.marketplaces": "Marketplaces",
     "nav.section.sistema": "System",
+    "nav.section.direccion": "Management",
 
     # ── Navigation: page labels (routing keys keep their emoji) ───────────
     "nav.page.inicio": "Home",
@@ -790,6 +793,7 @@ _EN: dict[str, str] = {
     "nav.page.monthly_forecast": "Monthly Forecast",
     "nav.page.proposal_studio": "Proposal Studio",
     "nav.page.case_study_studio": "Case Study Studio",
+    "nav.page.agency_dashboard": "Global Dashboard",
     "nav.page.knowledge_base": "Knowledge Base",
     "nav.page.flat_file_migrator": "Flat File Migrator",
     "nav.page.sku_progress_report": "SKU Progress Report",
@@ -1427,6 +1431,7 @@ _PAGE_KEYS: dict[str, str] = {
     "🔑 Cuentas conectadas": "nav.page.cuentas_conectadas",
     "🔌 Integraciones": "nav.page.integraciones",
     "🧾 Registro de solicitudes": "nav.page.registro_solicitudes",
+    "🌐 Dashboard Global": "nav.page.agency_dashboard",
 }
 
 # `navigation.Section.title` → catalog key. The title is also the identifier of
@@ -1441,6 +1446,7 @@ _SECTION_KEYS: dict[str, str] = {
     "Supply Chain": "nav.section.supply_chain",
     "Marketplaces": "nav.section.marketplaces",
     "Sistema": "nav.section.sistema",
+    "Dirección": "nav.section.direccion",
 }
 
 

@@ -56,6 +56,7 @@ from modules.pages.proposal_studio import render as render_proposal_studio
 from modules.pages.case_study_studio import render as render_case_study_studio
 from modules.pages.revenue_forecast import render as render_revenue_forecast
 from modules.mercado_libre.main import render as render_mercado_libre
+from modules.pages.agency_dashboard_page import render as render_agency_dashboard
 from modules.pages.accounts import render as render_accounts
 from modules.pages.integrations import render as render_integrations
 from modules.pages.chat_skills_page import render as render_chat_skills
@@ -370,6 +371,9 @@ if selected == "📋 Proposal Studio":
 
 if selected == "🏆 Case Study Studio":
     render_case_study_studio()
+
+if selected == "🌐 Dashboard Global":
+    render_agency_dashboard()
 
 if selected == "📈 Monthly Forecast":
     render_revenue_forecast()

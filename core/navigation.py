@@ -74,6 +74,9 @@ SECTIONS: tuple[Section, ...] = (
         "📋 Proposal Studio",
         "🏆 Case Study Studio",
     )),
+    Section("Dirección", ":material/dashboard:", False, (
+        "🌐 Dashboard Global",
+    )),
     Section("Knowledge", ":material/menu_book:", False, (
         "📚 Knowledge Base",
     )),
@@ -106,7 +109,9 @@ SECTIONS: tuple[Section, ...] = (
 # `all_pages()` deliberately keeps listing these — it is the catalog every page
 # name derives from (`core.constants._PAGES`), not the menu a given user gets.
 # Only `visible_pages()` and `filter_pages()` know about roles.
-ADMIN_ONLY: frozenset[str] = frozenset({"🔌 Integraciones", "🧠 Skills", REQUEST_LOG})
+ADMIN_ONLY: frozenset[str] = frozenset({
+    "🔌 Integraciones", "🧠 Skills", REQUEST_LOG, "🌐 Dashboard Global",
+})
 
 
 # The emoji of a destination still lives in the routing key, but a Material
@@ -149,6 +154,7 @@ _ICONS: dict[str, str] = {
     "🚚 Proveedores": ":material/local_shipping:",
     "📦 Órdenes de Compra": ":material/receipt_long:",
     "🛒 Mercado Libre": ":material/shopping_cart:",
+    "🌐 Dashboard Global": ":material/dashboard:",
     "🔑 Cuentas conectadas": ":material/key:",
     "🔌 Integraciones": ":material/power:",
     "🧠 Skills": ":material/neurology:",
