@@ -1,6 +1,7 @@
 import hashlib
 import io
 from datetime import datetime, timedelta
+from functools import partial
 
 import numpy as np
 import streamlit as st
@@ -328,7 +329,6 @@ def render():
         )
 
     ai_analysis = None
-    ai_labels_dd = None
     api_niches_by_id = {}
 
     def _niche_label(niche_id):
@@ -554,6 +554,7 @@ def render():
                     st.caption("Sin keywords tras el filtro — nada para analizar.")
                 else:
                     from core import ai_tab
+                    from ai.agents.datadive import chat_document as dd_chat_document
                     from ai.agents.datadive import context as dd_ctx
 
                     df_top = dd_ctx.select_keywords(df_filtered)
@@ -574,8 +575,7 @@ def render():
                         # EVERY row: that is missing data, not a set of gaps.
                         my_asin_en_niche=bool(my_asin) and my_asin in df_mkl.columns,
                     )
-                    ai_labels_dd = ai_tab.ai_labels(
-                        ai_tab.app_language(), {"chat": "Análisis IA — DataDive"})
+                    ai_labels_dd = ai_tab.ai_labels(ai_tab.app_language())
                     st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
                     ai_analysis = ai_tab.resolve_analysis(
                         slug="datadive", payload=payload,
@@ -594,6 +594,15 @@ def render():
                         ai_tab.render_analysis(
                             ai_analysis, slug="datadive", labels=ai_labels_dd,
                             render_result=_render_result)
+                        niche_subject = " · ".join(part for part in (mkl_label, mkl_marketplace) if part)
+                        ai_tab.publish_analysis_to_chat(
+                            "datadive", ai_analysis, payload, module_label="DataDive",
+                            subject=niche_subject or fuente,
+                            reading=lambda analysis, _rec=render_records: dd_chat_document.reading_text(
+                                analysis.result, _rec),
+                            annotate=partial(ai_tab.annotate_row_ids,
+                                             labels_by_id=_dd_row_labels(render_records)),
+                            country_code=mkl_marketplace)
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 2 — Competitors
@@ -1392,11 +1401,6 @@ def render():
                     key="dd_ci_dl",
                 )
 
-    # Outside st.tabs so the bubble shows on every tab of the module.
-    if ai_analysis is not None:
-        from core import ai_tab
-        chat_labels = _dd_row_labels(st.session_state.get(
-            "dd_ai_records_store", {}).get(ai_analysis.digest, []))
-        ai_tab.mount_analysis_chat(
-            "datadive", ai_analysis, lang=ai_tab.app_language(), labels=ai_labels_dd,
-            annotate=lambda text: ai_tab.annotate_row_ids(text, chat_labels))
+    if ai_analysis is None:
+        from core import app_chat
+        app_chat.withdraw_analysis("datadive")

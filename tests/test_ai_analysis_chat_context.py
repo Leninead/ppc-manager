@@ -2,7 +2,7 @@
 from datetime import date, datetime, timezone
 
 from ai import runtime
-from core.ai_analysis.chat_context import analysis_chat_documents
+from core.ai_analysis.chat_context import analysis_chat_documents, current_analysis_text, in_memory_analysis
 from core.ai_analysis.store import StoredAnalysis
 
 
@@ -51,9 +51,9 @@ def test_another_analysis_on_screen_starts_a_new_chat_session_and_keeps_the_thre
     from streamlit.testing.v1 import AppTest
     app = AppTest.from_string("""
 import streamlit as st
-from core.ai_chat import floating_chat
-floating_chat(chat_id="str", agent="str", session_id=None, standalone=True,
-              context_docs=[{"title": "t", "content": "c"}], context_key=st.session_state.get("shown", "8"))
+from core.ai_chat import ChatTurn, floating_chat
+floating_chat(chat_id="str", agent="str", session_key=lambda: st.session_state.get("shown", "8"),
+              turn=lambda: ChatTurn(documents=[{"title": "t", "content": "c"}]))
 """, default_timeout=30)
     app.run()
     app.session_state["aichat_str_sid"] = "session-over-analysis-8"
@@ -81,3 +81,79 @@ def test_a_turn_sends_the_documents_only_when_it_opens_a_session(monkeypatch):
     runtime.ask_followup("str", "s-new", "¿y después?", context_docs=docs)
 
     assert sent == [docs, []]
+
+
+def _recording_provider(monkeypatch):
+    sent = []
+    monkeypatch.setattr(runtime.client, "ask", lambda **call: sent.append(call) or
+                        {"text": "ok", "session_id": "s-new"})
+    monkeypatch.setattr(runtime, "usable_tools", lambda slug, scope: [])
+    monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
+    return sent
+
+
+def test_the_app_note_goes_ahead_of_every_question(monkeypatch):
+    sent = _recording_provider(monkeypatch)
+
+    runtime.ask_followup("orchestrator", None, "¿qué priorizo?", note="[pantalla SQP]")
+    runtime.ask_followup("orchestrator", "s-new", "¿y en STR?", note="[pantalla STR]")
+
+    assert [call["input_text"] for call in sent] == ["[pantalla SQP]\n\n¿qué priorizo?",
+                                                     "[pantalla STR]\n\n¿y en STR?"]
+
+
+def test_a_new_session_carries_the_visible_thread_without_the_failed_turns(monkeypatch):
+    sent = _recording_provider(monkeypatch)
+    thread = [{"role": "user", "text": "¿qué negativizo?"},
+              {"role": "assistant", "text": "No se pudo responder: timeout", "error": True},
+              {"role": "user", "text": "¿qué negativizo?"},
+              {"role": "assistant", "text": "N01 y N04."}]
+    docs = [{"title": "Análisis", "content": "c"}]
+
+    runtime.ask_followup("orchestrator", None, "¿y el harvest?", context_docs=docs, thread=thread)
+    runtime.ask_followup("orchestrator", "s-new", "¿y después?", context_docs=docs, thread=thread)
+
+    opening, resumed = (call["context"] for call in sent)
+    assert opening[:1] == docs and resumed == []
+    assert opening[1] == {"title": runtime.CONVERSATION_TITLE,
+                          "content": "AM: ¿qué negativizo?\n\nAM: ¿qué negativizo?\n\nAsistente: N01 y N04."}
+
+
+def test_the_carried_thread_keeps_only_the_latest_turns():
+    thread = [{"role": "user", "text": f"pregunta {index}"} for index in range(20)]
+
+    content = runtime.conversation_document(thread)["content"]
+
+    assert content.startswith("AM: pregunta 8\n\n") and content.endswith("AM: pregunta 19")
+    assert runtime.conversation_document([]) is None
+
+
+def test_the_carried_thread_drops_whole_old_turns_and_keeps_the_last_question():
+    long_answer = "x" * 11_950
+    thread = [{"role": "user", "text": "listame las campañas"}, {"role": "assistant", "text": long_answer},
+              {"role": "user", "text": "¿cuáles tienen presupuesto bajo?"}, {"role": "assistant", "text": "tres"}]
+
+    content = runtime.conversation_document(thread)["content"]
+
+    assert content.split("\n\n") == ["AM: ¿cuáles tienen presupuesto bajo?", "Asistente: tres"]
+
+
+def test_the_carried_thread_has_the_answers_as_the_am_saw_them():
+    thread = [{"role": "user", "text": "¿qué negativizo?"},
+              {"role": "assistant", "text": "N01 y N04.", "shown": "N01 (toy box) y N04 (luna)."}]
+
+    content = runtime.conversation_document(thread)["content"]
+
+    assert content.endswith("Asistente: N01 (toy box) y N04 (luna).")
+
+
+def test_an_uploaded_file_analysis_reads_like_a_stored_one():
+    stored = _analysis(8, "Hoy sangra")
+    in_memory = in_memory_analysis(
+        stored.result, params=stored.params, lang="es", finished_at=stored.finished_at.timestamp(),
+        negative_records=stored.negative_records, harvest_records=stored.harvest_records)
+
+    stored_text = current_analysis_text(stored, "USD")
+    file_text = current_analysis_text(in_memory, "USD")
+
+    assert file_text.replace("Período: el del archivo subido", "Período: 16/08/2026 a 14/09/2026") == stored_text

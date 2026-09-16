@@ -12,7 +12,8 @@ pura + `resolve_analysis` con staleness de dos velocidades: archivo nuevo
 re-dispara solo, cambio de parámetro pide click), polling (`render_analysis`),
 kit de render localizado (`ai_labels`, `opinion_table_html`, `synthesis_html`,
 `ai_chips_html`, `ai_notice_html`, `escape_ai_text`, `humanize_fields`,
-`AI_CSS`) y chat con espera (`mount_analysis_chat` sobre `core/ai_chat.py`).
+`AI_CSS`) y la publicación al chat único de la app (`publish_analysis_to_chat`,
+ver "Chat IA de la app" abajo).
 `synthesis_html` titula cada bloque con `synthesis_section_title` (labels
 `actions_title` "Acciones sugeridas para esta semana", `mid_term_title`
 "Mediano plazo · 2 a 4 semanas", `risks_title`; los `*_hint` van como tooltip):
@@ -26,7 +27,7 @@ filas de opinión pasa el id que ya usa para el join posicional. Además, la
 prosa (síntesis, resumen ejecutivo y respuestas del chat) se anota de forma
 determinista con el término detrás del id, primera mención por texto y sin
 duplicar cuando el modelo ya lo escribió: `annotate_row_ids(text, {id: término})`
-sobre `map_synthesis_text`, y `mount_analysis_chat(..., annotate=)` para el
+sobre `map_synthesis_text`, y `publish_analysis_to_chat(..., annotate=)` para el
 chat. Cada módulo expone su mapa (`_str_row_labels`, `_sqp_row_labels`,
 `_dd_row_labels`) a partir de los records guardados por digest.
 Los records por digest los guarda `ai_tab.records_for_render(slug, analysis,
@@ -34,6 +35,65 @@ payload, records)` (un análisis STALE cruza contra SU payload; se conservan
 los últimos 8 digests) y el idioma sale de `ai_tab.app_language()` (radio
 `app_lang` del sidebar): ningún módulo reimplementa esas dos cosas. `make_ids`
 vive una sola vez en `ai/agents/__init__.py` y cada `context.py` lo re-exporta.
+
+### Chat IA de la app — `core/app_chat.py` (2026-09-15)
+
+Un solo chat, montado una vez al final de `app.py` (`app_chat.mount_app_chat(selected)`),
+en todas las pantallas y para todos los usuarios; con `AI_ENABLED=0` no se monta. Lo
+atiende el agente `ai/agents/orchestrator/` (herramientas `amazon_ads, datadive`), que
+elige la fuente según la pregunta: los análisis de la app, Amazon Ads o DataDive. Los
+módulos ya no montan chats propios.
+
+- **Qué lee.** Lo que cada página comparte en la sesión, por módulo (`share_analysis`,
+  `keep_current`, `mark_outdated`, `report_running`, `report_failed`, `withdraw_analysis`),
+  más la síntesis del último análisis STR guardado de cada cuenta de Amazon Ads con datos
+  (`core/ai_analysis/account_summaries.py` sobre `AiAnalysisStore.latest_by_subject`,
+  cacheado 5 min; si la base no contesta devuelve `None` y la nota lo dice, porque una lista
+  vacía afirmaría que ninguna cuenta tiene análisis). Los resúmenes van del más nuevo al más
+  viejo con tope de 100.000 caracteres (el provider corta a 400.000) y nombran las cuentas
+  que no entraron. La cuenta que STR ya comparte no se repite; las etiquetas se calculan
+  sobre todas las cuentas, así seller y vendor del mismo país no quedan con el mismo nombre.
+- **Row ids.** Donde viaja la tabla (el análisis en pantalla) los ids se anotan con su
+  término (`annotate_row_ids`); en síntesis sin tabla (resúmenes por cuenta, análisis
+  anteriores) cada id se reemplaza por «término» (`replace_row_ids`,
+  `ai/agents/row_annotation.py`): los mismos N07 nombran otro término en pantalla. Cada
+  respuesta se anota una vez, al llegar (`shown` en el historial), y así se muestra y se
+  arrastra: navegar a otro análisis no la vuelve a anotar.
+- **Qué comparte un tab con análisis en memoria** (`ai_tab.publish_analysis_to_chat`): los
+  documentos que leyó su agente más `reading(result)`, la lectura de la IA como texto
+  (`ai/agents/sqp/chat_document.py`, `ai/agents/datadive/chat_document.py`; STR con archivo
+  reusa `chat_context.current_analysis_text` vía `in_memory_analysis`). Los títulos empiezan
+  con `módulo · tema`. Se arman una vez por análisis; uno STALE queda marcado como
+  desactualizado sin reconstruirse; uno corriendo guarda su digest y cómo armar sus
+  documentos, y `mount_app_chat` lo termina desde cualquier página con `ai_runtime.get`.
+- **STR con datos de API** (`_share_stored_analysis`) comparte el análisis guardado y los
+  anteriores con el estado real de la pestaña: vigente, generándose, falló o sin análisis
+  (`AnalysisState.MISSING`), que la nota distingue de "análisis disponible".
+- **Sesión.** `context_key` depende sólo de los análisis que comparten las páginas del AM,
+  nunca de la página ni de los resúmenes por cuenta (cambian con el análisis de cualquier
+  cuenta y reiniciarían a todos). Al abrirse otra sesión, ese turno lleva la conversación
+  visible (`runtime.conversation_document`: texto anotado, sin turnos fallidos, turnos
+  enteros). La región de Amazon Ads se elige al abrir la sesión y se mantiene
+  (`_session_country_hint`). La página y el estado de los análisis viajan en cada turno como
+  nota (`turn_note`), fuera del hilo.
+- **Dos funciones, no valores.** `floating_chat(session_key=, turn=)`: `app_chat.chat_session_key`
+  corre en cada render de cada pantalla y es barata (sólo los análisis de la sesión, sin leer nada);
+  `app_chat.chat_turn(page)` corre sólo al enviar, que es cuando hacen falta los documentos, la
+  cuenta de Amazon Ads y la nota — y porque el cuerpo del chat es un fragmento: lo que la página
+  calculó en su última corrida completa ya no sirve si un análisis terminó mientras tanto.
+- **Sin `/health` al montar.** Las herramientas se resuelven al enviar; montado en todas las
+  pantallas, consultarlas al montar trabaría cada pantalla con el provider caído.
+- **Input del panel.** La clave del textarea cambia con cada turno: con `clear_on_submit` la
+  pregunta enviada volvía a aparecer en la siguiente corrida completa (cualquier navegación).
+- **CSS del panel.** El body del popover se matchea con `:has(.st-key-aichat_app_panel)`:
+  el selector global anterior cambiaba el look de todos los popovers de la app.
+
+**Anti-patterns.**
+- ❌ NO montar un `floating_chat` desde un módulo: se superpone con el de la app en la misma posición.
+- ❌ NO leer `ai.runtime._registry` para el chat: es de todo el proceso, con análisis de otros AMs.
+- ❌ NO editar `ai/agents/_shared/chat.md` para el orquestador: entra en el `agent_version`
+  de los análisis guardados y en la huella de los de memoria. Lo suyo va en su `prompt.md`.
+- ❌ NO poner la página en la clave de sesión: cada navegación reiniciaría la conversación del modelo.
 
 **Reglas de lectura compartidas (2026-09-02).** Los tres prompts (`str`, `sqp`,
 `datadive`) llevan un bloque `<lectura>` idéntico: la primera oración de la
@@ -104,7 +164,7 @@ Analizar search terms de campañas SP: negativizar, harvestear, clasificar por t
 - **Datos de Amazon Ads: análisis guardado** (`ai_analyses`, migración 010). El worker `ads-ai-worker` (`core/ai_analysis/`) lo genera solo para los últimos 30 días con los parámetros de la cuenta (`ai_analysis_settings`) cuando cambian los datos o los parámetros, y nunca paga dos veces la misma huella. La pestaña 4 busca el análisis de exactamente lo que está en pantalla: si existe lo muestra con SUS records y SUS brand terms; si se está generando muestra el estado y nunca un análisis anterior; si falló, el error y "Reintentar"; si no hay, "Generar análisis IA" (manual). Pedirlo guarda los parámetros como parámetros de la cuenta (`save_ai_analysis_settings`) y encola con `request_ai_analysis`. Al abrir una cuenta, los inputs se cargan con sus parámetros guardados (o los default de su moneda). El análisis cubre todos los portfolios aunque haya filtro, e ignora el Campaign CSV de anti-canibalización (es un archivo manual).
 - **Archivo manual: en memoria, como antes** (`ai_tab.resolve_analysis`, auto-fire con archivo nuevo), pero con `show_previous=False`: un parámetro nuevo oculta el resultado anterior y ofrece el botón. Si falta un precio, `auto_fire=False`: el AM está en la pantalla que se lo pide, así que no se paga un análisis sin precio antes de que lo escriba; con los dos precios cargados se dispara solo. Nada de un archivo llega a la base: `web_user` no puede escribir `ai_analyses`.
 - **Worker, casos de borde**: un pedido manual cuyos datos cambiaron desde que el AM lo pidió falla sin llamar a la IA (`DATA_CHANGED_ERROR`: la pantalla busca la huella de lo que el AM vio); uno programado cuyos parámetros de cuenta cambiaron se cierra sin llamar a la IA (`SUPERSEDED_WARNING`); una huella cuyo pedido ya falló no cuenta como "cubierta" sino como error del tick. La espera HTTP es el límite del provider más 60 s, para que llegue su propio 504.
-- **Chat con datos de API**: abre su sesión con documentos (`core/ai_analysis/chat_context.analysis_chat_documents`): el análisis vigente con cada opinión y su término, y la síntesis de los últimos 3 análisis de la cuenta. Un análisis distinto en pantalla abre una sesión nueva (`context_key`) y el hilo visible se conserva.
+- **Chat con datos de API**: la página comparte con el chat de la app (`_share_stored_analysis`) los documentos de `core/ai_analysis/chat_context.analysis_chat_documents`: el análisis vigente con cada opinión y su término, y la síntesis de los últimos 3 análisis de la cuenta, con el país del perfil para la región de Amazon Ads. Con archivo manual comparte vía `ai_tab.publish_analysis_to_chat`.
 - El precio de harvest arranca vacío fuera de USD, como el de negativos. Sin precio el análisis se genera igual (decisión de Juan, 2026-09-15): sin precio de negativos no corre R3, sin precio de harvest no hay "Bid Sugerido"; Parámetros se lo dice al modelo (`_missing_price_notes`, vacío cuando hay precio, para no cambiar la huella de los análisis con precio) y la pestaña 4 lo avisa (`_missing_price_notice`). Nada inventa un precio: el que se escribe en M2 manda. Precio estimado con ventas/unidades o por moneda: pendiente de validación de Lenin.
 - "Bid Sugerido" sigue INV-1 (`suggested_bid`): CVR hasta 100%, piso 0.10 y nunca más que precio × target ACoS. Antes no tenía techo: en Shapermint US 686 de 4.167 filas pasaban el techo ($63 contra $9).
 - Payload `StrData` (`ai/agents/str/context.py`): KPIs de la cuenta, agregado por campaña (top 40 por spend, o por clicks sin columna de costo), negativos Alta/Media top 120, harvest top 60, parámetros, `cost_detected`. La IA nunca recalcula: opiniones por `row_id` posicional (`N01…`/`H01…`) sobre los MISMOS records serializados.
@@ -167,7 +227,7 @@ Analizar el mercado total desde Brand Analytics: impression share, click share, 
 
 ### Capa IA (2026-09-01 — consumidor de `core/ai_tab`)
 - Señales deterministas ADITIVAS solo para la IA: `_compute_funnel_signals(df, query_col, brand_terms)` (cascada de shares en 4 etapas con Cart Adds, índices marca-vs-mercado-sin-marca, gaps de precio por etapa con bandas fijas, gate de datos, `is_invisible`, gemas, breach de defensa BRANDED 80%, `opp_usd` sobre compras reales, prioridad) + `_compute_account_rollup` (agregados ponderados + pre-flags de riesgos). Las tabs 1-3 y `_compute_market_share`/`_compute_gaps` no las usan ni cambiaron. Spec de dominio: `notes/modules/m3-sqp-ai-signals-spec.md` (vault).
-- Tab 4 consume la plataforma igual que M2: `resolve_analysis` → `render_analysis` → `_render_sqp_ai_result` → `mount_analysis_chat`. Input propio: brand terms (prefill = marca detectada; en CSV puede venir vacío). Records top-40 guardados por digest en `sqp_ai_records_store`.
+- Tab 4 consume la plataforma igual que M2: `resolve_analysis` → `render_analysis` → `_render_sqp_ai_result` → `publish_analysis_to_chat` (el chat anota con `_sqp_chat_annotation`: glosario + query detrás del row_id). Input propio: brand terms (prefill = marca detectada; en CSV puede venir vacío). Records top-40 guardados por digest en `sqp_ai_records_store`.
 - Agente `ai/agents/sqp/`: `SqpData`, row_ids `Q01…`, taxonomías cerradas (`funnel_diagnosis` ×8 incl. MERCADO_DEBIL, `price_causality` ×4, `action` ×9, `confidence`) y `synthesis` canónica con `risks` = exactamente los pre-flags true + 2 standing.
 - Nombres legibles (2026-09-02): el prompt lleva un bloque `<glosario>` (columna → nombre llano es/en, formato de conteos con miles y shares con %) y PROHÍBE nombres de columna en la prosa; los ejemplos del prompt ya no usan `imp_share`/`clk_b`. Red determinista: `_SQP_FIELD_NAMES` (es/en, cubre todo `_ROW_COLS`; test lo exige) viaja en `labels["field_names"]` y `_sqp_ai_rows`/`_humanize_synthesis` reescriben cualquier fuga con `core.ai_tab.humanize_fields` antes de imprimir. Medido en la corrida real previa al glosario: 200+ tokens crudos (`opp_usd`, `pur_t`, `is_invisible`…) en 40 filas.
 - Tests: `tests/test_sqp_signals.py` (anti-placebo, bordes, oráculo de integridad vs los % del export, filas de display) + `tests/test_sqp_ai_context.py` (contrato, digest, runtime con fake transport).
@@ -728,9 +788,9 @@ Parsers puros en `modules/parsers/datadive.py` (shape canónico COL_*); cliente 
 - Tab 5: tu MKL + competidor, clasifica Ambos/Solo yo/Solo comp/Ninguno
 
 ### Capa IA (tab 1)
-- Agente `datadive` (primer agente de `ai/` en main): recibe Parámetros + top 120 keywords por SV (row_ids K01…) + opcionalmente los competidores del niche con su mediana (de la API o del archivo del tab 2), y emite clusters de intención, gaps priorizados y la síntesis canónica de `core/ai_tab`. Chat flotante montado FUERA de st.tabs.
+- Agente `datadive` (primer agente de `ai/` en main): recibe Parámetros + top 120 keywords por SV (row_ids K01…) + opcionalmente los competidores del niche con su mediana (de la API o del archivo del tab 2), y emite clusters de intención, gaps priorizados y la síntesis canónica de `core/ai_tab`. El análisis se comparte con el chat de la app (`publish_analysis_to_chat`).
 - **Contrato del agente (v2, auditado contra output real)**: `launch_score` es COSTO de entrada (alto = caro), no puntaje; `relevance` se ancla en los cortes del tab (alta ≥3,0 — el grueso del niche vive bajo 3); `sugg_bid` no habilita a declarar bids/ACoS/presupuesto (no hay precio ni CVR del cliente en el payload). Los **gaps incluyen el ASIN enterrado** (mi_rank fuera de P1), no solo el ausente — son los más baratos. La **prioridad de cluster es atacabilidad, no tamaño**, y el orden del array es el orden de ataque. `select_keywords` manda 90 por SV + 30 por relevancia (la cola barata sesgaba a "niche caro" si se cortaba solo por SV) y marca cada fila con `bloque`. Si el ASIN declarado no está en el dive, Parámetros lo declara como CALIDAD DE DATOS y los gaps van vacíos.
-- **Chat con tools (fase 3)**: el frontmatter del agente declara `tools: datadive` → `runtime.ask_followup` manda `tools:["datadive"]` + `max_turns 8` al provider, que expone 5 tools MCP read-only in-process (list_niches, get_niche_keywords, get_niche_competitors, list_rank_radars, get_quota; resultados truncados). Solo el CHAT es agéntico — el análisis nunca lleva tools. Server-side vive en capybaras-ai-provider (`app/datadive_tools.py`, rama feat/datadive-mcp-tools) con `DATADIVE_API_KEY` en su .env.
+- **Chat con tools (fase 3)**: desde 2026-09-15 las herramientas de DataDive las usa el orquestador del chat de la app (su frontmatter declara `datadive`); el `tools:` del agente `datadive` se conserva. `runtime.ask_followup` manda `tools:["datadive"]` al provider, que expone 5 tools MCP read-only in-process (list_niches, get_niche_keywords, get_niche_competitors, list_rank_radars, get_quota; resultados truncados). Solo el CHAT es agéntico — el análisis nunca lleva tools. Server-side vive en capybaras-ai-provider (`app/datadive_tools.py`, rama feat/datadive-mcp-tools) con `DATADIVE_API_KEY` en su .env.
 - La IA nunca recalcula cifras; el módulo joinea opiniones por row_id posicional contra los MISMOS records serializados.
 
 ### Inputs

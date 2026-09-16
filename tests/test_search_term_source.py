@@ -827,6 +827,24 @@ search_term_report.render()
         with ai_runtime._lock:
             ai_runtime._registry.clear()
 
+    def test_a_file_analysis_reaches_the_app_chat_and_leaves_it_when_the_parameters_change(self, monkeypatch):
+        app, _ = self._file_analysis_app(monkeypatch, "USD")
+        self._run_until_analysis(app)
+
+        assert not app.exception
+        entry = app.session_state["app_chat_modules"]["str"]
+        titles = [doc["title"] for doc in entry.analysis.documents]
+        assert entry.state == "current"
+        assert titles[-1] == "Search Term Report · Marca Norte · Search_term_file.csv · Lectura de la IA"
+        assert "Search Term Report · Marca Norte · Search_term_file.csv · Parámetros" in titles
+        reading = entry.analysis.documents[-1]["content"]
+        assert "Período: el del archivo subido" in reading and "Situación: Situación del archivo" in reading
+
+        app.slider(key="neg_target_acos").set_value(45).run()
+        assert "str" not in app.session_state["app_chat_modules"]
+        with ai_runtime._lock:
+            ai_runtime._registry.clear()
+
     def test_a_file_without_prices_waits_for_them_instead_of_spending_an_analysis(self, monkeypatch):
         app, asked = self._file_analysis_app(monkeypatch, "MXN")
         app.run()
@@ -1087,10 +1105,7 @@ search_term_report.render()
                 app.number_input(key="harv_min_clicks").value, app.text_input(key="str_brand_terms").value) == (
             40, 250.0, 35, 260.0, 20, "acme, luna")
 
-    def test_the_chat_opens_with_the_stored_analysis_and_the_earlier_ones(self, monkeypatch):
-        from core import ai_tab
-        mounts = []
-        monkeypatch.setattr(ai_tab, "mount_analysis_chat", lambda *args, **kwargs: mounts.append(kwargs))
+    def test_the_chat_reads_the_stored_analysis_and_the_earlier_ones(self, monkeypatch):
         profile = _profile_row(currency_code="USD", country_code="US")
         fake = _FakeRest([profile], [_completed_job_row()], search_term_rows=_SEARCH_TERM_ROWS)
         defaults = StrAnalysisParams.defaults("USD")
@@ -1103,12 +1118,15 @@ search_term_report.render()
         app.run()
 
         assert not app.exception
-        docs = mounts[-1]["context_docs"]
-        assert [doc["title"] for doc in docs] == [
-            "Análisis IA vigente del reporte que el AM está viendo",
-            "Análisis IA anteriores de esta cuenta (1, del más nuevo al más viejo)"]
-        assert "Situación de hoy" in docs[0]["content"] and "Situación de ayer" in docs[1]["content"]
-        assert mounts[-1]["context_key"] == "111:8:5"
+        shared = app.session_state["app_chat_modules"]["str"].analysis
+        assert [doc["title"] for doc in shared.documents] == [
+            "Search Term Report · Luna Kids · US · Análisis IA vigente del reporte que el AM está viendo",
+            "Search Term Report · Luna Kids · US · Análisis IA anteriores de esta cuenta "
+            "(1, del más nuevo al más viejo)"]
+        assert "Situación de hoy" in shared.documents[0]["content"]
+        assert "Situación de ayer" in shared.documents[1]["content"]
+        assert (shared.key, shared.subject, shared.country_code, shared.profile_id) == (
+            "str:111:8:5", "Luna Kids · US", "US", "111")
 
     def test_every_download_keeps_shopper_typed_formulas_as_text(self, monkeypatch):
         import streamlit

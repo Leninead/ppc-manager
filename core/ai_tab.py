@@ -9,7 +9,7 @@ Usage contract — what a consuming module provides:
 
     from core import ai_tab
 
-    labels = ai_tab.ai_labels(lang, {"chat": "Análisis IA — SQP"})
+    labels = ai_tab.ai_labels(lang, {"actions_title": "Acciones sobre queries"})
     analysis = ai_tab.resolve_analysis(
         slug="sqp",                      # ai/agents/<slug>/ package
         payload=SqpData(...),            # the agent's build_context input
@@ -21,7 +21,9 @@ Usage contract — what a consuming module provides:
             analysis, slug="sqp", labels=labels,
             render_result=_render_sqp_result,   # module-owned tables
         )
-    ai_tab.mount_analysis_chat("sqp", analysis, lang=lang, labels=labels)
+    ai_tab.publish_analysis_to_chat(
+        "sqp", analysis, payload, module_label="Search Query Performance",
+        subject="marca wamery", reading=_sqp_reading)   # module-owned text
 
 What the layer resolves, so the module must NOT reimplement it:
 - Session-state keys "<slug>_ai_last_digest/_seen/_file_sig" and widget keys
@@ -31,8 +33,8 @@ What the layer resolves, so the module must NOT reimplement it:
   button. See decide_analysis_action for the exact decision table.
 - Polling while running (st.fragment every 5s) and the one full rerun that
   stops it on completion; failed runs end in an error plus a human Retry.
-- The chat mount gated on the analysis state: before completion questions
-  are answered locally with labels["chat_wait"] / labels["chat_failed"].
+- What the app-wide chat (core.app_chat) reads about the tab: the analysis
+  documents and the AI reading once done, and its state otherwise.
 
 render_result(result, analysis) receives the provider's structured_output
 as-is; the module joins per-row opinions back to its own frames positionally
@@ -44,12 +46,14 @@ executive_summary} — new agents must emit it; synthesis_html renders it.
 import html
 import re
 from enum import Enum
+from functools import partial
 
 import streamlit as st
 
+from ai import agent_call
 from ai import runtime as ai_runtime
-from core import ads_account_picker
-from core.ai_chat import floating_chat
+from ai.agents.row_annotation import annotate_row_ids  # noqa: F401 — part of this layer's kit
+from core import app_chat
 
 _BASE_LABELS = {
     "es": {"analyzing": "Analizando los datos por IA",
@@ -75,13 +79,7 @@ _BASE_LABELS = {
                             "gemas a re-validar, re-chequeos que confirman o "
                             "descartan hipótesis.",
            "col_item": "Ítem", "col_diag": "Diagnóstico", "col_read": "Lectura IA",
-           "conf_label": "confianza", "copy_btn": "Copiar",
-           "chat": "Análisis IA",
-           "chat_wait": "El análisis todavía está corriendo — en cuanto termine "
-                        "me podés repreguntar sobre cualquier fila o riesgo.",
-           "chat_failed": "El análisis falló y no tengo resultados para responder. "
-                          "Reintentalo desde el tab de análisis y volvé a "
-                          "preguntarme."},
+           "conf_label": "confianza", "copy_btn": "Copiar"},
     "en": {"analyzing": "AI analyzing the data",
            "stale_title": "The data changed",
            "stale_body": "You modified the parameters after the last analysis. "
@@ -105,13 +103,7 @@ _BASE_LABELS = {
                             "re-validate, re-checks that confirm or kill a "
                             "hypothesis.",
            "col_item": "Item", "col_diag": "Diagnosis", "col_read": "AI read",
-           "conf_label": "confidence", "copy_btn": "Copy",
-           "chat": "AI Analysis",
-           "chat_wait": "The analysis is still running — as soon as it finishes "
-                        "you can ask me about any row or risk here.",
-           "chat_failed": "The analysis failed, so I have no results to answer "
-                          "from. Retry it from the analysis tab and ask me "
-                          "again."},
+           "conf_label": "confidence", "copy_btn": "Copy"},
 }
 
 AI_CSS = """<style>
@@ -152,36 +144,6 @@ def humanize_fields(text, glossary: dict) -> str:
     pattern = re.compile(r"(?<![\w.])(" + "|".join(re.escape(n) for n in names)
                          + r")(?!\w)")
     return pattern.sub(lambda m: glossary[m.group(1)], str(text))
-
-
-def annotate_row_ids(text, labels_by_id: dict, max_len: int = 40) -> str:
-    """Appends the item behind every row id the AI cites, so the prose reads
-    without the table: "Frenar H59" -> "Frenar H59 (press on nails short)".
-    Whole tokens only, first mention of each id per text. Skipped when the
-    item already follows the id within a short window, which is how the model
-    sometimes writes it itself."""
-    if not text or not labels_by_id:
-        return str(text or "")
-    src = str(text)
-    ids = sorted(labels_by_id, key=len, reverse=True)
-    pattern = re.compile(r"(?<!\w)(" + "|".join(re.escape(i) for i in ids)
-                         + r")(?!\w)")
-    seen = set()
-
-    def _sub(match):
-        rid = match.group(1)
-        full = str(labels_by_id[rid]).strip()
-        if not full or rid in seen:
-            return rid
-        seen.add(rid)
-        window = src[match.end():match.end() + len(full) + 24].lower()
-        if full.lower() in window:
-            return rid
-        shown = full if len(full) <= max_len else \
-            full[:max_len - 1].rstrip() + "…"
-        return f"{rid} ({shown})"
-
-    return pattern.sub(_sub, src)
 
 
 def map_synthesis_text(synthesis: dict, fn) -> dict:
@@ -324,45 +286,43 @@ def records_for_render(slug: str, analysis, payload, records, keep: int = 8):
     return store.get(analysis.digest, records)
 
 
-def mount_analysis_chat(slug: str, analysis, *, lang: str,
-                        labels: dict, annotate=None, context_docs: list | None = None,
-                        context_key: str | None = None) -> None:
-    """Mounts the floating chat. Call it at the END of render(), outside st.tabs.
+def publish_analysis_to_chat(slug: str, analysis, payload, *, module_label: str, subject: str,
+                             reading, annotate=None, country_code: str = "") -> None:
+    """Keeps the app chat in step with what this tab shows. Call it on every render of the tab.
 
-    `analysis=None` is the normal state of a module nobody has uploaded a file
-    to yet, and the chat mounts anyway. It has tools, an account and the
-    agency's own skills before any file exists — "which campaigns does Havanna
-    have" needs none of them — and hiding the bubble until an upload made the
-    chat look like a feature of the file rather than of the module. When the
-    analysis lands, its session takes over mid-conversation and the same thread
-    gains everything the analysis computed.
+    Once the analysis is done the chat gets the documents the agent read and
+    `reading(analysis)`, the module's text of the AI's answer; their titles start
+    with `module_label · subject` so the chat can tell modules and clients apart.
+    A stale analysis stays readable but flagged. One still running shares its
+    state and how to build its documents, so the chat reads it when it finishes
+    even if the AM left the page; a failed one shares its state only. The
+    documents are built once per analysis."""
+    build = partial(_chat_analysis, slug=slug, payload=payload, module_label=module_label, subject=subject,
+                    reading=reading, annotate=annotate, country_code=country_code)
+    if analysis is None:
+        app_chat.withdraw_analysis(slug)
+    elif analysis.running:
+        app_chat.report_running(slug, analysis.digest, finish=build)
+    elif analysis.failed:
+        app_chat.report_failed(slug)
+    elif ai_runtime.peek(slug, payload) is not analysis:
+        app_chat.mark_outdated(slug, _chat_key(slug, analysis))
+    elif not app_chat.keep_current(slug, _chat_key(slug, analysis)):
+        app_chat.share_analysis(build(analysis))
 
-    The chat_id is the slug, deliberately, not the digest. Keyed by digest, a
-    moved slider recomputed the analysis and the AM found an empty panel where
-    their conversation had been.
 
-    An agent with provider tools usable right now answers early questions for
-    real; one without them replies labels['chat_wait'] (or chat_failed) locally
-    until the analysis session exists.
+def _chat_key(slug: str, analysis) -> str:
+    return f"{slug}:{analysis.digest}"
 
-    `context_docs` replaces that session with stored analyses (current and
-    earlier ones of the same report subject): every question is answered, and a
-    new `context_key` opens a fresh session over the new documents."""
-    ads_scope = ads_account_picker.request_scope()
-    if context_docs is not None:
-        floating_chat(chat_id=slug, agent=slug, session_id=None, title=labels["chat"], lang=lang,
-                      pending_text=None, standalone=True, annotate=annotate, ads_scope=ads_scope,
-                      context_docs=context_docs, context_key=context_key)
-        return
-    ready = bool(analysis is not None and analysis.done and analysis.session_id)
-    failed = bool(analysis is not None and analysis.failed)
-    pending = labels["chat_failed"] if failed else labels["chat_wait"]
-    floating_chat(chat_id=slug, agent=slug,
-                  session_id=analysis.session_id if ready else None,
-                  title=labels["chat"], lang=lang,
-                  pending_text=None if ready else pending,
-                  standalone=bool(ai_runtime.usable_tools(slug, ads_scope)),
-                  annotate=annotate, ads_scope=ads_scope)
+
+def _chat_analysis(analysis, *, slug: str, payload, module_label: str, subject: str, reading, annotate,
+                   country_code: str) -> app_chat.ChatAnalysis:
+    prefix = f"{module_label} · {subject}"
+    documents = [{"title": f"{prefix} · {document['title']}", "content": document["content"]}
+                 for document in agent_call.build_agent_call(slug, payload).call["context"]]
+    documents.append({"title": f"{prefix} · Lectura de la IA", "content": reading(analysis)})
+    return app_chat.ChatAnalysis(module=slug, key=_chat_key(slug, analysis), subject=subject,
+                                 documents=tuple(documents), annotate=annotate, country_code=country_code)
 
 
 def ai_notice_html(title: str, body: str) -> str:
