@@ -402,11 +402,13 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                 # its own, inside a popover, and inside a fragment, and fails on
                 # the two together; a form submits in all four. The text area is
                 # also draggable, which is the other thing the panel was missing.
-                # Keyed by turn: clear_on_submit left the sent question in the
-                # browser, and the next full run (any page change) sent it back.
+                # Keyed by turn AND cleared on submit, which only work together: the clear
+                # empties the box in the browser once the question is already on the wire,
+                # the only thing that can do it while this thread blocks on the answer; the
+                # stale value it leaves behind goes with the widget id the next turn retires.
                 # enter_to_submit=False takes Streamlit's English Ctrl+Enter hint off the box.
                 with st.form(f"aichat_{chat_id}_form", border=False,
-                             enter_to_submit=False):
+                             enter_to_submit=False, clear_on_submit=True):
                     question = st.text_area(
                         L["placeholder"], key=f"aichat_{chat_id}_q_{len(history)}",
                         placeholder=L["placeholder"], height=72,
