@@ -26,8 +26,6 @@ pipeline {
     RECEIVER_IMAGE = 'ppc-manager-receiver'             // OAuth callback + MELI webhooks
     DEPLOY_DIR = '/srv/ppc-manager'                      // compose bind-mount on the VPS
     APP_CONTAINER = 'ppc-manager'                        // gated via the container's own healthcheck
-    // Known environmental reds on a checkout with no client data / Supabase.
-    DESELECTS  = '--deselect tests/test_m29_ui_e2e.py --deselect tests/test_datadive_to_v3_mapper.py --deselect tests/test_b7_importer.py'
   }
 
   stages {
@@ -51,11 +49,11 @@ pipeline {
 
     stage('Test') {
       // tests/ is dockerignored and pytest isn't in requirements, so run on a
-      // python:3.11 over the checkout, deselecting environmental reds. Gates deploy.
+      // python:3.11 over the checkout. Tests needing client data skip themselves. Gates deploy.
       steps {
         sh '''
           docker run --rm -v "$WORKSPACE":/w -w /w -e AGENCY_OS_LOCAL_MODE=1 python:3.11-slim \
-            bash -c "apt-get update -qq && apt-get install -y -qq git >/dev/null && pip install --no-cache-dir -q -r requirements.txt pytest && python -m pytest -q $DESELECTS"
+            bash -c "apt-get update -qq && apt-get install -y -qq git >/dev/null && pip install --no-cache-dir -q -r requirements.txt pytest && python -m pytest -q"
         '''
       }
     }

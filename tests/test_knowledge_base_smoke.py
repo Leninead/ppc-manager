@@ -64,8 +64,13 @@ def _clear_caches():
 
 @pytest.fixture
 def local_backend(tmp_path, monkeypatch):
-    """Backend LOCAL sobre tmp_path — nada toca `data/` real ni la red."""
+    """Backend LOCAL sobre tmp_path — nada toca `data/` real ni la red.
+
+    Fija también la lista de usuarios: `_ib_usuarios()` lee `st.secrets`, así que
+    sin esto el resultado depende de si la máquina tiene `.streamlit/secrets.toml`.
+    """
     monkeypatch.setattr(ip, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(kb, "_ib_usuarios", lambda: ["Usuario local"])
     ip._set_backend_for_testing(ip._LocalBackend())
     _clear_caches()
     try:
@@ -308,7 +313,7 @@ def test_asignar_usuario_persiste(local_backend):
     at.run()
     idea_id = _publish_idea(at, "Idea a asignar")
 
-    # Sin secrets, _ib_usuarios() → ["Usuario local"].
+    # `local_backend` fija _ib_usuarios() → ["Usuario local"].
     _by_key(at.selectbox, f"ib_asignado_{idea_id}").set_value("Usuario local")
     at.run()
     assert not at.exception

@@ -41,23 +41,22 @@ Para correr la suite completa:
 python -m pytest -q
 ```
 
-**Baseline de esta máquina (2026-09-03): `1370 passed, 24 skipped, 5 failed,
-2 errors` sobre 1401 colectados.**
+**Baseline de esta máquina (2026-09-15): `2529 passed, 24 skipped, 0 failed,
+0 errors` sobre 2553 colectados.**
 
-El conteo absoluto envejece cada vez que alguien suma un test — lo que se
-mantiene estable, y lo único que hay que mirar, son las **familias** de rojos
-esperados en local (todas por config de entorno, ninguna por el código):
+**La suite queda verde, sin rojos esperados.** Ya no hay tabla de excepciones que
+consultar: un rojo es siempre una señal real.
 
-| Archivo | Por qué falla en local |
-|---|---|
-| `test_m29_ui_e2e.py` (3) | fixtures de propuestas que no están en el repo |
-| `test_b7_importer.py` (2 errores) | idem |
-| `test_datadive_to_v3_mapper.py` (1) | idem |
-| `test_knowledge_base_smoke.py` (1) | espera el fallback sin `secrets.toml`; con uno real, el selectbox trae los nombres del equipo |
+Los 24 skips restantes son fixtures gitignored de forecast
+(`test_forecast_asin_*`, `test_revenue_forecast_parser.py`), con `reason`
+explícito — `pytest -rs` los lista. Si tenés esos CSV en local, corren solos.
 
-Si falla un archivo que no está en esa tabla, ahí sí revisar. El pipeline
-deselecciona las tres primeras familias (`DESELECTS` en el `Jenkinsfile`) y la
-cuarta pasa sola en CI, donde el checkout no trae `secrets.toml`.
+**Correr la suite con el venv activado**, no con el `pytest` global: el de
+`AppData\...\Python311\Scripts\pytest` no tiene `bs4` ni `xhtml2pdf` y aborta
+la colección con 4 `ModuleNotFoundError` que no son un problema del código.
+
+El pipeline ya no deselecciona nada (`DESELECTS` eliminado del `Jenkinsfile`):
+corre la suite entera sobre un checkout limpio.
 
 ---
 

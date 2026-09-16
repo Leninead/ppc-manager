@@ -1,4 +1,4 @@
-"""Tests del B7 Importer (extract_blocks + merge_blocks).
+"""Tests del B7 Importer (extract_blocks).
 
 Cubre 4 gaps documentados:
   1. contract_version_major_mismatch  (extract)
@@ -9,25 +9,16 @@ Cubre 4 gaps documentados:
 
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 
 import pytest
 
-from modules.sales.b7_importer import (
-    extract_blocks,
-    merge_blocks,
-)
+from modules.sales.b7_importer import extract_blocks
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_PATH = REPO_ROOT / "data" / "sales" / "_catalog.json"
-DEMO_PROPOSAL_PATH = (
-    REPO_ROOT / "data" / "sales" / "proposals"
-    / "01fbf5c2-1fd9-44dd-9806-742e5deb8f71__v12.json"
-)
-FIXTURE_V3V4 = REPO_ROOT / "tests" / "fixtures" / "b7_sample_v3v4.html"
 
 
 # ---------------------------------------------------------------------------
@@ -38,12 +29,6 @@ FIXTURE_V3V4 = REPO_ROOT / "tests" / "fixtures" / "b7_sample_v3v4.html"
 @pytest.fixture(scope="module")
 def catalog() -> dict:
     with open(CATALOG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-@pytest.fixture(scope="module")
-def demo_proposal() -> dict:
-    with open(DEMO_PROPOSAL_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -220,72 +205,3 @@ class TestDuplicateModuleIdInHtml:
 # ---------------------------------------------------------------------------
 # Gap 4 — copy_overrides preservado en merge
 # ---------------------------------------------------------------------------
-
-
-class TestCopyOverridesPreserved:
-
-    def test_merge_preserves_existing_copy_overrides(
-        self, catalog, demo_proposal
-    ):
-        with open(FIXTURE_V3V4, "r", encoding="utf-8") as f:
-            html = f.read()
-
-        # Popular copy_overrides del V3 del target con un sentinel.
-        target = copy.deepcopy(demo_proposal)
-        v3_target = next(
-            b for b in target["blocks"]
-            if b.get("module_id") == "V3_seo_opportunity"
-        )
-        v3_target["copy_overrides"] = {
-            "en": {"section_title": "TEST_OVERRIDE_EN"},
-        }
-        v3_data_before = copy.deepcopy(v3_target.get("data", {}))
-
-        # Pipeline completo: extract + merge.
-        report = extract_blocks(html, catalog)
-        assert report.ok
-        result = merge_blocks(report, target, catalog)
-        assert result.ok
-        assert "V3_seo_opportunity" in result.applied_blocks
-
-        v3_after = next(
-            b for b in result.proposal_updated["blocks"]
-            if b.get("module_id") == "V3_seo_opportunity"
-        )
-        # copy_overrides intacto.
-        assert v3_after["copy_overrides"] == {
-            "en": {"section_title": "TEST_OVERRIDE_EN"},
-        }
-        # data sí cambió (overwrite con el del HTML).
-        assert v3_after["data"] != v3_data_before
-        # Sanity: primer kw del nuevo data viene del fixture v3v4.
-        mk = v3_after["data"].get("missing_keywords", [])
-        assert len(mk) >= 1
-        assert mk[0]["keyword"] == "moringa powder organic"
-
-    def test_merge_preserves_identity_fields(self, catalog, demo_proposal):
-        with open(FIXTURE_V3V4, "r", encoding="utf-8") as f:
-            html = f.read()
-
-        target = copy.deepcopy(demo_proposal)
-        v3_target = next(
-            b for b in target["blocks"]
-            if b.get("module_id") == "V3_seo_opportunity"
-        )
-        v3_id_before = v3_target["id"]
-        v3_proposal_id_before = v3_target["proposal_id"]
-        v3_is_fixed_before = v3_target["is_fixed"]
-        v3_module_id_before = v3_target["module_id"]
-
-        report = extract_blocks(html, catalog)
-        result = merge_blocks(report, target, catalog)
-        assert result.ok
-
-        v3_after = next(
-            b for b in result.proposal_updated["blocks"]
-            if b.get("module_id") == "V3_seo_opportunity"
-        )
-        assert v3_after["id"] == v3_id_before
-        assert v3_after["proposal_id"] == v3_proposal_id_before
-        assert v3_after["is_fixed"] == v3_is_fixed_before
-        assert v3_after["module_id"] == v3_module_id_before

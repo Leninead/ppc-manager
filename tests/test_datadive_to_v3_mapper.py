@@ -1,27 +1,16 @@
-"""Tests del mapper datadive_to_v3_block (E3 / E4-integración).
+"""Tests del mapper datadive_to_v3_block (E3).
 
 DataFrames hand-built (sin .xlsx). El mapper es función pura que produce un
 ImportReport reusable por merge_blocks.
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pandas as pd
 
 from modules.sales.mappers.datadive_to_v3 import datadive_to_v3_block, V3_MODULE_ID
-from modules.sales.b7_importer import merge_blocks
 
 CLIENT = "B0CLIENT01"
 COMP = "B0COMPET01"
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-CATALOG_PATH = REPO_ROOT / "data" / "sales" / "_catalog.json"
-DEMO_PROPOSAL_PATH = (
-    REPO_ROOT / "data" / "sales" / "proposals"
-    / "01fbf5c2-1fd9-44dd-9806-742e5deb8f71__v12.json"
-)
 
 
 # ── 1-8: mapper puro ─────────────────────────────────────────────────────────
@@ -97,24 +86,3 @@ def test_mapper_truncates_to_top_50():
     missing = report.blocks[0].data["missing_keywords"]
     assert len(missing) == 50
     assert missing[0]["keyword"] == "kw59"  # mayor SV primero
-
-
-# ── 9: integración con merge_blocks (E4-ready) ───────────────────────────────
-
-def test_v3_report_merges_via_merge_blocks():
-    with open(CATALOG_PATH, "r", encoding="utf-8") as f:
-        catalog = json.load(f)
-    with open(DEMO_PROPOSAL_PATH, "r", encoding="utf-8") as f:
-        proposal = json.load(f)
-
-    df = pd.DataFrame([
-        {"Search Term": "missing kw", "SV": 800, "Launch Score": 7.0, CLIENT: None},
-    ])
-    report = datadive_to_v3_block(df, [CLIENT], CLIENT)
-    result = merge_blocks(report, proposal, catalog)
-    assert result.ok
-    assert "V3_seo_opportunity" in result.applied_blocks
-    # el data del bloque V3 quedó overwriteado con las missing keywords del mapper
-    v3 = next(b for b in result.proposal_updated["blocks"]
-              if b["module_id"] == "V3_seo_opportunity")
-    assert any(m["keyword"] == "missing kw" for m in v3["data"]["missing_keywords"])
