@@ -405,6 +405,18 @@ def _profile_today() -> date:
     return datetime.now(timezone.utc).astimezone(picker.profile_timezone(_PROFILE_TZ, "")).date()
 
 
+def _synced_today(now: datetime | None = None) -> datetime:
+    """A recent sync, dated inside the display zone's day.
+
+    freshness_pill dates last_success_at in DISPLAY_TIMEZONE, so a plain now-1h
+    reads as "actualizado ayer" during the first hour of that zone's day.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    midnight = now.astimezone(picker.DISPLAY_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(now - timedelta(hours=1), midnight.astimezone(timezone.utc))
+
+
 def _profile_row(**overrides):
     today = _profile_today()
     yesterday = today - timedelta(days=1)
@@ -412,9 +424,19 @@ def _profile_row(**overrides):
            "country_code": "MX", "currency_code": "MXN", "account_type": "seller", "timezone": _PROFILE_TZ,
            "status": "active", "data_from": (yesterday - timedelta(days=64)).isoformat(),
            "data_through": yesterday.isoformat(), "refreshed_on": today.isoformat(),
-           "last_success_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(), "last_error": ""}
+           "last_success_at": _synced_today().isoformat(), "last_error": ""}
     row.update(overrides)
     return row
+
+
+def test_the_synced_fixture_stays_on_the_display_day_at_every_hour():
+    """The build ran at 00:01 in the display zone and now-1h dated the sync to the day before."""
+    for minutes in range(0, 24 * 60, 7):
+        now = datetime(2026, 9, 16, tzinfo=timezone.utc) + timedelta(minutes=minutes)
+        synced = _synced_today(now)
+        assert synced <= now
+        assert (synced.astimezone(picker.DISPLAY_TIMEZONE).date()
+                == now.astimezone(picker.DISPLAY_TIMEZONE).date())
 
 
 def _completed_job_row():
