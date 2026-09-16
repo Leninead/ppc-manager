@@ -252,11 +252,12 @@ def _run(dash_repr: str) -> AppTest:
 
 
 def test_boton_de_descarga_presente_con_cuentas():
+    """El de HTML. El conteo total de botones lo fija
+    `test_agency_dashboard_excel.py`, que es donde se agregó el segundo."""
     at = _run(repr(_dash([_account()], periods=("2026-08",))))
     assert not at.exception
-    botones = at.get("download_button")
-    assert len(botones) == 1
-    assert "HTML" in botones[0].proto.label
+    labels = [b.proto.label for b in at.get("download_button")]
+    assert any("HTML" in l for l in labels), labels
 
 
 def test_sin_cuentas_no_hay_boton():

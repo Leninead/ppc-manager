@@ -26,10 +26,16 @@ from __future__ import annotations
 import html
 import re
 from datetime import date
+from io import BytesIO
 from typing import Optional
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from core.agency_dashboard_format import (
     _METRICS,
+    _PCT_METRICS,
     _acco_color,
     _account_df,
 )
@@ -245,3 +251,196 @@ def _build_agency_html(data: dict, generated_at: Optional[date] = None) -> str:
         f'<div class="wrap">\n{chr(10).join(cuerpo)}\n</div>\n'
         "</body>\n</html>\n"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Export XLSX — layout del mockup de Dirección, branding Capybaras
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Convenciones de `.claude/skills/ppc-reporting-standard.md`: portada con fila
+# naranja + fila negra, headers de tabla en negro con texto blanco, y `_autofit`
+# (min 8 / max 40) al final. La función vive FUERA de cualquier `render()` — es
+# la regla arquitectónica del estándar, que evita el "At least one sheet must be
+# visible" de openpyxl bajo el runtime de Streamlit.
+
+_XL_NARANJA = "E84000"
+_XL_NEGRO = "1F1F1F"
+_XL_BLANCO = "FFFFFF"
+_XL_GRIS = "6B7280"
+_XL_BANDA = "FFF3E0"      # naranja pálido del estándar, para la banda de cuenta
+
+_FILL_NARANJA = PatternFill("solid", start_color=_XL_NARANJA, end_color=_XL_NARANJA)
+_FILL_NEGRO = PatternFill("solid", start_color=_XL_NEGRO, end_color=_XL_NEGRO)
+_FILL_BANDA = PatternFill("solid", start_color=_XL_BANDA, end_color=_XL_BANDA)
+
+
+def _fill(color_hex: str) -> PatternFill:
+    """PatternFill sólido a partir de un color '#RRGGBB' del módulo de formato."""
+    rgb = color_hex.lstrip("#").upper()
+    return PatternFill("solid", start_color=rgb, end_color=rgb)
+
+
+def _autofit(ws, min_w: int = 8, max_w: int = 40) -> None:
+    """Ancho de columna al contenido, acotado (estándar: min 8, max 40)."""
+    anchos: dict[int, int] = {}
+    for row in ws.iter_rows():
+        for celda in row:
+            if celda.value is None:
+                continue
+            largo = max(len(linea) for linea in str(celda.value).split("\n"))
+            anchos[celda.column] = max(anchos.get(celda.column, 0), largo)
+    for col, largo in anchos.items():
+        ws.column_dimensions[get_column_letter(col)].width = min(
+            max(largo + 2, min_w), max_w
+        )
+
+
+def _tabla_excel(ws, account: dict, periods: list, fila: int) -> tuple:
+    """Escribe la tabla de UNA cuenta a partir de `fila`.
+
+    Returns:
+        (siguiente fila libre, si la cuenta tiene algún mes en curso).
+    """
+    df, hay_parcial = _account_df(account, periods)
+    months = account.get("months") or {}
+    acco_cols = [c for c in df.columns if c.endswith(" Acco")]
+    col_period = dict(zip(acco_cols, periods))
+    n_cols = 1 + len(df.columns)
+
+    # ── Banda con el nombre de la cuenta + su plan ──
+    nombre = str(account.get("name") or account.get("client_id") or "—")
+    if account.get("has_baseline"):
+        detalle = (f"Plan: {account.get('baseline_name')} "
+                   f"({account.get('baseline_created_at')})")
+    else:
+        detalle = "⚠ sin plan cargado"
+    ws.cell(row=fila, column=1, value=nombre).font = Font(
+        bold=True, size=12, color=_XL_NEGRO,
+    )
+    ws.cell(row=fila, column=2, value=detalle).font = Font(size=9, color=_XL_GRIS)
+    for col in range(1, n_cols + 1):
+        ws.cell(row=fila, column=col).fill = _FILL_BANDA
+    ws.row_dimensions[fila].height = 20
+    fila += 1
+
+    # ── Header de la tabla (negro, texto blanco) ──
+    encabezados = ["Métrica"] + [str(c) for c in df.columns]
+    for col, texto in enumerate(encabezados, start=1):
+        celda = ws.cell(row=fila, column=col, value=texto)
+        celda.fill = _FILL_NEGRO
+        celda.font = Font(bold=True, color=_XL_BLANCO, size=10)
+        celda.alignment = Alignment(
+            horizontal="left" if col == 1 else "center", vertical="center",
+        )
+    ws.row_dimensions[fila].height = 20
+    fila += 1
+
+    # ── Las 5 métricas ──
+    for metric_id, label in _METRICS:
+        ws.cell(row=fila, column=1, value=label).font = Font(bold=True, size=10)
+        for j, col_name in enumerate(df.columns, start=2):
+            celda = ws.cell(row=fila, column=j, value=str(df.loc[label, col_name]))
+            celda.alignment = Alignment(horizontal="right")
+            period = col_period.get(col_name)
+            # El semáforo va SOLO en las métricas de % (ver el docstring de
+            # `_build_agency_excel`). Sacar `and metric_id in _PCT_METRICS`
+            # devuelve el color a ACOS / TACOS.
+            if period is not None and metric_id in _PCT_METRICS:
+                acco = (months.get(period) or {}).get("accomplishment") or {}
+                color = _acco_color(metric_id, acco.get(metric_id))
+                if color:
+                    celda.fill = _fill(color)
+        fila += 1
+
+    return fila, hay_parcial
+
+
+def _build_agency_excel(data: dict, generated_at: Optional[date] = None) -> bytes:
+    """Workbook XLSX del Dashboard Global, con el layout del mockup de Dirección.
+
+    Una tabla por cuenta, apiladas: banda con el nombre, fila de meses (cada uno
+    ocupa dos columnas, Actual y Acco) y las 5 métricas. Los VALORES salen de
+    `_account_df` — los mismos strings que la pantalla y el export HTML, para
+    que los tres no puedan divergir.
+
+    SEMÁFORO SOLO EN LAS MÉTRICAS DE %: Revenue / Ad Sales / Ad Spend se pintan
+    con `_acco_color`; ACOS y TACOS van SIN relleno, solo el número con signo.
+    Es una desviación consciente de `ppc-reporting-standard.md` L129 ("nunca
+    mostrar ACoS sin semáforo"), que habla del ACoS ABSOLUTO —donde el color
+    orienta sobre si 22% o 76% está bien—. Acá la celda Acco no es un ACoS: es
+    un DELTA EN PUNTOS contra el plan, y el signo ya dice de qué lado estás. El
+    mockup de Dirección las muestra sin fondo.
+    Para revertirlo cuando Dirección confirme, alcanza con sacar
+    `and metric_id in _PCT_METRICS` en `_tabla_excel`: la regla vive en UNA
+    línea, a propósito.
+
+    Args:
+        data: lo que devuelve `_build_agency_dashboard` — el mismo dict que
+            consume la pantalla. No se reordena nada.
+        generated_at: fecha para la portada. Parámetro y no `date.today()`
+            adentro, para que la función sea determinística.
+
+    Returns:
+        Bytes del .xlsx. No escribe a disco.
+
+    Nota: los BYTES no son reproducibles entre corridas aunque la entrada sea la
+    misma — openpyxl estampa `dcterms:created` / `dcterms:modified` en
+    `docProps/core.xml` (medido). Lo determinístico es el CONTENIDO (celdas y
+    colores), que es lo que verifican los tests.
+    """
+    if generated_at is None:
+        generated_at = date.today()
+    gen = generated_at.isoformat()
+
+    periods = list(data.get("periods") or [])
+    accounts = list(data.get("accounts") or [])
+    n_cols = max(1 + 2 * len(periods), 6)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Dashboard general"
+
+    # ── Portada (estándar: fila naranja + fila negra + separador) ──
+    ws.cell(row=1, column=1, value="Dashboard Global de Agencia")
+    ws.cell(row=2, column=1, value=f"Capybaras Agency — {gen}")
+    for fila_p, relleno, tam in ((1, _FILL_NARANJA, 14), (2, _FILL_NEGRO, 11)):
+        ws.merge_cells(
+            start_row=fila_p, start_column=1, end_row=fila_p, end_column=n_cols,
+        )
+        for col in range(1, n_cols + 1):
+            celda = ws.cell(row=fila_p, column=col)
+            celda.fill = relleno
+            celda.font = Font(bold=(fila_p == 1), color=_XL_BLANCO, size=tam)
+        ws.row_dimensions[fila_p].height = 22
+
+    rango = f"{periods[0]} → {periods[-1]}" if periods else "sin meses"
+    plural = "s" if len(accounts) != 1 else ""
+    ws.cell(
+        row=3, column=1,
+        value=f"Meses: {rango} · {len(accounts)} cuenta{plural}",
+    ).font = Font(color=_XL_GRIS, size=10)
+
+    fila = 5
+    algun_parcial = False
+
+    if not accounts:
+        ws.cell(
+            row=fila, column=1,
+            value=("Sin cuentas para mostrar: ninguna tiene forecast cargado "
+                   "para esta ventana."),
+        ).font = Font(color=_XL_GRIS, italic=True)
+    else:
+        for account in accounts:
+            fila, hay_parcial = _tabla_excel(ws, account, periods, fila)
+            algun_parcial = algun_parcial or hay_parcial
+            fila += 2      # aire entre cuentas
+
+    if algun_parcial:
+        ws.cell(row=fila, column=1, value=_NOTA_MTD).font = Font(
+            color=_XL_GRIS, size=9, italic=True,
+        )
+
+    _autofit(ws)
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

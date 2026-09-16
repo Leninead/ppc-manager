@@ -20,7 +20,7 @@ import streamlit as st
 from core.agency_dashboard import _build_agency_dashboard
 # El formato y el semáforo viven en un módulo compartido: los consumen esta
 # pantalla y los exports (B3b). Una sola fuente de verdad del color.
-from core.agency_dashboard_export import _build_agency_html
+from core.agency_dashboard_export import _build_agency_excel, _build_agency_html
 from core.agency_dashboard_format import (
     _account_df,
     _build_periods,
@@ -117,13 +117,24 @@ def render(username: str = "", role: str = roles.USER) -> None:
     # están en memoria) y así el archivo siempre refleja la ventana que el AM
     # tiene en pantalla, sin un botón de "generar" intermedio.
     hoy = date.today()
-    st.download_button(
+    col_html, col_xlsx, _sp_dl = st.columns([1, 1, 3])
+    col_html.download_button(
         "⬇️ Descargar HTML",
         data=_build_agency_html(data, generated_at=hoy),
         file_name=f"dashboard-global-agencia-{hoy.isoformat()}.html",
         mime="text/html",
         key="m39_dl_html",
         help="Documento standalone: se abre con doble clic y se manda por mail.",
+        use_container_width=True,
+    )
+    col_xlsx.download_button(
+        "⬇️ Descargar Excel",
+        data=_build_agency_excel(data, generated_at=hoy),
+        file_name=f"dashboard-global-agencia-{hoy.isoformat()}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="m39_dl_xlsx",
+        help="Mismo layout que la pantalla, con el semáforo en las métricas de %.",
+        use_container_width=True,
     )
 
     algun_parcial = False
