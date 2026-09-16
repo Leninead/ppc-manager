@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from core import agency_dashboard_format as fmt
 from modules.pages import agency_dashboard_page as page
 
 
@@ -66,43 +67,43 @@ _MES_REAL = {
 
 class TestFmtAcco:
     def test_pct_para_revenue_ad_sales_y_spend(self):
-        assert page._fmt_acco("revenue", 90.0) == "90.0%"
-        assert page._fmt_acco("ventasPPC", 75.24) == "75.2%"
-        assert page._fmt_acco("ventasPPC", 75.26) == "75.3%"
-        assert page._fmt_acco("spend", 120.0) == "120.0%"
+        assert fmt._fmt_acco("revenue", 90.0) == "90.0%"
+        assert fmt._fmt_acco("ventasPPC", 75.24) == "75.2%"
+        assert fmt._fmt_acco("ventasPPC", 75.26) == "75.3%"
+        assert fmt._fmt_acco("spend", 120.0) == "120.0%"
 
     def test_empate_de_redondeo_usa_el_bancario_de_python(self):
         """`format` redondea al par en los empates: 75.25 → "75.2", no "75.3".
         Se fija acá para que nadie lo lea como un bug de la tabla. Es display:
         ningún cálculo depende de este decimal."""
-        assert page._fmt_acco("ventasPPC", 75.25) == "75.2%"
+        assert fmt._fmt_acco("ventasPPC", 75.25) == "75.2%"
 
     def test_delta_con_signo_para_acos_y_tacos(self):
-        assert page._fmt_acco("acos", 1.0) == "+1.0"
-        assert page._fmt_acco("acos", -1.0) == "-1.0"
-        assert page._fmt_acco("tacos", 2.5) == "+2.5"
-        assert page._fmt_acco("tacos", 0.0) == "+0.0"
+        assert fmt._fmt_acco("acos", 1.0) == "+1.0"
+        assert fmt._fmt_acco("acos", -1.0) == "-1.0"
+        assert fmt._fmt_acco("tacos", 2.5) == "+2.5"
+        assert fmt._fmt_acco("tacos", 0.0) == "+0.0"
 
     def test_delta_no_lleva_porcentaje(self):
-        assert "%" not in page._fmt_acco("acos", 1.0)
+        assert "%" not in fmt._fmt_acco("acos", 1.0)
 
     def test_none_es_cadena_vacia(self):
         for metric in ("revenue", "ventasPPC", "spend", "acos", "tacos"):
-            assert page._fmt_acco(metric, None) == ""
+            assert fmt._fmt_acco(metric, None) == ""
 
 
 class TestFmtActual:
     def test_moneda_para_revenue_ad_sales_y_spend(self):
-        assert page._fmt_actual("revenue", 9000.0, "USD") == "USD 9,000"
-        assert page._fmt_actual("spend", 1234.56, "MXN") == "MXN 1,235"
+        assert fmt._fmt_actual("revenue", 9000.0, "USD") == "USD 9,000"
+        assert fmt._fmt_actual("spend", 1234.56, "MXN") == "MXN 1,235"
 
     def test_pct_para_acos_y_tacos(self):
-        assert page._fmt_actual("acos", 30.0, "USD") == "30.0%"
-        assert page._fmt_actual("tacos", 9.87, "USD") == "9.9%"
+        assert fmt._fmt_actual("acos", 30.0, "USD") == "30.0%"
+        assert fmt._fmt_actual("tacos", 9.87, "USD") == "9.9%"
 
     def test_none_es_cadena_vacia(self):
-        assert page._fmt_actual("revenue", None, "USD") == ""
-        assert page._fmt_actual("acos", None, "USD") == ""
+        assert fmt._fmt_actual("revenue", None, "USD") == ""
+        assert fmt._fmt_actual("acos", None, "USD") == ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,52 +112,52 @@ class TestFmtActual:
 
 class TestAccoColor:
     def test_revenue_verde_amarillo_rojo(self):
-        assert page._acco_color("revenue", 92.0) == page._VERDE
-        assert page._acco_color("revenue", 90.0) == page._VERDE
-        assert page._acco_color("revenue", 87.0) == page._AMARILLO
-        assert page._acco_color("revenue", 85.0) == page._AMARILLO
-        assert page._acco_color("revenue", 80.0) == page._ROJO
+        assert fmt._acco_color("revenue", 92.0) == fmt._VERDE
+        assert fmt._acco_color("revenue", 90.0) == fmt._VERDE
+        assert fmt._acco_color("revenue", 87.0) == fmt._AMARILLO
+        assert fmt._acco_color("revenue", 85.0) == fmt._AMARILLO
+        assert fmt._acco_color("revenue", 80.0) == fmt._ROJO
 
     def test_mismo_criterio_para_ad_sales_y_spend(self):
-        assert page._acco_color("ventasPPC", 95.0) == page._VERDE
-        assert page._acco_color("spend", 70.0) == page._ROJO
+        assert fmt._acco_color("ventasPPC", 95.0) == fmt._VERDE
+        assert fmt._acco_color("spend", 70.0) == fmt._ROJO
 
     def test_acos_signo_invertido(self):
         """EL test: en ACOS un delta POSITIVO es peor (gastó más que el plan)."""
-        assert page._acco_color("acos", -1.0) == page._VERDE
-        assert page._acco_color("acos", 0.0) == page._VERDE
-        assert page._acco_color("acos", 1.0) == page._AMARILLO
-        assert page._acco_color("acos", 2.0) == page._AMARILLO
-        assert page._acco_color("acos", 3.0) == page._ROJO
+        assert fmt._acco_color("acos", -1.0) == fmt._VERDE
+        assert fmt._acco_color("acos", 0.0) == fmt._VERDE
+        assert fmt._acco_color("acos", 1.0) == fmt._AMARILLO
+        assert fmt._acco_color("acos", 2.0) == fmt._AMARILLO
+        assert fmt._acco_color("acos", 3.0) == fmt._ROJO
         # Un +1 en ACOS NO se puede leer con la regla de revenue.
-        assert page._acco_color("acos", 1.0) != page._acco_color("revenue", 1.0)
+        assert fmt._acco_color("acos", 1.0) != fmt._acco_color("revenue", 1.0)
 
     def test_tacos_mismo_criterio_que_acos(self):
-        assert page._acco_color("tacos", -0.5) == page._VERDE
-        assert page._acco_color("tacos", 2.0) == page._AMARILLO
-        assert page._acco_color("tacos", 2.1) == page._ROJO
+        assert fmt._acco_color("tacos", -0.5) == fmt._VERDE
+        assert fmt._acco_color("tacos", 2.0) == fmt._AMARILLO
+        assert fmt._acco_color("tacos", 2.1) == fmt._ROJO
 
     def test_delta_bajo_la_resolucion_de_la_celda_es_verde(self):
         """EL test del bug que encontró el smoke de M39: un delta de +1.3e-06
         se muestra como "+0.0" (la celda tiene 1 decimal) y se pintaba AMARILLO.
         Una cuenta clavada en el target no puede salir como advertencia."""
-        assert page._acco_color("acos", 0.00001) == page._VERDE
-        assert page._acco_color("tacos", 1.3e-06) == page._VERDE
+        assert fmt._acco_color("acos", 0.00001) == fmt._VERDE
+        assert fmt._acco_color("tacos", 1.3e-06) == fmt._VERDE
 
     def test_bordes_del_epsilon(self):
-        assert page._acco_color("acos", 0.05) == page._VERDE      # borde inferior
-        assert page._acco_color("acos", 0.06) == page._AMARILLO   # un paso más
+        assert fmt._acco_color("acos", 0.05) == fmt._VERDE      # borde inferior
+        assert fmt._acco_color("acos", 0.06) == fmt._AMARILLO   # un paso más
 
     def test_el_epsilon_no_toca_el_regimen_de_porcentaje(self):
         """El epsilon es SOLO para el delta en puntos. Revenue sigue igual."""
-        assert page._acco_color("revenue", 92.0) == page._VERDE
-        assert page._acco_color("revenue", 87.0) == page._AMARILLO
-        assert page._acco_color("revenue", 78.0) == page._ROJO
-        assert page._acco_color("spend", 0.05) == page._ROJO      # 0,05% de plan
+        assert fmt._acco_color("revenue", 92.0) == fmt._VERDE
+        assert fmt._acco_color("revenue", 87.0) == fmt._AMARILLO
+        assert fmt._acco_color("revenue", 78.0) == fmt._ROJO
+        assert fmt._acco_color("spend", 0.05) == fmt._ROJO      # 0,05% de plan
 
     def test_none_sin_color(self):
-        assert page._acco_color("revenue", None) == ""
-        assert page._acco_color("acos", None) == ""
+        assert fmt._acco_color("revenue", None) == ""
+        assert fmt._acco_color("acos", None) == ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -166,25 +167,25 @@ class TestAccoColor:
 class TestPeriods:
     def test_ventana_default_2_atras_3_adelante(self):
         from datetime import date
-        periods = page._build_periods(2, 3, hoy=date(2026, 9, 15))
+        periods = fmt._build_periods(2, 3, hoy=date(2026, 9, 15))
         assert periods == ["2026-07", "2026-08", "2026-09", "2026-10",
                            "2026-11", "2026-12"]
 
     def test_ventana_cruza_anios(self):
         from datetime import date
-        periods = page._build_periods(2, 1, hoy=date(2026, 1, 10))
+        periods = fmt._build_periods(2, 1, hoy=date(2026, 1, 10))
         assert periods == ["2025-11", "2025-12", "2026-01", "2026-02"]
 
     def test_ventana_minima_solo_mes_actual(self):
         from datetime import date
-        assert page._build_periods(0, 0, hoy=date(2026, 9, 1)) == ["2026-09"]
+        assert fmt._build_periods(0, 0, hoy=date(2026, 9, 1)) == ["2026-09"]
 
     def test_label_mes_abreviado_en_espaniol(self):
-        assert page._month_label("2026-08", with_year=False) == "Ago"
-        assert page._month_label("2026-12", with_year=False) == "Dic"
+        assert fmt._month_label("2026-08", with_year=False) == "Ago"
+        assert fmt._month_label("2026-12", with_year=False) == "Dic"
 
     def test_label_con_anio_cuando_la_ventana_cruza_anios(self):
-        assert page._month_label("2026-01", with_year=True) == "Ene 26"
+        assert fmt._month_label("2026-01", with_year=True) == "Ene 26"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -203,11 +204,11 @@ class TestAccountDf:
         })
 
     def test_filas_en_el_orden_del_mockup(self):
-        df, _ = page._account_df(self._acc(), ["2026-08", "2026-09", "2026-10"])
+        df, _ = fmt._account_df(self._acc(), ["2026-08", "2026-09", "2026-10"])
         assert list(df.index) == ["Revenue", "Ad Sales", "Ad Spend", "ACOS", "TACOS"]
 
     def test_columnas_aplanadas_actual_y_acco_por_mes(self):
-        df, _ = page._account_df(self._acc(), ["2026-08", "2026-09", "2026-10"])
+        df, _ = fmt._account_df(self._acc(), ["2026-08", "2026-09", "2026-10"])
         assert list(df.columns) == [
             "Ago Actual", "Ago Acco",
             "Sep* Actual", "Sep* Acco",
@@ -215,31 +216,31 @@ class TestAccountDf:
         ]
 
     def test_valores_formateados(self):
-        df, _ = page._account_df(self._acc(), ["2026-08", "2026-09"])
+        df, _ = fmt._account_df(self._acc(), ["2026-08", "2026-09"])
         assert df.loc["Revenue", "Ago Actual"] == "USD 9,000"
         assert df.loc["Revenue", "Ago Acco"] == "90.0%"
         assert df.loc["ACOS", "Ago Actual"] == "30.0%"
         assert df.loc["ACOS", "Ago Acco"] == "+1.0"
 
     def test_mes_futuro_queda_vacio_pero_con_columnas(self):
-        df, _ = page._account_df(self._acc(), ["2026-08", "2026-10"])
+        df, _ = fmt._account_df(self._acc(), ["2026-08", "2026-10"])
         assert (df["Oct Actual"] == "").all()
         assert (df["Oct Acco"] == "").all()
 
     def test_metrica_sin_dato_queda_vacia(self):
-        df, _ = page._account_df(self._acc(), ["2026-09"])
+        df, _ = fmt._account_df(self._acc(), ["2026-09"])
         assert df.loc["Ad Sales", "Sep* Actual"] == ""
         assert df.loc["ACOS", "Sep* Actual"] == ""
         assert df.loc["ACOS", "Sep* Acco"] == ""
 
     def test_ningun_none_crudo_en_el_df(self):
         """Arrow-safe: todas las celdas son str antes de llegar a st.dataframe."""
-        df, _ = page._account_df(self._acc(), ["2026-08", "2026-09", "2026-10"])
+        df, _ = fmt._account_df(self._acc(), ["2026-08", "2026-09", "2026-10"])
         assert not df.isna().any().any()
         assert all(isinstance(v, str) for v in df.to_numpy().ravel())
 
     def test_marca_de_parcial_en_el_mes_y_en_el_flag(self):
-        df, hay_parcial = page._account_df(self._acc(), ["2026-08", "2026-09"])
+        df, hay_parcial = fmt._account_df(self._acc(), ["2026-08", "2026-09"])
         assert hay_parcial is True
         assert any(c.startswith("Sep*") for c in df.columns)
         assert not any(c.startswith("Ago*") for c in df.columns)
@@ -247,7 +248,7 @@ class TestAccountDf:
     def test_sin_parcial_no_marca(self):
         acc = _account(months={"2026-08": _cell(actual=_MES_REAL["actual"],
                                                 partial=False)})
-        df, hay_parcial = page._account_df(acc, ["2026-08"])
+        df, hay_parcial = fmt._account_df(acc, ["2026-08"])
         assert hay_parcial is False
         assert list(df.columns) == ["Ago Actual", "Ago Acco"]
 
@@ -255,14 +256,14 @@ class TestAccountDf:
         acc = _account(has_baseline=False, months={
             "2026-08": _cell(actual=_MES_REAL["actual"], partial=False),
         })
-        df, _ = page._account_df(acc, ["2026-08"])
+        df, _ = fmt._account_df(acc, ["2026-08"])
         assert df.loc["Revenue", "Ago Actual"] == "USD 9,000"
         assert (df["Ago Acco"] == "").all()
 
     def test_moneda_de_la_cuenta(self):
         acc = _account(currency="MXN", months={
             "2026-08": _cell(actual=_MES_REAL["actual"], partial=False)})
-        df, _ = page._account_df(acc, ["2026-08"])
+        df, _ = fmt._account_df(acc, ["2026-08"])
         assert df.loc["Revenue", "Ago Actual"].startswith("MXN")
 
 
@@ -274,6 +275,7 @@ _APP = """
 import sys
 sys.path.insert(0, r"__REPO_ROOT__")
 import streamlit as st
+from core import agency_dashboard_format as fmt
 from modules.pages import agency_dashboard_page as page
 
 llamadas = []
@@ -377,18 +379,18 @@ def test_style_df_pinta_la_celda_correcta_de_cada_mes():
                          acco={"revenue": 70.0, "acos": 5.0}, partial=False),
     })
     periods = ["2026-08", "2026-09"]
-    df, _ = page._account_df(acc, periods)
-    estilos = page._style_df(acc, periods, df)._compute().ctx
+    df, _ = fmt._account_df(acc, periods)
+    estilos = fmt._style_df(acc, periods, df)._compute().ctx
 
     def _css(fila: str, col: str) -> str:
         i = list(df.index).index(fila)
         j = list(df.columns).index(col)
         return ";".join(p for pair in estilos.get((i, j), []) for p in pair)
 
-    assert page._VERDE in _css("Revenue", "Ago Acco")
-    assert page._ROJO in _css("Revenue", "Sep Acco")
-    assert page._VERDE in _css("ACOS", "Ago Acco")     # delta -1 = mejor que el plan
-    assert page._ROJO in _css("ACOS", "Sep Acco")      # delta +5 = peor
+    assert fmt._VERDE in _css("Revenue", "Ago Acco")
+    assert fmt._ROJO in _css("Revenue", "Sep Acco")
+    assert fmt._VERDE in _css("ACOS", "Ago Acco")     # delta -1 = mejor que el plan
+    assert fmt._ROJO in _css("ACOS", "Sep Acco")      # delta +5 = peor
     # Las columnas Actual nunca se pintan.
     assert _css("Revenue", "Ago Actual") == ""
     assert _css("ACOS", "Sep Actual") == ""
@@ -398,5 +400,5 @@ def test_style_df_sin_dato_no_pinta():
     acc = _account(has_baseline=False, months={
         "2026-08": _cell(actual=_MES_REAL["actual"], partial=False)})
     periods = ["2026-08"]
-    df, _ = page._account_df(acc, periods)
-    assert page._style_df(acc, periods, df)._compute().ctx == {}
+    df, _ = fmt._account_df(acc, periods)
+    assert fmt._style_df(acc, periods, df)._compute().ctx == {}
