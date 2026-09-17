@@ -1,4 +1,5 @@
 """El análisis guardado del Bid Optimizer: su spec, su ventana y su payload."""
+import pathlib
 from datetime import date
 
 import pandas as pd
@@ -201,3 +202,21 @@ def test_an_account_whose_history_does_not_reach_back_is_not_asked_for_the_previ
                             date(2026, 9, 10), date(2026, 9, 16), "es")
 
     assert reports.windows == [(date(2026, 9, 10), date(2026, 9, 16))]
+
+
+def test_the_migration_lets_the_database_accept_this_module():
+    """El RPC de la migración 010 tenía 'str' escrito a mano: un módulo nuevo recibía invalid_request."""
+    migration = pathlib.Path("deploy/db/migrations/011_bid_optimizer_analysis.sql").read_text(encoding="utf-8")
+
+    assert "ai_analysis_module_allowed" in migration
+    assert "'str', 'bid_optimizer'" in migration
+    # Los dos RPCs que llama la app dejan de comparar el módulo a mano.
+    assert migration.count("not ai_analysis_module_allowed(p_module)") == 2
+    assert "add column if not exists records" in migration
+
+
+def test_a_refusal_the_page_cannot_translate_still_names_its_reason():
+    from core.ai_analysis.stored_tab import REQUEST_REFUSED, REQUEST_REFUSED_UNKNOWN
+
+    assert "migración" in REQUEST_REFUSED["invalid_request"]
+    assert "motivo_nuevo" in REQUEST_REFUSED_UNKNOWN.format(reason="motivo_nuevo")

@@ -27,6 +27,16 @@ REQUEST_FEEDBACK = {
     "already_done": "Ya existe el análisis de estos datos.",
 }
 READ_FAILED = "No se pudo leer el análisis IA guardado. Probá de nuevo en unos segundos."
+# Por qué la base rechazó el pedido. Un mensaje sin causa deja al AM sin nada que hacer y a quien
+# mira el problema sin por dónde empezar.
+REQUEST_REFUSED = {
+    "invalid_request": ("La base no acepta pedidos de análisis para este módulo todavía: falta correr la "
+                        "migración que lo habilita. Avisale a un admin."),
+    "profile_unavailable": ("Esta cuenta no está activa o todavía no tiene datos sincronizados, así que no se "
+                            "puede pedir el análisis."),
+    "invalid_window": "El período elegido no entra en los datos sincronizados de esta cuenta.",
+}
+REQUEST_REFUSED_UNKNOWN = "No se pudo pedir el análisis para esta cuenta o este período ({reason})."
 NO_DATABASE = "No hay base de datos configurada para pedir el análisis."
 PENDING_TITLE = "Análisis IA pendiente"
 PENDING_AUTO = ("Todavía no hay un análisis de estos datos. Se genera solo cuando llegan datos nuevos de Amazon "
@@ -155,7 +165,8 @@ def _render_request(module, key_prefix, source, input_digest, params, account_pa
     forget_reads()
     message = REQUEST_FEEDBACK.get(outcome.reason)
     if message is None:
-        st.warning("No se pudo pedir el análisis para esta cuenta o este período.")
+        st.warning(REQUEST_REFUSED.get(outcome.reason,
+                                       REQUEST_REFUSED_UNKNOWN.format(reason=outcome.reason)))
         return
     # A toast sent right before st.rerun() is dropped with the run; the next run shows it.
     st.session_state[feedback_key] = message
