@@ -273,8 +273,8 @@ def test_a_database_that_fails_is_told_apart_from_one_with_no_analyses(monkeypat
 
 def test_the_orchestrator_is_an_agent_with_amazon_ads_and_datadive_tools():
     assert runtime.agent_tools("orchestrator") == ["amazon_ads", "datadive"]
-    assert runtime._agent("orchestrator")["meta"]["model"] == "claude-fable-5-1"
-    assert runtime._agent("orchestrator")["meta"]["effort"] == "low"
+    assert runtime._agent("orchestrator")["meta"]["model"] == "claude-opus-5"
+    assert runtime._agent("orchestrator")["meta"]["effort"] == "high"
     assert runtime._agent("orchestrator")["meta"]["timeout_s"] == "3600"
     system = runtime._agent("orchestrator")["system"]
     for section in ("<fuentes>", "<elegir_la_fuente>", "<estado_de_la_app>", "<clientes>"):
@@ -309,7 +309,8 @@ app_chat.mount_app_chat("🏠 Inicio")
 
 def test_an_answer_keeps_the_annotation_of_the_analyses_it_was_answered_from(monkeypatch):
     """The page shown later can reuse the same row ids for another client: an answer is annotated once."""
-    monkeypatch.setattr(runtime.client, "ask", lambda **call: {"text": "Frenar N01", "session_id": "s1"})
+    monkeypatch.setattr(runtime.client, "ask_stream",
+                        lambda **call: iter([{"type": "result", "text": "Frenar N01", "session_id": "s1"}]))
     monkeypatch.setattr(runtime, "usable_tools", lambda slug, scope: [])
     monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
     app = AppTest.from_string("""
@@ -336,7 +337,8 @@ floating_chat(chat_id="t", agent="orchestrator", session_key=lambda: "k", turn=l
 
 def test_the_turn_is_built_when_the_am_sends_and_never_on_a_plain_render(monkeypatch):
     sent = []
-    monkeypatch.setattr(runtime.client, "ask", lambda **call: sent.append(call) or {"text": "ok", "session_id": "s1"})
+    monkeypatch.setattr(runtime.client, "ask_stream", lambda **call: sent.append(call) or iter(
+        [{"type": "result", "text": "ok", "session_id": "s1"}]))
     monkeypatch.setattr(runtime, "usable_tools", lambda slug, scope: [])
     monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
     app = AppTest.from_string("""

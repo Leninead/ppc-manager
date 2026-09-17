@@ -96,8 +96,8 @@ def _wait(analysis, timeout=5.0):
 class TestAgentOnDisk:
     def test_runtime_loads_sqp_agent(self):
         agent = ai_runtime._agent("sqp")
-        assert agent["meta"]["model"] == "claude-fable-5-1"
-        assert agent["meta"]["effort"] == "low"
+        assert agent["meta"]["model"] == "claude-opus-5"
+        assert agent["meta"]["effort"] == "high"
         assert agent["meta"]["timeout_s"] == "3600"
         assert "analista senior" in agent["system"]
 

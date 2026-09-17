@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 AGENTS_DIR = Path(__file__).parent / "agents"
+# Structured output is emitted through an internal tool call, which costs turns beyond the answer.
+STRUCTURED_OUTPUT_TURNS = 4
 _CHAT_RULES_PATH = AGENTS_DIR / "_shared" / "chat.md"
 CHAT_RULES = _CHAT_RULES_PATH.read_text(encoding="utf-8") if _CHAT_RULES_PATH.exists() else ""
 
@@ -68,8 +70,7 @@ def build_agent_call(slug: str, data) -> AgentCall:
     model = meta.get("model", "opus")
     effort = meta.get("effort") or None
     system = system_prompt(slug)
-    # Structured output is emitted through an internal tool call, which costs turns beyond the answer.
-    max_turns = 4 if schema else 1
+    max_turns = STRUCTURED_OUTPUT_TURNS if schema else 1
     call = dict(system=system, input_text=input_text, context=docs, model=model, effort=effort,
                 output_schema=schema, max_turns=max_turns, timeout_s=int(meta.get("timeout_s", 3600)), tag=slug)
     return AgentCall(

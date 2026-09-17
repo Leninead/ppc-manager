@@ -20,6 +20,8 @@ import streamlit.components.v1 as components
 
 from ai import runtime
 from ai.client import AIError
+from core import chat_components
+from core.chat_components.base import ACCENT, esc, prose_html
 
 
 @dataclass(frozen=True)
@@ -37,7 +39,7 @@ class ChatTurn:
     ads_scope: dict | None = None
     annotate: Callable[[str], str] | None = None
 
-_ACCENT = "#E84000"
+_ACCENT = ACCENT
 
 _L = {
     "es": {"title": "Chat IA",
@@ -52,7 +54,12 @@ _L = {
            "error": "No se pudo responder",
            # Aparecen solas, por CSS, a los 8 y a los 25 segundos.
            "wait_tools": "Buscando los datos…",
-           "wait_long": "Sigue trabajando. Puede tardar hasta un minuto."},
+           "wait_long": "Sigue trabajando. Puede tardar unos minutos.",
+           "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive",
+           "reads": {"reports": "Reportes", "ad_groups": "Ad groups", "targets": "Targets",
+                     "budgets": "Presupuestos", "portfolios": "Portfolios", "campaigns": "Campañas",
+                     "accounts": "Cuentas", "competitors": "Competidores", "keywords": "Keywords",
+                     "rank_radar": "Rank Radar", "niches": "Niches"}},
     "en": {"title": "AI chat",
            "subtitle": "app analyses and Amazon Ads",
            "empty": "Ask about an analysis in the app, an Amazon Ads "
@@ -64,63 +71,93 @@ _L = {
            "close": "Close",
            "error": "Could not answer",
            "wait_tools": "Looking up the data…",
-           "wait_long": "Still working. This can take up to a minute."},
+           "wait_long": "Still working. This can take a few minutes.",
+           "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive",
+           "reads": {"reports": "Reports", "ad_groups": "Ad groups", "targets": "Targets",
+                     "budgets": "Budgets", "portfolios": "Portfolios", "campaigns": "Campaigns",
+                     "accounts": "Accounts", "competitors": "Competitors", "keywords": "Keywords",
+                     "rank_radar": "Rank Radar", "niches": "Niches"}},
 }
 
 
-def _esc(text: str) -> str:
-    return html.escape(str(text)).replace("$", "&#36;")
-
-
-def _md_bold(safe: str) -> str:
-    """Re-apply ONLY the model's **bold** after escaping; leaves the rest inert."""
-    parts = safe.split("**")
-    if len(parts) < 3:
-        return safe
-    if len(parts) % 2 == 0:  # unmatched trailing marker stays literal
-        parts[-2] = parts[-2] + "**" + parts[-1]
-        parts = parts[:-1]
-    return "".join(f"<b>{p}</b>" if i % 2 else p for i, p in enumerate(parts))
-
-
 def _user_bubble(text: str) -> str:
-    safe = _esc(text).replace("\n", "<br>")
+    safe = esc(text).replace("\n", "<br>")
     return ('<div style="display:flex;justify-content:flex-end;margin:5px 0">'
             f'<div style="background:{_ACCENT};color:#fff;max-width:82%;'
             'border-radius:16px 16px 4px 16px;padding:10px 14px;'
             f'font-size:16px;line-height:1.5">{safe}</div></div>')
 
 
-def _assistant_bubble(text: str) -> str:
-    paras = [p.strip() for p in str(text).split("\n\n") if p.strip()]
-    blocks = []
-    for p in paras:
-        rich = _md_bold(_esc(p))  # bold before line split so it never breaks
-        lines = []
-        for ln in rich.split("\n"):
-            if ln.strip().startswith("- "):
-                lines.append('<div style="display:flex;gap:7px;margin:3px 0">'
-                             f'<span>•</span><span>{ln.strip()[2:]}</span></div>')
-            elif ln.strip():
-                lines.append(f'<div style="margin:2px 0">{ln}</div>')
-        blocks.append(f'<div style="margin:0 0 8px 0">{"".join(lines)}</div>')
-    body = "".join(blocks) or "<p style='margin:0'>…</p>"
+def _assistant_bubble(text: str, blocks: list[dict] | None = None) -> str:
+    """An answer in components is drawn by them; an answer without, from its prose."""
+    body = (chat_components.render(blocks) if blocks else prose_html(text)) or "<p style='margin:0'>…</p>"
     return ('<div style="display:flex;justify-content:flex-start;margin:5px 0">'
             '<div style="background:#FFFFFF;border:1px solid #E0DCD4;'
             'color:#1F1F1F;width:100%;border-radius:16px 16px 16px 4px;'
             f'padding:10px 14px;font-size:15px;line-height:1.6">{body}</div></div>')
 
 
+_TOOL_SOURCES = (
+    ("mcp__amazon_ads__", "src_amazon_ads",
+     # Matched against the operation, first hit wins: "campaign_management-query_ad_group"
+     # reads ad groups, and "create_campaign_report" is a report.
+     (("report", "reports"), ("ad_group", "ad_groups"), ("target", "targets"),
+      ("keyword", "targets"), ("budget", "budgets"), ("portfolio", "portfolios"),
+      ("campaign", "campaigns"), ("account", "accounts"), ("profile", "accounts"))),
+    ("mcp__datadive__", "src_datadive",
+     (("quota", None), ("competitor", "competitors"), ("keyword", "keywords"),
+      ("rank_radar", "rank_radar"), ("niche", "niches"))),
+)
+
+
+def _tool_label(name: str, labels: dict) -> str | None:
+    """What a tool read, in the AM's words, or None for one that reads nothing of theirs.
+
+    The raw name is the model's vocabulary ("mcp__amazon_ads__campaign_management-
+    query_campaign"): showing it is the column-name problem the AI outputs already had."""
+    for prefix, source, reads in _TOOL_SOURCES:
+        if not name.startswith(prefix):
+            continue
+        operation = name[len(prefix):].split("-", 1)[-1]
+        for word, key in reads:
+            if word in operation:
+                return f'{labels["reads"][key]} · {labels[source]}' if key else None
+        return labels[source]
+    return None  # Skill, Read and the SDK's own tools are machinery, not sources
+
+
+def _tool_labels(names, labels: dict) -> list[str]:
+    seen: list[str] = []
+    for name in names:
+        label = _tool_label(str(name), labels)
+        if label and label not in seen:
+            seen.append(label)
+    return seen
+
+
+def _tools_row(tool_labels: list[str]) -> str:
+    if not tool_labels:
+        return ""
+    chips = "".join('<span style="font-size:12px;line-height:1.5;color:#5F5B53;'
+                    'background:#EFEBE4;border-radius:6px;padding:1px 8px;white-space:nowrap">'
+                    f'{html.escape(label)}</span>' for label in tool_labels)
+    return f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0 2px">{chips}</div>'
+
+
+def _assistant_turn(turn: dict) -> str:
+    """Chips and bubble inside one element: the thread lays its children out in reverse."""
+    return ("<div>" + _tools_row(turn.get("tools") or [])
+            + _assistant_bubble(turn.get("shown", turn["text"]), turn.get("blocks")) + "</div>")
+
+
 def _typing(labels: dict) -> str:
     """Dots, then a line saying the wait is normal, then one saying it is long.
 
-    Both lines ship in the markup and surface on a CSS delay. They cannot be
-    pushed from Python: `ask_followup` is synchronous, so the Streamlit script
-    thread is held for the whole turn and nothing repaints until the answer is
-    back. The browser keeps animating regardless, which is why the timing lives
-    in CSS. Measured before this existed: 32.8s median wait, 60.1s worst, and
-    three dots that looked identical whether it took three seconds, a minute, or
-    had died.
+    Both lines ship in the markup and surface on a CSS delay. Python repaints the
+    wait only when the provider reports a tool, so a turn that reads nothing, or
+    one tool that runs long, would otherwise show the same three dots whether it
+    took three seconds, a minute, or had died. Measured before this existed, on a
+    faster model at low effort: 32.8s median wait, 60.1s worst.
     """
     return ('<div class="ia-dots" style="padding:6px 4px">'
             '<span></span><span></span><span></span></div>'
@@ -369,8 +406,7 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                     # unsafe_allow_html, so scrolling it from JS is not on the
                     # table here; this does it in CSS.
                     thread = "".join(
-                        _user_bubble(t["text"]) if t["role"] == "user"
-                        else _assistant_bubble(t.get("shown", t["text"]))
+                        _user_bubble(t["text"]) if t["role"] == "user" else _assistant_turn(t)
                         for t in reversed(history))
                     # `resize` gives the AM the drag handle they asked for: a
                     # long answer about a dozen campaigns does not fit in half a
@@ -422,18 +458,43 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                     sending = turn()
                     sid = st.session_state.get(sid_key)
                     with live:
-                        st.markdown(_user_bubble(question) + _typing(L),
-                                    unsafe_allow_html=True)
+                        # One element rewritten on every tool the provider reports,
+                        # while the answer is still being worked out.
+                        waiting = st.empty()
+                        asked: list[str] = []
+                        reading: list[str] = []
+                        waiting.markdown(_user_bubble(question) + _typing(L),
+                                         unsafe_allow_html=True)
                         try:
-                            text, new_sid = runtime.ask_followup(
-                                agent, sid, question, ads_scope=sending.ads_scope,
-                                context_docs=sending.documents, note=sending.note,
-                                thread=list(history))
-                            st.session_state[sid_key] = new_sid
+                            reply = None
+                            for event in runtime.stream_followup(
+                                    agent, sid, question, ads_scope=sending.ads_scope,
+                                    context_docs=sending.documents, note=sending.note,
+                                    thread=list(history)):
+                                if event["type"] == "reply":
+                                    reply = event["reply"]
+                                    continue
+                                asked.append(event["name"])
+                                labels = _tool_labels(asked, L)
+                                if labels != reading:
+                                    reading = labels
+                                    waiting.markdown(
+                                        _user_bubble(question) + _tools_row(reading) + _typing(L),
+                                        unsafe_allow_html=True)
+                            if reply is None:
+                                raise AIError("el provider no devolvió la respuesta")
+                            st.session_state[sid_key] = reply.session_id
                             # Annotated once, against the analyses it was answered
                             # from: the page shown later may reuse the same row ids.
-                            shown = sending.annotate(text) if sending.annotate else text
-                            answer = {"role": "assistant", "text": text, "shown": shown}
+                            blocks = reply.blocks
+                            if blocks and sending.annotate:
+                                blocks = chat_components.map_strings(blocks, sending.annotate)
+                            if blocks:
+                                shown = chat_components.plain_text(blocks)
+                            else:
+                                shown = sending.annotate(reply.text) if sending.annotate else reply.text
+                            answer = {"role": "assistant", "text": reply.text, "shown": shown,
+                                      "blocks": blocks, "tools": _tool_labels(reply.tool_calls, L)}
                         except AIError as e:
                             failure = f"{L['error']}: {e}"
                             answer = {"role": "assistant", "text": failure, "shown": failure,
