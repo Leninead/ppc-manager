@@ -24,7 +24,7 @@ def test_the_turn_is_ask_followups_plus_the_catalog_the_model_reads_and_the_sche
     assert streamed[0].pop("output_schema") == chat_components.SCHEMA and asked[0].pop("output_schema") is None
     assert streamed[0].pop("system") == asked[0].pop("system") + "\n\n" + chat_components.GUIDE
     # Without tools the answer still needs turns for the StructuredOutput call.
-    assert streamed[0].pop("max_turns") == runtime.agent_call.STRUCTURED_OUTPUT_TURNS
+    assert streamed[0].pop("max_turns") == runtime._MAX_TOOL_TURNS
     assert asked[0].pop("max_turns") == 1
     assert streamed[0] == asked[0]
     assert "<componentes>" not in asked[0]["input_text"]
@@ -36,7 +36,7 @@ def test_a_turn_with_tools_keeps_the_tool_budget(monkeypatch):
     monkeypatch.setattr(runtime.client, "ask_stream", lambda **call: streamed.append(call) or iter(
         [{"type": "result", "text": "", "session_id": "s"}]))
     list(runtime.stream_followup("orchestrator", None, "¿qué niches?"))
-    assert streamed[0]["max_turns"] == runtime._MAX_TOOL_TURNS > runtime.agent_call.STRUCTURED_OUTPUT_TURNS
+    assert streamed[0]["max_turns"] == runtime._MAX_TOOL_TURNS == 20
 
 
 def test_tools_arrive_while_the_model_works_and_the_reply_carries_the_components(monkeypatch):

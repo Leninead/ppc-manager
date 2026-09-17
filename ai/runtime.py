@@ -243,8 +243,8 @@ def _followup_call(slug: str, session_id: str | None, question: str, ads_scope: 
                 effort=agent["meta"].get("effort") or None,
                 session_id=session_id, timeout_s=int(agent["meta"].get("timeout_s", 3600)),
                 output_schema=output_schema,
-                max_turns=_MAX_TOOL_TURNS if tools else (
-                    agent_call.STRUCTURED_OUTPUT_TURNS if output_schema else 1),
+                # A schema turn spends turns on the StructuredOutput call, with or without tools.
+                max_turns=_MAX_TOOL_TURNS if tools or output_schema else 1,
                 tools=tools,
                 ads_scope=ads_scope if tools and AMAZON_ADS_TOOLS in tools else None,
                 skills=skills or None,
