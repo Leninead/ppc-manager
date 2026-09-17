@@ -35,6 +35,7 @@ from core.ui import palette
 log = logging.getLogger(__name__)
 
 KEY_NAMES = (
+    "card", "actions",
     "account", "profile", "profile_last", "period", "custom_range", "custom_range_last", "pinned", "loaded",
     "last_source", "manual", "refresh", "refresh_retrying", "refresh_busy", "refresh_feedback", "load_newer",
     "newer_box", "go_accounts", "upload_manual", "upload_meanwhile", "upload_failed", "back_to_api", "file",
@@ -45,7 +46,7 @@ _KEPT_CHOICES = ("account", "profile", "period", "file_account")
 LOADED_SOURCES_PER_PICKER = 4
 
 PERIOD_PRESET_DAYS = (7, 14, 30, 60)
-DEFAULT_PERIOD_DAYS = 30
+DEFAULT_PERIOD_DAYS = 7
 MAX_PERIOD_DAYS = 60
 CUSTOM_PERIOD_KEY = "custom"
 
@@ -75,6 +76,9 @@ STATUS_TTL_SECONDS = 30
 SEARCH_TERMS_TTL_SECONDS = 6 * 3600
 STATUS_POLL_INTERVAL = "30s"
 _CONNECTED_ACCOUNTS_PAGE = "🔑 Cuentas conectadas"
+
+# Alto del selectbox de BaseWeb: la fila de Cuenta / País / Período se mide contra él.
+CONTROL_HEIGHT_PX = 40
 
 BLOCK_TITLE = "Datos de Amazon Ads"
 BLOCK_TAG = "Se actualiza solo · todos los días"
@@ -447,6 +451,25 @@ def _choose_file_account(key_prefix: str, search_term_file: SearchTermFile) -> s
     return chosen
 
 
+def _card_css(card_key: str) -> str:
+    """El segmented control de País nace 8px más bajo que los dos selectbox de su fila."""
+    return (f"<style>.st-key-{card_key} [data-testid='stButtonGroup'] button"
+            f"{{height:{CONTROL_HEIGHT_PX}px;}}</style>")
+
+
+def _actions_css(actions_key: str) -> str:
+    """Las dos acciones, en fila y pegadas al borde derecho, cada una del ancho de su texto.
+
+    Streamlit apila los botones de un contenedor y sólo sabe estirarlos a todo el ancho: en un
+    panel angosto eso les parte la etiqueta en varias líneas y quedan de distinto alto.
+    """
+    # La clase st-key- la lleva el propio stVerticalBlock, no un contenedor padre.
+    return (f"<style>.st-key-{actions_key}"
+            f"{{flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;}}"
+            f".st-key-{actions_key} [data-testid='stElementContainer']{{width:auto;}}"
+            f".st-key-{actions_key} button{{white-space:nowrap;}}</style>")
+
+
 def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption], *,
                        allow_manual: bool) -> SearchTermSource | None:
     now = datetime.now(timezone.utc)
@@ -461,7 +484,9 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption], *,
     pinned = _pinned_option(key_prefix, current)
     state = source_state(current, _latest_job(profile_id), now)
 
-    with st.container(border=True):
+    card_key = picker_key(key_prefix, "card")
+    st.markdown(_card_css(card_key), unsafe_allow_html=True)
+    with st.container(border=True, key=card_key):
         # A fragment polls only the status block, never the analysis below it.
         status_block = st.fragment(run_every=STATUS_POLL_INTERVAL if state in _POLLING_STATES else None)(_render_status)
         status_block(key_prefix, profile_id, allow_manual)
@@ -633,19 +658,33 @@ def _render_period(key_prefix: str, pinned: ProfileOption) -> tuple[PeriodOption
 
 def _render_info_row(key_prefix: str, source: SearchTermSource, pinned: ProfileOption, start: date, end: date, *,
                      state: str, allow_manual: bool, now: datetime) -> None:
-    info_col, manual_col, refresh_col = st.columns([4.2, 2.2, 1.6], vertical_alignment="center")
+    # La columna de acciones entra dos botones sin que el más largo envuelva a dos líneas.
+    info_col, actions_col = st.columns([4.2, 3.8], vertical_alignment="center")
     info_col.markdown(_muted_line_html([
         html.escape(date_range_label(start, end)),
         palette.marketplace_chip_html(html.escape(source.currency_code)),
         f"{count_label(len(source.frame))} términos",
         html.escape(data_through_note(pinned.data_through, profile_today(pinned, now))),
     ]), unsafe_allow_html=True)
+
+    # Las dos acciones van juntas contra el borde derecho y con el mismo peso visual: son
+    # alternativas entre sí, y una en tertiary se leía como enlace al lado de la otra.
+    actions = []
     if allow_manual:
-        manual_col.button("Subir archivo manualmente", key=picker_key(key_prefix, "upload_manual"), type="tertiary",
-                          icon=":material/upload:", on_click=_set_manual_mode, args=(key_prefix, True))
+        actions.append(dict(label="Subir archivo manualmente", key=picker_key(key_prefix, "upload_manual"),
+                            icon=":material/upload:", on_click=_set_manual_mode, args=(key_prefix, True)))
     if state in (STATE_READY, STATE_FAILED):
-        refresh_col.button("Actualizar ahora", key=picker_key(key_prefix, "refresh"), icon=":material/refresh:",
-                           on_click=_request_refresh, args=(key_prefix, pinned.profile_id))
+        actions.append(dict(label="Actualizar ahora", key=picker_key(key_prefix, "refresh"),
+                            icon=":material/refresh:", on_click=_request_refresh,
+                            args=(key_prefix, pinned.profile_id)))
+    if not actions:
+        return
+    actions_key = picker_key(key_prefix, "actions")
+    st.markdown(_actions_css(actions_key), unsafe_allow_html=True)
+    with actions_col, st.container(key=actions_key):
+        for action in actions:
+            st.button(action["label"], key=action["key"], type="secondary", icon=action["icon"],
+                      on_click=action["on_click"], args=action["args"])
 
 
 def _resolve_choice(key_prefix: str, name: str, options: list[str], *, fallback: str | None) -> str:

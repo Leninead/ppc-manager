@@ -14,6 +14,13 @@
       "runtimeArgs": ["/c", "set AGENCY_OS_LOCAL_MODE=1&& .venv\\Scripts\\python.exe -m streamlit run app.py --server.headless true --server.port 8503"],
       "port": 8503,
       "autoPort": false
+    },
+    {
+      "name": "agency-os-e2e-bridged",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-Command", "$env:AGENCY_OS_LOCAL_MODE='1'; $env:SUPABASE_URL='http://127.0.0.1:3002'; $env:SUPABASE_KEY=(((docker inspect ppc-manager --format '{{range .Config.Env}}{{println .}}{{end}}') | Select-String '^SUPABASE_KEY=') -join '').Substring(13); .venv\\Scripts\\python.exe -m streamlit run app.py --server.headless true --server.port 8504"],
+      "port": 8504,
+      "autoPort": false
     }
   ]
 }

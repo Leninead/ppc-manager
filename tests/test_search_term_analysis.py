@@ -65,9 +65,9 @@ def test_saved_parameters_round_trip_and_fill_missing_keys_with_the_currency_def
 
 
 @pytest.mark.parametrize("data_from, data_through, expected", [
-    (date(2026, 7, 11), date(2026, 9, 14), (date(2026, 8, 16), date(2026, 9, 14))),
-    (date(2026, 9, 1), date(2026, 9, 14), (date(2026, 9, 1), date(2026, 9, 14))),
-    (None, date(2026, 9, 14), (date(2026, 8, 16), date(2026, 9, 14))),
+    (date(2026, 7, 11), date(2026, 9, 14), (date(2026, 9, 8), date(2026, 9, 14))),
+    (date(2026, 9, 12), date(2026, 9, 14), (date(2026, 9, 12), date(2026, 9, 14))),
+    (None, date(2026, 9, 14), (date(2026, 9, 8), date(2026, 9, 14))),
 ])
 def test_the_canonical_window_is_the_period_m2_opens_on(data_from, data_through, expected):
     options = period_options(data_from, data_through)

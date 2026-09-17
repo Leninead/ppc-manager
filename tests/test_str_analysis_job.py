@@ -154,7 +154,7 @@ def _runner(fake, reports, ask=None):
 
 # ── planning ──────────────────────────────────────────────────────────────────
 
-def test_new_data_queues_one_analysis_of_the_canonical_thirty_days():
+def test_new_data_queues_one_analysis_of_the_canonical_window():
     fake, reports = FakeRest(), FakeReports([_profile()])
 
     summary = _runner(fake, reports).plan()
@@ -162,7 +162,7 @@ def test_new_data_queues_one_analysis_of_the_canonical_thirty_days():
     (job,) = fake.tables["integration_sync_jobs"]
     assert summary.analyses_queued == 1
     assert (job["job_kind"], job["trigger"], job["window_start"], job["window_end"]) == (
-        JOB_KIND, "scheduled_daily", "2026-08-16", "2026-09-14")
+        JOB_KIND, "scheduled_daily", "2026-09-08", "2026-09-14")
     assert job["params"]["lang"] == "es" and job["dedupe_key"].endswith(job["params"]["input_digest"])
 
 

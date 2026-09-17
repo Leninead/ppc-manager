@@ -75,7 +75,7 @@ class TestPeriodOptions:
         # 30 days ending Sep 13 start on Aug 15 (13 days of Sep + 17 of Aug).
         assert (by_key["30"].start, by_key["30"].end) == (date(2026, 8, 15), date(2026, 9, 13))
         assert by_key["60"].start == date(2026, 7, 16)
-        assert picker.default_period_key(options) == "30"
+        assert picker.default_period_key(options) == "7"
 
     def test_short_history_stops_at_the_first_preset_covering_it_and_clips_it(self):
         options = picker.period_options(date(2026, 8, 25), date(2026, 9, 13))  # 20 days kept
@@ -543,7 +543,7 @@ class TestPickerApp:
         assert not app.exception
         assert app.session_state["test_result_str"] is None
         assert [info.value for info in app.info] == [
-            "Esta cuenta no tuvo búsquedas con clicks en los últimos 30 días en MX. "
+            "Esta cuenta no tuvo búsquedas con clicks en los últimos 7 días en MX. "
             "Probá con un período más largo u otro país."]
 
     def test_custom_period_reads_the_picked_range(self, monkeypatch):
@@ -1005,6 +1005,7 @@ search_term_report.render()
         fake.empty_spans = {7}
         app = self._page_app(monkeypatch, fake)
         app.run()
+        app.selectbox(key="str_src_period").set_value("30").run()
         app.text_input(key="str_brand_terms").input("acme, acm").run()
         app.number_input(key="neg_precio").set_value(55.0).run()
         app.slider(key="neg_target_acos").set_value(45).run()
