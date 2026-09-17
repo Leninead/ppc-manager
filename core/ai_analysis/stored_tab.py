@@ -15,6 +15,7 @@ import streamlit as st
 from core.ai_analysis.store import TRIGGER_SCHEDULED, AiAnalysisStore
 from core.date_labels import date_range_label
 from core.integrations.store import StoreError
+from core.integrations.sync_jobs import SyncJobStore
 
 log = logging.getLogger(__name__)
 
@@ -117,11 +118,28 @@ def render_stored_analysis(*, module: str, key_prefix: str, source, input_digest
         _render_generating(module, source.profile_id, input_digest, job, open_rest, timezone)
         return StoredTabResult(None, STATE_RUNNING)
     if job is not None and job.status == "failed":
+        # Sin reintento, un análisis fallido deja la pantalla sin ninguna salida: ni se ve, ni se pide.
         st.error(f"El análisis IA de estos datos falló: {job.error_message or job.error_class}")
+        if st.button("Reintentar", key=f"{key_prefix}_ai_retry_job"):
+            _retry(job, open_rest, current_username)
         return StoredTabResult(None, STATE_FAILED)
     _render_request(module, key_prefix, source, input_digest, params, account_params, open_rest, current_username,
                     feedback_key)
     return StoredTabResult(None, STATE_MISSING)
+
+
+def _retry(job, open_rest, current_username) -> None:
+    rest = open_rest()
+    if rest is None:
+        st.error(NO_DATABASE)
+        return
+    try:
+        SyncJobStore(rest).retry(job.id, current_username())
+    except StoreError as exc:
+        st.error(str(exc))
+        return
+    forget_reads()
+    st.rerun()
 
 
 def _render_generating(module, profile_id, input_digest, job, open_rest, timezone) -> None:

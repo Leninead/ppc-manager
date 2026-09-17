@@ -130,3 +130,8 @@ $$;
 
 revoke all on function ai_analysis_module_allowed(text) from public, web_user;
 grant execute on function ai_analysis_module_allowed(text) to web_user;
+
+
+-- PostgREST cachea el esquema: sin esto, el primer insert del worker falla con PGRST204
+-- ("Could not find the 'records' column") hasta que alguien lo reinicie a mano.
+notify pgrst, 'reload schema';
