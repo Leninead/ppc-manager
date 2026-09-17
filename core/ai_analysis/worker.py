@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 import requests
 
 from core.ai_analysis.store import AiAnalysisStore
+from core.ai_analysis.bid_analysis_job import BidAnalysisJob
 from core.ai_analysis.str_analysis_job import PlanSummary, StrAnalysisJob
 from core.amazon_ads.report_provider import ReportProvider
 from core.integrations.store import _Rest
@@ -64,9 +65,16 @@ def worker_rest() -> _Rest:
     return _Rest(url, key)
 
 
-def build_job(rest: _Rest) -> StrAnalysisJob:
-    return StrAnalysisJob(store=AiAnalysisStore(rest), jobs=SyncJobStore(rest), reports=ReportProvider(rest),
-                          clock=_utc_now)
+# Un runner por módulo con análisis guardado; el job trae su job_kind y por ahí se despacha.
+_RUNNERS = (StrAnalysisJob, BidAnalysisJob)
+
+
+def build_jobs(rest: _Rest) -> dict:
+    """job_kind -> runner, todos sobre la misma conexión."""
+    store, jobs, reports = AiAnalysisStore(rest), SyncJobStore(rest), ReportProvider(rest)
+    built = [runner(store=store, jobs=jobs, reports=reports, clock=_utc_now) for runner in _RUNNERS]
+    return {runner._spec.job_kind: runner for runner in built}
+
 
 
 class AnalysisWorker:
@@ -74,7 +82,7 @@ class AnalysisWorker:
                  profile_ids: frozenset[str] | None = None, clock: Callable[[], datetime] = None):
         self._rest_factory = rest_factory
         self._rest = rest_factory()
-        self._planner = build_job(self._rest)
+        self._planners = build_jobs(self._rest)
         self._store = AiAnalysisStore(self._rest)
         self._pool = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="ai-analysis")
         self._concurrency = concurrency
@@ -85,11 +93,12 @@ class AnalysisWorker:
 
     def tick(self) -> dict:
         plan = PlanSummary()
-        try:
-            plan = self._planner.plan(self._profile_ids)
-        except Exception as exc:
-            log.exception("ai analysis: planning crashed")
-            plan.errors.append(f"plan: {exc}")
+        for job_kind, planner in self._planners.items():
+            try:
+                _merge_plan(plan, planner.plan(self._profile_ids))
+            except Exception as exc:
+                log.exception("ai analysis: planning crashed for %s", job_kind)
+                plan.errors.append(f"plan {job_kind}: {exc}")
         claimed = self._claim()
         summary = {**asdict(plan), "jobs_claimed": claimed, "jobs_running": len(self._running)}
         self._write_heartbeat(summary)
@@ -128,7 +137,12 @@ class AnalysisWorker:
 
     def _execute(self, job) -> None:
         # One client per thread: provider calls outlive many ticks and must not share a session.
-        outcome = build_job(self._rest_factory()).execute(job)
+        runners = build_jobs(self._rest_factory())
+        runner = runners.get(job.job_kind)
+        if runner is None:
+            log.warning("ai analysis: job %s has an unknown kind %r", job.id, job.job_kind)
+            return
+        outcome = runner.execute(job)
         log.info("ai analysis job %s finished (analysis %s%s)", outcome.job_id, outcome.analysis_id,
                  ", reused" if outcome.reused else "")
 
@@ -142,6 +156,14 @@ class AnalysisWorker:
             }, on_conflict="worker_name")
         except requests.RequestException as exc:
             log.warning("ai analysis: heartbeat not written: %s", exc)
+
+
+def _merge_plan(total: PlanSummary, part: PlanSummary) -> None:
+    total.profiles_checked += part.profiles_checked
+    total.analyses_queued += part.analyses_queued
+    total.already_covered += part.already_covered
+    total.nothing_to_analyze += part.nothing_to_analyze
+    total.errors.extend(part.errors)
 
 
 def command_run(stop: StopFlag, *, worker_factory: Callable[[], AnalysisWorker],

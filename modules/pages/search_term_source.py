@@ -17,6 +17,12 @@ import requests
 import streamlit as st
 
 from core.amazon_ads.raw_reports import REPORT_REQUESTS_TABLE
+from core.date_labels import (  # noqa: F401 — el picker los re-exporta para sus consumidores
+    data_of_day_phrase,
+    date_range_label,
+    day_phrase,
+    short_date,
+)
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider, ReportReadError
 from core.amazon_ads.sync_planner import BACKFILL_DAYS, PROFILE_NEEDS_REAUTH, profile_timezone
 from core.integrations.store import StoreError, _Rest, _rest_credentials
@@ -120,7 +126,6 @@ REFRESH_FEEDBACK = {
     "cooldown": (FEEDBACK_TOAST, "Se pidió hace menos de 30 minutos"),
 }
 
-_MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 _PHASE_LABELS = ("Pedido a Amazon", "Amazon generando el reporte", "Guardando los datos")
 _PHASE_INDEX = {"requesting": 0, "waiting": 1, "saving": 2}
 _CHUNK_PROGRESS = {
@@ -163,37 +168,8 @@ def picker_keys(key_prefix: str) -> set[str]:
     return {picker_key(key_prefix, name) for name in KEY_NAMES}
 
 
-def short_date(day: date) -> str:
-    return f"{day.day} {_MONTHS[day.month - 1]}"
-
-
-def date_range_label(start: date, end: date, *, with_year: bool = True) -> str:
-    """Short Spanish range such as "15 ago – 13 sep 2026"; chunk labels leave the year out."""
-    year = f" {end.year}" if with_year else ""
-    if start == end:
-        return f"{short_date(end)}{year}"
-    if (start.year, start.month) == (end.year, end.month):
-        return f"{start.day} – {short_date(end)}{year}"
-    if start.year == end.year or not with_year:
-        return f"{short_date(start)} – {short_date(end)}{year}"
-    return f"{short_date(start)} {start.year} – {short_date(end)} {end.year}"
-
-
 def count_label(count: int) -> str:
     return f"{count:,}".replace(",", ".")
-
-
-def day_phrase(day: date, today: date) -> str:
-    if day == today:
-        return "hoy"
-    if day == today - timedelta(days=1):
-        return "ayer"
-    return f"el {short_date(day)}"
-
-
-def data_of_day_phrase(day: date, today: date) -> str:
-    phrase = day_phrase(day, today)
-    return f"del {short_date(day)}" if phrase.startswith("el ") else f"de {phrase}"
 
 
 def profile_today(option: ProfileOption, now: datetime) -> date:

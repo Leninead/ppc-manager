@@ -1,8 +1,8 @@
-"""Bid Optimizer over the canonical frame: column detection, ASIN origin and the bid math."""
+"""Las reglas del Bid Optimizer sobre el frame canónico: columnas, origen del ASIN y la matemática del bid."""
 import pandas as pd
 
 from core.search_term_frame import console_columns
-from modules.pages.bid_optimizer import (
+from core.bid_analysis import (
     ASIN_FROM_CAMPAIGN,
     ASIN_FROM_FILE,
     asins_from_campaigns,
@@ -198,7 +198,7 @@ def test_the_ai_records_stop_at_the_cap():
 
 def test_money_columns_read_the_same_whether_they_arrive_numeric_or_as_text():
     """El frame de la API llega numérico; el archivo a mano, con $ y comas."""
-    from modules.pages.bid_optimizer import _numeric_column
+    from core.bid_analysis import _numeric_column
 
     as_text = pd.Series(["$1,234.56", "78.90", "—"])
     as_numbers = pd.Series([1234.56, 78.90, 0.0])
@@ -208,7 +208,7 @@ def test_money_columns_read_the_same_whether_they_arrive_numeric_or_as_text():
 
 
 def test_a_numeric_column_with_gaps_reads_them_as_zero_not_as_nan():
-    from modules.pages.bid_optimizer import _numeric_column
+    from core.bid_analysis import _numeric_column
 
     assert list(_numeric_column(pd.Series([5.0, None, 2.0]))) == [5.0, 0.0, 2.0]
 
