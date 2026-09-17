@@ -402,3 +402,15 @@ def test_style_df_sin_dato_no_pinta():
     periods = ["2026-08"]
     df, _ = fmt._account_df(acc, periods)
     assert fmt._style_df(acc, periods, df)._compute().ctx == {}
+
+
+def test_leyenda_del_desvio_en_pantalla():
+    """Ajuste A: la leyenda sale siempre que haya tabla, con o sin mes parcial."""
+    dash = _fake_dash([_account(months={
+        "2026-08": _cell(actual=_MES_REAL["actual"], acco=_MES_REAL["acco"],
+                         partial=False)})], periods=("2026-08",))
+    at = _run(repr(dash), "admin")
+    assert not at.exception
+    textos = _texts(at)
+    assert "desvío en puntos" in textos
+    assert "real − plan" in textos

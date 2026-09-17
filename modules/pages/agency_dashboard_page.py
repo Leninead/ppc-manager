@@ -22,6 +22,7 @@ from core.agency_dashboard import _build_agency_dashboard
 # pantalla y los exports (B3b). Una sola fuente de verdad del color.
 from core.agency_dashboard_export import _build_agency_excel, _build_agency_html
 from core.agency_dashboard_format import (
+    _LEYENDA_ACCO,
     _account_df,
     _build_periods,
     _style_df,
@@ -157,6 +158,8 @@ def render(username: str = "", role: str = roles.USER) -> None:
             _style_df(account, periods, df),
             use_container_width=True,
         )
+
+    st.caption(_LEYENDA_ACCO)
 
     if algun_parcial:
         st.caption(

@@ -51,6 +51,16 @@ _DELTA_TOLERANCIA = 2.0
 # color acompaña a lo que dice la celda: verde.
 _DELTA_EPS = 0.05
 
+# Leyenda de la columna Acco para ACOS / TACOS. Vive acá y no en cada superficie
+# porque la consumen las tres (pantalla, HTML y Excel) y tienen que decir lo
+# mismo: ese número es un DESVÍO EN PUNTOS contra el plan, no un porcentaje de
+# cumplimiento como en Revenue / Ad Sales / Ad Spend. Pedido de Dirección tras
+# la validación del 16/09.
+_LEYENDA_ACCO = (
+    "En ACOS y TACOS, la columna Acco es el desvío en puntos contra el plan "
+    "(real − plan): un valor positivo significa por encima de lo planeado."
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers puros — ventana de meses

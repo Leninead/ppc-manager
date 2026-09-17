@@ -83,6 +83,18 @@ def _textos(ws) -> str:
     return "\n".join(str(v) for _, v in _celdas(ws))
 
 
+def _celda(ws, metrica: str, sufijo: str):
+    """Celda de una metrica en la columna cuyo encabezado termina en `sufijo`
+    (ej. "Acco" o "Actual"). Busca el header de la tabla y su fila."""
+    fila_header = next(c.row for row in ws.iter_rows() for c in row
+                       if str(c.value or "") == "Métrica")
+    col = next(c.column for c in ws[fila_header]
+               if str(c.value or "").endswith(sufijo))
+    fila = next(c.row for row in ws.iter_rows() for c in row
+                if c.column == 1 and str(c.value or "") == metrica)
+    return ws.cell(row=fila, column=col)
+
+
 def _buscar(ws, texto: str):
     """Primera celda cuyo valor contiene `texto`."""
     for row in ws.iter_rows():
@@ -145,15 +157,46 @@ def test_columnas_actual_y_acco_por_mes():
     assert texto.count("Acco") >= 2
 
 
-def test_valores_iguales_a_los_de_la_pantalla():
-    """Mismos strings que `_account_df`: el Excel no puede divergir del HTML."""
-    acc = _account()
-    df, _ = fmt._account_df(acc, ["2026-08"])
+def test_valores_son_numeros_operables_no_texto():
+    """Ajuste B: la planilla se usa para sumar y graficar, asi que cada celda
+    lleva el NUMERO crudo y el formato lo pone Excel."""
+    _wb, ws = _ws(_dash([_account()]))
+
+    rev = _celda(ws, "Revenue", "Actual")
+    assert rev.value == 9000                       # no "USD 9,000"
+    assert isinstance(rev.value, (int, float))
+    assert "#,##0" in rev.number_format and "USD" in rev.number_format
+
+
+def test_acos_actual_es_numero_con_formato_de_porcentaje():
+    _wb, ws = _ws(_dash([_account()]))
+    acos = _celda(ws, "ACOS", "Actual")
+    assert acos.value == 30                        # no "30.0%"
+    assert "%" in acos.number_format
+
+
+def test_acco_de_porcentaje_se_guarda_como_fraccion():
+    """95.0 de cumplimiento se escribe 0.95 con formato de porcentaje: asi
+    Excel lo trata como porcentaje real y promediarlo entre cuentas da bien."""
+    _wb, ws = _ws(_dash([_account()]))
+    celda = _celda(ws, "Revenue", "Acco")
+    assert celda.value == 0.95
+    assert celda.number_format == "0.0%"
+    assert _relleno(celda) == fmt._VERDE.lstrip("#").upper()   # sigue el semaforo
+
+
+def test_acco_de_acos_es_delta_en_puntos_con_signo():
+    _wb, ws = _ws(_dash([_account()]))
+    celda = _celda(ws, "ACOS", "Acco")
+    assert celda.value == 1.0                      # +1.0 punto, NO 0.01
+    assert "+" in celda.number_format
+    assert _relleno(celda) == ""                   # sin color, como pidio Direccion
+
+
+def test_moneda_de_la_cuenta_en_el_formato():
+    acc = _account(currency="MXN")
     _wb, ws = _ws(_dash([acc]))
-    texto = _textos(ws)
-    assert df.loc["Revenue", "Ago Actual"] in texto      # "USD 9,000"
-    assert df.loc["Revenue", "Ago Acco"] in texto        # "95.0%"
-    assert df.loc["ACOS", "Ago Acco"] in texto           # "+1.0"
+    assert "MXN" in _celda(ws, "Revenue", "Actual").number_format
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -166,15 +209,19 @@ def test_semaforo_en_revenue_verde_y_rojo():
         "2026-09": _cell(actual=_ACTUAL, acco={"revenue": 78.0}, partial=False),
     })], periods=("2026-08", "2026-09"))
     _wb, ws = _ws(dash)
-    assert _relleno(_buscar(ws, "95.0%")) == fmt._VERDE.lstrip("#").upper()
-    assert _relleno(_buscar(ws, "78.0%")) == fmt._ROJO.lstrip("#").upper()
+    filas = [c for row in ws.iter_rows() for c in row if c.value == 0.95]
+    rojas = [c for row in ws.iter_rows() for c in row if c.value == 0.78]
+    assert filas and _relleno(filas[0]) == fmt._VERDE.lstrip("#").upper()
+    assert rojas and _relleno(rojas[0]) == fmt._ROJO.lstrip("#").upper()
 
 
 def test_semaforo_amarillo_en_la_franja_del_medio():
     dash = _dash([_account(months={
         "2026-08": _cell(actual=_ACTUAL, acco={"ventasPPC": 87.0}, partial=False)})])
     _wb, ws = _ws(dash)
-    assert _relleno(_buscar(ws, "87.0%")) == fmt._AMARILLO.lstrip("#").upper()
+    celda = _celda(ws, "Ad Sales", "Acco")
+    assert celda.value == 0.87
+    assert _relleno(celda) == fmt._AMARILLO.lstrip("#").upper()
 
 
 def test_acos_y_tacos_van_sin_relleno():
@@ -184,8 +231,10 @@ def test_acos_y_tacos_van_sin_relleno():
         "2026-08": _cell(actual=_ACTUAL, acco={"acos": 5.0, "tacos": -3.0},
                          partial=False)})])
     _wb, ws = _ws(dash)
-    assert _relleno(_buscar(ws, "+5.0")) == ""
-    assert _relleno(_buscar(ws, "-3.0")) == ""
+    acos = _celda(ws, "ACOS", "Acco")
+    tacos = _celda(ws, "TACOS", "Acco")
+    assert (acos.value, tacos.value) == (5.0, -3.0)
+    assert _relleno(acos) == "" and _relleno(tacos) == ""
 
 
 def test_celda_acco_sin_dato_no_lleva_relleno():
@@ -207,7 +256,7 @@ def test_cuenta_sin_baseline_banda_sin_plan_y_acco_vacio():
     _wb, ws = _ws(_dash([acc]))
     texto = _textos(ws)
     assert "sin plan" in texto.lower()
-    assert "USD 9,000" in texto          # el real sí se muestra
+    assert _celda(ws, "Revenue", "Actual").value == 9000   # el real sí se muestra
     # Las celdas de la columna Acco quedan vacías (no hay plan contra qué medir).
     col_acco = next(c.column for row in ws.iter_rows() for c in row
                     if str(c.value or "").endswith(" Acco"))
@@ -305,3 +354,12 @@ def test_sin_cuentas_no_hay_ningun_boton():
     at = _run(repr(_dash([])))
     assert not at.exception
     assert len(at.get("download_button")) == 0
+
+
+def test_leyenda_del_desvio_en_la_planilla():
+    """Ajuste A: Dirección pidió que quede explícito que el Acco de ACOS/TACOS
+    es el desvío en puntos contra el plan, no un %."""
+    _wb, ws = _ws(_dash([_account()]))
+    texto = _textos(ws)
+    assert "desvío en puntos" in texto
+    assert "real − plan" in texto

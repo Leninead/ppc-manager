@@ -34,6 +34,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from core.agency_dashboard_format import (
+    _LEYENDA_ACCO,
     _METRICS,
     _PCT_METRICS,
     _acco_color,
@@ -226,6 +227,8 @@ def _build_agency_html(data: dict, generated_at: Optional[date] = None) -> str:
             algun_parcial = algun_parcial or hay_parcial
             cuerpo.append(seccion)
 
+    cuerpo.append(f'<p class="nota">{html.escape(_LEYENDA_ACCO)}</p>')
+
     if algun_parcial:
         cuerpo.append(f'<p class="nota">{html.escape(_NOTA_MTD)}</p>')
 
@@ -295,6 +298,41 @@ def _autofit(ws, min_w: int = 8, max_w: int = 40) -> None:
         )
 
 
+# Formatos de celda del XLSX. La planilla es OPERABLE: cada celda lleva el
+# número crudo y Excel se encarga de mostrarlo. Lo que el usuario ve es el
+# mismo dato que ve en pantalla, pero se puede sumar, promediar y graficar.
+_FMT_PCT = "0.0%"            # sobre fracción (0.95 → 95,0%), como manda el estándar
+_FMT_RATIO = '0.0"%"'        # ACOS / TACOS reales: son puntos, no fracción
+_FMT_DELTA = "+0.0;-0.0"     # desvío contra el plan, con signo siempre visible
+
+
+def _valor_actual(metric_id: str, crudo, currency: str) -> tuple:
+    """(valor, number_format) de una celda Actual. Sin dato → (None, '')."""
+    if crudo is None:
+        return None, ""
+    if metric_id in _PCT_METRICS:
+        return float(crudo), f'"{currency}" #,##0'
+    return float(crudo), _FMT_RATIO
+
+
+def _valor_acco(metric_id: str, crudo) -> tuple:
+    """(valor, number_format) de una celda Acco. Sin dato → (None, '').
+
+    Revenue / Ad Sales / Ad Spend: el cumplimiento llega en escala 0-100 (95.0)
+    y se escribe como FRACCIÓN (0.95) con formato de porcentaje. Es lo que
+    manda el estándar de planillas —"percentages stored as fractions"— y lo que
+    hace que Excel lo trate como un porcentaje de verdad: se puede promediar
+    entre cuentas sin que el promedio quede 100 veces más grande.
+    ACOS / TACOS: el desvío en puntos se escribe tal cual (3.0), con formato de
+    signo. NO es una fracción: son puntos porcentuales de diferencia.
+    """
+    if crudo is None:
+        return None, ""
+    if metric_id in _PCT_METRICS:
+        return float(crudo) / 100.0, _FMT_PCT
+    return float(crudo), _FMT_DELTA
+
+
 def _tabla_excel(ws, account: dict, periods: list, fila: int) -> tuple:
     """Escribe la tabla de UNA cuenta a partir de `fila`.
 
@@ -303,8 +341,15 @@ def _tabla_excel(ws, account: dict, periods: list, fila: int) -> tuple:
     """
     df, hay_parcial = _account_df(account, periods)
     months = account.get("months") or {}
+    currency = str(account.get("currency") or "USD")
+    # `_account_df` se usa SOLO por sus etiquetas de columna ("Ago Actual",
+    # "Sep* Acco"): sus celdas son strings ya formateados y acá van números.
     acco_cols = [c for c in df.columns if c.endswith(" Acco")]
     col_period = dict(zip(acco_cols, periods))
+    # Cada mes ocupa dos columnas contiguas; la de Actual es la anterior a su Acco.
+    for col_acco, period in list(col_period.items()):
+        idx = list(df.columns).index(col_acco)
+        col_period[df.columns[idx - 1]] = period
     n_cols = 1 + len(df.columns)
 
     # ── Banda con el nombre de la cuenta + su plan ──
@@ -335,21 +380,38 @@ def _tabla_excel(ws, account: dict, periods: list, fila: int) -> tuple:
     ws.row_dimensions[fila].height = 20
     fila += 1
 
-    # ── Las 5 métricas ──
+    # ── Las 5 métricas, con VALORES NUMÉRICOS ──
     for metric_id, label in _METRICS:
         ws.cell(row=fila, column=1, value=label).font = Font(bold=True, size=10)
         for j, col_name in enumerate(df.columns, start=2):
-            celda = ws.cell(row=fila, column=j, value=str(df.loc[label, col_name]))
+            celda = ws.cell(row=fila, column=j)
             celda.alignment = Alignment(horizontal="right")
             period = col_period.get(col_name)
-            # El semáforo va SOLO en las métricas de % (ver el docstring de
-            # `_build_agency_excel`). Sacar `and metric_id in _PCT_METRICS`
-            # devuelve el color a ACOS / TACOS.
-            if period is not None and metric_id in _PCT_METRICS:
-                acco = (months.get(period) or {}).get("accomplishment") or {}
-                color = _acco_color(metric_id, acco.get(metric_id))
-                if color:
-                    celda.fill = _fill(color)
+            if period is None:
+                continue
+            cell_data = months.get(period) or {}
+            es_acco = col_name.endswith(" Acco")
+
+            if es_acco:
+                crudo = (cell_data.get("accomplishment") or {}).get(metric_id)
+                valor, fmt_num = _valor_acco(metric_id, crudo)
+                # El semáforo va SOLO en las métricas de % (ver el docstring de
+                # `_build_agency_excel`). Sacar `and metric_id in _PCT_METRICS`
+                # devuelve el color a ACOS / TACOS.
+                if metric_id in _PCT_METRICS:
+                    color = _acco_color(metric_id, crudo)
+                    if color:
+                        celda.fill = _fill(color)
+            else:
+                crudo = (cell_data.get("actual") or {}).get(metric_id)
+                valor, fmt_num = _valor_actual(metric_id, crudo, currency)
+
+            # Sin dato → celda VACÍA, nunca 0: un cero se sumaría y ensuciaría
+            # los totales de quien usa la planilla.
+            if valor is None:
+                continue
+            celda.value = valor
+            celda.number_format = fmt_num
         fila += 1
 
     return fila, hay_parcial
@@ -429,11 +491,17 @@ def _build_agency_excel(data: dict, generated_at: Optional[date] = None) -> byte
             value=("Sin cuentas para mostrar: ninguna tiene forecast cargado "
                    "para esta ventana."),
         ).font = Font(color=_XL_GRIS, italic=True)
+        fila += 2      # si no, la leyenda de abajo pisa este mensaje
     else:
         for account in accounts:
             fila, hay_parcial = _tabla_excel(ws, account, periods, fila)
             algun_parcial = algun_parcial or hay_parcial
             fila += 2      # aire entre cuentas
+
+    ws.cell(row=fila, column=1, value=_LEYENDA_ACCO).font = Font(
+        color=_XL_GRIS, size=9, italic=True,
+    )
+    fila += 1
 
     if algun_parcial:
         ws.cell(row=fila, column=1, value=_NOTA_MTD).font = Font(

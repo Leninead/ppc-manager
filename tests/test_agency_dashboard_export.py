@@ -264,3 +264,11 @@ def test_sin_cuentas_no_hay_boton():
     at = _run(repr(_dash([], periods=("2026-08",))))
     assert not at.exception
     assert len(at.get("download_button")) == 0
+
+
+def test_leyenda_del_desvio_en_el_html():
+    """Ajuste A: la misma leyenda que la pantalla y la planilla."""
+    html = exp._build_agency_html(_dash([_account()]), generated_at=_GEN)
+    assert "desv" in html and "real − plan" in html
+    # Aparece aunque ninguna cuenta tenga mes en curso (no depende del MtD).
+    assert "MtD" not in html
