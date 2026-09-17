@@ -37,7 +37,7 @@ _SUMMARY_COLUMNS = ("id,module,subject_id,window_start,window_end,lang,params,pa
                     "agent_version,status,trigger,requested_by,job_id,source_last_success_at,result,model,"
                     "duration_ms,created_at,finished_at,negative_records,harvest_records")
 _LATEST_COLUMNS = "id,module,subject_id,window_start,window_end,lang,params,finished_at,synthesis:result->synthesis"
-_RECORDS_COLUMNS = "id,negative_records,harvest_records"
+_RECORDS_COLUMNS = "id,negative_records,harvest_records,records"
 _LATEST_ROWS_PER_SUBJECT = 4
 _ERROR_MAX_CHARS = 500
 
@@ -70,6 +70,8 @@ class StoredAnalysis:
     finished_at: datetime | None
     negative_records: list = field(default_factory=list)
     harvest_records: list = field(default_factory=list)
+    # Filas del análisis para los módulos que no son M2, que guarda las suyas en las dos de arriba.
+    records: list = field(default_factory=list)
     session_id: str = ""
 
     @property
@@ -101,6 +103,7 @@ class StoredAnalysis:
             finished_at=parse_timestamp(row.get("finished_at")),
             negative_records=list(row.get("negative_records") or []),
             harvest_records=list(row.get("harvest_records") or []),
+            records=list(row.get("records") or []),
             session_id=row.get("session_id") or "",
         )
 
@@ -139,6 +142,7 @@ class NewAnalysis:
     negative_records: list
     harvest_records: list
     model: str
+    records: list = field(default_factory=list)
 
     def as_row(self) -> dict:
         return {
@@ -150,6 +154,7 @@ class NewAnalysis:
             "source_last_success_at": (self.source_last_success_at.isoformat()
                                        if self.source_last_success_at else None),
             "negative_records": self.negative_records, "harvest_records": self.harvest_records,
+            "records": self.records,
             "model": self.model, "result": None, "error_message": "", "finished_at": None,
         }
 

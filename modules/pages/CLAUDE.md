@@ -378,23 +378,62 @@ Inputs STR + Bulk → mapeo funnel → campañas sugeridas con naming convention
 **Session state prefix:** bid_
 
 ### Propósito
-Calcular bid óptimo por keyword: bid = CVR × precio × target_ACoS. Export bulk con bids modificados.
+Calcular bid óptimo por ASIN: bid = CVR × precio × target_ACoS. Export bulk con bids ajustados.
 
 ### Arquitectura
-2 tabs: Bid Calculator (semáforo SUBIR/OK/BAJAR/PAUSAR) | Placements & Budget (tabla referencia placements + budget)
+3 tabs: Bid Calculator (semáforo por CVR) | Placements & Budget (referencia SOP) | Análisis IA
+(capa `core/ai_tab` + agente `ai/agents/bid_optimizer`).
+
+### Fuente de datos (2026-09-17 — ingesta desde Amazon Ads API)
+- El uploader del STR salió de `render()`: los datos llegan de `render_source_picker(key_prefix="bid_opt")`,
+  el mismo componente que usa M2, con el fallback manual activo. `df = source.frame`.
+- El Inventory Report sigue siendo un uploader propio y opcional (`bid_opt_inv`), para el precio de lista.
+- **El frame canónico NO trae `Advertised ASIN`** (`console_columns()` no lo incluye y `spSearchTerm` no lo
+  expone): `resolve_asin_column` usa la columna del archivo si existe y, si no, extrae `B0[A-Z0-9]{8}` del
+  nombre de campaña. El origen del ASIN se muestra en pantalla y viaja al agente, porque cambia cuánto vale
+  la agrupación. Sin ningún ASIN resoluble el módulo corta con `NO_ASIN_WARNING`, que explica la causa real
+  en vez de culpar al archivo.
+- **Moneda**: sale de `source.currency_code` y se formatea con `core/currency_format.money()`. Los budgets
+  del SOP viajan como números (`budget_min`/`budget_max`) y se formatean en el render.
+
+### Capa IA (2026-09-17 — consumidor de `core/ai_tab`)
+- Agente `ai/agents/bid_optimizer/` (`BidData`, row_ids `A01…`, `MAX_ASINS=60`, `MAX_CAMPAIGNS=40`).
+  Recibe Parámetros + bids por ASIN (top por spend) + placements por campaña, y emite `bids[]`
+  (`veredicto` SUBIR/MANTENER/BAJAR/PAUSAR sobre el bid YA calculado) + la `synthesis` canónica.
+- **La IA nunca recalcula el bid ni propone uno propio**: el módulo mantiene la matemática.
+- Análisis en vivo con `auto_fire=False` (el AM pone el target ACoS y el Inventory Report en esta misma
+  pantalla, así que no se paga un análisis antes del click) y `show_previous=False`.
+- Se comparte con el chat de la app vía `publish_analysis_to_chat`.
 
 ### Reglas de negocio
-- bid_sugerido = (CVR / 100) × precio × (target_ACoS / 100)
-- SUBIR: bid < sugerido × 0.7 | OK: 0.7-1.3× | BAJAR: > 1.3× | PAUSAR: clicks > 10 AND orders = 0
+- `bid_base = (CVR / 100) × precio × (target_ACoS / 100)`; sin órdenes no hay CVR medido y el bid queda en 0.
+- Precio: Inventory Report si está; si no, ventas/órdenes del STR (ticket promedio, no precio de lista).
+- Semáforo por CVR (`estado_por_cvr`): sin clicks → SIN DATA; CVR > 15 con más de 5 órdenes → ESCALAR;
+  CVR 8-15 → OK; resto → REVISAR.
+- Filas del mismo ASIN en distintas campañas se agrupan una sola vez.
 
 ### Inputs
-- STR (.xlsx, .csv) — requerido
-- Inventory Report (.txt) — opcional (precio de lista exacto)
+- Datos de Amazon Ads (cuenta + país + período) o STR subido a mano
+- Inventory Report (.txt, .csv) — opcional (precio de lista exacto)
+- Target ACoS (slider)
+
+### Tests
+`tests/test_bid_optimizer_columns.py` (detección de columnas sobre el frame canónico, origen del ASIN,
+matemática del bid, semáforo, placements) y `tests/test_bid_optimizer_agent.py` (documentos del agente,
+row_ids, truncamiento, huellas, texto del chat).
 
 ### Anti-patterns
+- ❌ NO asumir que el STR trae `Advertised ASIN` — con datos de API nunca viene.
+- ❌ NO inventar un ASIN ni prorratear métricas entre los ASINs de un ad group: Amazon no reporta esa
+  atribución, y un número inventado es peor que una fila sin ASIN.
+- ❌ NO hardcodear `$` — la moneda sale de la cuenta (`money()` / `currency_symbol()`).
+- ❌ NO llamar a `ai/runtime` directo — todo por `core/ai_tab`.
 - Usar ACoS del STR sin filtrar por ENABLED — incluye términos de campañas pausadas
 
----
+### Deuda documentada
+La doc previa describía un semáforo SUBIR/OK/BAJAR/PAUSAR por comparación de bid actual contra sugerido,
+que el código nunca implementó (siempre fue el semáforo por CVR de arriba). Queda anotado: si el AM espera
+el semáforo por bid, es una feature a construir, no un bug a corregir.
 
 ## M10 — Campaign Builder
 **Archivo:** modules/pages/campaign_builder.py (864 → 1121 líneas tras Sprint 1 2026-04-23)

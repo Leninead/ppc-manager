@@ -15,6 +15,7 @@ from core.ai_analysis.str_analysis_job import (
     REUSED_WARNING,
     SUPERSEDED_WARNING,
     StrAnalysisJob,
+    StrAnalysisSpec,
 )
 from core.ai_analysis.worker import WORKER_NAME, AnalysisWorker
 from core.amazon_ads.report_provider import ProfileOption
@@ -127,10 +128,10 @@ _JOB_PARAMS = {"target_acos": 30, "price": 30.0, "harvest_target_acos": 30, "har
 
 def _digest_of(params, rows=SEARCH_ROWS):
     """The fingerprint the page sends with a request for these rows, computed the way the worker computes it."""
-    runner = _runner(FakeRest(), FakeReports([_profile()], rows))
-    _, call = runner._prepare(_profile(), StrAnalysisParams.from_dict(params, "USD"), date(2026, 8, 16),
-                              date(2026, 9, 14), "es")
-    return call.input_digest
+    prepared = StrAnalysisSpec.prepare(FakeReports([_profile()], rows), _profile(),
+                                       StrAnalysisParams.from_dict(params, "USD"),
+                                       date(2026, 8, 16), date(2026, 9, 14), "es")
+    return prepared.call.input_digest
 
 
 def _job(fake, **overrides):
@@ -154,7 +155,7 @@ def _runner(fake, reports, ask=None):
 
 # ── planning ──────────────────────────────────────────────────────────────────
 
-def test_new_data_queues_one_analysis_of_the_canonical_thirty_days():
+def test_new_data_queues_one_analysis_of_the_canonical_window():
     fake, reports = FakeRest(), FakeReports([_profile()])
 
     summary = _runner(fake, reports).plan()
@@ -162,7 +163,7 @@ def test_new_data_queues_one_analysis_of_the_canonical_thirty_days():
     (job,) = fake.tables["integration_sync_jobs"]
     assert summary.analyses_queued == 1
     assert (job["job_kind"], job["trigger"], job["window_start"], job["window_end"]) == (
-        JOB_KIND, "scheduled_daily", "2026-08-16", "2026-09-14")
+        JOB_KIND, "scheduled_daily", "2026-09-08", "2026-09-14")
     assert job["params"]["lang"] == "es" and job["dedupe_key"].endswith(job["params"]["input_digest"])
 
 
@@ -406,7 +407,8 @@ def test_a_tick_plans_claims_up_to_the_free_slots_and_writes_a_heartbeat(monkeyp
     fake.claimable = [dict(id=job_id, job_kind=JOB_KIND, status="running", external_account_id="111")
                       for job_id in (1, 2, 3)]
     executed = []
-    monkeypatch.setattr("core.ai_analysis.worker.build_job", lambda rest: _RecordingJob(executed))
+    monkeypatch.setattr("core.ai_analysis.worker.build_jobs",
+                        lambda rest: {JOB_KIND: _RecordingJob(executed)})
     worker = AnalysisWorker(rest_factory=lambda: fake, concurrency=2, clock=lambda: NOW)
 
     summary = worker.tick()
@@ -421,7 +423,7 @@ def test_a_tick_plans_claims_up_to_the_free_slots_and_writes_a_heartbeat(monkeyp
 def test_shutdown_hands_running_jobs_back_to_the_queue(monkeypatch):
     fake = FakeRest()
     fake.tables["integration_sync_jobs"].append({"id": 5, "status": "running", "lease_holder": "me"})
-    monkeypatch.setattr("core.ai_analysis.worker.build_job", lambda rest: _RecordingJob([]))
+    monkeypatch.setattr("core.ai_analysis.worker.build_jobs", lambda rest: {JOB_KIND: _RecordingJob([])})
     worker = AnalysisWorker(rest_factory=lambda: fake, concurrency=2, clock=lambda: NOW)
     worker._running = {5: None}
 

@@ -56,7 +56,7 @@ def _stored(analysis_id, subject_id, finished_at, situation="s", status="done", 
     return {"id": analysis_id, "module": "str", "subject_id": subject_id, "status": status,
             "window_start": "2026-08-16", "window_end": "2026-09-14", "lang": "es",
             "params": {"target_acos": 30, "brand_terms": ["luna"]}, "finished_at": finished_at,
-            "negative_records": records or [], "harvest_records": [], "usage": {"tokens": 9},
+            "negative_records": records or [], "harvest_records": [], "records": [], "usage": {"tokens": 9},
             "result": {"negativos": [{"row_id": "N01"}], "synthesis": {"situation": situation}}}
 
 
@@ -82,7 +82,7 @@ def test_one_read_gives_the_newest_analysis_of_each_account_with_its_synthesis_a
         {"target_acos": 30, "brand_terms": ["luna"]}, "2026-09-14", rows)
     assert [params["select"] for _, params in rest.reads] == [
         "id,module,subject_id,window_start,window_end,lang,params,finished_at,synthesis:result->synthesis",
-        "id,negative_records,harvest_records"]
+        "id,negative_records,harvest_records,records"]
 
 
 def test_an_account_whose_newest_analysis_did_not_fit_the_first_read_is_read_on_its_own():

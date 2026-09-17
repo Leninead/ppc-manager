@@ -19,7 +19,7 @@ from core.currency_format import money
 from core.search_term_negatives import NegativeCandidate, evaluate_candidates
 
 ANALYSIS_MODULE = "str"
-CANONICAL_WINDOW_DAYS = 30
+CANONICAL_WINDOW_DAYS = 7
 MAX_WINDOW_DAYS = 60
 CANONICAL_LANG = "es"
 LANGS = ("es", "en")
@@ -114,7 +114,11 @@ def normalized_brand_terms(terms) -> tuple[str, ...]:
 
 
 def canonical_analysis_window(data_from: date | None, data_through: date) -> tuple[date, date]:
-    """The 30 days M2 opens on: the window the worker analyzes on its own."""
+    """The period M2 opens on: the window the worker analyzes on its own.
+
+    It must track the picker's default period. If the two drift apart, what the AM sees on screen
+    never matches a stored analysis and every request pays for a new one.
+    """
     earliest = data_from or data_through - timedelta(days=MAX_WINDOW_DAYS - 1)
     return max(earliest, data_through - timedelta(days=CANONICAL_WINDOW_DAYS - 1)), data_through
 

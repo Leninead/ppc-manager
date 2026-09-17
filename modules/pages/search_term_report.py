@@ -25,7 +25,7 @@ from core.integrations.store import StoreError
 from core.integrations.sync_jobs import SyncJobStore
 from core.currency_format import currency_symbol, money
 from core.excel_text import force_text_cells
-from core.helpers import kpi_card
+from core.ui.kpi_grid import Kpi, render_kpi_grid
 from core.search_term_analysis import (
     ANALYSIS_MODULE,
     CANONICAL_LANG,
@@ -1038,39 +1038,21 @@ def render():
         rows_with_sales = (df["_sales"] > 0).sum()
         pct_conv = (rows_with_sales / len(df) * 100) if len(df) > 0 else 0
 
-        # Row 1
-        r1c1, r1c2, r1c3, r1c4 = st.columns(4)
-        with r1c1:
-            st.markdown(kpi_card("Total Spend", html.escape(money(total_spend, currency_code))), unsafe_allow_html=True)
-        with r1c2:
-            st.markdown(kpi_card("Total Sales", html.escape(money(total_sales, currency_code))), unsafe_allow_html=True)
-        with r1c3:
-            acos_delta = acos_val - target_acos
-            st.markdown(kpi_card("ACoS", f"{acos_val:.1f}%", delta=acos_delta, delta_good=False), unsafe_allow_html=True)
-        with r1c4:
-            st.markdown(kpi_card("ROAS", f"{roas_val:.2f}x"), unsafe_allow_html=True)
-
-        # Row 2
-        r2c1, r2c2, r2c3, r2c4 = st.columns(4)
-        with r2c1:
-            st.markdown(kpi_card("Impressions", f"{total_imps:,.0f}"), unsafe_allow_html=True)
-        with r2c2:
-            st.markdown(kpi_card("Clicks", f"{total_clicks:,.0f}"), unsafe_allow_html=True)
-        with r2c3:
-            st.markdown(kpi_card("CTR Promedio", f"{ctr_val:.2f}%"), unsafe_allow_html=True)
-        with r2c4:
-            st.markdown(kpi_card("CVR Promedio", f"{cvr_val:.2f}%"), unsafe_allow_html=True)
-
-        # Row 3
-        r3c1, r3c2, r3c3, r3c4 = st.columns(4)
-        with r3c1:
-            st.markdown(kpi_card("CPC Promedio", html.escape(money(cpc_val, currency_code))), unsafe_allow_html=True)
-        with r3c2:
-            st.markdown(kpi_card("Orders", f"{total_orders:,.0f}"), unsafe_allow_html=True)
-        with r3c3:
-            st.markdown(kpi_card("% Waste", f"{pct_waste:.1f}%"), unsafe_allow_html=True)
-        with r3c4:
-            st.markdown(kpi_card("% Con Ventas", f"{pct_conv:.1f}%"), unsafe_allow_html=True)
+        acos_delta = acos_val - target_acos
+        render_kpi_grid([
+            Kpi("Total Spend", money(total_spend, currency_code)),
+            Kpi("Total Sales", money(total_sales, currency_code)),
+            Kpi("ACoS", f"{acos_val:.1f}%", delta=acos_delta, delta_good=False),
+            Kpi("ROAS", f"{roas_val:.2f}x"),
+            Kpi("Impressions", f"{total_imps:,.0f}"),
+            Kpi("Clicks", f"{total_clicks:,.0f}"),
+            Kpi("CTR Promedio", f"{ctr_val:.2f}%"),
+            Kpi("CVR Promedio", f"{cvr_val:.2f}%"),
+            Kpi("CPC Promedio", money(cpc_val, currency_code)),
+            Kpi("Orders", f"{total_orders:,.0f}"),
+            Kpi("% Waste", f"{pct_waste:.1f}%"),
+            Kpi("% Con Ventas", f"{pct_conv:.1f}%"),
+        ])
 
         st.markdown("")
 
@@ -1737,15 +1719,12 @@ def render():
             # Truncate long name
             top_spend_display = top_spend_camp[:35] + "..." if len(top_spend_camp) > 35 else top_spend_camp
 
-            kc1, kc2, kc3, kc4 = st.columns(4)
-            with kc1:
-                st.markdown(kpi_card("Total Campanas", str(total_camps)), unsafe_allow_html=True)
-            with kc2:
-                st.markdown(kpi_card("Brand", str(brand_camps)), unsafe_allow_html=True)
-            with kc3:
-                st.markdown(kpi_card("No Brand", str(nobrand_camps)), unsafe_allow_html=True)
-            with kc4:
-                st.markdown(kpi_card("Mayor Spend", html.escape(top_spend_display)), unsafe_allow_html=True)
+            render_kpi_grid([
+                Kpi("Total Campanas", total_camps),
+                Kpi("Brand", brand_camps),
+                Kpi("No Brand", nobrand_camps),
+                Kpi("Mayor Spend", top_spend_display),
+            ])
 
             st.markdown("")
 
