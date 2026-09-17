@@ -1,0 +1,7 @@
+# Deps del MCP server. Imagen propia, chica: nada de streamlit ni de la app.
+# pandas entra porque core/amazon_ads/report_provider.py devuelve DataFrames — es la misma capa de
+# lectura que usa la app, no una copia.
+mcp>=2.2.0
+uvicorn[standard]==0.32.1
+pandas>=2.2.0
+requests==2.34.2
