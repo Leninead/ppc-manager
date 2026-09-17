@@ -26,9 +26,11 @@ def _frame(rows):
     return frame[console_columns(ATTRIBUTION_DAYS)]
 
 
-def _row(campaign="DG - B0CYLMJJJC - SP - KW - EXACT - Core", clicks=100, spend=50.0, sales=200.0, orders=10):
-    return {"Customer Search Term": "vitamin a cream", "Campaign Name": campaign, "Clicks": clicks,
-            "Spend": spend, "7 Day Total Sales": sales, "7 Day Total Orders (#)": orders, "Impressions": 1000}
+def _row(campaign="DG - B0CYLMJJJC - SP - KW - EXACT - Core", clicks=100, spend=50.0, sales=200.0, orders=10,
+         match_type="EXACT"):
+    return {"Customer Search Term": "vitamin a cream", "Campaign Name": campaign, "Match Type": match_type,
+            "Clicks": clicks, "Spend": spend, "7 Day Total Sales": sales, "7 Day Total Orders (#)": orders,
+            "Impressions": 1000}
 
 
 def _input(**overrides):
@@ -53,6 +55,52 @@ def test_the_canonical_window_is_the_seven_days_the_picker_opens_on():
 
 def test_a_short_history_clips_the_window_instead_of_asking_for_days_that_do_not_exist():
     assert canonical_analysis_window(date(2026, 9, 14), date(2026, 9, 16)) == (date(2026, 9, 14), date(2026, 9, 16))
+
+
+def test_the_previous_stretch_travels_as_columns_and_is_announced_in_the_parameters():
+    from ai.agents.bid_optimizer.context import build_context
+
+    analysis_input = _input(previous_frame=_frame([_row(clicks=50, orders=2, sales=40.0, spend=30.0)]))
+    _, docs, _ = build_context(analysis_input.data)
+
+    assert analysis_input.records[0]["clicks_previo"] == 50
+    assert analysis_input.records[0]["acos_previo"] == 75.0
+    assert "columnas *_previo" in docs[0]["content"]
+
+
+def test_without_a_previous_stretch_the_parameters_forbid_reading_a_trend():
+    from ai.agents.bid_optimizer.context import build_context
+
+    _, docs, _ = build_context(_input().data)
+
+    assert "SIN PERÍODO ANTERIOR" in docs[0]["content"]
+    assert "clicks_previo" not in docs[1]["content"]
+
+
+def test_the_validated_spend_share_travels_when_the_frame_has_match_type():
+    analysis_input = _input(frame=_frame([
+        _row(campaign="DG - B0CYLMJJJC - SP - EXACT", spend=75.0, match_type="EXACT"),
+        _row(campaign="DG - B0CYLMJJJC - SP - BROAD", spend=25.0, match_type="BROAD")]))
+
+    # 75 de 100 del gasto corre sobre exact: eso es targeting ya validado, no descubrimiento.
+    assert analysis_input.records[0]["pct_spend_validado"] == 75.0
+
+
+def test_a_frame_without_match_type_says_nothing_instead_of_assuming_zero():
+    frame = _frame([_row()]).drop(columns=["Match Type"])
+
+    analysis_input = _input(frame=frame)
+
+    assert "pct_spend_validado" not in analysis_input.records[0]
+
+
+def test_the_clicks_median_of_the_document_reaches_the_parameters():
+    from ai.agents.bid_optimizer.context import build_context, clicks_median
+
+    assert clicks_median([{"clicks": 10}, {"clicks": 30}, {"clicks": 200}]) == 30
+    assert clicks_median([]) == 0
+    _, docs, _ = build_context(_input().data)
+    assert "Mediana de clicks" in docs[0]["content"]
 
 
 def test_the_payload_carries_the_asins_and_their_records():
@@ -105,17 +153,51 @@ def test_two_parameter_sets_with_the_same_target_share_a_digest():
     assert BidAnalysisParams(30).digest != BidAnalysisParams(31).digest
 
 
-def test_the_spec_prepares_the_call_and_says_how_many_rows_travelled():
-    class _Reports:
-        @staticmethod
-        def search_terms(profile, start, end):
-            from core.search_term_frame import SearchTermSource
-            return SearchTermSource(frame=_frame([_row()]), source="api", currency_code="USD",
-                                    label="dermaglos · US", signature="sig", attribution_days=7, bulk_ready=True)
+class _Profile:
+    profile_id = "111"
+    data_from = date(2026, 7, 1)
 
-    prepared = BidAnalysisSpec.prepare(_Reports(), object(), BidAnalysisParams(25),
+
+class _Reports:
+    """Devuelve el mismo frame para cualquier ventana y anota qué ventanas le pidieron."""
+
+    def __init__(self, frame=None):
+        self.frame = frame if frame is not None else _frame([_row()])
+        self.windows = []
+
+    def search_terms(self, profile, start, end):
+        from core.search_term_frame import SearchTermSource
+        self.windows.append((start, end))
+        return SearchTermSource(frame=self.frame, source="api", currency_code="USD",
+                                label="dermaglos · US", signature="sig", attribution_days=7, bulk_ready=True)
+
+
+def test_the_spec_prepares_the_call_and_says_how_many_rows_travelled():
+    prepared = BidAnalysisSpec.prepare(_Reports(), _Profile(), BidAnalysisParams(25),
                                        date(2026, 9, 10), date(2026, 9, 16), "es")
 
     assert prepared.rows_written == 1
     assert list(prepared.record_columns) == ["records"]
     assert prepared.call.input_digest
+
+
+def test_the_spec_also_reads_the_previous_stretch_of_the_same_length():
+    reports = _Reports()
+
+    BidAnalysisSpec.prepare(reports, _Profile(), BidAnalysisParams(25),
+                            date(2026, 9, 10), date(2026, 9, 16), "es")
+
+    assert reports.windows == [(date(2026, 9, 10), date(2026, 9, 16)),
+                               (date(2026, 9, 3), date(2026, 9, 9))]
+
+
+def test_an_account_whose_history_does_not_reach_back_is_not_asked_for_the_previous_stretch():
+    reports = _Reports()
+
+    class _Short(_Profile):
+        data_from = date(2026, 9, 8)
+
+    BidAnalysisSpec.prepare(reports, _Short(), BidAnalysisParams(25),
+                            date(2026, 9, 10), date(2026, 9, 16), "es")
+
+    assert reports.windows == [(date(2026, 9, 10), date(2026, 9, 16))]

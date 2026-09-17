@@ -19,6 +19,9 @@ Cómo leer las columnas que ya traen decisión:
 - cvr y acos: son del período del documento, no de la vida de la campaña.
 - price: mirá el origen declarado en Parámetros. Si el precio salió del STR es el ticket promedio de venta, no el precio de lista: un bid apoyado en ese número es más frágil y eso se dice.
 - Origen del ASIN (en Parámetros): si dice que el ASIN se extrajo del nombre de la campaña, la agrupación depende del naming del cliente y puede mezclar o partir productos. Declaralo UNA sola vez, como riesgo de la síntesis, y no lo repitas fila por fila.
+- pct_spend_validado: qué porcentaje del gasto de ese ASIN corre sobre match types ya probados (exact y phrase). Es un campo de Amazon, no una lectura del nombre de la campaña. Bajo = el ASIN todavía está pagando por descubrir keywords; alto = el ACoS que ves es sobre targeting que ya se validó. Si la columna no viene, Parámetros lo dice y no se puede afirmar nada sobre esto.
+- Columnas *_previo: las mismas métricas en el tramo inmediatamente anterior, del mismo largo. Existen para leer QUÉ CAMBIÓ, no para proyectar. Si Parámetros dice que no hay período anterior, no insinúes una tendencia: no tenés con qué.
+- Mediana de clicks (en Parámetros): la mediana del propio documento. Es la vara de cuánta muestra tiene una fila.
 
 La lista es cerrada: el módulo ya decidió qué ASINs entran. Si una fila te parece mala candidata, el único canal es la advertencia, formulada como riesgo a revisar antes de ejecutar.
 </documentos>
@@ -37,5 +40,9 @@ Devolvés dos cosas:
 - PAUSAR se reserva para filas con gasto y sin retorno demostrable en el documento. No pauses por un ACoS alto si la fila tiene señal de conversión real: eso es una advertencia, no una pausa.
 - Una fila SIN DATA nunca lleva veredicto SUBIR ni PAUSAR: sin clicks no hay evidencia en ninguna dirección.
 - Confianza baja obliga a redactar la razón como algo a verificar, nunca como un hecho.
+- Antes de dictar BAJAR o PAUSAR, mirá el documento de placements por campaña y pct_spend_validado de esa fila. Si el gasto del ASIN se concentra en campañas de descubrimiento (Auto All, Broad Discovery, PAT Competitor) o pct_spend_validado es bajo, la razón tiene que decirlo y el veredicto se templa: todavía está comprando data. Si se concentra en Exact Ranking o Exact Harvest, o pct_spend_validado es alto, un ACoS alto ahí sostiene BAJAR o PAUSAR con más fuerza.
+- Cuando existan las columnas *_previo, la razón de las filas que priorices dice qué cambió contra ese tramo, con las dos cifras. Un ACoS alto que viene bajando no se lee igual que uno que viene subiendo.
+- Confianza baja OBLIGATORIA cuando los clicks de la fila están claramente por debajo de la mediana del documento, y la razón cita ese número de clicks. Tres clicks y trescientos no valen lo mismo.
+- En una fila con estado REVISAR y orders en 0, su spend ES la plata ya gastada sin retorno en el período: citala tal cual está en el documento. No la redondees, no la sumes con otras filas y no la presentes como un ahorro asegurado: bajar o pausar cambia la subasta, no devuelve ese importe.
 - Escribí para un Account Manager que ejecuta hoy: verbo primero, cifra después, cero adjetivos sin número.
 </reglas>

@@ -120,6 +120,7 @@ def detect_columns(df):
 
     return {
         "asin": first(lambda c: "advertised asin" in c),
+        "match_type": first(lambda c: "match type" in c),
         "campaign": first(lambda c: "campaign name" in c),
         "clicks": first(lambda c: "clicks" in c),
         "orders": first(lambda c: "orders" in c),
@@ -151,6 +152,26 @@ def resolve_asin_column(df, cols):
     with_asin = df.copy()
     with_asin["_extracted_asin"] = extracted
     return with_asin, "_extracted_asin", ASIN_FROM_CAMPAIGN
+
+
+# Match types donde el targeting ya está validado: un ACoS alto ahí pesa distinto que en descubrimiento.
+VALIDATED_MATCH_TYPES = ("exact", "phrase")
+
+
+def validated_spend_share(df, cols, col_asin) -> dict:
+    """ASIN -> % del spend que corre sobre match types ya validados (exact/phrase).
+
+    Con esto el agente distingue "todavía paga por descubrir keywords" de "el ACoS alto es sobre
+    targeting probado" con un campo de Amazon, en vez de adivinarlo del nombre de la campaña.
+    """
+    if cols.get("match_type") is None:
+        return {}
+    spend = _numeric_column(df[cols["spend"]])
+    validated = df[cols["match_type"]].astype(str).str.lower().isin(VALIDATED_MATCH_TYPES)
+    by_asin = pd.DataFrame({"asin": df[col_asin], "spend": spend, "validated": spend.where(validated, 0.0)})
+    totals = by_asin.groupby("asin").agg({"spend": "sum", "validated": "sum"})
+    return {asin: round(row["validated"] / row["spend"] * 100, 1) if row["spend"] > 0 else 0.0
+            for asin, row in totals.iterrows()}
 
 
 def estado_por_cvr(cvr, clicks, orders):
@@ -232,11 +253,20 @@ def campaign_placements(df, cols):
     return rows
 
 
-def bid_ai_records(df_asin, cols, col_asin, keep):
-    """Serializa las filas por ASIN para el agente — tipos nativos, las de mayor spend primero."""
+def bid_ai_records(df_asin, cols, col_asin, keep, *, validated_share=None, previous=None):
+    """Serializa las filas por ASIN para el agente — tipos nativos, las de mayor spend primero.
+
+    `validated_share` y `previous` son opcionales: cuando faltan, sus campos NO viajan, y el prompt
+    tiene la regla de no comparar contra lo que no está en el documento.
+    """
+    validated_share = validated_share or {}
+    previous = previous or {}
     top = df_asin.sort_values(cols["spend"], ascending=False).head(keep)
-    return [{
-        "asin": str(row[col_asin]).strip(),
+    records = []
+    for _, row in top.iterrows():
+        asin = str(row[col_asin]).strip()
+        record = {
+        "asin": asin,
         "clicks": int(row[cols["clicks"]]),
         "orders": int(row[cols["orders"]]),
         "cvr": round(float(row["_cvr"]), 2),
@@ -246,7 +276,25 @@ def bid_ai_records(df_asin, cols, col_asin, keep):
         "acos": round(float(row["_acos"]), 1),
         "bid_base": float(row["_bid_base"]),
         "estado": str(row["Estado"]).split(" ", 1)[-1],
-    } for _, row in top.iterrows()]
+        }
+        if asin in validated_share:
+            record["pct_spend_validado"] = validated_share[asin]
+        before = previous.get(asin)
+        if before is not None:
+            record.update({f"{key}_previo": value for key, value in before.items()})
+        records.append(record)
+    return records
+
+
+def previous_by_asin(df_asin, cols, col_asin) -> dict:
+    """ASIN -> métricas del período anterior, con las mismas claves que la fila actual."""
+    return {str(row[col_asin]).strip(): {
+        "clicks": int(row[cols["clicks"]]),
+        "orders": int(row[cols["orders"]]),
+        "cvr": round(float(row["_cvr"]), 2),
+        "spend": round(float(row[cols["spend"]]), 2),
+        "acos": round(float(row["_acos"]), 1),
+    } for _, row in df_asin.iterrows()}
 
 
 def bid_row_labels(records):
@@ -258,6 +306,12 @@ def bid_row_labels(records):
 def canonical_analysis_window(data_from: date | None, data_through: date) -> tuple[date, date]:
     earliest = data_from or data_through - timedelta(days=MAX_WINDOW_DAYS - 1)
     return max(earliest, data_through - timedelta(days=CANONICAL_WINDOW_DAYS - 1)), data_through
+
+
+def previous_window(start: date, end: date) -> tuple[date, date]:
+    """El tramo inmediatamente anterior, del mismo largo: con qué se compara el período en pantalla."""
+    days = (end - start).days + 1
+    return start - timedelta(days=days), start - timedelta(days=1)
 
 
 @dataclass(frozen=True)
@@ -295,9 +349,22 @@ class BidAnalysisInput:
     records: list
 
 
+def _previous_metrics(previous_frame, target_acos: int, price_map: dict | None) -> dict:
+    """Las métricas del período anterior por ASIN, o vacío si no hay con qué comparar."""
+    if previous_frame is None or previous_frame.empty:
+        return {}
+    cols = detect_columns(previous_frame)
+    if any(cols[key] is None for key in ("clicks", "orders", "sales", "spend")):
+        return {}
+    with_asin, col_asin, _ = resolve_asin_column(previous_frame, cols)
+    if col_asin is None:
+        return {}
+    return previous_by_asin(bids_by_asin(with_asin, cols, col_asin, target_acos, price_map or {}), cols, col_asin)
+
+
 def build_analysis_input(frame, *, target_acos: int, account_label: str, period_label: str,
                          currency_code: str, lang: str = CANONICAL_LANG,
-                         price_map: dict | None = None) -> BidAnalysisInput:
+                         price_map: dict | None = None, previous_frame=None) -> BidAnalysisInput:
     """Arma el payload del agente desde el frame canónico del Search Term Report."""
     if frame.empty:
         return BidAnalysisInput(None, [])
@@ -309,7 +376,9 @@ def build_analysis_input(frame, *, target_acos: int, account_label: str, period_
         return BidAnalysisInput(None, [])
 
     by_asin = bids_by_asin(with_asin, cols, col_asin, target_acos, price_map or {})
-    records = bid_ai_records(by_asin, cols, col_asin, MAX_ASINS)
+    records = bid_ai_records(by_asin, cols, col_asin, MAX_ASINS,
+                             validated_share=validated_spend_share(with_asin, cols, col_asin),
+                             previous=_previous_metrics(previous_frame, target_acos, price_map))
     if not records:
         return BidAnalysisInput(None, [])
     campaigns = campaign_placements(with_asin, cols)[:MAX_CAMPAIGNS] if cols["campaign"] else []
@@ -324,6 +393,7 @@ def build_analysis_input(frame, *, target_acos: int, account_label: str, period_
             total_asins=len(by_asin),
             asins=records,
             campaigns=campaigns,
+            has_previous=any("clicks_previo" in record for record in records),
             idioma=lang,
         ),
         records,

@@ -403,6 +403,29 @@ def render():
             _render_bid_stored_analysis(source, df, target_acos, currency_code, bid_labels)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _previous_frame(source):
+    """El tramo anterior del mismo largo, para que el agente lea qué cambió. None si no hay."""
+    from core.amazon_ads.report_provider import ReportReadError, ReportProvider
+    from core.bid_analysis import previous_window
+    from modules.pages import search_term_source
+
+    if source.window_start is None or source.window_end is None:
+        return None
+    profile = next((option for option in search_term_source._available_profiles()
+                    if option.profile_id == source.profile_id), None)
+    rest = search_term_source._open_rest()
+    if profile is None or rest is None:
+        return None
+    start, end = previous_window(source.window_start, source.window_end)
+    if profile.data_from is not None and start < profile.data_from:
+        return None
+    try:
+        return ReportProvider(rest).search_terms(profile, start, end).frame
+    except ReportReadError:
+        return None
+
+
 def _render_bid_stored_analysis(source, frame, target_acos, currency_code, bid_labels):
     """Busca el análisis de exactamente estos datos y parámetros; si no existe, ofrece pedirlo."""
     from ai.agent_call import build_agent_call
@@ -415,7 +438,9 @@ def _render_bid_stored_analysis(source, frame, target_acos, currency_code, bid_l
     params = BidAnalysisParams(int(target_acos))
     analysis_input = build_analysis_input(
         frame, target_acos=params.target_acos, account_label=source.label,
-        period_label=_period_label(source), currency_code=currency_code)
+        period_label=_period_label(source), currency_code=currency_code,
+        # La misma comparación que arma el worker: si difieren, difiere la huella y nunca matchea.
+        previous_frame=_previous_frame(source))
     if analysis_input.data is None:
         st.info(bid_labels["no_rows"])
         return

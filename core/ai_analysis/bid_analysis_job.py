@@ -9,13 +9,14 @@ from __future__ import annotations
 from ai.agent_call import build_agent_call
 from core.ai_analysis.analysis_runner import AnalysisRunner, PreparedAnalysis
 from core.ai_analysis.store import AnalysisSettings, analysis_job_kind
-from core.amazon_ads.report_provider import ProfileOption
+from core.amazon_ads.report_provider import ProfileOption, ReportReadError
 from core.bid_analysis import (
     ANALYSIS_MODULE,
     CANONICAL_LANG,
     BidAnalysisParams,
     build_analysis_input,
     canonical_analysis_window,
+    previous_window,
 )
 from core.date_labels import date_range_label
 
@@ -52,7 +53,8 @@ class BidAnalysisSpec:
         analysis_input = build_analysis_input(
             source.frame, target_acos=params.target_acos, account_label=source.label,
             period_label=date_range_label(window_start, window_end),
-            currency_code=source.currency_code, lang=lang)
+            currency_code=source.currency_code, lang=lang,
+            previous_frame=_previous_frame(reports, profile, window_start, window_end))
         if analysis_input.data is None:
             return None
         return PreparedAnalysis(
@@ -60,6 +62,20 @@ class BidAnalysisSpec:
             record_columns={"records": analysis_input.records},
             rows_written=len(analysis_input.records),
         )
+
+
+def _previous_frame(reports, profile, window_start, window_end):
+    """El tramo anterior, o None si la cuenta no llega tan atrás o no se pudo leer.
+
+    Falta de historial no es un error: el payload viaja sin comparación y el prompt no la insinúa.
+    """
+    start, end = previous_window(window_start, window_end)
+    if profile.data_from is not None and start < profile.data_from:
+        return None
+    try:
+        return reports.search_terms(profile, start, end).frame
+    except ReportReadError:
+        return None
 
 
 class BidAnalysisJob(AnalysisRunner):
