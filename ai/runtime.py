@@ -9,10 +9,12 @@ import hashlib
 import json
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 
 from ai import agent_call, client
-from core import chat_skills
+from core import chat_components, chat_skills
 
 _AGENTS_DIR = agent_call.AGENTS_DIR
 _TTL_S = 24 * 3600
@@ -181,8 +183,54 @@ def ask_followup(slug: str, session_id: str | None, question: str,
     `thread` is the visible conversation so far: a turn that opens a new
     session carries it, so the model does not forget what was already said.
     """
+    call = _followup_call(slug, session_id, question, ads_scope, context_docs, note, thread)
+    resp = client.ask(**call)
+    return resp.get("text", ""), _remember_session(call, resp)
+
+
+@dataclass(frozen=True)
+class ChatReply:
+    """One chat answer: the components the panel draws and the text everything else reads.
+
+    `blocks` is None when the answer did not come in components; `text` is then the
+    model's prose, which the panel shows the way it showed every answer before."""
+
+    text: str
+    blocks: list[dict] | None
+    tool_calls: tuple[str, ...]
+    session_id: str | None
+
+
+def stream_followup(slug: str, session_id: str | None, question: str,
+                    ads_scope: dict | None = None,
+                    context_docs: list | None = None,
+                    note: str | None = None,
+                    thread: list | None = None) -> Iterator[dict]:
+    """The same turn as `ask_followup`, streamed and answered in components.
+
+    The model reads the catalog of what the panel can draw and is held to its
+    schema; which components to use, and in what order, is its call.
+    Yields {"type": "tool", "name": ...} for each tool the model asks for while it
+    works, then one {"type": "reply", "reply": ChatReply}. Raises what
+    `ask_followup` raises."""
+    call = _followup_call(slug, session_id, question, ads_scope, context_docs, note, thread,
+                          guide=chat_components.GUIDE, output_schema=chat_components.SCHEMA)
+    for event in client.ask_stream(**call):
+        if event.get("type") == "tool":
+            yield {"type": "tool", "name": str(event.get("name") or "")}
+        elif event.get("type") == "result":
+            blocks = chat_components.normalize(event.get("structured_output"))
+            text = chat_components.plain_text(blocks) if blocks else str(event.get("text") or "")
+            yield {"type": "reply", "reply": ChatReply(
+                text=text, blocks=blocks, tool_calls=tuple(event.get("tool_calls") or ()),
+                session_id=_remember_session(call, event))}
+
+
+def _followup_call(slug: str, session_id: str | None, question: str, ads_scope: dict | None,
+                   context_docs: list | None, note: str | None, thread: list | None,
+                   guide: str = "", output_schema: dict | None = None) -> dict:
     agent = _agent(slug)
-    system = agent["system"] + ("\n\n" + _CHAT_RULES if _CHAT_RULES else "")
+    system = agent["system"] + ("\n\n" + _CHAT_RULES if _CHAT_RULES else "") + ("\n\n" + guide if guide else "")
     tools = usable_tools(slug, ads_scope) or None
     session_id = _session_to_resume(session_id, bool(tools))
     # Uploaded from Sistema, not from the repo. A broken registry costs a skill,
@@ -190,18 +238,24 @@ def ask_followup(slug: str, session_id: str | None, question: str,
     skills = chat_skills.enabled_payload()
     context = [] if session_id else _opening_context(context_docs, thread)
     input_text = f"{note}\n\n{question}" if note else question
-    resp = client.ask(system=system, input_text=input_text, context=context,
-                      model=agent["meta"].get("model", "opus"),
-                      effort=agent["meta"].get("effort") or None,
-                      session_id=session_id, timeout_s=int(agent["meta"].get("timeout_s", 3600)),
-                      max_turns=_MAX_TOOL_TURNS if tools else 1, tools=tools,
-                      ads_scope=ads_scope if tools and AMAZON_ADS_TOOLS in tools else None,
-                      skills=skills or None,
-                      tag=f"{slug}-chat")
-    new_session = resp.get("session_id") or session_id
+    return dict(system=system, input_text=input_text, context=context,
+                model=agent["meta"].get("model", "opus"),
+                effort=agent["meta"].get("effort") or None,
+                session_id=session_id, timeout_s=int(agent["meta"].get("timeout_s", 3600)),
+                output_schema=output_schema,
+                # A schema turn spends turns on the StructuredOutput call, with or without tools.
+                max_turns=_MAX_TOOL_TURNS if tools or output_schema else 1,
+                tools=tools,
+                ads_scope=ads_scope if tools and AMAZON_ADS_TOOLS in tools else None,
+                skills=skills or None,
+                tag=f"{slug}-chat")
+
+
+def _remember_session(call: dict, resp: dict) -> str | None:
+    new_session = resp.get("session_id") or call["session_id"]
     if new_session:
-        _TOOLED_TURNS[new_session] = bool(tools)
-    return resp.get("text", ""), new_session
+        _TOOLED_TURNS[new_session] = bool(call["tools"])
+    return new_session
 
 
 CONVERSATION_TITLE = "Conversación previa de este chat, tal como la ve el AM en su panel"

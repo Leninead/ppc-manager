@@ -1,6 +1,6 @@
 ---
-model: claude-fable-5-1
-effort: low
+model: claude-opus-5
+effort: high
 timeout_s: 3600
 tools: datadive, amazon_ads
 ---

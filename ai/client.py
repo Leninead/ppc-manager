@@ -4,6 +4,7 @@ import json
 import pathlib
 import threading
 import time
+from collections.abc import Iterator
 
 import requests
 
@@ -103,17 +104,10 @@ def _log(record: dict) -> None:
         pass
 
 
-def ask(*, system: str, input_text: str, context: list, model: str,
-        effort: str | None = None, output_schema: dict | None = None,
-        session_id: str | None = None, timeout_s: int = 3600,
-        max_turns: int = 1, tools: list | None = None,
-        ads_scope: dict | None = None, skills: list | None = None,
-        tag: str = "") -> dict:
-    """POST /v1/answer and return the provider's response body.
-
-    `ads_scope` ({account_id, profile_id, requested_by}) names the client's
-    Amazon Ads account a chat is about; the provider resolves the credentials
-    itself, the app only points at the row. It goes with the shared secret."""
+def _payload(*, system: str, input_text: str, context: list, model: str,
+             effort: str | None, output_schema: dict | None, session_id: str | None,
+             max_turns: int, tools: list | None, ads_scope: dict | None,
+             skills: list | None) -> dict:
     payload: dict = {"system": system, "input": input_text, "model": model,
                      "max_turns": max_turns, "context": context}
     if effort:
@@ -130,26 +124,53 @@ def ask(*, system: str, input_text: str, context: list, model: str,
         # Knowledge the agency wrote, uploaded from Sistema. It travels with the
         # turn because the provider cannot reach this app's disk.
         payload["skills"] = skills
-    headers = {"X-Provider-Token": config.PROVIDER_SECRET} if config.PROVIDER_SECRET else {}
+    return payload
 
-    t0 = time.time()
-    base = {"ts": t0, "tag": tag, "model": model,
+
+def _headers() -> dict:
+    return {"X-Provider-Token": config.PROVIDER_SECRET} if config.PROVIDER_SECRET else {}
+
+
+def _log_base(t0: float, tag: str, model: str, context: list, session_id: str | None,
+              ads_scope: dict | None) -> dict:
+    return {"ts": t0, "tag": tag, "model": model,
             "context_chars": sum(len(d.get("content", "")) for d in context),
             "resumed": bool(session_id),
             "ads_account_id": (ads_scope or {}).get("account_id")}
-    try:
-        r = requests.post(f"{config.PROVIDER_URL}/v1/answer", json=payload,
-                          headers=headers, timeout=timeout_s)
-    except requests.exceptions.ReadTimeout as e:
+
+
+def _unreached(e: requests.exceptions.RequestException, base: dict, timeout_s: int) -> ProviderDown:
+    # Mid-stream, requests reports a read timeout as a ConnectionError that says so.
+    if isinstance(e, requests.exceptions.ReadTimeout) or "read timed out" in str(e).lower():
         # Reached but silent: pointing at a stopped container would send someone to the wrong place.
         _log({**base, "status": "timeout", "error": str(e)})
-        raise ProviderDown(
-            f"El AI provider no respondió en {timeout_s} s y el pedido se cortó.") from e
+        return ProviderDown(f"El AI provider no respondió en {timeout_s} s y el pedido se cortó.")
+    _log({**base, "status": "provider_down", "error": str(e)})
+    return ProviderDown(f"No se pudo contactar al AI provider en {config.PROVIDER_URL}. "
+                        "¿Está corriendo el contenedor?")
+
+
+def ask(*, system: str, input_text: str, context: list, model: str,
+        effort: str | None = None, output_schema: dict | None = None,
+        session_id: str | None = None, timeout_s: int = 3600,
+        max_turns: int = 1, tools: list | None = None,
+        ads_scope: dict | None = None, skills: list | None = None,
+        tag: str = "") -> dict:
+    """POST /v1/answer and return the provider's response body.
+
+    `ads_scope` ({account_id, profile_id, requested_by}) names the client's
+    Amazon Ads account a chat is about; the provider resolves the credentials
+    itself, the app only points at the row. It goes with the shared secret."""
+    payload = _payload(system=system, input_text=input_text, context=context, model=model,
+                       effort=effort, output_schema=output_schema, session_id=session_id,
+                       max_turns=max_turns, tools=tools, ads_scope=ads_scope, skills=skills)
+    t0 = time.time()
+    base = _log_base(t0, tag, model, context, session_id, ads_scope)
+    try:
+        r = requests.post(f"{config.PROVIDER_URL}/v1/answer", json=payload,
+                          headers=_headers(), timeout=timeout_s)
     except requests.exceptions.RequestException as e:
-        _log({**base, "status": "provider_down", "error": str(e)})
-        raise ProviderDown(
-            f"No se pudo contactar al AI provider en {config.PROVIDER_URL}. "
-            "¿Está corriendo el contenedor?") from e
+        raise _unreached(e, base, timeout_s) from e
 
     try:
         body = r.json()
@@ -163,24 +184,108 @@ def ask(*, system: str, input_text: str, context: list, model: str,
 
     if r.status_code == 200:
         return body
-    detail = body.get("detail") or body.get("error") or r.text[:300]
-    if r.status_code == 429:
-        retry_after = int(r.headers.get("Retry-After", "60"))
-        raise QuotaExceeded(
+    raise _refused(r.status_code, body, r.text, r.headers, ads_scope)
+
+
+def ask_stream(*, system: str, input_text: str, context: list, model: str,
+               effort: str | None = None, output_schema: dict | None = None,
+               session_id: str | None = None, timeout_s: int = 3600,
+               max_turns: int = 1, tools: list | None = None,
+               ads_scope: dict | None = None, skills: list | None = None,
+               tag: str = "") -> Iterator[dict]:
+    """POST /v1/answer/stream and yield the provider's events as they arrive.
+
+    A `tool` event names a tool the model just asked for, while it works. The last
+    event is the `result`, with the same fields `ask` returns. Every failure raises
+    the error `ask` would raise for it, whether it is known before the first event
+    (the HTTP status) or only at the end (a result that reports an error)."""
+    payload = _payload(system=system, input_text=input_text, context=context, model=model,
+                       effort=effort, output_schema=output_schema, session_id=session_id,
+                       max_turns=max_turns, tools=tools, ads_scope=ads_scope, skills=skills)
+    t0 = time.time()
+    base = {**_log_base(t0, tag, model, context, session_id, ads_scope), "stream": True}
+    try:
+        r = requests.post(f"{config.PROVIDER_URL}/v1/answer/stream", json=payload,
+                          headers=_headers(), timeout=timeout_s, stream=True)
+    except requests.exceptions.RequestException as e:
+        raise _unreached(e, base, timeout_s) from e
+
+    with r:
+        if r.status_code != 200:
+            try:
+                body = r.json()
+            except ValueError:
+                body = {"error": r.text[:500]}
+            _log({**base, "status": r.status_code,
+                  "duration_ms": int((time.time() - t0) * 1000),
+                  "request_id": body.get("request_id"), "error": body.get("error")})
+            raise _refused(r.status_code, body, r.text, r.headers, ads_scope)
+        result = None
+        try:
+            for line in r.iter_lines():
+                # Bytes, decoded here: an event stream without a charset would
+                # otherwise be read as Latin-1 and garble every accent.
+                if not line.startswith(b"data: "):
+                    continue
+                try:
+                    event = json.loads(line[len(b"data: "):].decode("utf-8"))
+                except ValueError as e:
+                    _log({**base, "status": "stream_error", "duration_ms": int((time.time() - t0) * 1000),
+                          "error": f"unreadable event: {e}"})
+                    raise UpstreamError("El AI provider devolvió una respuesta ilegible.") from e
+                if not isinstance(event, dict):
+                    continue
+                if event.get("type") == "result":
+                    result = event
+                    break
+                if event.get("type") == "tool":
+                    yield event
+        except requests.exceptions.RequestException as e:
+            raise _unreached(e, base, timeout_s) from e
+
+    _log({**base, "status": 200 if result and not result.get("is_error") else "stream_error",
+          "duration_ms": int((time.time() - t0) * 1000),
+          "request_id": (result or {}).get("request_id"), "usage": (result or {}).get("usage"),
+          "error": (result or {}).get("error"), "response": result})
+    if result is None:
+        raise UpstreamError("El AI provider cortó la respuesta antes de terminarla.")
+    if result.get("is_error"):
+        raise _failed(result)
+    yield result
+
+
+def _failed(result: dict) -> AIError:
+    """The error a streamed result reports, named the way `ask` names its status."""
+    detail = str(result.get("error") or "error desconocido")
+    kind = result.get("error_kind")
+    if kind == "quota":
+        return QuotaExceeded("Cuota de IA agotada — reintentar en ~300s.", 300)
+    if kind == "auth":
+        return ProviderDown(f"El AI provider no está autenticado con Claude: {detail}")
+    if kind == "ads_unavailable":
+        return ProviderDown(_unreachable_message(f"Amazon Ads MCP is unavailable: {detail}"))
+    return UpstreamError(f"El AI provider no pudo terminar la respuesta: {detail}")
+
+
+def _refused(status: int, body: dict, text: str, headers, ads_scope: dict | None) -> AIError:
+    detail = body.get("detail") or body.get("error") or text[:300]
+    if status == 429:
+        retry_after = int(headers.get("Retry-After", "60"))
+        return QuotaExceeded(
             f"Cuota de IA agotada — reintentar en ~{retry_after}s.", retry_after)
-    if r.status_code == 503:
+    if status == 503:
         # 503 covers everything the provider could not reach, and the message
         # has to name which one. Blaming the Claude credential for a failed
         # Amazon session sent an operator to check the wrong subsystem, while
         # the real cause stayed buried in the detail — seen on 2026-09-10 with
         # "no está autenticado con Claude: could not open the Amazon Ads MCP
         # session". The detail is what identifies the subsystem, so read it.
-        raise ProviderDown(_unreachable_message(str(detail)))
-    if r.status_code == 401:
-        raise ProviderDown("El AI provider rechazó la credencial de la app: "
-                           "CLAUDE_PROVIDER_SECRET no coincide con su PROVIDER_SHARED_SECRET.")
-    if ads_scope and r.status_code in (404, 409):
+        return ProviderDown(_unreachable_message(str(detail)))
+    if status == 401:
+        return ProviderDown("El AI provider rechazó la credencial de la app: "
+                            "CLAUDE_PROVIDER_SECRET no coincide con su PROVIDER_SHARED_SECRET.")
+    if ads_scope and status in (404, 409):
         # The account the AM picked is gone or its authorization died: the
         # fix is in Cuentas conectadas, not in the provider.
-        raise UpstreamError(f"Cuenta de Amazon Ads: {detail}")
-    raise UpstreamError(f"El AI provider respondió {r.status_code}: {detail}")
+        return UpstreamError(f"Cuenta de Amazon Ads: {detail}")
+    return UpstreamError(f"El AI provider respondió {status}: {detail}")

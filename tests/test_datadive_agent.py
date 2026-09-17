@@ -26,8 +26,8 @@ def test_agent_is_discovered_by_runtime():
     import ai.runtime as runtime
     assert "datadive" in runtime._agents
     meta = runtime._agents["datadive"]["meta"]
-    assert meta.get("model") == "claude-fable-5-1"
-    assert meta.get("effort") == "low"
+    assert meta.get("model") == "claude-opus-5"
+    assert meta.get("effort") == "high"
     assert meta.get("timeout_s") == "3600"
     assert meta.get("tools") == "datadive, amazon_ads"
 

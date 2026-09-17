@@ -6,6 +6,24 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — El chat responde con componentes, y la IA corre en Opus 5 (2026-09-17)
+
+**Las respuestas del chat se dibujan.** El modelo contesta con una lista de componentes que el panel dibuja en orden:
+texto, tarjetas de indicadores, tabla, barras, tendencia, alerta y acción. Lee un catálogo con para qué sirve cada
+uno, cómo se ve y sus límites, y elige cuáles usar; el provider lo obliga a responder en esa forma. Mientras
+trabaja, el panel muestra qué fuentes está leyendo (Campañas · Amazon Ads, Keywords · DataDive…). Una respuesta
+que no llega en componentes se sigue mostrando como prosa.
+
+**Los análisis y el chat pasan a Claude Opus 5 con esfuerzo alto.** Search Term Report, Search Query Performance,
+DataDive y el chat de la app dejan `claude-fable-5-1` con esfuerzo `low`; la espera de 3600 s no cambia.
+
+**Depende del provider.** Necesita la rama `feat/chat-components` de capybaras-ai-provider (deja pasar la salida
+estructurada en un turno con herramientas y avisa cada herramienta que el modelo pide): se despliega antes.
+
+Qué cambia en el código: `core/chat_components/` (nuevo: un módulo por componente; `CATALOG` genera el schema y
+la guía), `ai/runtime.stream_followup` y `ChatReply`, `ai/client.ask_stream`, `core/ai_chat.py` (dibuja los
+componentes y los chips en vivo), `ai/agents/_shared/chat.md` y el encabezado de los cuatro agentes.
+
 ### Added — Un chat IA en toda la app (2026-09-15)
 
 **El chat está en todas las pantallas, desde Inicio.** Una sola burbuja, para todos los usuarios, con un hilo que
