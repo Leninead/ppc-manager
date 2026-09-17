@@ -42,8 +42,7 @@ class ChatTurn:
 _ACCENT = ACCENT
 
 _L = {
-    "es": {"title": "Chat IA",
-           "subtitle": "análisis de la app y Amazon Ads",
+    "es": {"title": "Capybaras Copilot",
            "empty": "Preguntá por un análisis de la app, una cuenta de "
                     "Amazon Ads o un niche de DataDive.",
            "placeholder": "Escribí tu pregunta...", "send": "Enviar",
@@ -60,8 +59,7 @@ _L = {
                      "budgets": "Presupuestos", "portfolios": "Portfolios", "campaigns": "Campañas",
                      "accounts": "Cuentas", "competitors": "Competidores", "keywords": "Keywords",
                      "rank_radar": "Rank Radar", "niches": "Niches"}},
-    "en": {"title": "AI chat",
-           "subtitle": "app analyses and Amazon Ads",
+    "en": {"title": "Capybaras Copilot",
            "empty": "Ask about an analysis in the app, an Amazon Ads "
                     "account or a DataDive niche.",
            "placeholder": "Type your question...", "send": "Send",
@@ -181,7 +179,7 @@ _X_SVG = ('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
           'stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>')
 
 
-def _chat_header(title: str, subtitle: str, copy_text: str, copy_title: str,
+def _chat_header(title: str, copy_text: str, copy_title: str,
                  close_title: str) -> None:
     """Orange header with icon-only copy and close buttons (they need JS, so
     the whole header lives in one component iframe)."""
@@ -208,10 +206,7 @@ def _chat_header(title: str, subtitle: str, copy_text: str, copy_title: str,
     background:rgba(255,255,255,.25);color:#fff;display:flex;
     align-items:center;justify-content:center;font-size:12px;
     font-weight:600">AI</span>
-  <span><span style="display:block;font-size:14px;font-weight:600;
-    color:#fff">{html.escape(title)}</span>
-  <span style="display:block;font-size:13px;
-    color:#FADFD3">{html.escape(subtitle)}</span></span>
+  <span style="font-size:14px;font-weight:600;color:#fff">{html.escape(title)}</span>
   {icon}
   {close_btn}
 </div>
@@ -311,7 +306,6 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
     for the bubbles and the transcript."""
     L = _L.get(lang, _L["es"])
     title = title or L["title"]
-    subtitle = L["subtitle"]
     anchor = f"aichat_{chat_id}_anchor"
     panel = f"aichat_{chat_id}_panel"
     hist_key = f"aichat_{chat_id}_hist"
@@ -391,7 +385,7 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                     (f"{user_lbl}: " + t["text"]) if t["role"] == "user"
                     else ("Capybaras AI: " + t.get("shown", t["text"]))
                     for t in history)) if history else ""
-                _chat_header(title, subtitle, plain, L["copy"], L["close"])
+                _chat_header(title, plain, L["copy"], L["close"])
                 if history:
                     # Newest first in the DOM, `column-reverse` in the CSS: the
                     # pair puts the latest message at the visual bottom AND
