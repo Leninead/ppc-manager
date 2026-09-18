@@ -57,6 +57,13 @@ def test_completed_search_terms_with_a_warning_reads_as_an_empty_day():
                              "portfolio_names") == "Completada · con aviso"
 
 
+def test_a_campaign_report_job_closes_with_the_same_empty_day_reading():
+    warning = "día vacío: Amazon no devolvió filas para 2026-09-01"
+    assert page.status_label("completed", "", warning, "sp_campaigns") == "Completada · día vacío"
+    assert page.status_label("completed", "", "sin permiso para leer campañas",
+                             "campaign_entities") == "Completada · con aviso"
+
+
 def test_status_label_in_english(monkeypatch):
     monkeypatch.setattr(i18n, "current_lang", lambda: "en")
     assert page.status_label("running", "waiting") == "Waiting for Amazon"
@@ -289,6 +296,14 @@ def test_request_subline_says_what_matters_for_each_state():
                       window_end=None)
     assert page.request_subline(portfolios, None, NOW) == "14 portfolios"
     assert page.request_subline(_job(status="failed"), None, NOW) == "31 ago → 13 sep · 14 días"
+
+
+def test_the_campaign_grain_reads_like_its_siblings_in_the_log():
+    assert page.request_title(_job(job_kind="sp_campaigns")) == "Diaria · Métricas de campañas"
+    assert page.request_title(_job(job_kind="campaign_entities")) == "Campañas"
+    entities = _job(job_kind="campaign_entities", status="completed", rows_written=276, window_start=None,
+                    window_end=None)
+    assert page.request_subline(entities, None, NOW) == "276 campañas"
 
 
 def test_rows_of_an_open_job_come_from_its_saved_reports():

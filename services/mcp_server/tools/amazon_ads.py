@@ -1,7 +1,7 @@
-"""Las cuentas de Amazon Ads sincronizadas, sus search terms y su serie diaria.
+"""Las cuentas de Amazon Ads sincronizadas, sus search terms, su serie diaria y sus campañas.
 
-Se apoya en core/amazon_ads/report_provider.py, que ya lee sin Streamlit: acá no hay lógica de
-negocio nueva, sólo la forma en que un modelo la consulta.
+Se apoya en core/amazon_ads/ (report_provider, campaign_provider y campaign_analyzer), que ya leen y
+clasifican sin Streamlit: acá no hay lógica de negocio nueva, sólo la forma en que un modelo la consulta.
 """
 from __future__ import annotations
 
@@ -9,7 +9,29 @@ from datetime import date, timedelta
 from typing import Literal
 
 from core import search_term_frame as canonical
+from core.ai_analysis.store import AiAnalysisStore
+from core.amazon_ads.campaign_analyzer import (
+    ANALYSIS_MODULE as CAMPAIGNS_MODULE,
+    DIAGNOSIS_COLUMN,
+    PAUSE,
+    SIGNALS_COLUMN,
+    CampaignAnalyzerParams,
+    analyze,
+    diagnosis_name,
+    provisional_days,
+)
+from core.amazon_ads.campaign_provider import (
+    BID_STRATEGY,
+    BUDGET_AMOUNT,
+    CAMPAIGN_ID,
+    CAMPAIGN_NAME,
+    PORTFOLIO_NAME,
+    CampaignProvider,
+    campaign_sync_view,
+)
 from core.amazon_ads.report_provider import DayTotals, ProfileOption, ReportProvider, account_labels
+from core.amazon_ads.sync_planner import CAMPAIGNS_KIND
+from core.integrations.sync_jobs import SyncJobStore
 from services.mcp_server.limits import page
 
 # Un modelo que pide "los search terms de la cuenta" no quiere 177.000 filas: quiere los que mueven
@@ -30,6 +52,11 @@ _MATCH_TYPE_LABELS = {"AUTO": "Automática", "PRODUCT_TARGETING": "Product targe
 RANKING_METRICS = ("spend", "sales", "orders", "clicks", "impressions", "acos", "cvr")
 Dimension = Literal["campaign", "portfolio", "match_type", "search_term"]
 RankingMetric = Literal["spend", "sales", "orders", "clicks", "impressions", "acos", "cvr"]
+# "" = sin filtro: un parámetro opcional con None llegaría al modelo sin tipo.
+Diagnosis = Literal["", "FANTASMA", "PAUSAR", "REVISAR", "ESCALAR", "OK"]
+Signal = Literal["", "Limitada por presupuesto", "Nueva", "Baja visibilidad"]
+CAMPAIGNS_SOURCE = ("Sponsored Products, de la foto de campañas y el reporte de campañas: trae también las campañas "
+                    "habilitadas sin actividad. No incluye Sponsored Brands ni Display.")
 
 
 def list_accounts(rest) -> dict:
@@ -165,6 +192,93 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
                                             totals.impressions))
     _add_window_note(payload, int(days), start, end)
     return payload
+
+
+def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, diagnosis: Diagnosis = "",
+                    signal: Signal = "", sort_by: RankingMetric = "spend", offset: int = 0, limit: int = 50) -> dict:
+    """Las campañas habilitadas de una cuenta en sus últimos `days` días, con el diagnóstico de Bulk Campañas y sus señales.
+
+    Parte de la foto de campañas, así que trae también las que no tuvieron actividad (las FANTASMA), que
+    `breakdown` por campaña no ve. Clasifica con los parámetros guardados de la cuenta en Bulk Campañas, o
+    con los de siempre, y dice cuáles usó. `counts` y `totals` cubren todas las habilitadas, no sólo la página.
+    """
+    if sort_by not in RANKING_METRICS:
+        raise ValueError(f"sort_by tiene que ser uno de: {', '.join(RANKING_METRICS)}")
+    profile = _campaign_profile(rest, profile_id)
+    start, end = window_for(profile, days)
+    source = CampaignProvider(rest).campaigns(profile, start, end)
+    settings = AiAnalysisStore(rest).settings(CAMPAIGNS_MODULE, profile_id)
+    params = CampaignAnalyzerParams.from_dict(settings.params) if settings else CampaignAnalyzerParams.defaults()
+    analyzer, campaigns = analyze(source.frame, source.signal_inputs, params, window_start=start, window_end=end)
+    context = {
+        "window": _window(start, end), "currency": source.currency_code, "attribution_days": source.attribution_days,
+        "source": CAMPAIGNS_SOURCE,
+        "parameters": {**params.as_dict(), "origin": ("guardados de la cuenta en Bulk Campañas" if settings
+                                                       else "los de siempre de Bulk Campañas")},
+        "provisional_days": [day.isoformat() for day in provisional_days(start, end)],
+    }
+    if campaigns.empty:
+        return {"rows": [], "total": 0, "showing": 0, "offset": 0, "counts": {}, "totals": None, **context,
+                "note": "La cuenta no tiene campañas habilitadas en este período."}
+
+    rows = [_campaign_row(row, analyzer.has_impressions) for _, row in campaigns.iterrows()]
+    counts = campaigns[DIAGNOSIS_COLUMN].map(diagnosis_name).value_counts()
+    totals = _metrics(campaigns["_spend"].sum(), campaigns["_sales"].sum(), campaigns["_orders"].sum(),
+                      campaigns["_clicks"].sum(), campaigns["_impr"].sum() if analyzer.has_impressions else 0)
+    if diagnosis:
+        rows = [row for row in rows if row["diagnosis"] == diagnosis]
+    if signal:
+        rows = [row for row in rows if signal in row["signals"]]
+    rows.sort(key=lambda row: (row[sort_by] is not None, row[sort_by] or 0), reverse=True)
+    payload = page(rows, offset=offset, limit=limit).as_payload(what="campañas")
+    payload.update(context, counts={str(name): int(count) for name, count in counts.items()}, totals=totals,
+                   pause_spend=round(float(campaigns.loc[campaigns[DIAGNOSIS_COLUMN] == PAUSE, "_spend"].sum()), 2))
+    _add_window_note(payload, int(days), start, end)
+    return payload
+
+
+def _campaign_profile(rest, profile_id: str) -> ProfileOption:
+    """La cuenta como la ve la sincronización de campañas: su ventana es la de su última corrida completa."""
+    for profile in ReportProvider(rest).profiles():
+        if profile.profile_id == profile_id:
+            view = campaign_sync_view(
+                profile, SyncJobStore(rest).latest_completed_for_profile(profile_id, CAMPAIGNS_KIND))
+            if view.data_through is None:
+                raise ValueError(f"La cuenta {profile_id} todavía no tiene campañas sincronizadas.")
+            return view
+    raise ValueError(f"No hay ninguna cuenta sincronizada con profile_id {profile_id}.")
+
+
+def _campaign_row(row, has_impressions: bool) -> dict:
+    record = {
+        "campaign": str(row.get(CAMPAIGN_NAME) or "").strip(),
+        "campaign_id": str(row.get(CAMPAIGN_ID) or ""),
+        "portfolio": str(row.get(PORTFOLIO_NAME) or "").strip(),
+        "bid_strategy": str(row.get(BID_STRATEGY) or "").strip(),
+        "daily_budget": _plain_number(row.get(BUDGET_AMOUNT)),
+        "diagnosis": diagnosis_name(row[DIAGNOSIS_COLUMN]),
+        "signals": [signal for signal in str(row.get(SIGNALS_COLUMN) or "").split(" · ") if signal],
+        **_metrics(row["_spend"], row["_sales"], row["_orders"], row["_clicks"],
+                   row["_impr"] if has_impressions else 0),
+    }
+    for key, column in (("budget_capped_days", "_budget_capped_days"), ("days_with_impressions",
+                                                                        "_days_with_impressions"),
+                        ("top_of_search_share", "_top_of_search_is"), ("days_live", "_days_live")):
+        if column in row.index:
+            record[key] = _plain_number(row.get(column))
+    return record
+
+
+def _plain_number(value):
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number:  # NaN: unknown, not zero
+        return None
+    return int(number) if number.is_integer() else round(number, 2)
 
 
 def window_for(profile: ProfileOption, days: int) -> tuple[date, date]:

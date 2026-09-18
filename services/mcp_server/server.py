@@ -119,6 +119,14 @@ def build_tools(rest) -> list:
               "sort_by, y el total de la cuenta en totals. Es lo que hace falta para repartir un total entre sus "
               "partes o rankear campañas, portfolios o términos, en una sola llamada.",
               partial(amazon_ads.breakdown, rest)),
+        _tool("campaign_health",
+              "Las campañas habilitadas de Sponsored Products de una cuenta en sus últimos días, cada una con el "
+              "diagnóstico de Bulk Campañas (FANTASMA, PAUSAR, REVISAR, ESCALAR u OK), sus señales (Limitada por "
+              "presupuesto, Nueva, Baja visibilidad), su presupuesto y sus métricas. Sale de la foto de campañas, "
+              "así que cuenta también las que no tuvieron actividad, que breakdown no ve. Es lo que hace falta para "
+              "contestar qué campañas pausar, escalar o revisar, cuáles no entregan o cuáles se quedan sin "
+              "presupuesto. diagnosis y signal filtran; counts y totals cubren todas las habilitadas.",
+              partial(amazon_ads.campaign_health, rest)),
     ]
 
 

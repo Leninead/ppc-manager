@@ -24,6 +24,7 @@ import requests
 
 from core.ai_analysis.store import AiAnalysisStore
 from core.ai_analysis.bid_analysis_job import BidAnalysisJob
+from core.ai_analysis.campaign_analysis_job import CampaignAnalysisJob
 from core.ai_analysis.str_analysis_job import PlanSummary, StrAnalysisJob
 from core.amazon_ads.report_provider import ReportProvider
 from core.integrations.store import _Rest
@@ -66,7 +67,7 @@ def worker_rest() -> _Rest:
 
 
 # Un runner por módulo con análisis guardado; el job trae su job_kind y por ahí se despacha.
-_RUNNERS = (StrAnalysisJob, BidAnalysisJob)
+_RUNNERS = (StrAnalysisJob, BidAnalysisJob, CampaignAnalysisJob)
 
 
 def build_jobs(rest: _Rest) -> dict:

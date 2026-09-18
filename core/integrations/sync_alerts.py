@@ -46,7 +46,9 @@ RETRY_TRIGGER = "retry"
 _STUCK_PHASES = ("", "requesting", "saving")
 _CLOSED_WITHOUT_DATA = ("failed", "cancelled")
 _KIND_LABELS = {"sp_search_terms": "términos de búsqueda", "portfolio_names": "nombres de portfolios",
-                "ai_str_analysis": "análisis IA de términos de búsqueda"}
+                "sp_campaigns": "métricas de campañas", "campaign_entities": "campañas",
+                "ai_str_analysis": "análisis IA de términos de búsqueda",
+                "ai_bulk_campaigns_analysis": "análisis IA de campañas"}
 ANALYSIS_WORKER_NAME = "ai_analysis"
 _PHASE_LABELS = {"": "arrancando", "requesting": "pidiendo el reporte", "saving": "guardando los datos"}
 

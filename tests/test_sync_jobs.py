@@ -398,6 +398,22 @@ def test_get_and_latest_for_profile_return_none_when_missing():
     assert store.latest_for_profile("e2e-profile-1").id == 77
 
 
+def test_latest_completed_for_profile_asks_only_for_finished_jobs_of_that_kind():
+    rest = _FakeRest(select_rows=[[_row(id=41, status="completed")]])
+
+    job = SyncJobStore(rest).latest_completed_for_profile("e2e-profile-1", "sp_campaigns")
+
+    assert job.id == 41
+    params = rest.selects[0][1]
+    assert (params["external_account_id"], params["job_kind"], params["status"]) == (
+        "eq.e2e-profile-1", "eq.sp_campaigns", "eq.completed")
+    assert (params["order"], params["limit"]) == ("finished_at.desc,id.desc", "1")
+
+
+def test_latest_completed_for_profile_is_none_before_any_job_finished():
+    assert SyncJobStore(_FakeRest(select_rows=[[]])).latest_completed_for_profile("p", "sp_campaigns") is None
+
+
 def test_counts_since_groups_by_status():
     rest = _FakeRest(select_rows=[[{"status": "failed"}, {"status": "completed"}, {"status": "failed"}]])
     assert SyncJobStore(rest).counts_since(NOW) == {"failed": 2, "completed": 1}

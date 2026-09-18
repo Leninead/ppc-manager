@@ -47,6 +47,23 @@ REPORT_COLUMNS = [
 DUPLICATE_STATUS = 425
 DOWNLOAD_TIMEOUT_SECONDS = 300
 
+
+@dataclass(frozen=True)
+class ReportSpec:
+    """What makes one Reporting v3 report differ from another; creating and polling are the same."""
+
+    report_type_id: str
+    group_by: tuple[str, ...]
+    columns: tuple[str, ...]
+    time_unit: str = "DAILY"
+
+
+SEARCH_TERM_SPEC = ReportSpec(
+    report_type_id=REPORT_TYPE_ID,
+    group_by=("searchTerm",),
+    columns=tuple(REPORT_COLUMNS),
+)
+
 _DUPLICATE_OF_RE = re.compile(r"duplicate\s+of\s*:?\s*([0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12})")
 _ANY_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
 
@@ -73,9 +90,11 @@ class ReportStatus:
 
 
 class ReportFetcher:
-    def __init__(self, api: AdsApiClient, *, session: requests.Session | None = None):
+    def __init__(self, api: AdsApiClient, *, session: requests.Session | None = None,
+                 spec: ReportSpec = SEARCH_TERM_SPEC):
         self._api = api
         self._download_session = session or requests.Session()
+        self._spec = spec
 
     def create(self, profile_id: str, start: date, end: date) -> str:
         if end < start:
@@ -87,7 +106,7 @@ class ReportFetcher:
             "POST",
             REPORTS_PATH,
             profile_id=profile_id,
-            json_body=_create_body(start, end),
+            json_body=_create_body(self._spec, start, end),
             content_type=CREATE_CONTENT_TYPE,
             expected=(200, 202, DUPLICATE_STATUS),
         )
@@ -157,16 +176,16 @@ def parse_duplicate_report_id(body: str) -> str | None:
     return any_uuid.group(0) if any_uuid else None
 
 
-def _create_body(start: date, end: date) -> dict:
+def _create_body(spec: ReportSpec, start: date, end: date) -> dict:
     return {
         "startDate": start.isoformat(),
         "endDate": end.isoformat(),
         "configuration": {
             "adProduct": "SPONSORED_PRODUCTS",
-            "reportTypeId": REPORT_TYPE_ID,
-            "groupBy": ["searchTerm"],
-            "columns": list(REPORT_COLUMNS),
-            "timeUnit": "DAILY",
+            "reportTypeId": spec.report_type_id,
+            "groupBy": list(spec.group_by),
+            "columns": list(spec.columns),
+            "timeUnit": spec.time_unit,
             "format": "GZIP_JSON",
         },
     }

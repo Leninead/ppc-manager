@@ -82,6 +82,7 @@ class AdsApiClient:
         profile_id: str | None = None,
         json_body: dict | None = None,
         content_type: str | None = None,
+        accept: str | None = None,
         expected: tuple[int, ...] = (200,),
     ) -> requests.Response:
         retries_used = 0
@@ -93,7 +94,8 @@ class AdsApiClient:
             retry_after = None
             network_error = None
             try:
-                response = self._send(method, path, profile_id, json_body, content_type, access_token)
+                response = self._send(method, path, profile_id, json_body, content_type, accept,
+                                      access_token)
             except requests.RequestException as exc:
                 network_error = exc
                 reason = f"no response ({type(exc).__name__})"
@@ -126,7 +128,7 @@ class AdsApiClient:
             self._back_off(method, path, reason, retries_used, retry_after)
 
     def _send(self, method: str, path: str, profile_id: str | None, json_body: dict | None,
-              content_type: str | None, access_token: str) -> requests.Response:
+              content_type: str | None, accept: str | None, access_token: str) -> requests.Response:
         headers = {
             CLIENT_ID_HEADER: self._client_id_source(),
             "Authorization": f"Bearer {access_token}",
@@ -135,6 +137,9 @@ class AdsApiClient:
             headers[SCOPE_HEADER] = str(profile_id)
         if content_type:
             headers["Content-Type"] = content_type
+        # The v3 entity endpoints answer 415 to the default `*/*`; reporting and portfolios do not.
+        if accept:
+            headers["Accept"] = accept
         return self._session.request(
             method,
             f"{self._host}{path}",

@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from core.amazon_ads.sync_planner import (
+    CAMPAIGN_ENTITIES_KIND,
+    CAMPAIGNS_KIND,
     PORTFOLIOS_KIND,
     SEARCH_TERMS_KIND,
     ProfileState,
@@ -52,7 +54,8 @@ def test_weekday_after_three_am_plans_a_fourteen_day_daily_job_ending_yesterday(
 
     planned = plan_jobs(_state(), now)
 
-    assert _kinds(planned) == [(SEARCH_TERMS_KIND, "scheduled_daily"), (PORTFOLIOS_KIND, "scheduled_daily")]
+    assert _kinds(planned) == [(SEARCH_TERMS_KIND, "scheduled_daily"), (PORTFOLIOS_KIND, "scheduled_daily"),
+                               (CAMPAIGN_ENTITIES_KIND, "scheduled_daily"), (CAMPAIGNS_KIND, "scheduled_daily")]
     daily = planned[0]
     assert (daily.window_start, daily.window_end) == (date(2026, 8, 31), date(2026, 9, 13))
     assert daily.local_day == date(2026, 9, 14)
@@ -128,8 +131,10 @@ def test_local_day_follows_the_profile_not_utc():
 def test_refreshed_today_or_open_day_job_plans_no_day_job():
     now = _utc(2026, 9, 14, 17)
 
-    assert _kinds(plan_jobs(_state(refreshed_on=date(2026, 9, 14)), now)) == [(PORTFOLIOS_KIND, "scheduled_daily")]
-    assert plan_jobs(_state(has_open_day_job_today=True, has_portfolio_job_today=True), now) == []
+    assert _kinds(plan_jobs(_state(refreshed_on=date(2026, 9, 14)), now)) == [
+        (PORTFOLIOS_KIND, "scheduled_daily"), (CAMPAIGN_ENTITIES_KIND, "scheduled_daily"), (CAMPAIGNS_KIND, "scheduled_daily")]
+    assert plan_jobs(_state(has_open_day_job_today=True, has_portfolio_job_today=True,
+                            has_campaign_job_today=True, has_campaign_entities_job_today=True), now) == []
 
 
 def test_refreshed_yesterday_is_due_again_today():
@@ -143,7 +148,8 @@ def test_backfill_takes_precedence_over_the_daily_job():
 
     planned = plan_jobs(_state(backfill_done_at=None), now)
 
-    assert _kinds(planned) == [(SEARCH_TERMS_KIND, "backfill"), (PORTFOLIOS_KIND, "scheduled_daily")]
+    assert _kinds(planned) == [(SEARCH_TERMS_KIND, "backfill"), (PORTFOLIOS_KIND, "scheduled_daily"),
+                               (CAMPAIGN_ENTITIES_KIND, "scheduled_daily"), (CAMPAIGNS_KIND, "scheduled_daily")]
     backfill = planned[0]
     assert (backfill.window_start, backfill.window_end) == (date(2026, 7, 11), date(2026, 9, 13))
     assert (backfill.window_end - backfill.window_start).days + 1 == 65
@@ -188,7 +194,7 @@ def test_while_the_backfill_runs_no_daily_job_is_planned():
 
     planned = plan_jobs(_state(backfill_done_at=None, has_open_backfill=True), now)
 
-    assert _kinds(planned) == [(PORTFOLIOS_KIND, "scheduled_daily")]
+    assert _kinds(planned) == [(PORTFOLIOS_KIND, "scheduled_daily"), (CAMPAIGN_ENTITIES_KIND, "scheduled_daily"), (CAMPAIGNS_KIND, "scheduled_daily")]
 
 
 def test_inactive_or_reauth_profiles_plan_nothing():
@@ -270,3 +276,55 @@ def test_single_day_window_is_one_chunk():
 def test_invalid_chunk_requests_raise(start, end, max_days):
     with pytest.raises(ValueError):
         report_chunks(start, end, max_days)
+
+
+def _campaign_job(planned):
+    matches = [job for job in planned if job.job_kind == CAMPAIGNS_KIND]
+    assert len(matches) == 1, planned
+    return matches[0]
+
+
+def test_the_campaign_window_is_sixty_five_days_ending_yesterday():
+    now = _utc(2026, 9, 14, 17)  # Monday 10:00 PDT
+
+    job = _campaign_job(plan_jobs(_state(), now))
+
+    assert (job.window_start, job.window_end) == (date(2026, 7, 11), date(2026, 9, 13))
+    assert job.local_day == date(2026, 9, 14)
+    assert job.dedupe_key == "amazon_ads:p-100:campaigns:2026-09-14"
+
+
+def test_the_campaign_grain_does_not_wait_for_the_search_term_backfill():
+    now = _utc(2026, 9, 14, 17)
+
+    planned = plan_jobs(_state(backfill_done_at=None, has_open_backfill=True), now)
+
+    assert CAMPAIGNS_KIND in [job.job_kind for job in planned]
+    assert CAMPAIGN_ENTITIES_KIND in [job.job_kind for job in planned]
+
+
+def test_a_campaign_job_already_open_today_is_not_planned_again():
+    now = _utc(2026, 9, 14, 17)
+
+    planned = plan_jobs(_state(has_campaign_job_today=True, has_campaign_entities_job_today=True), now)
+
+    assert CAMPAIGNS_KIND not in [job.job_kind for job in planned]
+    assert CAMPAIGN_ENTITIES_KIND not in [job.job_kind for job in planned]
+
+
+def test_campaign_jobs_wait_for_the_local_morning_like_the_daily_job():
+    before_start = _utc(2026, 9, 14, 9)  # 02:00 PDT
+
+    planned = plan_jobs(_state(), before_start)
+
+    assert CAMPAIGNS_KIND not in [job.job_kind for job in planned]
+    assert CAMPAIGN_ENTITIES_KIND not in [job.job_kind for job in planned]
+
+
+def test_the_entities_snapshot_carries_no_window_because_it_is_a_photo():
+    now = _utc(2026, 9, 14, 17)
+
+    entities = [job for job in plan_jobs(_state(), now) if job.job_kind == CAMPAIGN_ENTITIES_KIND][0]
+
+    assert (entities.window_start, entities.window_end) == (None, None)
+    assert entities.dedupe_key == "amazon_ads:p-100:campaign-entities:2026-09-14"

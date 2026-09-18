@@ -177,6 +177,11 @@ class ReportProvider:
         )
 
 
+    @property
+    def rest(self):
+        """The connection it reads with, for the readers of other grains over the same database."""
+        return self._rest
+
     def daily_totals(self, option: ProfileOption, start: date, end: date, campaign: str = "") -> DailySeries:
         """One profile's totals per day over [start, end]; with `campaign`, only campaigns whose name contains it."""
         if end < start:
@@ -323,12 +328,12 @@ def _portfolio_label(portfolio_id: str, name: str) -> str:
     return f"Portfolio {portfolio_id.strip()}" if portfolio_id.strip() else ""
 
 
-def _numbers(totals: pd.DataFrame, field: str) -> pd.Series:
+def _numbers(totals: pd.DataFrame, field: str, rpc: str = SEARCH_TERMS_RPC) -> pd.Series:
     raw = totals[field].astype(str).str.strip()
     parsed = pd.to_numeric(raw, errors="coerce")
     unreadable = parsed.isna() & raw.ne("")
     if unreadable.any():
-        raise ValueError(f"{SEARCH_TERMS_RPC} answered a non-numeric {field}: {raw[unreadable].iloc[0]!r}")
+        raise ValueError(f"{rpc} answered a non-numeric {field}: {raw[unreadable].iloc[0]!r}")
     return parsed.fillna(0)
 
 

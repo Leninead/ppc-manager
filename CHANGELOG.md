@@ -6,6 +6,33 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Bulk Campañas con análisis IA, señales y lectura desde el chat (2026-09-18)
+
+**Pestaña "Análisis IA" en M6.** Con datos de Amazon Ads, el worker de análisis genera solo el análisis de los
+últimos 7 días de cada cuenta con sus parámetros guardados (target ACoS, gasto para pausar, órdenes para escalar), como
+el del STR: la IA explica o pone en duda el diagnóstico de hasta 12 campañas con una causa, un veredicto
+(actuar, esperar, investigar) y su confianza, y escribe la síntesis de la cuenta. Nunca cambia el diagnóstico. Con
+archivo manual la pestaña lo explica y no llama a la IA.
+
+**Señales aparte del semáforo.** El Campaign Analyzer suma la columna «Señales»: "Limitada por presupuesto" (vende
+dentro del target y se quedó sin presupuesto 3 días o más), "Nueva" (menos de 14 días) y "Baja visibilidad" (menos
+de 10% de Top of Search en una campaña para pausar o revisar). Los últimos 2 días del período se marcan provisorios.
+El reporte de campañas ahora pide el presupuesto del día y el share de Top of Search.
+
+**El chat ve las campañas.** `campaign_health` (MCP) devuelve las campañas de una cuenta clasificadas como en M6,
+incluidas las que no tuvieron clicks, que `breakdown` no ve. El análisis guardado se lee con `list_analyses` y
+`get_analysis` (filas `C01…`).
+
+**Una sola regla.** El semáforo pasó a `core/amazon_ads/campaign_analyzer.py`, sin cambiar sus resultados: lo usan la
+página, el worker y el MCP.
+
+**Deploy.** Migración 014 (columnas `budget_amount` y `top_of_search_is`, `campaigns_between` con las entradas de las
+señales, `bulk_campaigns` en la lista de módulos con análisis, permiso de lectura de campañas para el worker de
+análisis). Si sale en el mismo deploy que la 013, "DB migrate" las aplica en orden y vale la nota de la 013. Si sale
+después, en los segundos entre "Deploy" y "DB migrate" la página no muestra señales, el worker de análisis registra un
+error al planificar campañas (todavía no puede leerlas) y los días que guarde el sincronizador quedan sin share de Top
+of Search hasta la noche siguiente, que reescribe los 65 días.
+
 ### Changed — El chat ya no recibe las cuentas pegadas: las lee por el MCP (2026-09-18)
 
 **Cada sesión del chat deja de cargar la síntesis de todas las cuentas.** El documento "Últimos análisis de Search
@@ -17,6 +44,27 @@ servidor MCP cuando la pregunta lo pide. Sale también la lectura de la base que
 **Cruzar cuentas es una llamada.** `accounts_overview` (nuevo) da los totales en vivo de todas las cuentas, cada una
 en su moneda; `list_analyses` suma la situación, el target de ACoS y el tipo y urgencia de cada riesgo de cada
 análisis; `get_analysis` da cada fila con su row_id y la síntesis con el término al lado de cada id.
+
+### Added — Bulk Campañas lee las campañas de la cuenta de Amazon Ads (2026-09-17)
+
+**M6 sin Campaign CSV.** Bulk Campañas muestra las campañas de Sponsored Products de la cuenta conectada con sus
+métricas del período elegido (7, 14, 30 o 60 días, o un rango). Salen de dos solicitudes nuevas del sincronizador,
+una vez por día y por perfil desde las 03:00 de su hora: la foto de campañas (`/sp/campaigns/list`: nombre, estado,
+presupuesto, estrategia, portfolio) y las métricas diarias del reporte `spCampaigns` de los últimos 65 días, en 3
+tramos. Una campaña sin actividad aparece igual, en cero: el universo sale de la foto, no del reporte. El archivo
+manual queda como alternativa.
+
+**Frescura con día y hora.** El selector usa los controles del STR y su pill sale de las solicitudes de campañas
+("Al día · actualizado hoy HH:MM", "Primera carga en curso", "Sin datos todavía"). El Registro de solicitudes muestra
+"Campañas" y "Métricas de campañas", con los tramos del reporte en el detalle.
+
+**Diferencias con el CSV.** Estado de hasta el día anterior, métricas hasta ayer, 65 días sincronizados (el período
+llega a 60), solo Sponsored Products, archivadas afuera y 17 columnas en la Vista General.
+
+**Deploy.** El pipeline aplica la migración 013 en "DB migrate", segundos después de levantar la imagen nueva: los
+ticks del sincronizador de esa ventana fallan en el pedido de reportes y en los pasos de campañas, y se recuperan solos
+(las solicitudes de campañas reintentan a los 5 min). Nunca correr la imagen vieja y la nueva del sincronizador a la
+vez: la vieja toma tramos sin mirar su tipo.
 
 ### Added — El chat lee la app por MCP y grafica solo (2026-09-17)
 
