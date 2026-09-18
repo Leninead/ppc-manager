@@ -696,15 +696,23 @@ ofrece generarlo con un clic y nunca muestra uno anterior.
 
 ```
 # /etc/cron.d/integrations-worker (root o el usuario que corre docker)
-*/2  * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker grants   >>/var/log/integrations-worker.log 2>&1
-*/20 * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker refresh  >>/var/log/integrations-worker.log 2>&1
-7 * * * *    root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.integrations.worker discover >>/var/log/integrations-worker.log 2>&1
+*/5  * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm --no-deps integrations-worker python -m core.integrations.worker grants   >>/var/log/integrations-worker.log 2>&1
+*/20 * * * * root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm --no-deps integrations-worker python -m core.integrations.worker refresh  >>/var/log/integrations-worker.log 2>&1
+7 * * * *    root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm --no-deps integrations-worker python -m core.integrations.worker discover >>/var/log/integrations-worker.log 2>&1
 # Ingesta MELI: 1 vez al día, al cierre. Se corre tarde porque las métricas
 # del día quedan firmes cuando MELI cierra su ventana (visitas/ventas/ads);
 # los reportes que la app muestra a la mañana siguiente ya son definitivos.
 # Sin este cron el portal conecta cuentas pero nunca trae datos.
-30 23 * * *  root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm integrations-worker python -m core.meli_api.worker ingest    >>/var/log/meli-api-worker.log 2>&1
+30 23 * * *  root docker compose -f /srv/ppc-manager/docker-compose.yml -f /srv/ppc-manager/docker-compose.proxy.yml -f /srv/ppc-manager/docker-compose.db.yml run --rm --no-deps integrations-worker python -m core.meli_api.worker ingest    >>/var/log/meli-api-worker.log 2>&1
 ```
+
+`--no-deps` no es opcional. Jenkins corre `docker compose` desde su contenedor y
+el cron desde el host, con versiones distintas que calculan distinto la huella de
+cada servicio: sin `--no-deps`, la primera corrida del cron después de cada deploy
+ve la base y el gateway "desactualizados" y los recrea, y el worker de análisis y la
+app pierden la base unos segundos (verificado el 2026-09-18: compose 5.4.0 en
+Jenkins, 2.35.1 en el host). Los servicios de los que depende ya corren siempre;
+el cron no tiene por qué tocarlos.
 
 El cron **no** pasa `IMAGE_TAG`: lo resuelve de `/srv/ppc-manager/.env`, donde
 el pipeline lo fija en cada deploy (y lo revierte si el health gate rueda atrás).
