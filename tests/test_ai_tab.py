@@ -4,7 +4,7 @@ Scope: the pure lifecycle decision (full matrix), label merging, the render
 kit in both languages (incl. the $-escape gotcha), and an AppTest smoke of
 resolve_analysis + render_analysis over a fake agent and fake transport.
 Excluded: the STR/SQP/DataDive consumers (their own test files) and
-core/ai_chat internals beyond the annotate path.
+core/chat/panel internals beyond the annotate path.
 
 Design rules:
 - Anti-placebo rule: expected values hand-derived, never copied from the
@@ -337,7 +337,8 @@ class TestPublishAnalysisToChat:
 
     @pytest.fixture
     def tab(self, monkeypatch):
-        from core import ai_tab, app_chat
+        from core import ai_tab
+        from core.chat import app_chat
         state = {"selected_page": "🔍 Search Query Performance"}
         monkeypatch.setattr(app_chat, "st", types.SimpleNamespace(session_state=state))
         builds = []
@@ -438,7 +439,7 @@ def test_floating_chat_shows_each_answer_as_annotated_when_it_arrived():
 
     script = '''
 import streamlit as st
-from core.ai_chat import ChatTurn, floating_chat
+from core.chat.panel import ChatTurn, floating_chat
 
 st.session_state["aichat_t_hist"] = [
     {"role": "user", "text": "que es H59"},

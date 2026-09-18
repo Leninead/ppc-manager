@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from core.chat_components import action, alert, bars, kpis, pie, table, text, trend
-from core.chat_components.base import Component, list_of
+from core.chat.components import action, alert, bars, kpis, pie, table, text, trend
+from core.chat.components.base import Component, list_of
 
 CATALOG: tuple[Component, ...] = (text.COMPONENT, kpis.COMPONENT, table.COMPONENT, bars.COMPONENT,
                                   pie.COMPONENT, trend.COMPONENT, alert.COMPONENT, action.COMPONENT)

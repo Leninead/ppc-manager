@@ -1,6 +1,6 @@
 """How a total splits into its parts."""
-from core.chat_components import bars
-from core.chat_components.base import INK, MUTED, Component, items_of, number, one_line, text_value
+from core.chat.components import bars
+from core.chat.components.base import INK, MUTED, Component, items_of, number, one_line, text_value
 
 # Six is as many slices as the eye tells apart by color; past that the parts go in bars.
 SLICE_COLORS = ("#E84000", "#F0A04B", "#5F5B53", "#9C978C", "#CFC6B4", "#E6E1D8")

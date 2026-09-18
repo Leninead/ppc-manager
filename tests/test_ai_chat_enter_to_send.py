@@ -1,4 +1,4 @@
-"""core/ai_chat - the keys that send a question from the chat panel.
+"""core/chat/panel - the keys that send a question from the chat panel.
 
 The binding itself lives in the browser, so what is pinned here is the contract of what
 ships: which box is bound, which keys escape, and that the form no longer advertises
@@ -7,13 +7,13 @@ Streamlit's own Ctrl+Enter.
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from core.ai_chat import _L, _enter_sends_script
+from core.chat.panel import _L, _enter_sends_script
 
 PANEL = "st-key-aichat_t_panel"
 
 _CHAT = """
 import streamlit as st
-from core.ai_chat import ChatTurn, floating_chat
+from core.chat.panel import ChatTurn, floating_chat
 floating_chat(chat_id="t", agent="orchestrator", lang=st.session_state.get("lang", "es"),
               session_key=lambda: "k", turn=lambda: ChatTurn())
 """

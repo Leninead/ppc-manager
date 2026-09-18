@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from core import chat_skills
+from core.chat import skills as chat_skills
 from core.integrations import roles
 
 _UPLOAD_KEY = "chat_skills_upload"

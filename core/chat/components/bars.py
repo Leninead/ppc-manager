@@ -1,5 +1,5 @@
 """The relative weight of one metric across entities."""
-from core.chat_components.base import (INK, LINE, MUTED, TONE_COLOR, TONE_SCHEMA, Component, items_of, number,
+from core.chat.components.base import (INK, LINE, MUTED, TONE_COLOR, TONE_SCHEMA, Component, items_of, number,
                                        one_line, text_value, tone_of)
 
 _NEUTRAL_BAR = "#B4B2A9"

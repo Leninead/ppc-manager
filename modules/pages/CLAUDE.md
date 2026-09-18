@@ -36,9 +36,14 @@ los últimos 8 digests) y el idioma sale de `ai_tab.app_language()` (radio
 `app_lang` del sidebar): ningún módulo reimplementa esas dos cosas. `make_ids`
 vive una sola vez en `ai/agents/__init__.py` y cada `context.py` lo re-exporta.
 
-### Chat IA de la app — `core/app_chat.py` (2026-09-15)
+### Chat IA de la app — `core/chat/` (2026-09-15)
 
-Un solo chat, montado una vez al final de `app.py` (`app_chat.mount_app_chat(selected)`),
+Todo el chat vive en `core/chat/` (desde 2026-09-18): `panel.py` (la burbuja, `floating_chat`),
+`app_chat.py` (lo que comparten las páginas, el montaje y el registro), `components/` (lo que
+dibuja el panel), `skills.py` (los skills que se suben desde Sistema) y `turns.py` (el registro
+en la base). `core/ads_account_picker.py` sigue en `core/`.
+
+Un solo chat, montado una vez al final de `app.py` (`app_chat.mount_app_chat(selected, _username)`),
 en todas las pantallas y para todos los usuarios; con `AI_ENABLED=0` no se monta. Lo
 atiende el agente `ai/agents/orchestrator/` (herramientas `amazon_ads, datadive`), que
 elige la fuente según la pregunta: los análisis de la app, Amazon Ads o DataDive. Los
@@ -86,8 +91,19 @@ módulos ya no montan chats propios.
   pregunta enviada volvía a aparecer en la siguiente corrida completa (cualquier navegación).
 - **CSS del panel.** El body del popover se matchea con `:has(.st-key-aichat_app_panel)`:
   el selector global anterior cambiaba el look de todos los popovers de la app.
+- **Registro de turnos (2026-09-18, migración 016).** `floating_chat(on_turn_finished=)` avisa
+  cada turno terminado y `app_chat.record_turn` deja una fila en `chat_turns`: el usuario (el
+  que resuelve `app.py`, nunca de `session_state`), la página, la cuenta de Amazon Ads del
+  análisis que comparte esa página (no la que consultó el modelo: esa la elige el modelo en
+  cada llamada y la app no la ve), la pregunta, la respuesta como la leyó el AM o el error si
+  el turno falló, las herramientas, el modelo pedido, el costo que informa el provider y un
+  `conversation_id` por sesión del navegador. `web_user` sólo inserta; el smoke de la base
+  verifica en cada deploy que no pueda leer. Si la base rechaza la fila queda un warning en el
+  log, sin la pregunta ni la respuesta, y el chat sigue.
 
 **Anti-patterns.**
+- ❌ NO leer `chat_turns` desde la app ni darle SELECT a `web_user`: guarda datos de clientes y
+  lo que preguntó cada AM. Se lee por SQL en la VPS.
 - ❌ NO montar un `floating_chat` desde un módulo: se superpone con el de la app en la misma posición.
 - ❌ NO leer `ai.runtime._registry` para el chat: es de todo el proceso, con análisis de otros AMs.
 - ❌ NO editar `ai/agents/_shared/chat.md` para el orquestador: entra en el `agent_version`

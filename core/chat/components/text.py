@@ -1,5 +1,5 @@
 """Prose: the component every answer starts with."""
-from core.chat_components.base import Component, prose_html, text_value
+from core.chat.components.base import Component, prose_html, text_value
 
 
 def _clean(block: dict) -> dict | None:

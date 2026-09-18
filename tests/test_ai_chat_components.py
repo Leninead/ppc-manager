@@ -3,11 +3,11 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from ai import runtime
-from core import ai_chat
-from core.chat_components.base import TONE_COLOR
+from core.chat import panel
+from core.chat.components.base import TONE_COLOR
 
-ES = ai_chat._L["es"]
-EN = ai_chat._L["en"]
+ES = panel._L["es"]
+EN = panel._L["en"]
 
 
 @pytest.mark.parametrize("name, label", [
@@ -30,17 +30,17 @@ EN = ai_chat._L["en"]
     ("mcp__ppc_manager__something_new", "Agency OS"),
 ])
 def test_a_tool_is_named_by_what_it_reads(name, label):
-    assert ai_chat._tool_label(name, ES) == label
+    assert panel._tool_label(name, ES) == label
 
 
 @pytest.mark.parametrize("name", ["Skill", "Read", "StructuredOutput", "mcp__datadive__get_quota",
                                   "mcp__other__query_campaign"])
 def test_machinery_is_not_a_source(name):
-    assert ai_chat._tool_label(name, ES) is None
+    assert panel._tool_label(name, ES) is None
 
 
 def test_labels_follow_the_panel_language():
-    assert ai_chat._tool_label("mcp__amazon_ads__campaign_management-query_campaign", EN) == \
+    assert panel._tool_label("mcp__amazon_ads__campaign_management-query_campaign", EN) == \
         "Campaigns · Amazon Ads"
 
 
@@ -48,17 +48,17 @@ def test_the_same_source_read_twice_is_one_chip():
     names = ["Skill", "mcp__amazon_ads__campaign_management-query_campaign",
              "mcp__amazon_ads__account_management-query_advertiser_account",
              "mcp__amazon_ads__campaign_management-query_campaign"]
-    assert ai_chat._tool_labels(names, ES) == ["Campañas · Amazon Ads", "Cuentas · Amazon Ads"]
+    assert panel._tool_labels(names, ES) == ["Campañas · Amazon Ads", "Cuentas · Amazon Ads"]
 
 
 def test_chips_and_bubble_travel_in_one_element_so_the_reversed_thread_keeps_them_in_order():
-    html = ai_chat._assistant_turn({"role": "assistant", "text": "Hay 3", "tools": ["Campañas · Amazon Ads"]})
+    html = panel._assistant_turn({"role": "assistant", "text": "Hay 3", "tools": ["Campañas · Amazon Ads"]})
     assert html.startswith("<div>") and html.endswith("</div></div>")
     assert html.index("Campañas · Amazon Ads") < html.index("Hay 3")
 
 
 def test_an_answer_without_components_is_drawn_from_its_prose():
-    html = ai_chat._assistant_bubble("Solo **texto**\n- uno", None)
+    html = panel._assistant_bubble("Solo **texto**\n- uno", None)
     assert "<b>texto</b>" in html and "•" in html
 
 
@@ -79,7 +79,7 @@ def test_an_answer_in_components_reaches_the_thread_with_its_chips_and_its_annot
     monkeypatch.setattr(runtime, "usable_tools", lambda slug, scope: [])
     monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
     app = AppTest.from_string("""
-from core.ai_chat import ChatTurn, floating_chat
+from core.chat.panel import ChatTurn, floating_chat
 floating_chat(chat_id="t", agent="orchestrator", session_key=lambda: "k", turn=lambda: ChatTurn(
     annotate=lambda text: text.replace("N01", "N01 (toy box)")))
 """, default_timeout=30)
@@ -115,21 +115,21 @@ SERIES = "mcp__ppc_manager__daily_metrics"
     (["StructuredOutput"], ["StructuredOutput"], []),
 ])
 def test_a_source_counts_as_failed_only_when_every_call_to_it_failed(asked, failed, expected):
-    assert ai_chat._failed_labels(asked, failed, ES) == expected
+    assert panel._failed_labels(asked, failed, ES) == expected
 
 
 def test_a_failed_source_reads_as_failed_on_the_chip_itself_not_only_in_its_color():
     """Nothing hover-only: on a phone the word is what tells the AM that source brought nothing."""
-    html = ai_chat._tools_row(["Serie diaria · Agency OS", "Portfolios · Amazon Ads"],
-                              failed=["Portfolios · Amazon Ads"], failed_note=ES["tool_failed"])
+    html = panel._tools_row(["Serie diaria · Agency OS", "Portfolios · Amazon Ads"],
+                            failed=["Portfolios · Amazon Ads"], failed_note=ES["tool_failed"])
     assert "Serie diaria · Agency OS</span>" in html
     assert "Portfolios · Amazon Ads · falló</span>" in html
     assert html.count("dashed") == 1
 
 
 def test_a_turn_stored_before_outcomes_existed_still_draws_its_chips():
-    html = ai_chat._assistant_turn({"role": "assistant", "text": "Hay 3", "tools": ["Campañas · Amazon Ads"]},
-                                   ES["tool_failed"])
+    html = panel._assistant_turn({"role": "assistant", "text": "Hay 3", "tools": ["Campañas · Amazon Ads"]},
+                                 ES["tool_failed"])
     assert "Campañas · Amazon Ads</span>" in html and "falló" not in html
 
 
@@ -145,7 +145,7 @@ def test_a_source_that_failed_is_marked_in_the_thread_once_the_answer_lands(monk
     monkeypatch.setattr(runtime, "usable_tools", lambda slug, scope: [])
     monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
     app = AppTest.from_string("""
-from core.ai_chat import ChatTurn, floating_chat
+from core.chat.panel import ChatTurn, floating_chat
 floating_chat(chat_id="t", agent="orchestrator", session_key=lambda: "k", turn=lambda: ChatTurn())
 """, default_timeout=30)
     app.run()

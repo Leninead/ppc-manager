@@ -6,6 +6,26 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Cada turno del chat queda guardado en la base (2026-09-18)
+
+Cada pregunta al chat de la app deja una fila en `chat_turns` (migración 016): la fecha, el usuario, la página, la
+cuenta de Amazon Ads que esa página tenía cargada, la pregunta, la respuesta tal como la leyó el AM (o el error, si
+el turno falló), las herramientas que llamó el modelo, el modelo pedido y el costo que informa el provider. Los turnos
+de una misma sesión del navegador comparten `conversation_id`. La app sólo puede insertar: no lee, no modifica ni
+borra esas filas, y el smoke de la base lo verifica en cada deploy. Se leen por SQL en la VPS. Arranca vacía: lo que
+ya estaba en el log de la app no se carga.
+
+La cuenta es la de la página, no la que consultó el modelo: el chat elige la cuenta en cada llamada a Amazon Ads y la
+app no ve ese argumento. El modelo es el que la app pide; si el provider cae a otro, la fila no lo muestra. El costo es
+la estimación a precio de API del SDK.
+
+Qué cambia en el código: todo el chat pasa a `core/chat/` — `core/ai_chat.py` → `core/chat/panel.py`,
+`core/app_chat.py` → `core/chat/app_chat.py`, `core/chat_components/` → `core/chat/components/`,
+`core/chat_skills.py` → `core/chat/skills.py` — más `core/chat/turns.py` (nuevo, la escritura en la base).
+`floating_chat(on_turn_finished=)` avisa cada turno terminado, `ChatReply` suma `model` y `cost_usd`,
+`mount_app_chat(page, username)` recibe el usuario que resuelve `app.py`, y Bid Optimizer le pasa al chat el
+`profile_id` de su cuenta, como ya hacían STR y Bulk Campañas.
+
 ### Fixed — Lo que encontraron el E2E de #19 en producción y los archivos manuales de Love To Dream MX (2026-09-18)
 
 **Shapermint AU sin SB.** El E2E en producción de #19 encontró el pedido `sb_entities` de Shapermint AU fallido

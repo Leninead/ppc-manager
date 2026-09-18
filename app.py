@@ -6,7 +6,8 @@ from html import escape as _escape
 import re
 
 from core.i18n import _I18N
-from core import app_chat, navigation
+from core import navigation
+from core.chat import app_chat
 from core.integrations.notice import accounts_needing_reauth, sync_alert_counts
 from core.ui import sidebar as _sidebar
 from core.ui import i18n
@@ -394,4 +395,4 @@ if selected == "🧾 Registro de solicitudes":
     render_request_log(username=_username, role=_role)
 
 # After the page, so the analysis it just shared reaches this run's chat.
-app_chat.mount_app_chat(selected)
+app_chat.mount_app_chat(selected, _username)
