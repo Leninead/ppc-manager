@@ -76,11 +76,14 @@ def test_a_share_amazon_did_not_report_stays_unknown_instead_of_zero():
     assert row["top_of_search_is"] is None
 
 
-def test_a_negative_budget_or_share_refuses_the_report():
-    with pytest.raises(ReportRowsError, match="impossible"):
-        _mapped([_api_row(campaignBudgetAmount=-5.0)])
+def test_a_budget_or_share_below_zero_is_unknown_and_a_non_numeric_one_refuses_the_report():
+    row = _mapped([_api_row(campaignBudgetAmount=-5.0, topOfSearchImpressionShare=-1.0)])[WINDOW_START][0]
+
+    assert (row["budget_amount"], row["top_of_search_is"]) == (None, None)
     with pytest.raises(ReportRowsError, match="non-numeric"):
         _mapped([_api_row(topOfSearchImpressionShare="high")])
+    with pytest.raises(ReportRowsError, match="impossible"):
+        _mapped([_api_row(campaignBudgetAmount=float("inf"))])
 
 
 def test_repeated_rows_weight_the_share_by_impressions_and_keep_the_known_budget():
@@ -144,9 +147,39 @@ def test_a_row_without_a_usable_date_is_refused():
         _mapped([_api_row(day="")])
 
 
-def test_a_negative_metric_is_refused_instead_of_written():
-    with pytest.raises(ReportRowsError, match="impossible"):
-        _mapped([_api_row(cost=-1.0)])
+def test_the_adjustment_that_failed_shapermint_us_is_stored_as_a_day_without_activity(caplog):
+    # The real row (spCampaigns DAILY, 30 Jul 2026): Amazon netted invalid traffic out of a day with nothing else.
+    adjustment = _api_row(day="2026-09-09", campaign_id=228481306576207, impressions=-2, clicks=0, cost=0,
+                          purchases7d=0, sales7d=0, purchases14d=0, sales14d=0, campaignBudgetAmount=5.0,
+                          topOfSearchImpressionShare=26.09)
+
+    with caplog.at_level("WARNING", logger="core.amazon_ads.campaign_rows"):
+        by_day = _mapped([_api_row(), adjustment])
+
+    (row,) = by_day[date(2026, 9, 9)]
+    assert (row["campaign_id"], row["impressions"], row["cost"]) == ("228481306576207", 0, 0.0)
+    assert by_day[WINDOW_START][0]["impressions"] == 1200
+    assert "1 values below zero" in caplog.text and "impressions=-2" in caplog.text
+
+
+@pytest.mark.parametrize("field", ["impressions", "clicks", "cost", "purchases7d", "sales7d", "purchases14d",
+                                   "sales14d"])
+def test_any_metric_below_zero_is_stored_as_zero_instead_of_failing_the_report(field):
+    row = _mapped([_api_row(**{field: -1.5})])[WINDOW_START][0]
+
+    column = {"purchases7d": "purchases_7d", "sales7d": "sales_7d", "purchases14d": "purchases_14d",
+              "sales14d": "sales_14d"}.get(field, field)
+    assert row[column] == 0
+
+
+def test_a_negative_duplicate_row_cannot_push_the_merged_share_out_of_0_to_100():
+    row = _mapped([
+        _api_row(impressions=1000, topOfSearchImpressionShare=100.0),
+        _api_row(impressions=-999, topOfSearchImpressionShare=0.0),
+    ])[WINDOW_START][0]
+
+    assert row["impressions"] == 1000
+    assert row["top_of_search_is"] == pytest.approx(100.0)
 
 
 def test_a_non_numeric_metric_is_refused():
@@ -154,9 +187,15 @@ def test_a_non_numeric_metric_is_refused():
         _mapped([_api_row(impressions="many")])
 
 
+def test_a_metric_that_is_not_a_finite_number_is_refused():
+    for value in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ReportRowsError, match="impossible"):
+            _mapped([_api_row(cost=value)])
+
+
 def test_one_unusable_row_refuses_the_whole_window_before_any_day_is_written():
     with pytest.raises(ReportRowsError):
-        _mapped([_api_row(day="2026-09-08"), _api_row(day="2026-09-09", cost=-1.0)])
+        _mapped([_api_row(day="2026-09-08"), _api_row(day="2026-09-09", cost=float("nan"))])
 
 
 def test_a_window_that_ends_before_it_starts_is_refused():

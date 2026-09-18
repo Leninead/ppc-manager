@@ -200,10 +200,23 @@ def test_row_without_a_valid_date_is_rejected(bad_date):
         _rows([_api_row(date=bad_date)])
 
 
+_COLUMN_OF = {"sales7d": "sales_7d", "purchases14d": "purchases_14d", "unitsSoldClicks7d": "units_7d"}
+
+
 @pytest.mark.parametrize("field", ["impressions", "clicks", "cost", "sales7d", "purchases14d", "unitsSoldClicks7d"])
-def test_negative_metric_is_rejected(field):
-    with pytest.raises(ReportRowsError, match="impossible"):
-        _rows([_api_row(**{field: -1})])
+def test_a_metric_below_zero_is_stored_as_zero_instead_of_failing_the_report(field, caplog):
+    # Amazon nets invalid traffic out of days it already reported; below zero the day simply had none.
+    with caplog.at_level("WARNING", logger="core.amazon_ads.search_term_rows"):
+        (row,) = _rows([_api_row(**{field: -1})])[date(2026, 9, 2)]
+
+    assert row[_COLUMN_OF.get(field, field)] == 0
+    assert "1 values below zero" in caplog.text and f"{field}=-1" in caplog.text
+
+
+def test_a_metric_that_is_not_a_finite_number_is_rejected():
+    for value in (float("nan"), float("inf")):
+        with pytest.raises(ReportRowsError, match="impossible"):
+            _rows([_api_row(cost=value)])
 
 
 def test_non_numeric_metric_is_rejected():
@@ -230,7 +243,8 @@ def test_day_positions_group_rows_by_day_and_one_day_is_built_at_a_time():
     assert len(rows) == 1 and rows[0]["clicks"] == 10
 
 
-@pytest.mark.parametrize("bad_row", [_api_row(date="2026-09-03", cost=-1), _api_row(date="2026-09-04"), "not a row"])
+@pytest.mark.parametrize("bad_row", [_api_row(date="2026-09-03", cost=float("nan")), _api_row(date="2026-09-04"),
+                                     "not a row"])
 def test_one_unusable_row_on_a_later_day_refuses_the_whole_report(bad_row):
     with pytest.raises(ReportRowsError):
         day_row_positions(compact_rows([_api_row(date="2026-09-01"), bad_row]), window_start=WINDOW_START,

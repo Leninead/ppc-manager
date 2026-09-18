@@ -6,6 +6,18 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Fixed — Un ajuste negativo de Amazon ya no tumba la sincronización de una cuenta (2026-09-18)
+
+**Shapermint US se quedó sin métricas de campañas** el día del deploy de #18: el reporte de un mes traía una fila con
+-2 impresiones (campaña pausada, 30/07, todo lo demás en 0) y el parser rechazaba el tramo entero, así que el pedido
+fallaba y volvía a fallar cada noche mientras ese día siguiera dentro de los 65 sincronizados. Amazon descuenta tráfico
+inválido de días ya reportados (hasta 30 días después) y en un día sin nada más el neto puede quedar bajo cero.
+
+Ahora un valor bajo cero en una métrica sumable se guarda como 0 (el día no tuvo actividad) y queda en el log del
+worker; el presupuesto del día o el share bajo cero quedan como desconocidos. Lo que no es un número finito sigue
+rechazando el reporte. Vale para campañas y search terms. Guardar el negativo tal cual rompía una docena de lecturas
+que suman estos valores como conteos (un fantasma pasaba a OK, un costo negativo daba ESCALAR).
+
 ### Added — Bulk Campañas con análisis IA, señales y lectura desde el chat (2026-09-18)
 
 **Pestaña "Análisis IA" en M6.** Con datos de Amazon Ads, el worker de análisis genera solo el análisis de los

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 import math
 import re
 import zlib
@@ -14,6 +15,8 @@ from collections.abc import Iterable, Iterator, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TextIO
+
+log = logging.getLogger(__name__)
 
 GZIP_MAGIC = b"\x1f\x8b"
 MONEY_DECIMALS = 4
@@ -123,6 +126,7 @@ def day_row_positions(report_rows: Sequence[tuple], *, window_start: date,
         window_start + timedelta(days=offset): []
         for offset in range((window_end - window_start).days + 1)
     }
+    negatives: list[tuple] = []
     for position, report_row in enumerate(report_rows):
         report_day = _report_day(report_row, position)
         if report_day not in positions_by_day:
@@ -130,8 +134,15 @@ def day_row_positions(report_rows: Sequence[tuple], *, window_start: date,
                 f"report row {position} is dated {report_day}, outside {window_start}..{window_end}"
             )
         for field in _METRIC_FIELDS:
-            _metric(report_row[_FIELD_INDEX[field]], field, position)
+            number = _number(report_row[_FIELD_INDEX[field]], field, position)
+            if number < 0:
+                negatives.append((report_day, _id_text(report_row[_FIELD_INDEX["campaignId"]]), field, number))
         positions_by_day[report_day].append(position)
+    if negatives:
+        day, campaign_id, field, number = negatives[0]
+        log.warning("amazon_ads: search term report %s..%s has %d values below zero (Amazon adjustments), stored"
+                    " as 0; first: campaign %s on %s %s=%s", window_start, window_end, len(negatives), campaign_id,
+                    day, field, number)
     return positions_by_day
 
 
@@ -235,7 +246,8 @@ def _id_text(value) -> str:
     return str(value).strip()
 
 
-def _metric(value, field: str, position: int) -> float:
+def _number(value, field: str, position: int) -> float:
+    """The value as a finite number, sign kept; a report with one that is not a number cannot be trusted."""
     if value is None or value == "":
         return 0.0
     if isinstance(value, bool):
@@ -244,6 +256,13 @@ def _metric(value, field: str, position: int) -> float:
         number = float(value)
     except (TypeError, ValueError):
         raise ReportRowsError(f"report row {position} has a non-numeric {field}") from None
-    if not math.isfinite(number) or number < 0:
+    if not math.isfinite(number):
         raise ReportRowsError(f"report row {position} has an impossible {field}: {number}")
     return number
+
+
+def _metric(value, field: str, position: int) -> float:
+    # Amazon removes invalid traffic from days it already reported, and on a day with nothing else the net can fall
+    # below zero (seen in the campaign report: impressions -2 on a day with no activity). Every reader sums these as
+    # counts that are never negative, so the day keeps none; `day_row_positions` logs what was adjusted.
+    return max(_number(value, field, position), 0.0)
