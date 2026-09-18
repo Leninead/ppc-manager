@@ -32,9 +32,10 @@ DEFAULT_ALLOWED_HOSTS = ("mcp-server", "mcp-server:8790", "localhost", "localhos
 INSTRUCTIONS = (
     "Datos de la agencia Capybaras sobre cuentas de Amazon Ads: qué cuentas hay, qué análisis de IA "
     "tienen guardados y sus search terms.\n\n"
-    "Empezá por list_accounts para saber qué profile_id existe. Para hablar de una cuenta, mirá "
-    "list_analyses (el índice de qué hay) y recién después get_analysis del módulo que te interese: "
-    "no hace falta bajar todo.\n\n"
+    "Empezá por list_accounts para saber qué profile_id existe. Para cruzar cuentas no las consultes "
+    "una por una: accounts_overview trae los totales en vivo de todas, y list_analyses la situación y el "
+    "target del análisis guardado de cada una. get_analysis baja las filas y la síntesis completa de una "
+    "sola: no hace falta bajar todo.\n\n"
     "Las respuestas vienen paginadas. Cuando una trae el campo `note` diciendo que hay más filas, "
     "hay más: pedí la página siguiente con el offset que te indica o acotá la consulta. Nunca "
     "respondas como si la página que ves fueran todos los datos.\n\n"

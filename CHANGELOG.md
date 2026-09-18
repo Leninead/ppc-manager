@@ -6,6 +6,18 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — El chat ya no recibe las cuentas pegadas: las lee por el MCP (2026-09-18)
+
+**Cada sesión del chat deja de cargar la síntesis de todas las cuentas.** El documento "Últimos análisis de Search
+Terms guardados por cuenta" (unos 34.000 caracteres con 11 cuentas, con tope de 100.000 y creciendo con cada una)
+sale del flujo, sin respaldo: el turno lleva sólo el análisis que el AM tiene en pantalla y el resto se lee por el
+servidor MCP cuando la pregunta lo pide. Sale también la lectura de la base que se hacía en cada turno
+(`core/ai_analysis/account_summaries.py`).
+
+**Cruzar cuentas es una llamada.** `accounts_overview` (nuevo) da los totales en vivo de todas las cuentas, cada una
+en su moneda; `list_analyses` suma la situación, el target de ACoS y el tipo y urgencia de cada riesgo de cada
+análisis; `get_analysis` da cada fila con su row_id y la síntesis con el término al lado de cada id.
+
 ### Added — El chat lee la app por MCP y grafica solo (2026-09-17)
 
 **El chat consulta la app en vez de recibirla pegada.** Un servidor MCP de sólo lectura (`services/mcp_server`,

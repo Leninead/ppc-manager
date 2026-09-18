@@ -2,8 +2,8 @@
 
 A page shares the analysis it shows and withdraws it when it has none. What a page
 shared stays available while the AM moves to other pages; `mount_app_chat`, called
-once at the end of app.py, opens the provider session with every shared analysis plus
-the last stored Search Term analysis of each connected Amazon Ads account.
+once at the end of app.py, opens the provider session with every shared analysis. The
+other accounts are not pasted: the model reads them through the app's MCP server.
 """
 from __future__ import annotations
 
@@ -18,13 +18,7 @@ import streamlit as st
 from ai import config as ai_config
 from ai import runtime as ai_runtime
 from core import ads_account_picker, navigation
-from core.ai_analysis.account_summaries import (
-    AccountAnalysis,
-    account_summaries_document,
-    latest_account_analyses,
-)
 from core.ai_chat import ChatTurn, floating_chat
-from core.integrations.store import _Rest, _rest_credentials
 from core.ui import i18n
 
 log = logging.getLogger(__name__)
@@ -33,7 +27,6 @@ CHAT_ID = "app"
 AGENT = "orchestrator"
 _STATE_KEY = "app_chat_modules"
 _REGION_KEY = "app_chat_session_country"
-_STORED_TTL_S = 300
 
 
 class AnalysisState(str, Enum):  # str-valued: entries survive a module reload in session_state
@@ -117,24 +110,17 @@ def session_key(analyses: list[ChatAnalysis]) -> str:
     return "|".join(sorted(analysis.key for analysis in analyses))
 
 
-def session_documents(analyses: list[ChatAnalysis], accounts: list[AccountAnalysis]) -> list[dict]:
-    documents = [document for analysis in analyses for document in analysis.documents]
-    summaries = account_summaries_document(accounts)
-    if summaries is not None:
-        documents.append(summaries)
-    return documents
+def session_documents(analyses: list[ChatAnalysis]) -> list[dict]:
+    return [document for analysis in analyses for document in analysis.documents]
 
 
-def turn_note(page: str, entries: dict, *, stored_unreadable: bool = False) -> str:
+def turn_note(page: str, entries: dict) -> str:
     """App state the model reads ahead of every question; the AM never sees it."""
     lines = [f"el AM tiene abierta la pantalla «{navigation.visible_label(page)}»."]
     if not entries:
         lines.append("No hay análisis abiertos en esta sesión.")
     for entry in entries.values():
         lines.append(_state_line(entry, page))
-    if stored_unreadable:
-        lines.append("Los análisis guardados de las otras cuentas no se pudieron leer ahora, "
-                     "así que su ausencia no dice nada sobre si existen.")
     return "[Nota de la app, no la cites: " + " ".join(lines) + "]"
 
 
@@ -157,31 +143,13 @@ def chat_turn(page: str) -> ChatTurn:
     _finish_running_analyses()
     entries = dict(_entries())
     analyses = shared_analyses(entries)
-    on_screen_profiles = {analysis.profile_id for analysis in analyses if analysis.profile_id}
-    stored = _stored_account_analyses()
-    accounts = [account for account in stored or ()
-                if account.profile.profile_id not in on_screen_profiles]
     return ChatTurn(
-        documents=session_documents(analyses, accounts),
-        note=turn_note(page, entries, stored_unreadable=stored is None),
+        documents=session_documents(analyses),
+        note=turn_note(page, entries),
         ads_scope=ads_account_picker.request_scope(
             _session_country_hint(session_key(analyses), page, entries)),
         annotate=_annotator(analyses),
     )
-
-
-@st.cache_data(ttl=_STORED_TTL_S, show_spinner=False)
-def _stored_account_analyses() -> list[AccountAnalysis] | None:
-    """None when the database could not be read: an empty list would say every account has no analysis."""
-    # Caught inside the cached call so a failing database is asked again in five minutes, not on every question.
-    try:
-        credentials = _rest_credentials()
-        if credentials is None:
-            return []
-        return latest_account_analyses(_Rest(*credentials))
-    except Exception as exc:  # noqa: BLE001 — the chat must answer even when the database does not
-        log.warning("app chat: stored analyses could not be read (%s)", exc)
-        return None
 
 
 def _entries() -> dict[str, _ModuleEntry]:

@@ -102,6 +102,32 @@ def daily_metrics(rest, *, profile_id: str, days: int = DEFAULT_SERIES_DAYS, cam
     return payload
 
 
+def accounts_overview(rest, *, days: int = DEFAULT_DAYS) -> dict:
+    """Los totales de cada cuenta sincronizada en sus últimos `days` días, todas en una llamada.
+
+    Una cuenta que no gastó vuelve en cero en vez de faltar: su ausencia se leería como que no
+    existe. Cada una en su moneda, y la respuesta lo avisa: los montos no se suman entre monedas.
+    """
+    provider = ReportProvider(rest)
+    profiles = [profile for profile in provider.profiles() if profile.data_through is not None]
+    labels = account_labels(profiles)
+    rows = []
+    for profile in profiles:
+        start, end = window_for(profile, days)
+        series = provider.daily_totals(profile, start, end)
+        rows.append({"account": labels[profile.profile_id], "profile_id": profile.profile_id,
+                     "currency": series.currency_code, "window": _window(start, end),
+                     **_metrics(sum(day.spend for day in series.days), sum(day.sales for day in series.days),
+                                sum(day.orders for day in series.days), sum(day.clicks for day in series.days),
+                                sum(day.impressions for day in series.days))})
+    rows.sort(key=lambda row: row["account"])
+    payload = page(rows, limit=len(rows) or 1).as_payload(what="cuentas")
+    payload["source"] = SERIES_SOURCE
+    payload["note"] = ("Cada cuenta está en su moneda: no sumes ni compares montos entre monedas distintas. "
+                       "ACoS, CVR, órdenes y clicks sí se comparan entre cuentas.")
+    return payload
+
+
 def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS, sort_by: RankingMetric = "spend",
               offset: int = 0, limit: int = 50) -> dict:
     """Los totales de una cuenta en la ventana, agrupados por campaña, portfolio, tipo de match o search term.
