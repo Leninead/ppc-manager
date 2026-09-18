@@ -7,6 +7,7 @@ of zeros, never a missing row.
 """
 from __future__ import annotations
 
+import dataclasses
 import io
 import logging
 from dataclasses import dataclass
@@ -60,6 +61,11 @@ _TEXT_FIELDS = ("campaign_id", "name", "state", "targeting_type", "start_date", 
 _COUNT_FIELDS = ("impressions", "clicks", "purchases_7d", "purchases_14d")
 _AMOUNT_FIELDS = ("cost", "sales_7d", "sales_14d")
 _RPC_FIELDS = _TEXT_FIELDS + ("budget_amount",) + _COUNT_FIELDS + _AMOUNT_FIELDS
+# What the analyzer's signals are computed from (migration 014). Optional: a database without 014
+# answers without them, and then the signals are unknown, never zero.
+SIGNAL_DAY_FIELDS = ("budget_capped_days", "days_with_impressions")
+SIGNAL_SHARE_FIELD = "top_of_search_is"
+SIGNAL_COLUMNS = (CAMPAIGN_ID, "start_date", "budget_type", *SIGNAL_DAY_FIELDS, SIGNAL_SHARE_FIELD)
 _ATTRIBUTION_FIELDS = {
     SELLER_ATTRIBUTION_DAYS: ("sales_7d", "purchases_7d"),
     VENDOR_ATTRIBUTION_DAYS: ("sales_14d", "purchases_14d"),
@@ -75,6 +81,21 @@ class CampaignSource:
     window_start: date
     window_end: date
     attribution_days: int
+    # One row per campaign of `frame`, keyed by Campaign ID; None when the database has no signal columns.
+    signal_inputs: pd.DataFrame | None = None
+
+
+def campaign_sync_view(option: ProfileOption, completed) -> ProfileOption:
+    """The profile as the campaign sync sees it: window, day and hour from its last completed request.
+
+    `ads_profile_sync` carries the search-term sync, which says nothing about campaigns; `completed`
+    is the last `sp_campaigns` SyncJob that finished well, or None.
+    """
+    if completed is None:
+        return dataclasses.replace(option, data_from=None, data_through=None, refreshed_on=None,
+                                   last_success_at=None)
+    return dataclasses.replace(option, data_from=completed.window_start, data_through=completed.window_end,
+                               refreshed_on=completed.local_day, last_success_at=completed.finished_at)
 
 
 class CampaignProvider:
@@ -107,14 +128,14 @@ class CampaignProvider:
             window_start=start,
             window_end=end,
             attribution_days=attribution_days,
+            signal_inputs=signal_inputs_frame(totals),
         )
 
 
 def campaign_frame(totals: pd.DataFrame, attribution_days: int) -> pd.DataFrame:
     """The Campaign Manager export shape; ratios are fractions, the way the export writes them."""
     sales_field, purchases_field = _ATTRIBUTION_FIELDS[attribution_days]
-    live = totals[totals["state"].str.strip().str.upper() != ARCHIVED_STATE]
-    live = live.sort_values(["name", "campaign_id"], kind="mergesort").reset_index(drop=True)
+    live = _live_campaigns(totals)
     cost, sales, clicks, impressions = live["cost"], live[sales_field], live["clicks"], live["impressions"]
     return pd.DataFrame({
         CAMPAIGN_NAME: live["name"],
@@ -136,6 +157,26 @@ def campaign_frame(totals: pd.DataFrame, attribution_days: int) -> pd.DataFrame:
         ACOS: cost / sales.where(sales > 0),
         ROAS: sales / cost.where(cost > 0),
     }, columns=list(FRAME_COLUMNS))
+
+
+def signal_inputs_frame(totals: pd.DataFrame) -> pd.DataFrame | None:
+    """The signal inputs of the campaigns `campaign_frame` keeps, in its order; None without migration 014."""
+    if any(field not in totals.columns for field in (*SIGNAL_DAY_FIELDS, SIGNAL_SHARE_FIELD)):
+        return None
+    live = _live_campaigns(totals)
+    return pd.DataFrame({
+        CAMPAIGN_ID: live["campaign_id"],
+        "start_date": pd.to_datetime(live["start_date"].where(live["start_date"].str.strip() != ""),
+                                     errors="coerce").dt.date,
+        "budget_type": live["budget_type"].str.strip().str.upper(),
+        **{field: live[field] for field in SIGNAL_DAY_FIELDS},
+        SIGNAL_SHARE_FIELD: live[SIGNAL_SHARE_FIELD],
+    }, columns=list(SIGNAL_COLUMNS)).reset_index(drop=True)
+
+
+def _live_campaigns(totals: pd.DataFrame) -> pd.DataFrame:
+    live = totals[totals["state"].str.strip().str.upper() != ARCHIVED_STATE]
+    return live.sort_values(["name", "campaign_id"], kind="mergesort").reset_index(drop=True)
 
 
 def _read_campaigns(csv_bytes: bytes) -> pd.DataFrame:
@@ -162,4 +203,14 @@ def _read_campaigns(csv_bytes: bytes) -> pd.DataFrame:
     if unreadable.any():
         raise ValueError(f"{CAMPAIGNS_RPC} answered a non-numeric budget_amount: {raw_budget[unreadable].iloc[0]!r}")
     totals["budget_amount"] = budget
+    for field in SIGNAL_DAY_FIELDS:
+        if field in totals.columns:
+            totals[field] = _numbers(totals, field, CAMPAIGNS_RPC).round().astype("int64")
+    if SIGNAL_SHARE_FIELD in totals.columns:
+        # An empty share is a campaign Amazon gave no share for: unknown, so NaN rather than 0.
+        raw_share = totals[SIGNAL_SHARE_FIELD].str.strip()
+        share = pd.to_numeric(raw_share, errors="coerce")
+        if (share.isna() & raw_share.ne("")).any():
+            raise ValueError(f"{CAMPAIGNS_RPC} answered a non-numeric {SIGNAL_SHARE_FIELD}")
+        totals[SIGNAL_SHARE_FIELD] = share
     return totals

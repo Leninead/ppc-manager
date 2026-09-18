@@ -195,3 +195,56 @@ def test_a_database_outage_is_a_read_error_the_page_can_show():
 def test_a_range_that_ends_before_it_starts_is_refused():
     with pytest.raises(ValueError):
         CampaignProvider(_FakeRest()).campaigns(_option(), END, START)
+
+
+SIGNAL_HEADER = RPC_HEADER + ["budget_capped_days", "days_with_impressions", "top_of_search_is"]
+
+
+def _signal_csv(*rows: dict) -> bytes:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=SIGNAL_HEADER)
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue().encode("utf-8")
+
+
+def _signal_row(**overrides) -> dict:
+    row = {**_rpc_row(), "budget_capped_days": "3", "days_with_impressions": "7", "top_of_search_is": "6.48"}
+    row.update(overrides)
+    return row
+
+
+def test_the_signal_inputs_come_keyed_by_campaign_in_the_frame_order():
+    rest = _FakeRest(csv_bytes=_signal_csv(
+        _signal_row(campaign_id="9", name="Beta"), _signal_row(campaign_id="2", name="Alpha", start_date="2026-09-12"),
+        _signal_row(campaign_id="5", name="Old", state="ARCHIVED")))
+
+    source = CampaignProvider(rest).campaigns(_option(), START, END)
+    inputs = source.signal_inputs
+
+    assert list(inputs["Campaign ID"]) == list(source.frame["Campaign ID"]) == ["2", "9"]
+    assert inputs.loc[0, "start_date"] == date(2026, 9, 12)
+    assert (inputs.loc[0, "budget_capped_days"], inputs.loc[0, "top_of_search_is"]) == (3, 6.48)
+    assert inputs.loc[0, "budget_type"] == "DAILY"
+
+
+def test_a_share_amazon_did_not_report_is_unknown_not_zero():
+    rest = _FakeRest(csv_bytes=_signal_csv(_signal_row(top_of_search_is="")))
+
+    inputs = CampaignProvider(rest).campaigns(_option(), START, END).signal_inputs
+
+    assert math.isnan(inputs.loc[0, "top_of_search_is"])
+
+
+def test_a_database_without_the_signal_columns_gives_no_signal_inputs_instead_of_failing():
+    source = CampaignProvider(_FakeRest(csv_bytes=_csv(_rpc_row()))).campaigns(_option(), START, END)
+
+    assert source.signal_inputs is None
+    assert len(source.frame) == 1
+
+
+def test_a_non_numeric_share_is_a_read_error():
+    rest = _FakeRest(csv_bytes=_signal_csv(_signal_row(top_of_search_is="high")))
+
+    with pytest.raises(ReportReadError):
+        CampaignProvider(rest).campaigns(_option(), START, END)

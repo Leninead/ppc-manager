@@ -58,7 +58,46 @@ def test_metrics_and_keys_land_on_the_table_columns():
         "sales_7d": 89.97,
         "sales_14d": 119.96,
         "currency_code": "USD",
+        "budget_amount": None,
+        "top_of_search_is": None,
     }
+
+
+def test_the_budget_of_the_day_and_the_top_of_search_share_land_as_reported():
+    row = _mapped([_api_row(campaignBudgetAmount=30.0, topOfSearchImpressionShare=6.48)])[WINDOW_START][0]
+
+    # The share is a 0-100 percentage, the scale the real API answered in.
+    assert (row["budget_amount"], row["top_of_search_is"]) == (30.0, 6.48)
+
+
+def test_a_share_amazon_did_not_report_stays_unknown_instead_of_zero():
+    row = _mapped([_api_row(campaignBudgetAmount=30.0, topOfSearchImpressionShare=None)])[WINDOW_START][0]
+
+    assert row["top_of_search_is"] is None
+
+
+def test_a_negative_budget_or_share_refuses_the_report():
+    with pytest.raises(ReportRowsError, match="impossible"):
+        _mapped([_api_row(campaignBudgetAmount=-5.0)])
+    with pytest.raises(ReportRowsError, match="non-numeric"):
+        _mapped([_api_row(topOfSearchImpressionShare="high")])
+
+
+def test_repeated_rows_weight_the_share_by_impressions_and_keep_the_known_budget():
+    row = _mapped([
+        _api_row(impressions=300, topOfSearchImpressionShare=10.0, campaignBudgetAmount=None),
+        _api_row(impressions=100, topOfSearchImpressionShare=2.0, campaignBudgetAmount=25.0),
+    ])[WINDOW_START][0]
+
+    assert row["top_of_search_is"] == pytest.approx((10.0 * 300 + 2.0 * 100) / 400)
+    assert row["budget_amount"] == 25.0
+    assert row["impressions"] == 400
+
+
+def test_the_report_asks_amazon_for_the_budget_and_the_share():
+    from core.amazon_ads.campaign_rows import CAMPAIGN_REPORT_SPEC
+
+    assert {"campaignBudgetAmount", "topOfSearchImpressionShare"} <= set(CAMPAIGN_REPORT_SPEC.columns)
 
 
 def test_repeated_campaign_rows_in_one_day_are_summed():

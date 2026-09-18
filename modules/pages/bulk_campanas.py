@@ -1,11 +1,69 @@
 import io
+import logging
 import re
+from functools import partial
+from types import SimpleNamespace
 
+import requests
 import streamlit as st
 import pandas as pd
 
+from core.amazon_ads.campaign_analyzer import (
+    ANALYSIS_MODULE,
+    BUDGET_CAPPED_MIN_DAYS,
+    LOW_TOP_OF_SEARCH_SHARE,
+    NEW_CAMPAIGN_DAYS,
+    SIGNALS_COLUMN,
+    CampaignAnalyzerParams,
+    analyzer_frame,
+    provisional_days,
+    with_diagnosis,
+    with_signals,
+)
 from core.currency_format import currency_symbol, money
+from core.integrations.store import StoreError
 from modules.pages.campaign_source import render_campaign_source
+
+log = logging.getLogger(__name__)
+
+# ══════════════════════════════════════════════════════════════════════
+# Análisis IA (capa core/ai_tab sobre el agente ai/agents/bulk_campaigns)
+# ══════════════════════════════════════════════════════════════════════
+
+_AI_LABELS = {
+    "title": "Análisis IA",
+    "caption": "Lectura ejecutiva de la IA sobre el semáforo y las señales que ya calculó el módulo",
+    "disabled": "Análisis IA deshabilitado (AI_ENABLED=0).",
+    "table_campaigns": "Campañas priorizadas — lectura IA",
+    "col_item": "Campaña",
+    "no_rows": "No hay campañas habilitadas con métricas para analizar en este período.",
+    "no_performance": "El análisis IA necesita las métricas de las campañas: gasto, ventas y órdenes.",
+    "file_source": ("El análisis IA guardado corre sobre las campañas sincronizadas de Amazon Ads. Con un archivo "
+                    "subido a mano no hay dónde guardarlo: elegí una cuenta conectada."),
+}
+_AI_BADGE_COLORS = {
+    "ACTUAR": "background-color:#EAF3DE;color:#173404",
+    "ESPERAR": "background-color:#F1EFE8;color:#2C2C2A",
+    "INVESTIGAR": "background-color:#FAEEDA;color:#412402",
+}
+# La causa que elige el agente, en el nombre llano que lee el AM.
+_CAUSE_LABELS = {
+    "SIN_ENTREGA": "Sin entrega",
+    "SIN_CONVERSION": "Sin conversión",
+    "COSTO_ALTO": "Costo alto",
+    "RELEVANCIA_BAJA": "Relevancia baja",
+    "TOPE_DE_PRESUPUESTO": "Tope de presupuesto",
+    "BAJA_VISIBILIDAD": "Baja visibilidad",
+    "EN_APRENDIZAJE": "En aprendizaje",
+    "RENTABLE": "Rentable",
+    "POCA_MUESTRA": "Poca muestra",
+}
+_SIGNALS_HELP = (
+    f"Marcas que no cambian el diagnóstico. Limitada por presupuesto: dentro del target y gastó al menos el 95% "
+    f"de su presupuesto del día en {BUDGET_CAPPED_MIN_DAYS} días o más. Nueva: empezó hace menos de "
+    f"{NEW_CAMPAIGN_DAYS} días. Baja visibilidad: en PAUSAR o REVISAR con menos del "
+    f"{LOW_TOP_OF_SEARCH_SHARE:g}% de las impresiones de arriba de la búsqueda."
+)
 
 
 # ── Naming convention Capybaras: [Marca] | [ASIN] | [MKT] | [Tipo] | [Match] | [Cluster]
@@ -62,7 +120,10 @@ def render():
         currency = campaign_input.currency_code
         st.success(f"✅ {len(df_bulk_raw)} filas cargadas")
 
-        bulk_tab1, bulk_tab2 = st.tabs(["📋 Vista General", "🚦 Campaign Analyzer"])
+        bulk_tab1, bulk_tab2, bulk_tab3 = st.tabs(["📋 Vista General", "🚦 Campaign Analyzer", "🤖 Análisis IA"])
+        source = campaign_input.source
+        # Los parámetros del semáforo, que la pestaña IA necesita; None si el archivo no trae métricas.
+        analysis_params = None
 
         # ══════════════════════════════════════════════════════════════════
         # TAB 1 — Vista General (raw)
@@ -92,75 +153,41 @@ def render():
                     "Campaign Manager con las métricas incluidas."
                 )
             else:
-                # ── Preparar dataframe limpio ─────────────────────────────
-                df_ca = df_bulk_raw.copy()
-
-                def _clean_money(series):
-                    return pd.to_numeric(
-                        series.astype(str).str.replace(r'[\$,]', '', regex=True),
-                        errors='coerce'
-                    ).fillna(0)
-
-                df_ca['_spend']   = _clean_money(df_ca['Total cost'])
-                df_ca['_sales']   = _clean_money(df_ca['Sales'])
-                if _has_acos:
-                    df_ca['_acos'] = pd.to_numeric(df_ca['ACOS'], errors='coerce').fillna(0) * 100
-                elif _has_roas:
-                    _roas = pd.to_numeric(df_ca['ROAS'], errors='coerce').fillna(0)
-                    df_ca['_acos'] = (100 / _roas.where(_roas > 0)).fillna(0)
-                else:
-                    df_ca['_acos'] = (
-                        df_ca['_spend'] / df_ca['_sales'].where(df_ca['_sales'] > 0) * 100
-                    ).fillna(0)
-                df_ca['_orders']  = pd.to_numeric(df_ca['Purchases'], errors='coerce').fillna(0)
-                df_ca['_impr']    = (
-                    pd.to_numeric(df_ca['Impressions'], errors='coerce').fillna(0)
-                    if _has_impr else None
-                )
-                df_ca['_clicks']  = pd.to_numeric(df_ca['Clicks'], errors='coerce').fillna(0) if 'Clicks' in df_ca.columns else 0
-
-                # Solo campañas ENABLED
-                df_ca = df_ca[df_ca['State'].str.upper() == 'ENABLED'].copy()
+                # ── Campañas habilitadas con sus métricas (reglas en core/amazon_ads/campaign_analyzer.py) ──
+                analyzer = analyzer_frame(df_bulk_raw)
 
                 # ── Inputs del AM ─────────────────────────────────────────
+                # Abren con los parámetros guardados de la cuenta, que son con los que el worker genera su análisis.
+                defaults = _account_params(source)
                 st.markdown("#### ⚙️ Configuración de la cuenta")
                 cfg1, cfg2, cfg3 = st.columns(3)
                 target_acos_ca = cfg1.number_input(
                     "Target ACoS (%)",
-                    min_value=1.0, max_value=200.0, value=35.0, step=1.0,
+                    min_value=1.0, max_value=200.0, value=float(defaults.target_acos), step=1.0,
                     help="ACoS objetivo para esta cuenta. Define los umbrales de REVISAR y ESCALAR."
                 )
                 spend_pausar = cfg2.number_input(
                     f"Spend mínimo para PAUSAR ({currency_symbol(currency)})",
-                    min_value=1.0, value=20.0, step=1.0,
+                    min_value=1.0, value=float(defaults.spend_to_pause), step=1.0,
                     help="Spend acumulado sin órdenes a partir del cual se recomienda pausar. El AM lo ajusta según el objetivo de la cuenta."
                 )
                 min_orders_escalar = cfg3.number_input(
                     "Mínimo de órdenes para ESCALAR",
-                    min_value=1, value=2, step=1,
+                    min_value=1, value=int(defaults.min_orders_to_scale), step=1,
                     help="Órdenes mínimas confirmadas para recomendar escalar."
                 )
+                analysis_params = CampaignAnalyzerParams(float(target_acos_ca), float(spend_pausar),
+                                                         int(min_orders_escalar))
 
                 st.markdown("---")
 
-                # ── Función de diagnóstico ────────────────────────────────
-                def _diagnostico(row):
-                    spend   = row['_spend']
-                    acos    = row['_acos']
-                    orders  = row['_orders']
-                    impr    = row['_impr']
-
-                    if spend == 0 and (impr == 0 if _has_impr else row['_clicks'] == 0):
-                        return "👻 FANTASMA"
-                    if orders == 0 and spend >= spend_pausar:
-                        return "🔴 PAUSAR"
-                    if orders > 0 and acos > target_acos_ca * 2:
-                        return "🟡 REVISAR"
-                    if orders >= min_orders_escalar and acos <= target_acos_ca * 0.5:
-                        return "✅ ESCALAR"
-                    return "⚪ OK"
-
-                df_ca['Diagnóstico'] = df_ca.apply(_diagnostico, axis=1)
+                # ── Diagnóstico y señales ─────────────────────────────────
+                df_ca = with_signals(
+                    with_diagnosis(analyzer, analysis_params),
+                    source.signal_inputs if source is not None else None, analysis_params,
+                    window_start=source.window_start if source is not None else None,
+                    window_end=source.window_end if source is not None else None)
+                has_signals = bool((df_ca[SIGNALS_COLUMN] != "").any())
 
                 # ── Naming convention check ──────────────────────────────
                 camp_col = 'Campaign name'
@@ -214,6 +241,12 @@ def render():
                     _avisos.append(f"no incluye **ACOS** — se calcula a partir de {_origen}")
                 if _avisos:
                     st.caption("ℹ️ El archivo " + "; ".join(_avisos) + ". El resto del análisis no cambia.")
+                if source is not None:
+                    _provisional = provisional_days(source.window_start, source.window_end)
+                    if _provisional:
+                        st.caption("Los últimos días del período (" + " y ".join(day.strftime("%d/%m") for day in
+                                                                              _provisional)
+                                   + ") todavía pueden sumar ventas atribuidas a sus clicks.")
 
                 # ── Conteo por diagnóstico ────────────────────────────────
                 st.markdown("#### Resumen por diagnóstico")
@@ -264,6 +297,8 @@ def render():
                              '_spend', '_sales', '_acos', '_orders', '_impr', '_clicks']
                 if camp_col in df_ca.columns and '_naming_capy' in df_ca.columns:
                     show_cols.insert(2, 'Naming')
+                if has_signals:
+                    show_cols.insert(1, SIGNALS_COLUMN)
                 if 'Campaign start date' in df_show.columns:
                     show_cols.append('Campaign start date')
                 if 'Campaign bid strategy' in df_show.columns:
@@ -301,7 +336,9 @@ def render():
 
                 style_subsets = ['Diagnóstico']
                 styled = df_tabla.style.map(_color_diag, subset=style_subsets)
-                st.dataframe(styled, use_container_width=True, height=500)
+                st.dataframe(styled, use_container_width=True, height=500,
+                             column_config={SIGNALS_COLUMN: st.column_config.TextColumn(
+                                 SIGNALS_COLUMN, help=_SIGNALS_HELP)} if has_signals else None)
 
                 # ── Nota aclaratoria ──────────────────────────────────────
                 st.info("💡 **Las pausas se ejecutan manualmente en Campaign Manager.** El bulk update requiere Campaign ID numérico — este diagnóstico es tu guía de acción.")
@@ -320,3 +357,127 @@ def render():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="download_ca"
                 )
+
+        # ══════════════════════════════════════════════════════════════════
+        # TAB 3 — Análisis IA (guardado: lo genera el worker, la pantalla lo busca por huella)
+        # ══════════════════════════════════════════════════════════════════
+        with bulk_tab3:
+            _render_ai_tab(source, analysis_params)
+
+
+def _account_params(source) -> CampaignAnalyzerParams:
+    """Los parámetros guardados de la cuenta, o los de siempre para un archivo o si la base no contesta."""
+    if source is None:
+        return CampaignAnalyzerParams.defaults()
+    from core.ai_analysis import stored_tab
+    from modules.pages import search_term_source
+
+    try:
+        settings = stored_tab._settings(ANALYSIS_MODULE, source.profile_id, search_term_source._open_rest)
+    except (requests.RequestException, StoreError) as exc:
+        log.warning("bulk campaigns: account parameters of %s could not be read: %s", source.profile_id, exc)
+        return CampaignAnalyzerParams.defaults()
+    return CampaignAnalyzerParams.from_dict(settings.params) if settings else CampaignAnalyzerParams.defaults()
+
+
+def _render_ai_tab(source, params) -> None:
+    from ai.config import AI_ENABLED
+
+    st.subheader(_AI_LABELS["title"])
+    st.caption(_AI_LABELS["caption"])
+    if not AI_ENABLED:
+        st.caption(_AI_LABELS["disabled"])
+    elif source is None:
+        st.info(_AI_LABELS["file_source"])
+    elif params is None:
+        st.info(_AI_LABELS["no_performance"])
+    else:
+        _render_stored_analysis(source, params)
+
+
+def _render_stored_analysis(source, params) -> None:
+    """Busca el análisis de exactamente estas campañas y parámetros; si no existe, ofrece pedirlo."""
+    from ai.agent_call import build_agent_call
+    from ai.agents.bulk_campaigns import chat_document
+    from core import ai_tab, app_chat
+    from core.ai_analysis import stored_tab
+    from core.campaign_analysis import build_analysis_input, campaign_row_labels
+    from core.date_labels import date_range_label
+    from modules.pages import search_term_source
+
+    # El mismo payload que arma el worker: si difieren, difiere la huella y nunca encuentra su análisis.
+    analysis_input = build_analysis_input(
+        source.frame, signal_inputs=source.signal_inputs, params=params, account_label=source.label,
+        period_label=date_range_label(source.window_start, source.window_end), currency_code=source.currency_code,
+        attribution_days=source.attribution_days, window_start=source.window_start, window_end=source.window_end)
+    if analysis_input.data is None:
+        st.info(_AI_LABELS["no_rows"])
+        return
+
+    labels = ai_tab.ai_labels("es", _AI_LABELS)
+    st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
+    call = build_agent_call(ANALYSIS_MODULE, analysis_input.data)
+
+    def _render(stored):
+        # Las filas son las que leyó ESE análisis, no las de esta corrida: los row_ids que cita son suyos.
+        _render_ai_result(stored.result, SimpleNamespace(elapsed=int((stored.duration_ms or 0) / 1000)),
+                          stored.records, labels, source.currency_code)
+
+    result = stored_tab.render_stored_analysis(
+        module=ANALYSIS_MODULE, key_prefix="bulk", source=source, input_digest=call.input_digest,
+        params=params, account_params=_account_params(source), open_rest=search_term_source._open_rest,
+        current_username=search_term_source._current_username, render_result=_render,
+        timezone=search_term_source.DISPLAY_TIMEZONE)
+
+    if result.analysis is None:
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
+    records = result.analysis.records
+    app_chat.share_analysis(app_chat.ChatAnalysis(
+        module=ANALYSIS_MODULE, key=f"{ANALYSIS_MODULE}:{result.analysis.input_digest}", subject=source.label,
+        documents=tuple({"title": f"Bulk Campañas · {source.label} · {document['title']}",
+                         "content": document["content"]} for document in call.call["context"])
+        + ({"title": f"Bulk Campañas · {source.label} · Lectura de la IA",
+            "content": chat_document.reading_text(result.analysis.result, records)},),
+        annotate=partial(ai_tab.annotate_row_ids, labels_by_id=campaign_row_labels(records)),
+        profile_id=source.profile_id))
+
+
+def _render_ai_result(result, analysis, records, labels, currency_code) -> None:
+    from core import ai_tab
+    from core.campaign_analysis import campaign_row_labels
+
+    row_labels = campaign_row_labels(records)
+    by_id = dict(zip(row_labels, records))
+    items = result.get("campaigns") or []
+    warnings = sum(1 for item in items if item.get("advertencia"))
+    st.markdown(ai_tab.ai_chips_html(warnings, f"{len(items)} campañas priorizadas", analysis.elapsed, labels),
+                unsafe_allow_html=True)
+    synthesis = ai_tab.map_synthesis_text(
+        result.get("synthesis") or {}, lambda text: ai_tab.annotate_row_ids(text, row_labels))
+    st.markdown(ai_tab.synthesis_html(synthesis, labels), unsafe_allow_html=True)
+
+    rows = []
+    for item in items:
+        record = by_id.get(str(item.get("row_id", "")))
+        if record is None:
+            continue
+        # Las cifras que la razón cita tienen que estar en pantalla, o el AM no puede auditar el juicio.
+        orders = record.get("orders", 0)
+        metrics = [record.get("diagnostico", ""), f"gasto {money(record.get('spend', 0), currency_code)}",
+                   f"ACoS {record['acos']:.1f}%" if record.get("acos") is not None else "sin ventas",
+                   f"{orders} orden" if orders == 1 else f"{orders} órdenes"]
+        if record.get("senales"):
+            metrics.append(record["senales"])
+        rows.append({
+            "row_id": str(item.get("row_id", "")),
+            "item": record.get("campaign", ""),
+            "metrics": metrics,
+            "badges": [item.get("veredicto", ""), _CAUSE_LABELS.get(item.get("causa"), item.get("causa") or "")],
+            "confidence": str(item.get("confianza", "")).upper(),
+            "warning": item.get("advertencia") or "",
+            "reasoning": item.get("razon", ""),
+        })
+    if rows:
+        st.markdown(ai_tab.opinion_table_html(rows, labels["table_campaigns"], labels, _AI_BADGE_COLORS),
+                    unsafe_allow_html=True)

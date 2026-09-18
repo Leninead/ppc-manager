@@ -31,7 +31,7 @@ def _stored(profile_id: str, module: str = "str", *, situation: str = "", params
 @pytest.fixture
 def data(monkeypatch):
     profiles = [_profile("1", "wamery"), _profile("2", "harrick")]
-    stored = {"str": {}, "bid_optimizer": {}}
+    stored = {"str": {}, "bid_optimizer": {}, "bulk_campaigns": {}}
 
     class _Provider:
         def __init__(self, rest):
@@ -116,11 +116,13 @@ def test_the_synthesis_names_the_term_behind_each_row_id_it_cites(data):
 def test_the_row_id_prefixes_are_the_ones_the_agents_gave_the_rows():
     """The MCP image does not carry the agents, so it keeps its own copy; this is what keeps them equal."""
     from ai.agents.bid_optimizer.context import ASIN_PREFIX
+    from ai.agents.bulk_campaigns.context import CAMPAIGN_PREFIX
     from ai.agents.str.context import HARV_PREFIX, NEG_PREFIX
 
     assert analyses.ROW_IDS == {
         "str": (("negativos", NEG_PREFIX, "Search Term"), ("harvest", HARV_PREFIX, "Search Term")),
         "bid_optimizer": (("filas", ASIN_PREFIX, "asin"),),
+        "bulk_campaigns": (("filas", CAMPAIGN_PREFIX, "campaign"),),
     }
     assert set(analyses.ROW_IDS) == set(analyses.MODULES)
 

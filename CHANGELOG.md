@@ -6,6 +6,33 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Bulk Campañas con análisis IA, señales y lectura desde el chat (2026-09-18)
+
+**Pestaña "Análisis IA" en M6.** Con datos de Amazon Ads, el worker de análisis genera solo el análisis de los
+últimos 7 días de cada cuenta con sus parámetros guardados (target ACoS, gasto para pausar, órdenes para escalar), como
+el del STR: la IA explica o pone en duda el diagnóstico de hasta 12 campañas con una causa, un veredicto
+(actuar, esperar, investigar) y su confianza, y escribe la síntesis de la cuenta. Nunca cambia el diagnóstico. Con
+archivo manual la pestaña lo explica y no llama a la IA.
+
+**Señales aparte del semáforo.** El Campaign Analyzer suma la columna «Señales»: "Limitada por presupuesto" (vende
+dentro del target y se quedó sin presupuesto 3 días o más), "Nueva" (menos de 14 días) y "Baja visibilidad" (menos
+de 10% de Top of Search en una campaña para pausar o revisar). Los últimos 2 días del período se marcan provisorios.
+El reporte de campañas ahora pide el presupuesto del día y el share de Top of Search.
+
+**El chat ve las campañas.** `campaign_health` (MCP) devuelve las campañas de una cuenta clasificadas como en M6,
+incluidas las que no tuvieron clicks, que `breakdown` no ve. El análisis guardado se lee con `list_analyses` y
+`get_analysis` (filas `C01…`).
+
+**Una sola regla.** El semáforo pasó a `core/amazon_ads/campaign_analyzer.py`, sin cambiar sus resultados: lo usan la
+página, el worker y el MCP.
+
+**Deploy.** Migración 014 (columnas `budget_amount` y `top_of_search_is`, `campaigns_between` con las entradas de las
+señales, `bulk_campaigns` en la lista de módulos con análisis, permiso de lectura de campañas para el worker de
+análisis). Si sale en el mismo deploy que la 013, "DB migrate" las aplica en orden y vale la nota de la 013. Si sale
+después, en los segundos entre "Deploy" y "DB migrate" la página no muestra señales, el worker de análisis registra un
+error al planificar campañas (todavía no puede leerlas) y los días que guarde el sincronizador quedan sin share de Top
+of Search hasta la noche siguiente, que reescribe los 65 días.
+
 ### Changed — El chat ya no recibe las cuentas pegadas: las lee por el MCP (2026-09-18)
 
 **Cada sesión del chat deja de cargar la síntesis de todas las cuentas.** El documento "Últimos análisis de Search

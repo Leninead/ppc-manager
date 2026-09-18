@@ -177,6 +177,11 @@ class ReportProvider:
         )
 
 
+    @property
+    def rest(self):
+        """The connection it reads with, for the readers of other grains over the same database."""
+        return self._rest
+
     def daily_totals(self, option: ProfileOption, start: date, end: date, campaign: str = "") -> DailySeries:
         """One profile's totals per day over [start, end]; with `campaign`, only campaigns whose name contains it."""
         if end < start:

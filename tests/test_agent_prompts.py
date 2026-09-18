@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 _AGENTS = Path("ai/agents")
-_SLUGS = ["str", "sqp", "datadive"]
+_SLUGS = ["str", "sqp", "datadive", "bulk_campaigns"]
 
 
 def _block(slug: str) -> str:
@@ -24,7 +24,7 @@ def _block(slug: str) -> str:
 
 def test_reading_rules_identical_across_agents():
     blocks = {slug: _block(slug) for slug in _SLUGS}
-    assert blocks["str"] == blocks["sqp"] == blocks["datadive"]
+    assert len(set(blocks.values())) == 1
 
 
 @pytest.mark.parametrize("slug", _SLUGS)

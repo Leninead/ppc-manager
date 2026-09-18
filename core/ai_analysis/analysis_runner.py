@@ -97,9 +97,18 @@ class AnalysisRunner:
         summary = PlanSummary()
         settings = self._store.settings_by_subject(self._spec.module)
         for profile in self._reports.profiles():
-            if profile.status != PROFILE_ACTIVE or profile.data_through is None:
+            if profile.status != PROFILE_ACTIVE:
                 continue
             if profile_ids is not None and profile.profile_id not in profile_ids:
+                continue
+            try:
+                profile = self._view(profile)
+            except (ReportReadError, StoreError, OSError, ValueError) as exc:
+                log.warning("ai analysis (%s): could not read the sync of profile %s: %s",
+                            self._spec.module, profile.profile_id, exc)
+                summary.errors.append(f"{profile.profile_id}: {exc}")
+                continue
+            if profile.data_through is None:
                 continue
             summary.profiles_checked += 1
             account_settings = settings.get(profile.profile_id)
@@ -121,7 +130,7 @@ class AnalysisRunner:
         if self._planned.get(profile.profile_id) == version:
             return
         # Days being rewritten right now would give a payload the next tick replaces.
-        if self._jobs.has_open(SLUG, SEARCH_TERMS_KIND, profile.profile_id):
+        if self._jobs.has_open(SLUG, getattr(self._spec, "source_job_kind", SEARCH_TERMS_KIND), profile.profile_id):
             return
         params = self._spec.account_params(profile, settings)
         window_start, window_end = self._spec.canonical_window(profile)
@@ -218,9 +227,19 @@ class AnalysisRunner:
             self._record_failure(job, analysis_id, type(exc).__name__, str(exc), retryable=True)
         return JobOutcome(job.id, analysis_id, reused=False)
 
+    def _view(self, profile: ProfileOption) -> ProfileOption:
+        """The profile as the module's own sync sees it.
+
+        `ads_profile_sync` is the search-term sync's; a module fed by another grain (campaigns) gives a
+        `data_view(profile, jobs)` that reads its window, day and hour from its own sync requests.
+        """
+        data_view = getattr(self._spec, "data_view", None)
+        return data_view(profile, self._jobs) if data_view is not None else profile
+
     def _profile(self, profile_id: str) -> ProfileOption:
         for profile in self._reports.profiles():
             if profile.profile_id == profile_id:
+                profile = self._view(profile)
                 if profile.status != PROFILE_ACTIVE or profile.data_through is None:
                     raise AnalysisJobError("La cuenta ya no está activa o todavía no tiene datos.", retryable=False)
                 return profile

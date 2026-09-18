@@ -27,7 +27,14 @@ _MONEY_COLUMNS = {
     "sales_14d": "sales14d",
 }
 _CURRENCY_FIELD = "campaignBudgetCurrencyCode"
-_SOURCE_FIELDS = ("date", "campaignId", *_COUNT_COLUMNS.values(), *_MONEY_COLUMNS.values(), _CURRENCY_FIELD)
+# Optional per-day facts: the budget that day and the top-of-search impression share, a 0-100 percentage
+# Amazon leaves null when the campaign was not eligible. Missing is not zero, so they stay nullable.
+_OPTIONAL_COLUMNS = {
+    "budget_amount": "campaignBudgetAmount",
+    "top_of_search_is": "topOfSearchImpressionShare",
+}
+_SOURCE_FIELDS = ("date", "campaignId", *_COUNT_COLUMNS.values(), *_MONEY_COLUMNS.values(), _CURRENCY_FIELD,
+                  *_OPTIONAL_COLUMNS.values())
 _FIELD_INDEX = {field: index for index, field in enumerate(_SOURCE_FIELDS)}
 _METRIC_FIELDS = (*_COUNT_COLUMNS.values(), *_MONEY_COLUMNS.values())
 
@@ -93,6 +100,8 @@ def day_row_positions(report_rows: Sequence[tuple], *, window_start: date,
             raise ReportRowsError(f"campaign report row {position} has no campaign id")
         for field in _METRIC_FIELDS:
             _metric(report_row[_FIELD_INDEX[field]], field, position)
+        for field in _OPTIONAL_COLUMNS.values():
+            _optional_metric(report_row[_FIELD_INDEX[field]], field, position)
         positions_by_day[report_day].append(position)
     return positions_by_day
 
@@ -123,14 +132,31 @@ def _table_row(report_row: tuple, position: int, profile_id: str, currency_code:
     for column, field in _MONEY_COLUMNS.items():
         row[column] = round(_metric(report_row[_FIELD_INDEX[field]], field, position), MONEY_DECIMALS)
     row["currency_code"] = str(report_row[_FIELD_INDEX[_CURRENCY_FIELD]] or currency_code or "").strip().upper()
+    for column, field in _OPTIONAL_COLUMNS.items():
+        value = _optional_metric(report_row[_FIELD_INDEX[field]], field, position)
+        row[column] = None if value is None else round(value, MONEY_DECIMALS)
     return row
 
 
 def _add_metrics(existing: dict, duplicate: dict) -> None:
+    # The share is weighted by each row's own impressions, so it is merged before they are summed.
+    existing["top_of_search_is"] = _merged_share(existing, duplicate)
+    existing["budget_amount"] = max((value for value in (existing["budget_amount"], duplicate["budget_amount"])
+                                     if value is not None), default=None)
     for column in _COUNT_COLUMNS:
         existing[column] += duplicate[column]
     for column in _MONEY_COLUMNS:
         existing[column] = round(existing[column] + duplicate[column], MONEY_DECIMALS)
+
+
+def _merged_share(existing: dict, duplicate: dict) -> float | None:
+    known = [row for row in (existing, duplicate) if row["top_of_search_is"] is not None]
+    if not known:
+        return None
+    weight = sum(row["impressions"] for row in known)
+    if weight == 0:
+        return round(sum(row["top_of_search_is"] for row in known) / len(known), MONEY_DECIMALS)
+    return round(sum(row["top_of_search_is"] * row["impressions"] for row in known) / weight, MONEY_DECIMALS)
 
 
 def _report_day(report_row: tuple, position: int) -> date:
@@ -162,3 +188,10 @@ def _metric(value, field: str, position: int) -> float:
     if not math.isfinite(number) or number < 0:
         raise ReportRowsError(f"campaign report row {position} has an impossible {field}: {number}")
     return number
+
+
+def _optional_metric(value, field: str, position: int) -> float | None:
+    """None when Amazon left the field out; otherwise validated like any metric."""
+    if value is None or value == "":
+        return None
+    return _metric(value, field, position)

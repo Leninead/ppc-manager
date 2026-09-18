@@ -72,29 +72,37 @@ def _campaign(campaign_id, name, *, state="ENABLED", impressions=0, clicks=0, co
 
 def _csv(rows) -> bytes:
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=RPC_HEADER)
+    # Rows may carry the signal columns of migration 014 after the base ones.
+    extra = [key for key in (rows[0] if rows else {}) if key not in RPC_HEADER]
+    writer = csv.DictWriter(buffer, fieldnames=RPC_HEADER + extra)
     writer.writeheader()
     writer.writerows(rows)
     return buffer.getvalue().encode("utf-8")
 
 
 class _FakeRest:
-    """In-memory PostgREST: the profile table, the campaign sync jobs and `campaigns_between`."""
+    """In-memory PostgREST: the profile table, the campaign sync jobs, `campaigns_between`, and the stored
+    analyses and account settings the AI tab looks up (none unless a test gives them)."""
 
-    def __init__(self, profile_rows, campaign_rows=(), jobs=(), jobs_down=False):
+    def __init__(self, profile_rows, campaign_rows=(), jobs=(), jobs_down=False, settings=()):
         self.profile_rows = list(profile_rows)
         self.campaign_rows = list(campaign_rows)
         self.jobs = list(jobs)
         self.jobs_down = jobs_down
+        self.settings = list(settings)
         self.campaign_reads: list[dict] = []
 
     def select(self, table, params):
         if table == "ads_profile_sync":
             return [dict(row) for row in self.profile_rows]
+        if table == "ai_analysis_settings":
+            return [dict(row) for row in self.settings]
+        if table == "ai_analyses":
+            return []
         if table == "integration_sync_jobs":
             if self.jobs_down:
                 raise requests.ConnectionError("pool timeout")
-            jobs = [job for job in self.jobs if params["job_kind"] == f"eq.{job['job_kind']}"]
+            jobs = [job for job in self.jobs if params.get("job_kind") == f"eq.{job['job_kind']}"]
             if params.get("status") == "eq.completed":
                 jobs = sorted((job for job in jobs if job["status"] == "completed"),
                               key=lambda job: job["finished_at"], reverse=True)
@@ -173,7 +181,7 @@ def _job(**overrides) -> SyncJob:
 
 class TestCampaignView:
     def test_the_last_good_job_is_what_the_campaign_data_covers_and_when_it_arrived(self):
-        view = campaign_picker.campaign_view(_option(), _job())
+        view = campaign_picker.campaign_sync_view(_option(), _job())
 
         assert (view.data_from, view.data_through) == (date(2026, 7, 14), date(2026, 9, 16))
         assert view.refreshed_on == date(2026, 9, 17)
@@ -182,36 +190,36 @@ class TestCampaignView:
     def test_the_search_term_freshness_of_the_profile_never_leaks_into_the_campaign_view(self):
         option = _option(data_through="2026-09-16", last_success_at="2026-09-17T12:24:00+00:00")
 
-        view = campaign_picker.campaign_view(option, None)
+        view = campaign_picker.campaign_sync_view(option, None)
 
         assert (view.data_from, view.data_through, view.refreshed_on, view.last_success_at) == (None,) * 4
 
 
 class TestCampaignPill:
     def test_before_any_campaign_job_there_is_no_load_to_announce(self):
-        assert campaign_picker.campaign_pill(campaign_picker.campaign_view(_option(), None), None, NOW) == (
+        assert campaign_picker.campaign_pill(campaign_picker.campaign_sync_view(_option(), None), None, NOW) == (
             "idle", "Sin datos todavía")
 
     def test_a_first_load_in_course_says_so(self):
-        view = campaign_picker.campaign_view(_option(), None)
+        view = campaign_picker.campaign_sync_view(_option(), None)
 
         assert campaign_picker.campaign_pill(view, _job(status="running"), NOW) == ("idle", "Primera carga en curso")
 
     def test_a_first_load_that_failed_says_so(self):
-        view = campaign_picker.campaign_view(_option(), None)
+        view = campaign_picker.campaign_sync_view(_option(), None)
 
         assert campaign_picker.campaign_pill(view, _job(status="failed"), NOW) == ("err", "La primera carga falló")
 
     def test_a_sync_finished_today_names_the_day_and_the_hour(self):
         completed = _job()
 
-        view = campaign_picker.campaign_view(_option(), completed)
+        view = campaign_picker.campaign_sync_view(_option(), completed)
 
         # 00:51 UTC on the 18th is 21:51 on the 17th in Buenos Aires, where the pill dates syncs.
         assert campaign_picker.campaign_pill(view, completed, NOW) == ("ok", "Al día · actualizado hoy 21:51")
 
     def test_a_new_sync_in_course_names_the_hour_it_was_asked_for(self):
-        view = campaign_picker.campaign_view(_option(), _job())
+        view = campaign_picker.campaign_sync_view(_option(), _job())
         running = _job(id=42, status="running", created_at="2026-09-18T01:00:00+00:00")
 
         assert campaign_picker.campaign_pill(view, running, NOW) == ("idle", "Actualizando · pedido a las 22:00")
@@ -219,7 +227,7 @@ class TestCampaignPill:
     def test_a_profile_amazon_stopped_authorizing_says_since_when(self):
         completed = _job()
 
-        view = campaign_picker.campaign_view(_option(status="needs_reauth"), completed)
+        view = campaign_picker.campaign_sync_view(_option(status="needs_reauth"), completed)
 
         assert campaign_picker.campaign_pill(view, completed, NOW) == ("err", "Sin actualizar desde hoy 21:51")
 
@@ -384,3 +392,62 @@ class TestBulkCampanasOnApiData:
         assert (metrics["Total Spend"], metrics["Total Sales"]) == ("MX$40.00", "MX$100.00")
         assert metrics["💰 Spend recuperable"] == "MX$30.00"
         assert "Spend mínimo para PAUSAR (MX$)" in [number.label for number in app.number_input]
+
+
+def _with_signals(row, *, capped="0", share="25.0", start=None):
+    return {**row, "budget_capped_days": capped, "days_with_impressions": "7", "top_of_search_is": share,
+            **({"start_date": start} if start else {})}
+
+
+class TestBulkCampanasSignalsAndAi:
+    CAMPAIGNS = [
+        _campaign("2", "Bleeder", impressions=900, clicks=30, cost=30.0),
+        _campaign("3", "Winner", impressions=2000, clicks=40, cost=10.0, purchases=4, sales=100.0),
+    ]
+
+    def _run(self, monkeypatch, campaigns=None, settings=()):
+        fake = _FakeRest([_profile_row()], campaigns or self.CAMPAIGNS, jobs=[_job_row()], settings=settings)
+        app = _app(monkeypatch, fake, script=_M6_SCRIPT)
+        app.run()
+        assert not app.exception
+        return app
+
+    def test_the_signals_column_appears_when_the_sync_brings_signals(self, monkeypatch):
+        campaigns = [_with_signals(self.CAMPAIGNS[0], share="3.0"), _with_signals(self.CAMPAIGNS[1], capped="5")]
+
+        app = self._run(monkeypatch, campaigns)
+
+        table = next(frame.value for frame in app.dataframe if "Señales" in frame.value.columns)
+        signals = dict(zip(table["Campaign name"], table["Señales"]))
+        assert signals == {"Bleeder": "Baja visibilidad", "Winner": "Limitada por presupuesto"}
+
+    def test_without_signals_the_table_keeps_the_columns_it_always_had(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        assert not any("Señales" in frame.value.columns for frame in app.dataframe)
+
+    def test_the_inputs_open_with_the_account_saved_parameters(self, monkeypatch):
+        settings = [{"module": "bulk_campaigns", "subject_id": "111", "updated_by": "ana",
+                     "updated_at": "2026-09-17T12:00:00+00:00",
+                     "params": {"target_acos": 35, "spend_to_pause": 40, "min_orders_to_scale": 2}}]
+
+        app = self._run(monkeypatch, settings=settings)
+
+        spend_input = next(number for number in app.number_input if number.label.startswith("Spend mínimo"))
+        assert spend_input.value == 40.0
+        # 30 without orders is under the account's 40: nothing to pause.
+        assert {metric.label: metric.value for metric in app.metric}["🔴 Pausar"] == "0"
+
+    def test_the_ai_tab_offers_to_generate_the_analysis_of_what_is_on_screen(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        assert "Generar análisis IA" in [button.label for button in app.button]
+
+    def test_with_a_hand_uploaded_file_the_ai_tab_asks_for_a_synced_account(self):
+        app = AppTest.from_string(
+            "from modules.pages.bulk_campanas import _render_ai_tab\n"
+            "from core.amazon_ads.campaign_analyzer import CampaignAnalyzerParams\n"
+            "_render_ai_tab(None, CampaignAnalyzerParams.defaults())\n", default_timeout=30)
+        app.run()
+
+        assert "elegí una cuenta conectada" in " ".join(str(info.value) for info in app.info)

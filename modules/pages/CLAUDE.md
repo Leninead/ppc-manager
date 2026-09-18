@@ -49,8 +49,9 @@ módulos ya no montan chats propios.
   Las otras cuentas no se pegan en el prompt (desde 2026-09-18): el modelo las lee por el
   servidor MCP de la app (`services/mcp_server`) cuando la pregunta lo pide —`list_analyses`
   trae la situación y el target de cada análisis guardado, `accounts_overview` los totales en
-  vivo de todas las cuentas, `get_analysis` el detalle de una—, así el contexto de cada turno
-  no crece con cada cuenta nueva.
+  vivo de todas las cuentas, `get_analysis` el detalle de una, `campaign_health` las campañas
+  de una cuenta con el diagnóstico y las señales de M6—, así el contexto de cada turno no crece
+  con cada cuenta nueva.
 - **Row ids.** Donde viaja la tabla (el análisis en pantalla) los ids se anotan con su
   término (`annotate_row_ids`); en síntesis sin tabla (resúmenes por cuenta, análisis
   anteriores) cada id se reemplaza por «término» (`replace_row_ids`,
@@ -306,7 +307,8 @@ Upload hasta 4 SQPs → pivot por Search Query → clasificación ↑→↓
 Visualizar el bulk de campañas y diagnosticar con semáforo automático (PAUSAR/REVISAR/ESCALAR/FANTASMA).
 
 ### Arquitectura
-2 tabs: Vista General (raw) | Campaign Analyzer (diagnóstico semáforo con naming check y target graduation)
+3 tabs: Vista General (raw) | Campaign Analyzer (diagnóstico semáforo con naming check y target graduation) |
+Análisis IA (análisis guardado de la cuenta, agente `ai/agents/bulk_campaigns`).
 
 ### Reglas de negocio
 - Filtro por State == "ENABLED"
@@ -315,6 +317,39 @@ Visualizar el bulk de campañas y diagnosticar con semáforo automático (PAUSAR
 - ESCALAR: ACoS < target × 0.5 con órdenes
 - FANTASMAS: 0 impresiones activas
 - Las pausas se ejecutan MANUALMENTE en Campaign Manager — no desde este bulk
+- **La regla vive en `core/amazon_ads/campaign_analyzer.py`** (`analyzer_frame`, `diagnose`, `with_diagnosis`,
+  `with_signals`), no en la página: la usan M6, el worker de análisis y la herramienta `campaign_health` del MCP, que
+  tienen que clasificar igual. La imagen del MCP sólo copia `core/amazon_ads/`, `core/ai_analysis/` y
+  `core/integrations/`: por eso el módulo vive ahí y no importa nada de `modules/`.
+
+### Señales (2026-09-18 — sólo con datos de Amazon Ads)
+Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no cambia):
+- **Limitada por presupuesto**: presupuesto diario, días con gasto ≥ 95% del presupuesto ≥ min(3, días del período),
+  con órdenes y ACoS ≤ target. Una campaña que vende bien y se queda sin plata no es para pausar.
+- **Nueva**: menos de 14 días desde el inicio. Pocos datos todavía.
+- **Baja visibilidad**: Top of Search share < 10% y diagnóstico PAUSAR o REVISAR.
+- Los últimos 2 días del período se marcan como provisorios (Amazon todavía ajusta atribución).
+- Salen de `campaigns_between` (migración 014): `budget_capped_days` (con el presupuesto del día si el reporte lo trajo,
+  si no el de la foto), `days_with_impressions` y `top_of_search_is` ponderado por impresiones. El reporte
+  `spCampaigns` ahora pide `campaignBudgetAmount` y `topOfSearchImpressionShare` (0-100, vacío si Amazon no lo reporta:
+  queda desconocido, nunca 0). Sin la migración `signal_inputs` es `None` y la columna no aparece.
+- Con archivo manual no hay señales: el CSV no trae presupuesto por día ni share.
+
+### Capa IA (2026-09-18 — análisis guardado, igual que M2)
+- **Sólo con datos de Amazon Ads.** El worker `ads-ai-worker` genera `ai_bulk_campaigns_analysis`
+  (`core/ai_analysis/campaign_analysis_job.py`, spec sobre `AnalysisRunner`) para los últimos **7 días** con los
+  parámetros guardados de la cuenta (`ai_analysis_settings`, módulo `bulk_campaigns`). La ventana y la frescura salen de
+  la última solicitud `sp_campaigns` completada (`source_job_kind` + `data_view` del spec), nunca de `ads_profile_sync`.
+- La pestaña 3 busca el análisis de exactamente lo que está en pantalla (misma huella): vigente, generándose, falló
+  con "Reintentar" o "Generar análisis IA". Con archivo manual muestra una nota, como M9: no hay análisis en memoria.
+- **Payload** (`core/campaign_analysis.build_analysis_input`): Parámetros + CSV de campañas habilitadas con `row_id`
+  `C01…` (hasta 60: primero las marcadas —diagnóstico ≠ OK o con señal— y después por gasto). La IA opina sobre
+  hasta 12 campañas: `causa` (9 cerradas), `veredicto` ACTUAR/ESPERAR/INVESTIGAR, `confianza`, `advertencia`, más la
+  `synthesis` canónica. **Nunca cambia el diagnóstico**: lo explica o lo pone en duda.
+- Se comparte con el chat vía `app_chat.share_analysis` (con `profile_id`), y el chat lo lee por
+  `list_analyses` / `get_analysis` del MCP.
+- **Chat en vivo**: `campaign_health` (MCP) devuelve las campañas habilitadas de una cuenta con diagnóstico, señales,
+  conteos, gasto a pausar y los parámetros con su origen. Ve lo que `breakdown` no: campañas sin clicks.
 
 ### Fuente de datos (2026-09-17 — grano de campaña desde Amazon Ads API)
 - Los datos llegan de `render_campaign_source("bulk")` (`modules/pages/campaign_source.py`), que devuelve un
@@ -338,6 +373,13 @@ Visualizar el bulk de campañas y diagnosticar con semáforo automático (PAUSAR
 - Confundir bulk .xlsx (sin métricas) con Campaign CSV (con métricas)
 - ❌ NO armar la tabla solo con el reporte `spCampaigns`: trae únicamente campañas con actividad y los fantasmas desaparecen
 - ❌ NO tomar la frescura de `ads_profile_sync`: la actualizan sólo las solicitudes de search terms
+- ❌ NO copiar la regla del semáforo en la página ni en el MCP: se importa de `core/amazon_ads/campaign_analyzer.py`
+- ❌ NO leer un share vacío como 0: Amazon no lo reporta si la campaña no calificó; 0 dispararía "Baja visibilidad"
+
+### Tests
+`tests/test_campaign_analyzer.py` (regla y señales), `tests/test_campaign_analysis_job.py` (spec, ventana y payload),
+`tests/test_mcp_campaign_health.py`, `tests/test_campaign_source.py` (página con fake de PostgREST) y
+`tests/test_amazon_ads_campaign_rows.py` / `test_amazon_ads_campaign_provider.py`.
 
 ---
 

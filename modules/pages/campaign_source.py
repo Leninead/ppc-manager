@@ -5,7 +5,6 @@ The freshness comes from the campaign sync jobs themselves: the search-term sync
 """
 from __future__ import annotations
 
-import dataclasses
 import html
 import io
 import logging
@@ -17,7 +16,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from core.amazon_ads.campaign_provider import CampaignProvider, CampaignSource
+from core.amazon_ads.campaign_provider import CampaignProvider, CampaignSource, campaign_sync_view
 from core.amazon_ads.report_provider import ProfileOption, ReportReadError
 from core.amazon_ads.sync_planner import CAMPAIGNS_KIND, PROFILE_NEEDS_REAUTH
 from core.date_labels import date_range_label
@@ -68,6 +67,8 @@ class CampaignInput:
     frame: pd.DataFrame
     # Empty for a file: its currency is not known, and the module keeps the dollar sign it always showed.
     currency_code: str
+    # The synced read behind `frame` (account, window, signal inputs); None for a file uploaded by hand.
+    source: CampaignSource | None = None
 
 
 def render_campaign_source(key_prefix: str) -> CampaignInput | None:
@@ -79,15 +80,6 @@ def render_campaign_source(key_prefix: str) -> CampaignInput | None:
     if st.session_state.get(picker_key(key_prefix, "manual")):
         return _render_manual_mode(key_prefix)
     return _render_amazon_ads(key_prefix, profiles)
-
-
-def campaign_view(option: ProfileOption, completed: SyncJob | None) -> ProfileOption:
-    """The profile as the campaign sync sees it: the fields the STR widgets read, taken from its last good job."""
-    if completed is None:
-        return dataclasses.replace(option, data_from=None, data_through=None, refreshed_on=None,
-                                   last_success_at=None)
-    return dataclasses.replace(option, data_from=completed.window_start, data_through=completed.window_end,
-                               refreshed_on=completed.local_day, last_success_at=completed.finished_at)
 
 
 def campaign_pill(view: ProfileOption, latest_job: SyncJob | None, now: datetime) -> tuple[str, str]:
@@ -122,7 +114,7 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption]) -> Campai
         latest_job, completed = _load_campaign_sync(profile_id)
     except ReportReadError as exc:
         sync_error = exc
-    view = campaign_view(option, completed)
+    view = campaign_sync_view(option, completed)
 
     card_key = picker_key(key_prefix, "card")
     st.markdown(search_term_source._card_css(card_key), unsafe_allow_html=True)
@@ -160,7 +152,7 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption]) -> Campai
         if source.frame.empty:
             st.info(NO_CAMPAIGNS_MESSAGE)
             return None
-    return CampaignInput(frame=source.frame, currency_code=source.currency_code)
+    return CampaignInput(frame=source.frame, currency_code=source.currency_code, source=source)
 
 
 def _render_header(option: ProfileOption, sync_unreadable: bool, polling: bool) -> None:
@@ -175,7 +167,7 @@ def _render_header(option: ProfileOption, sync_unreadable: bool, polling: bool) 
             if polling and not (latest_job is not None and latest_job.is_open):
                 # The polled job closed: the body below still shows what it said before, so redraw it all.
                 st.rerun()
-            kind, label = campaign_pill(campaign_view(option, completed), latest_job, datetime.now(timezone.utc))
+            kind, label = campaign_pill(campaign_sync_view(option, completed), latest_job, datetime.now(timezone.utc))
     st.markdown(palette.band_header_html(title=BLOCK_TITLE, tag=BLOCK_TAG,
                                          right=palette.status_pill_html(kind, html.escape(label))),
                 unsafe_allow_html=True)
