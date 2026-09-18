@@ -6,6 +6,32 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Fixed — Lo que encontraron el E2E de #19 en producción y los archivos manuales de Love To Dream MX (2026-09-18)
+
+**Shapermint AU sin SB.** El E2E en producción de #19 encontró el pedido `sb_entities` de Shapermint AU fallido
+después de 3 intentos: Amazon responde a `/sb/targets/list` con 400 "Marketplace A39IBJ37TRP1C6 do not have access to
+Sponsored Brands product targeting functionality". Al fallar la lista entera, la cuenta quedaba sin sus campañas SB y
+sin sus reportes. Ahora una función de SB que el marketplace no ofrece (targets o themes) se lista vacía y el resto
+de la lista se guarda; cualquier otro 400 sigue fallando el pedido.
+
+**El Campaign CSV manual en pesos (o en otra moneda con prefijo) ya no da gasto y ventas en cero.** Venía de antes
+de la API: M6 limpiaba los montos quitando sólo `$` y `,`, así que "MX$5,796.55" (el export de Love To Dream MX) no
+se leía como número y quedaba en 0. Con ese CSV no había ninguna campaña en PAUSAR y el gasto recuperable daba 0;
+ahora el mismo archivo da MX$13.823,97 de gasto, MX$86.208,83 de ventas y 9 campañas en PAUSAR. Vale para "CA$",
+"£" y "€". Los datos de la API no pasaban por ese problema porque llegan como números.
+
+**La estrategia de puja con los nombres del Campaign CSV.** Con datos de la API, SP mostraba «Dynamic bids - down
+only» y «Dynamic bids - up and down» (los nombres del bulk) y SB manual «Custom bid adjustments»; el Campaign CSV que
+M6 leía a mano escribe «Dynamic bidding (down only)», «Dynamic bidding (up and down)» y, en SB manual, «Fixed bids»
+(Love To Dream MX: 41, 1 y 2 campañas). Ahora la API muestra esos. SB con puja automática y SD siguen con sus
+nombres: el export de LTD no tiene ese caso de SB, y en SD escribe «Dynamic bidding (up and down)» en campañas que
+optimizan para conversiones, con dos campañas no alcanza para saber la regla. El análisis IA de campañas lee estos
+nombres, así que se regenera una vez en cada cuenta.
+
+**`breakdown` por producto desde search terms.** El chat en producción pidió `breakdown` por producto con
+`source=search_terms` para comparar SP entre las dos fuentes, y la herramienta lo rechazaba. Ahora devuelve un solo
+grupo, Sponsored Products, sumado de los search terms, y la respuesta por producto de siempre dice cómo pedirlo.
+
 ### Added — Bulk Campañas, su análisis IA y el chat suman Sponsored Brands, Sponsored Display y Target Graduation desde la API (2026-09-18)
 
 **SB y SD en la misma tabla.** Con datos de Amazon Ads, M6 muestra las campañas de Sponsored Brands y Sponsored

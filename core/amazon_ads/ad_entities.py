@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from datetime import date, datetime
 
 from core.amazon_ads.api_client import AdsApiClient, AdsApiError
@@ -49,6 +50,9 @@ SAVE_BATCH_ROWS = 1000
 
 _LISTED_STATES = ("ENABLED", "PAUSED")
 _OFFSET_STATE_FILTER = ",".join(state.lower() for state in _LISTED_STATES)
+# How Amazon refuses an SB feature the marketplace does not offer: Shapermint AU got 400 "Marketplace
+# A39IBJ37TRP1C6 do not have access to Sponsored Brands product targeting functionality" from /sb/targets/list.
+_NO_MARKETPLACE_ACCESS = "do not have access"
 
 # Report-style text per predicate type, keyed without case or underscores so SP's ASIN_SAME_AS and
 # SB/SD's asinSameAs share an entry. Any other type keeps its own name, kebab-cased.
@@ -96,8 +100,12 @@ def fetch_sb_targets(api: AdsApiClient, profile_id: str) -> list[dict]:
     """Keywords, product targets and themes together: the three kinds of SB target."""
     keywords = _list_by_offset(api, profile_id, SB_KEYWORDS_PATH)
     # Neither body carries a state filter (/sb/targets/list answers 422 to one), so it is applied below.
-    targets = _list_by_token(api, profile_id, SB_TARGETS_PATH, "targets", {"maxResults": SB_TARGETS_PAGE_SIZE})
-    themes = _list_by_token(api, profile_id, SB_THEMES_PATH, "themes", {"maxResults": SB_THEMES_PAGE_SIZE})
+    targets = _unless_not_offered(
+        lambda: _list_by_token(api, profile_id, SB_TARGETS_PATH, "targets", {"maxResults": SB_TARGETS_PAGE_SIZE}),
+        profile_id, SB_TARGETS_PATH)
+    themes = _unless_not_offered(
+        lambda: _list_by_token(api, profile_id, SB_THEMES_PATH, "themes", {"maxResults": SB_THEMES_PAGE_SIZE}),
+        profile_id, SB_THEMES_PATH)
     return ([_keyword_row("SB", raw) for raw in keywords if _has(raw, "keywordId")]
             + [_sb_target_row(raw) for raw in targets if _has(raw, "targetId") and _is_listed(raw)]
             + [_theme_row(raw) for raw in themes if _has(raw, "themeId") and _is_listed(raw)])
@@ -202,6 +210,18 @@ def _list_by_offset(api: AdsApiClient, profile_id: str, path: str) -> list[dict]
         if len(page) < OFFSET_PAGE_SIZE:
             return items
     raise AdsApiError(f"{path} for profile {profile_id} exceeded {MAX_PAGES} pages")
+
+
+def _unless_not_offered(fetch: Callable[[], list[dict]], profile_id: str, path: str) -> list[dict]:
+    """The listing, or none when the marketplace does not offer that SB feature: the account has no such
+    targets, and failing would leave it without its SB campaigns too."""
+    try:
+        return fetch()
+    except AdsApiError as exc:
+        if exc.status != 400 or _NO_MARKETPLACE_ACCESS not in exc.body.lower():
+            raise
+        log.info("amazon_ads: profile %s: %s is not offered in its marketplace, listed as empty", profile_id, path)
+        return []
 
 
 def _read_page(response, path: str, profile_id: str):

@@ -78,8 +78,9 @@ def test_the_frame_carries_every_column_m6_and_m8_read():
 
 
 @pytest.mark.parametrize("code, label", [
-    ("LEGACY_FOR_SALES", "Dynamic bids - down only"),
-    ("AUTO_FOR_SALES", "Dynamic bids - up and down"),
+    # As the Campaign CSV export writes them (Love To Dream MX, 18/09), the file M6 read before the API.
+    ("LEGACY_FOR_SALES", "Dynamic bidding (down only)"),
+    ("AUTO_FOR_SALES", "Dynamic bidding (up and down)"),
     ("MANUAL", "Fixed bids"),
     ("RULE_BASED", "Rule-based bidding"),
     # A code Amazon adds later shows as it came, never as empty.

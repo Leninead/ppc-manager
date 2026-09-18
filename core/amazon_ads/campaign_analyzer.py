@@ -231,7 +231,8 @@ def _known(value) -> bool:
 
 
 def _clean_money(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series.astype(str).str.replace(r"[\$,]", "", regex=True), errors="coerce").fillna(0)
+    # Anything but the number goes: a Campaign CSV writes "$1,234.50", but also "MX$", "CA$", "£" or "€".
+    return pd.to_numeric(series.astype(str).str.replace(r"[^\d.\-]", "", regex=True), errors="coerce").fillna(0)
 
 
 def _number(value, kind, default):

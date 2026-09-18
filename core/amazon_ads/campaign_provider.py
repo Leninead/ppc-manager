@@ -70,10 +70,11 @@ _ATTRIBUTION_FIELDS = {
     SELLER_ATTRIBUTION_DAYS: ("sales_7d", "purchases_7d"),
     VENDOR_ATTRIBUTION_DAYS: ("sales_14d", "purchases_14d"),
 }
-# Campaign Manager's names for the codes the API returns; a code not listed here shows as it came.
+# The names the Campaign CSV export of Campaign Manager writes, what M6 showed with the file (Love To Dream MX,
+# 18/09); a bulk file writes "Dynamic bids - down only" instead. A code not listed here shows as it came.
 BID_STRATEGY_LABELS = {
-    "LEGACY_FOR_SALES": "Dynamic bids - down only",
-    "AUTO_FOR_SALES": "Dynamic bids - up and down",
+    "LEGACY_FOR_SALES": "Dynamic bidding (down only)",
+    "AUTO_FOR_SALES": "Dynamic bidding (up and down)",
     "MANUAL": "Fixed bids",
     "RULE_BASED": "Rule-based bidding",
 }

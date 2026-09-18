@@ -121,7 +121,8 @@ def test_an_sd_campaign_is_never_marked_as_left_out():
 
 
 @pytest.mark.parametrize("ad_product, code, label", [
-    ("SB", "MANUAL", "Custom bid adjustments"),
+    # As the Campaign CSV export writes it (Love To Dream MX, 18/09).
+    ("SB", "MANUAL", "Fixed bids"),
     ("SB", "MAXIMIZE_IMMEDIATE_SALES", "Automated bidding"),
     ("SB", "MAXIMIZE_NEW_TO_BRAND_CUSTOMERS", "Automated bidding - new-to-brand customers"),
     ("SD", "conversions", "Optimize for conversions"),

@@ -16,7 +16,7 @@ Productos:
 - Con ella, cada fila es de Sponsored Products (SP), Sponsored Brands (SB) o Sponsored Display (SD), y todas se diagnostican con los mismos umbrales.
 - En SB y SD, sales y orders cuentan compras de 14 días después de un click o de una vista, como las muestra Campaign Manager; en SP, sólo después de un click. Por eso el ACoS de una SB o una SD no se compara directo con el de una SP: para comparar entre productos usá sales_clicks y orders_clicks, que son sólo las de clicks, y decí cuál usaste.
 - Las señales sólo existen para SP: en SB y SD, senales vacío no dice nada.
-- En SB, estrategia "Custom bid adjustments" son pujas que fija el AM y "Automated bidding" las ajusta Amazon; en SD, la estrategia es la optimización de sus ad groups (page visits, conversions, reach).
+- En SB, estrategia "Fixed bids" son pujas que fija el AM y "Automated bidding" las ajusta Amazon; en SD, la estrategia es la optimización de sus ad groups (page visits, conversions, reach).
 - Si Parámetros informa campañas SB del formato anterior sin métricas, no están en el documento: no les atribuyas cifras.
 
 Cómo leer las columnas que ya traen decisión:
