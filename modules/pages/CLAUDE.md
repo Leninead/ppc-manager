@@ -44,15 +44,13 @@ atiende el agente `ai/agents/orchestrator/` (herramientas `amazon_ads, datadive`
 elige la fuente según la pregunta: los análisis de la app, Amazon Ads o DataDive. Los
 módulos ya no montan chats propios.
 
-- **Qué lee.** Lo que cada página comparte en la sesión, por módulo (`share_analysis`,
-  `keep_current`, `mark_outdated`, `report_running`, `report_failed`, `withdraw_analysis`),
-  más la síntesis del último análisis STR guardado de cada cuenta de Amazon Ads con datos
-  (`core/ai_analysis/account_summaries.py` sobre `AiAnalysisStore.latest_by_subject`,
-  cacheado 5 min; si la base no contesta devuelve `None` y la nota lo dice, porque una lista
-  vacía afirmaría que ninguna cuenta tiene análisis). Los resúmenes van del más nuevo al más
-  viejo con tope de 100.000 caracteres (el provider corta a 400.000) y nombran las cuentas
-  que no entraron. La cuenta que STR ya comparte no se repite; las etiquetas se calculan
-  sobre todas las cuentas, así seller y vendor del mismo país no quedan con el mismo nombre.
+- **Qué lee.** Sólo lo que cada página comparte en la sesión, por módulo (`share_analysis`,
+  `keep_current`, `mark_outdated`, `report_running`, `report_failed`, `withdraw_analysis`).
+  Las otras cuentas no se pegan en el prompt (desde 2026-09-18): el modelo las lee por el
+  servidor MCP de la app (`services/mcp_server`) cuando la pregunta lo pide —`list_analyses`
+  trae la situación y el target de cada análisis guardado, `accounts_overview` los totales en
+  vivo de todas las cuentas, `get_analysis` el detalle de una—, así el contexto de cada turno
+  no crece con cada cuenta nueva.
 - **Row ids.** Donde viaja la tabla (el análisis en pantalla) los ids se anotan con su
   término (`annotate_row_ids`); en síntesis sin tabla (resúmenes por cuenta, análisis
   anteriores) cada id se reemplaza por «término» (`replace_row_ids`,

@@ -1,12 +1,5 @@
-"""The last stored Search Term analysis of each Amazon Ads account, read for the app chat."""
-from datetime import datetime, timezone
-
-from core.ai_analysis.account_summaries import (
-    AccountAnalysis,
-    account_summaries_document,
-    latest_account_analyses,
-)
-from core.ai_analysis.store import AiAnalysisStore, StoredAnalysis
+"""The newest stored analysis of each account, as the MCP reads it, and how each account is named."""
+from core.ai_analysis.store import AiAnalysisStore
 from core.amazon_ads.report_provider import ProfileOption, account_labels
 
 
@@ -102,53 +95,9 @@ def test_no_accounts_means_no_read():
     assert rest.reads == []
 
 
-def test_accounts_without_data_are_not_read_and_the_synthesis_carries_the_term_behind_each_row_id():
-    beta = dict(_stored(7, "222", "2026-09-14T10:00:00+00:00", "Negativizar N01 esta semana",
-                        records=[{"Search Term": "brita filter"}]))
-    acme = _stored(8, "111", "2026-09-14T11:00:00+00:00", "síntesis de Acme")
-    rest = _PostgrestFake([beta, acme],
-                          [_profile_row("222", "Beta", "MX", currency="MXN"), _profile_row("111", "Acme", "US"),
-                           _profile_row("333", "Nueva", "US", data_through=None)])
-
-    accounts = latest_account_analyses(rest)
-    document = account_summaries_document(accounts)
-
-    assert [(account.profile.profile_id, account.label) for account in accounts] == [
-        ("111", "Acme · US"), ("222", "Beta · MX")]
-    assert rest.reads[1][1]["subject_id"] == "in.(111,222)"
-    assert document["title"] == "Últimos análisis de Search Terms guardados por cuenta (2 de 2)"
-    blocks = document["content"].split("\n\n")
-    assert blocks[0].startswith("Cuenta: Acme · US\nPeríodo: 16/08/2026 a 14/09/2026")
-    assert "Situación: Negativizar «brita filter» esta semana" in blocks[1]
-
-
 def test_a_client_with_two_profiles_in_one_country_keeps_the_account_type_even_when_one_is_left_out():
     profiles = [ProfileOption.from_row(_profile_row("1", "Luna", "US", account_type="seller")),
                 ProfileOption.from_row(_profile_row("2", "Luna", "US", account_type="vendor")),
                 ProfileOption.from_row(_profile_row("3", "Luna", "MX"))]
 
     assert account_labels(profiles) == {"1": "Luna · US · seller", "2": "Luna · US · vendor", "3": "Luna · MX"}
-
-
-def _account(profile_id, label, finished_hour, situation):
-    profile = ProfileOption.from_row(_profile_row(profile_id, label, "US"))
-    analysis = StoredAnalysis.from_row({**_stored(int(profile_id), profile_id, "", situation),
-                                        "finished_at": datetime(2026, 9, 15, finished_hour,
-                                                                tzinfo=timezone.utc).isoformat()})
-    return AccountAnalysis(profile, label, analysis)
-
-
-def test_the_newest_analyses_fill_the_budget_and_the_accounts_left_out_are_named():
-    accounts = [_account("1", "Vieja", 9, "a" * 400), _account("2", "Nueva", 12, "b" * 400),
-                _account("3", "Media", 10, "c" * 400)]
-
-    document = account_summaries_document(accounts, max_chars=1_500)
-
-    assert document["title"] == "Últimos análisis de Search Terms guardados por cuenta (2 de 3)"
-    blocks = document["content"].split("\n\n")
-    assert [block.splitlines()[0] for block in blocks[:2]] == ["Cuenta: Nueva", "Cuenta: Media"]
-    assert blocks[-1] == "No entraron 1 cuentas más con análisis guardado: Vieja."
-
-
-def test_without_accounts_there_is_no_document():
-    assert account_summaries_document([]) is None

@@ -90,9 +90,15 @@ def build_tools(rest) -> list:
               "Las cuentas de Amazon Ads sincronizadas, con país, moneda y hasta qué día tienen datos. "
               "Empezá por acá para saber qué profile_id usar en las demás herramientas.",
               partial(amazon_ads.list_accounts, rest)),
+        _tool("accounts_overview",
+              "Los totales de TODAS las cuentas de Amazon Ads en una llamada: gasto, ventas, órdenes, clicks, "
+              "ACoS y CVR de cada una en sus últimos días, de Sponsored Products. Es lo que hace falta para "
+              "comparar o rankear cuentas en vivo sin consultarlas una por una.",
+              partial(amazon_ads.accounts_overview, rest)),
         _tool("list_analyses",
-              "Índice de análisis de IA guardados: qué cuentas y qué módulos tienen uno, de qué período "
-              "y de cuándo. Dice QUÉ hay, no qué dice. Pasá profile_id para una sola cuenta.",
+              "Índice de análisis de IA guardados: qué cuentas y qué módulos tienen uno, de qué período, "
+              "con qué target de ACoS y su situación en pocas líneas. Alcanza para comparar lo que dicen "
+              "los análisis de varias cuentas en una llamada. Pasá profile_id para una sola cuenta.",
               partial(analyses.list_analyses, rest)),
         _tool("get_analysis",
               "El último análisis guardado de una cuenta y un módulo: su síntesis y las filas que citó. "

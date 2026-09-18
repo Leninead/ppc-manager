@@ -4,7 +4,6 @@ ZERO network: the provider transport and every database read are patched.
 AppTest.from_string / from_file only for what needs the Streamlit runtime.
 """
 import types
-from datetime import date, datetime, timezone
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -12,9 +11,6 @@ from streamlit.testing.v1 import AppTest
 import ai.client as ai_client
 from ai import runtime
 from core import app_chat
-from core.ai_analysis.account_summaries import AccountAnalysis
-from core.ai_analysis.store import StoredAnalysis
-from core.amazon_ads.report_provider import ProfileOption
 
 
 @pytest.fixture
@@ -28,20 +24,6 @@ def _analysis(module, key, subject="", profile_id="", country_code="", annotate=
     return app_chat.ChatAnalysis(module=module, key=key, subject=subject,
                                  documents=({"title": f"{module} doc", "content": key},),
                                  annotate=annotate, country_code=country_code, profile_id=profile_id)
-
-
-def _account(profile_id, analysis_id, cliente="Luna", country="US"):
-    profile = ProfileOption(profile_id=profile_id, account_id=1, cliente=cliente, account_name=cliente,
-                            country_code=country, currency_code="USD", account_type="seller", timezone="UTC",
-                            status="active", data_from=None, data_through=date(2026, 9, 14), refreshed_on=None,
-                            last_success_at=None, last_error="")
-    stored = StoredAnalysis(
-        id=analysis_id, module="str", subject_id=profile_id, window_start=date(2026, 8, 16),
-        window_end=date(2026, 9, 14), lang="es", params={"brand_terms": []}, params_digest="", input_digest="",
-        agent_version="", status="done", trigger="scheduled", requested_by="", job_id=None,
-        source_last_success_at=None, result={"synthesis": {"situation": f"síntesis {cliente}"}}, model="",
-        duration_ms=None, created_at=None, finished_at=datetime(2026, 9, 15, 13, 5, tzinfo=timezone.utc))
-    return AccountAnalysis(profile, f"{cliente} · {country}", stored)
 
 
 class TestSharedState:
@@ -129,12 +111,12 @@ class TestSessionComposition:
         assert key == app_chat.session_key([stored, sqp])
         assert key != app_chat.session_key([_analysis("sqp", "sqp:d2"), stored])
 
-    def test_documents_are_the_shared_analyses_then_the_accounts_summaries(self):
-        documents = app_chat.session_documents([_analysis("sqp", "sqp:d1")], [_account("222", 40)])
+    def test_documents_are_only_the_analyses_the_am_shared(self):
+        """Other accounts are read through the MCP when the model asks: nothing about them is pasted."""
+        documents = app_chat.session_documents([_analysis("sqp", "sqp:d1")])
 
-        assert [doc["title"] for doc in documents] == [
-            "sqp doc", "Últimos análisis de Search Terms guardados por cuenta (1 de 1)"]
-        assert app_chat.session_documents([], []) == []
+        assert [doc["title"] for doc in documents] == ["sqp doc"]
+        assert app_chat.session_documents([]) == []
 
     def test_the_turn_note_names_the_page_and_the_state_of_every_analysis(self, session):
         session["selected_page"] = "📊 Search Term Report"
@@ -173,12 +155,10 @@ class TestMount:
         monkeypatch.setattr(app_chat, "floating_chat", lambda **kwargs: calls.append(kwargs))
         monkeypatch.setattr(app_chat.ads_account_picker, "request_scope",
                             lambda country_hint=None: {"hint": country_hint})
-        monkeypatch.setattr(app_chat, "_stored_account_analyses", lambda: [_account("111", 8), _account("222", 9)])
         monkeypatch.setattr(app_chat.ai_config, "AI_ENABLED", True)
         return calls
 
-    def test_the_chat_opens_over_every_shared_analysis_without_repeating_the_account_on_screen(
-            self, session, mounted):
+    def test_the_chat_opens_over_every_shared_analysis_and_nothing_else(self, session, mounted):
         app_chat.share_analysis(_analysis("str", "str:111:8:5", profile_id="111", country_code="MX"))
 
         app_chat.mount_app_chat("🔍 Search Query Performance")
@@ -187,16 +167,13 @@ class TestMount:
         turn = call["turn"]()
         assert (call["chat_id"], call["agent"]) == ("app", "orchestrator")
         assert call["session_key"]() == "str:111:8:5"
-        assert turn.documents[0]["title"] == "str doc"
-        assert "Cuenta: Luna · US" in turn.documents[1]["content"]
-        assert turn.documents[1]["title"].endswith("(1 de 1)")
+        assert [doc["title"] for doc in turn.documents] == ["str doc"]
         assert "«Search Query Performance»" in turn.note
 
     def test_the_mount_reads_nothing_until_the_am_asks(self, session, mounted, monkeypatch):
-        """Mounted on every page: only the key is computed on a render, never the documents or the account."""
+        """Mounted on every page: only the key is computed on a render, never the account."""
         app_chat.share_analysis(_analysis("str", "str:1", profile_id="111"))
         reads = []
-        monkeypatch.setattr(app_chat, "_stored_account_analyses", lambda: reads.append("db") or [])
         monkeypatch.setattr(app_chat.ads_account_picker, "request_scope",
                             lambda country_hint=None: reads.append("scope"))
 
@@ -205,7 +182,7 @@ class TestMount:
 
         assert (key, reads) == ("str:1", [])
         mounted[-1]["turn"]()
-        assert reads == ["db", "scope"]
+        assert reads == ["scope"]
 
     def test_amazon_ads_keeps_the_region_it_opened_with_while_the_session_lasts(self, session, mounted):
         session["selected_page"] = "📊 Search Term Report"
@@ -239,36 +216,12 @@ class TestMount:
         assert turn.documents[0] == {"title": "sqp doc", "content": "sqp:d2"}
         assert "análisis disponible" in turn.note
 
-    def test_a_database_that_did_not_answer_is_said_instead_of_passing_as_no_analyses(self, session, mounted,
-                                                                                      monkeypatch):
-        monkeypatch.setattr(app_chat, "_stored_account_analyses", lambda: None)
-
-        turn = app_chat.chat_turn("🏠 Inicio")
-
-        assert turn.documents == []
-        assert "no se pudieron leer ahora" in turn.note
-
     def test_with_ai_disabled_there_is_no_chat(self, session, mounted, monkeypatch):
         monkeypatch.setattr(app_chat.ai_config, "AI_ENABLED", False)
 
         app_chat.mount_app_chat("🏠 Inicio")
 
         assert mounted == []
-
-
-def test_a_database_that_fails_is_told_apart_from_one_with_no_analyses(monkeypatch):
-    app_chat._stored_account_analyses.clear()
-    monkeypatch.setattr(app_chat, "_rest_credentials", lambda: ("http://db", "key"))
-
-    def _down(rest):
-        raise ConnectionError("database down")
-    monkeypatch.setattr(app_chat, "latest_account_analyses", _down)
-    assert app_chat._stored_account_analyses() is None
-
-    app_chat._stored_account_analyses.clear()
-    monkeypatch.setattr(app_chat, "_rest_credentials", lambda: None)
-    assert app_chat._stored_account_analyses() == []
-    app_chat._stored_account_analyses.clear()
 
 
 def test_the_orchestrator_is_an_agent_with_the_three_tool_profiles():
@@ -289,6 +242,9 @@ def test_the_orchestrator_is_an_agent_with_the_three_tool_profiles():
     assert "antes de decir que no existe" in system
     # Sin el desglose, un reparto por portfolio se contestaba "no lo tengo" o con 40 llamadas campaña por campaña.
     assert "`breakdown`, en una sola llamada" in system
+    # Nada de otras cuentas viaja pegado: se cruzan por el MCP, en una llamada y no cuenta por cuenta.
+    assert "Últimos análisis" not in system and "Cuenta:" not in system
+    assert "`accounts_overview`" in system and "Nunca las consultes una por una" in system
 
 
 def test_a_chat_turn_asks_the_provider_about_tools_only_when_the_am_sends(monkeypatch):
@@ -298,7 +254,6 @@ def test_a_chat_turn_asks_the_provider_about_tools_only_when_the_am_sends(monkey
     monkeypatch.setattr(runtime.client, "ask", lambda **call: sent.append(call) or {"text": "ok", "session_id": "s1"})
     monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
     monkeypatch.setattr(app_chat.ads_account_picker, "request_scope", lambda country_hint=None: None)
-    monkeypatch.setattr(app_chat, "_stored_account_analyses", lambda: [])
 
     app = AppTest.from_string("""
 from core import app_chat
@@ -381,7 +336,6 @@ def test_the_app_boots_on_home_with_the_chat_mounted(monkeypatch):
     monkeypatch.setenv("AGENCY_OS_LOCAL_MODE", "1")
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_KEY", raising=False)
-    monkeypatch.setattr(app_chat, "_stored_account_analyses", lambda: [])
     monkeypatch.setattr(app_chat.ads_account_picker, "request_scope", lambda country_hint=None: None)
     monkeypatch.setattr(ai_client, "available_tools", lambda: pytest.fail("the mount must not ask the provider"))
     monkeypatch.setattr(app_chat.ai_config, "AI_ENABLED", True)

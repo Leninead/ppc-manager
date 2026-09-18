@@ -28,9 +28,9 @@ COPIED = {copied!r}
 class OutsideTheImage(importlib.abc.MetaPathFinder):
     def find_spec(self, name, path, target=None):
         top = name.split(".")[0]
-        if top in ("ai", "modules", "streamlit"):
+        if top in ("modules", "streamlit"):
             raise ImportError("not in the MCP image: " + name)
-        if top in ("core", "services") and name not in ("core", "services") and not any(
+        if top in ("ai", "core", "services") and name not in ("ai", "core", "services") and not any(
                 name == module or name.startswith(module + ".") for module in COPIED):
             raise ImportError("not in the MCP image: " + name)
         return None
@@ -44,6 +44,14 @@ print("ok")
 
 def test_the_dockerfile_copies_the_read_layer_the_tools_use():
     assert {"core.amazon_ads", "core.ai_analysis", "services.mcp_server"} <= set(_copied_modules())
+
+
+def test_the_image_carries_how_rows_are_named_but_not_the_agents():
+    copied = set(_copied_modules())
+
+    assert {"ai", "ai.agents", "ai.agents.row_annotation"} <= copied
+    assert not any(module.startswith(("ai.agents.str", "ai.agents.bid_optimizer", "ai.runtime", "ai.client"))
+                   for module in copied)
 
 
 def test_the_server_starts_with_only_what_its_image_carries():
