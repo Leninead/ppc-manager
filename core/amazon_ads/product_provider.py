@@ -59,9 +59,10 @@ IDLE_TARGET_COLUMNS = (TARGET_PRODUCT, CAMPAIGN_NAME, TARGET_TEXT, TARGET_KIND, 
                        CAMPAIGN_ID, TARGET_ID)
 TARGET_KIND_LABELS = {"keyword": "Keyword", "product": "Producto", "auto": "Automático", "theme": "Tema",
                       "audience": "Audiencia"}
-# Campaign Manager's names for SB's bidding and SD's ad group optimization; an unlisted code shows as it came.
+# Campaign Manager's names for SB's bidding and SD's ad group optimization; an unlisted code shows as it came. SB
+# without automated bidding is "Fixed bids", as the Campaign CSV export writes it (Love To Dream MX, 18/09).
 BID_STRATEGY_LABELS = {
-    "SB": {"MANUAL": "Custom bid adjustments", "AUTOMATED": "Automated bidding",
+    "SB": {"MANUAL": "Fixed bids", "AUTOMATED": "Automated bidding",
            "MAXIMIZE_IMMEDIATE_SALES": "Automated bidding",
            "MAXIMIZE_NEW_TO_BRAND_CUSTOMERS": "Automated bidding - new-to-brand customers"},
     "SD": {"clicks": "Optimize for page visits", "conversions": "Optimize for conversions",

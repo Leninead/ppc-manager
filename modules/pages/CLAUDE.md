@@ -378,7 +378,9 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
   reporte v2 (`SbV2ReportFetcher`, pedido `sb_legacy_campaigns`, un día por reporte, `creativeType: all`); se guarda
   con `source = 'v2'` y el SQL deja entrar sólo las del formato anterior. Hasta que su historia v2 termina,
   `metrics_known` es falso: métricas vacías, `products.without_metrics`, afuera del analyzer y listadas aparte.
-- Estrategia de puja: nombres de Campaign Manager (`BID_STRATEGY_LABELS` en campaign_provider y product_provider).
+- Estrategia de puja: los nombres que escribe el Campaign CSV de Campaign Manager, lo que M6 mostraba con el archivo
+  («Dynamic bidding (down only)», «Fixed bids»; `BID_STRATEGY_LABELS` en campaign_provider y product_provider). El
+  bulk escribe otros («Dynamic bids - down only»): Campaign Builder, que arma bulks, usa esos.
   SD no la tiene en la campaña: sale de la optimización de sus ad groups (`/sd/adGroups`).
 - El CSV de PostgREST escribe los booleanos como `t`/`f`, no `true`/`false`.
 - Target Graduation con API: `campaign_input.idle_targets` (RPC `graduation_targets_between`): trae todos los
@@ -389,6 +391,8 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
   la página cachea SB/SD con la hora del último de esos pedidos en la clave, para que la huella coincida.
 - Las listas se guardan con un único `seen_at`; las lecturas toman sólo la última lista (un target archivado deja de
   aparecer).
+- Un marketplace sin una función de SB (AU no tiene product targeting) responde 400 "do not have access" a
+  `/sb/targets/list`: esa parte se lista vacía (`_unless_not_offered`) para no dejar a la cuenta sin sus campañas SB.
 - Chat (MCP): `daily_metrics`, `accounts_overview` y `breakdown` por campaña, portfolio o producto suman SP, SB y SD de
   los reportes de campaña (`core/amazon_ads/campaign_totals.py`, RPC `campaign_daily_totals` / `campaign_window_totals`).
   Con `source="search_terms"` devuelven SP sumado de los search terms (`ReportProvider.daily_totals` /

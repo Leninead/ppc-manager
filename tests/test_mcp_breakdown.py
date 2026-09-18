@@ -231,20 +231,31 @@ def test_the_campaign_split_tells_how_to_ask_for_the_search_term_one():
     assert payload["data_source"] == "campaigns" and "source=search_terms" in payload["alternative"]
 
 
-def test_a_split_that_exists_in_one_source_only_offers_no_alternative():
-    """By product the search terms have nothing to add, and by match type the campaign reports have nothing."""
-    by_product = _breakdown(by="product")
+def test_the_product_split_from_the_search_terms_is_sponsored_products_alone():
+    """The chat asked for it this way in production to compare SP between the two sources."""
+    rest = _FakeRest(TERMS, CAMPAIGNS)
+
+    payload = amazon_ads.breakdown(rest, profile_id="1111222233334444", by="product", source="search_terms")
+
+    assert [name for name, _ in rest.rpc_calls] == ["search_terms_between"]
+    assert payload["rows"] == [{"group": "Sponsored Products", "spend": 60.0, "sales": 140.0, "orders": 5,
+                                "clicks": 47, "impressions": 400, "acos": 42.9, "cvr": 10.64}]
+    assert payload["data_source"] == "search_terms" and "source=campaigns" in payload["alternative"]
+
+
+def test_the_product_split_tells_how_to_ask_for_sp_from_the_search_terms():
+    assert "source=search_terms" in _breakdown(by="product")["alternative"]
+
+
+def test_a_split_that_exists_in_the_search_terms_only_offers_no_alternative():
     by_match = _breakdown(by="match_type")
 
-    assert "alternative" not in by_product and "alternative" not in by_match
-    assert by_match["data_source"] == "search_terms"
+    assert "alternative" not in by_match and by_match["data_source"] == "search_terms"
 
 
 def test_a_split_asked_from_a_source_that_does_not_have_it_is_refused():
     with pytest.raises(ValueError, match="sólo sale de los search terms"):
         _breakdown(by="match_type", source="campaigns")
-    with pytest.raises(ValueError, match="sólo sale de los reportes de campaña"):
-        _breakdown(by="product", source="search_terms")
 
 
 def test_the_search_terms_refuse_brands_and_display():

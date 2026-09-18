@@ -663,6 +663,31 @@ def test_access_denied_propagates_to_the_caller(fetcher):
         fetcher(api, "555")
 
 
+MARKETPLACE_WITHOUT_SB_TARGETING = {"code": "400", "details": "Marketplace A39IBJ37TRP1C6 do not have access to "
+                                                               "Sponsored Brands product targeting functionality"}
+
+
+@pytest.mark.parametrize("path", ["/sb/targets/list", "/sb/themes/list"])
+def test_an_sb_feature_the_marketplace_does_not_offer_lists_as_empty_instead_of_failing(path):
+    """Shapermint AU: /sb/targets/list answers 400 because AU has no SB product targeting. Failing the
+    listing left the account without its SB campaigns and their reports too."""
+    api, _ = _api({"/sb/keywords": [[_sb_keyword(13)]],
+                   "/sb/targets/list": [{"targets": [_sb_target(14)]}],
+                   "/sb/themes/list": [{"themes": [_sb_theme(15)]}],
+                   path: [_FakeResponse(400, MARKETPLACE_WITHOUT_SB_TARGETING)]})
+
+    rows = fetch_sb_targets(api, "555")
+
+    assert "13" in _ids(rows) and len(rows) == 2
+
+
+def test_any_other_bad_request_still_fails_the_listing():
+    api, _ = _api({"/sb/targets/list": [_FakeResponse(400, {"code": "400", "details": "Invalid maxResults"})]})
+
+    with pytest.raises(AdsApiError, match="HTTP 400"):
+        fetch_sb_targets(api, "555")
+
+
 def test_throttling_that_outlasts_the_retries_propagates_to_the_caller():
     api, session = _api({"/sd/targets": [_FakeResponse(429)] * 4})
 

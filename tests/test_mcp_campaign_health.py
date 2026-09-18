@@ -187,7 +187,7 @@ def test_sb_and_sd_campaigns_come_with_their_product_and_their_click_only_sales(
         "Ghost": "SP", "Bleeder": "SP", "Winner": "SP", "Brand Video": "SB", "Display Views": "SD"}
     assert (rows["Brand Video"]["sales"], rows["Brand Video"]["sales_clicks"]) == (60.0, 30.0)
     assert rows["Winner"]["sales_clicks"] == rows["Winner"]["sales"]
-    assert rows["Brand Video"]["bid_strategy"] == "Custom bid adjustments"
+    assert rows["Brand Video"]["bid_strategy"] == "Fixed bids"
     assert (rows["Display Views"]["diagnosis"], rows["Display Views"]["bid_strategy"]) == (
         "PAUSAR", "Optimize for conversions")
 

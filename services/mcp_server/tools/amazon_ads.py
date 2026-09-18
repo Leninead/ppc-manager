@@ -83,8 +83,9 @@ SEARCH_TERMS_ALTERNATIVE = ("Las cifras de Sponsored Products también salen sum
                             "Son las que coinciden con el Search Term Report.")
 CAMPAIGNS_ALTERNATIVE = ("Con source=campaigns salen de los reportes de campaña: suman Sponsored Brands y Display, y en "
                          "Sponsored Products traen todas las impresiones, también las de términos sin clicks.")
-# Lo que el STR ya sabe agrupar: con esto una torta o un ranking sale de una llamada, no de sumar páginas.
-_SEARCH_TERM_GROUPS = {"campaign": canonical.CAMPAIGN_NAME, "portfolio": canonical.PORTFOLIO_NAME,
+# Lo que el STR ya sabe agrupar: con esto una torta o un ranking sale de una llamada, no de sumar páginas. Por
+# producto es un solo grupo, SP: el modelo lo pide así para comparar SP entre las dos fuentes.
+_SEARCH_TERM_GROUPS = {"campaign": canonical.CAMPAIGN_NAME, "portfolio": canonical.PORTFOLIO_NAME, "product": None,
                        "match_type": "_origin_match_type", "search_term": canonical.SEARCH_TERM}
 # Lo que agrupan los reportes de campaña de los tres productos: la fuente de siempre de campaña y portfolio.
 _CAMPAIGN_GROUPS = ("campaign", "portfolio", "product")
@@ -232,10 +233,10 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
     """Los totales de una cuenta en la ventana, agrupados por campaña, portfolio, producto, tipo de match o search term.
 
     Campaña, portfolio y producto salen de los reportes de campaña de SP, SB y SD (`product` los acota a uno);
-    tipo de match y search term, de los search terms, que sólo son de SP. Campaña y portfolio también salen de
-    los search terms con `source`=search_terms. Ordenados de mayor a menor por `sort_by`; los grupos sin ventas
-    no tienen ACoS y quedan al final de ese orden. `totals` suma todos los grupos, también los que no entran en
-    la página.
+    tipo de match y search term, de los search terms, que sólo son de SP. Campaña, portfolio y producto también
+    salen de los search terms con `source`=search_terms (por producto, un solo grupo: SP). Ordenados de mayor a
+    menor por `sort_by`; los grupos sin ventas no tienen ACoS y quedan al final de ese orden. `totals` suma todos
+    los grupos, también los que no entran en la página.
     """
     if by not in _DIMENSIONS:
         raise ValueError(f"by tiene que ser uno de: {', '.join(_DIMENSIONS)}")
@@ -245,8 +246,6 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
     _check_source(source)
     if source == SOURCE_CAMPAIGNS and by not in _CAMPAIGN_GROUPS:
         raise ValueError(f"{by} sólo sale de los search terms: pedilo sin source o con source=search_terms.")
-    if source == SOURCE_SEARCH_TERMS and by not in _SEARCH_TERM_GROUPS:
-        raise ValueError(f"{by} sólo sale de los reportes de campaña: pedilo sin source o con source=campaigns.")
     if source != SOURCE_SEARCH_TERMS and by in _CAMPAIGN_GROUPS:
         return _campaign_breakdown(rest, profile_id, by, days, product, sort_by, offset, limit)
     if product not in ("", "SP"):
@@ -263,9 +262,13 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
         return {"rows": [], "total": 0, "showing": 0, "offset": 0, "totals": None, **context,
                 "note": "La cuenta no tuvo búsquedas con clicks en ese período."}
 
-    groups = (frame[_SEARCH_TERM_GROUPS[by]].fillna("").astype(str).str.strip()
-              .replace(_MATCH_TYPE_LABELS if by == "match_type" else {})
-              .replace("", _EMPTY_GROUP.get(by, "Sin nombre")))
+    column = _SEARCH_TERM_GROUPS[by]
+    if column is None:  # by product: every search term is Sponsored Products
+        groups = PRODUCT_TYPES["SP"]
+    else:
+        groups = (frame[column].fillna("").astype(str).str.strip()
+                  .replace(_MATCH_TYPE_LABELS if by == "match_type" else {})
+                  .replace("", _EMPTY_GROUP.get(by, "Sin nombre")))
     sums = frame.assign(_group=groups).groupby("_group", sort=False).agg(
         spend=(canonical.SPEND, "sum"), sales=(canonical.sales_column(terms.attribution_days), "sum"),
         orders=(canonical.orders_column(terms.attribution_days), "sum"), clicks=(canonical.CLICKS, "sum"),
@@ -409,8 +412,8 @@ def _campaign_row(row, has_impressions: bool) -> dict:
 
 def _campaign_breakdown(rest, profile_id: str, by: str, days: int, product: str, sort_by: str, offset: int,
                         limit: int) -> dict:
-    # By product there is no search-term split to offer: the search terms only know SP.
-    alternative = by != "product" and product in ("", "SP")
+    # SB and SD have nothing in the search terms: only a split that holds SP can be asked from there.
+    alternative = product in ("", "SP")
     profile = _campaign_profile(rest, profile_id, search_terms_hint=alternative)
     start, end = window_for(profile, days)
     frame = campaign_totals.window_totals(rest, profile, start, end)

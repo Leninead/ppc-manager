@@ -123,9 +123,9 @@ def build_tools(rest) -> list:
               "producto (SP, SB, SD), tipo de match o search term: gasto, ventas, órdenes, clicks, ACoS y CVR por "
               "grupo, de mayor a menor por sort_by, y el total de la cuenta en totals. Campaña, portfolio y producto "
               "salen de los reportes de campaña de los tres productos; tipo de match y search term, del reporte de "
-              "search terms, sólo Sponsored Products. Con source=search_terms, campaña y portfolio también salen de "
-              "ese reporte. Es lo que hace falta para repartir un total entre sus partes o rankear campañas, "
-              "portfolios, productos o términos, en una sola llamada.",
+              "search terms, sólo Sponsored Products. Con source=search_terms, campaña, portfolio y producto (un solo "
+              "grupo, SP) también salen de ese reporte. Es lo que hace falta para repartir un total entre sus partes o "
+              "rankear campañas, portfolios, productos o términos, en una sola llamada.",
               partial(amazon_ads.breakdown, rest)),
         _tool("campaign_health",
               "Las campañas habilitadas de una cuenta de Amazon Ads (Sponsored Products, Brands y Display) en sus "

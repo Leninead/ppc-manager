@@ -74,6 +74,19 @@ class TestTrafficLight:
         assert campaigns.iloc[0]["_acos"] == pytest.approx(109.0)
         assert campaigns.iloc[0]["Diagnóstico"] == REVIEW
 
+    @pytest.mark.parametrize("cost, sales", [("MX$5,796.55", "MX$25,619.00"), ("CA$5,796.55", "CA$25,619.00"),
+                                             ("£5,796.55", "£25,619.00"), ("€5,796.55", "€25,619.00")])
+    def test_a_hand_uploaded_csv_in_another_currency_keeps_its_spend_and_sales(self, cost, sales):
+        """Love To Dream MX's Campaign CSV writes MX$: read as 0, no campaign could reach PAUSAR."""
+        uploaded = [{"Campaign name": "Alpha", "State": "ENABLED", "Impressions": 1000, "Clicks": 20,
+                     "Total cost": cost, "Purchases": 0, "Sales": sales, "ACOS": 0.2263}]
+
+        campaigns = _diagnosed(uploaded)
+
+        assert campaigns.iloc[0]["_spend"] == pytest.approx(5796.55)
+        assert campaigns.iloc[0]["_sales"] == pytest.approx(25619.0)
+        assert campaigns.iloc[0]["Diagnóstico"] == PAUSE
+
     def test_without_impressions_a_ghost_is_read_from_clicks(self):
         rows = [{"Campaign name": "Alpha", "State": "ENABLED", "Clicks": 0, "Total cost": 0, "Purchases": 0,
                  "Sales": 0}]
