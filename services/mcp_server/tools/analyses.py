@@ -5,9 +5,8 @@ en el prompt, el modelo ve QUÉ hay y baja sólo el que necesita.
 """
 from __future__ import annotations
 
-from core.ai_analysis.account_summaries import account_labels
 from core.ai_analysis.store import AiAnalysisStore
-from core.amazon_ads.report_provider import ReportProvider
+from core.amazon_ads.report_provider import ReportProvider, account_labels
 from services.mcp_server.limits import page
 
 # Los módulos con análisis guardado. Espejo de ai_analysis_module_allowed (migración 011): si se

@@ -3,12 +3,11 @@ from datetime import datetime, timezone
 
 from core.ai_analysis.account_summaries import (
     AccountAnalysis,
-    account_labels,
     account_summaries_document,
     latest_account_analyses,
 )
 from core.ai_analysis.store import AiAnalysisStore, StoredAnalysis
-from core.amazon_ads.report_provider import ProfileOption
+from core.amazon_ads.report_provider import ProfileOption, account_labels
 
 
 class _PostgrestFake:

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from functools import partial
 
 from core.integrations.store import _Rest
@@ -101,6 +102,17 @@ def build_tools(rest) -> list:
               "Los search terms de mayor gasto de una cuenta de Amazon Ads en los últimos días. "
               "Devuelve una página; si hay más, lo dice y da el offset siguiente.",
               partial(amazon_ads.top_search_terms, rest)),
+        _tool("daily_metrics",
+              "La serie diaria de una cuenta de Amazon Ads: gasto, ventas, órdenes, clicks, ACoS y CVR por día, "
+              "de Sponsored Products. Es lo que hace falta para contestar cómo viene o cómo evolucionó una cuenta "
+              "o una campaña. campaign filtra por parte del nombre de la campaña; days, hasta 60.",
+              partial(amazon_ads.daily_metrics, rest)),
+        _tool("breakdown",
+              "Los totales de una cuenta de Amazon Ads en los últimos días, agrupados por campaña, portfolio, tipo "
+              "de match o search term: gasto, ventas, órdenes, clicks, ACoS y CVR por grupo, de mayor a menor por "
+              "sort_by, y el total de la cuenta en totals. Es lo que hace falta para repartir un total entre sus "
+              "partes o rankear campañas, portfolios o términos, en una sola llamada.",
+              partial(amazon_ads.breakdown, rest)),
     ]
 
 
@@ -113,14 +125,23 @@ def _tool(name: str, description: str, fn) -> dict:
     return {"name": name, "description": description, "fn": fn}
 
 
-def run() -> int:
-    """Arranca el servidor HTTP. Falla temprano y fuerte si falta configuración."""
+def _idle_forever() -> None:
+    threading.Event().wait()
+
+
+def run(idle=_idle_forever) -> int:
+    """Arranca el servidor HTTP. Si falta configuración, no sirve nada y lo dice una vez.
+
+    Queda quieto en vez de salir, como los workers: con `restart: unless-stopped` un proceso que
+    sale por un secreto faltante reinicia en loop, y el healthcheck ya lo muestra unhealthy.
+    """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
         token = required_token()
         rest = rest_from_env()
     except ConfigurationError as exc:
         log.error("mcp-server no puede arrancar: %s", exc)
+        idle()
         return 2
 
     from services.mcp_server.http_app import serve

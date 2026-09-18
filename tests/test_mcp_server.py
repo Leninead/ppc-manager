@@ -16,7 +16,8 @@ def _tools():
 def test_the_server_exposes_the_read_tools_and_nothing_that_writes():
     names = set(_tools())
 
-    assert names == {"list_accounts", "list_analyses", "get_analysis", "top_search_terms"}
+    assert names == {"list_accounts", "list_analyses", "get_analysis", "top_search_terms", "daily_metrics",
+                     "breakdown"}
     assert not any(word in name for name in names
                    for word in ("create", "update", "delete", "request", "save", "write"))
 
@@ -94,3 +95,16 @@ def test_the_module_list_mirrors_the_one_the_database_allows():
 
     for module in analyses.MODULES:
         assert f"'{module}'" in migration, f"{module} no está habilitado en la base"
+
+
+def test_without_its_secrets_the_server_idles_instead_of_exiting_into_a_restart_loop(monkeypatch, caplog):
+    """Serving nothing is the safe state; exiting would crash-loop under `restart: unless-stopped`."""
+    monkeypatch.delenv(server.TOKEN_ENV, raising=False)
+    idled = []
+
+    with caplog.at_level("ERROR"):
+        assert server.run(idle=lambda: idled.append(True)) == 2
+
+    assert idled == [True]
+    assert "no arranca sin autenticación" in caplog.text
+

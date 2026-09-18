@@ -6,6 +6,26 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — El chat lee la app por MCP y grafica solo (2026-09-17)
+
+**El chat consulta la app en vez de recibirla pegada.** Un servidor MCP de sólo lectura (`services/mcp_server`,
+servicio `mcp-server` con imagen propia) expone qué cuentas hay, qué análisis de IA están guardados y qué dicen,
+los search terms de mayor gasto, la serie diaria de una cuenta o campaña (`daily_metrics`, migración 012) y los
+totales agrupados por campaña, portfolio, tipo de match o término (`breakdown`). El provider lo abre por la red
+privada; cualquier cliente MCP con el token también puede usarlo.
+
+**Tortas, barras y tendencias con datos reales.** Nuevo componente `pie` (de 2 a 6 partes; el porcentaje lo
+calcula el panel). La guía prefiere un gráfico a una tabla de cifras cuando el gráfico las muestra, y la tendencia
+sale de la serie diaria, no sólo de valores que tipea el AM. Medido con dos baterías de 24 preguntas: 23/24 en la
+de cuentas y wording distintos.
+
+**Los chips dicen de dónde salió el dato y qué falló.** "Serie diaria · Agency OS", "Desglose · Agency OS"… y una
+fuente cuyas consultas fallaron todas se marca "· falló" (por ejemplo, un "unauthorized" de Amazon Ads).
+
+**Depende del provider.** Necesita capybaras-ai-provider con el puente `ppc_manager` y el evento `tool_result`:
+se despliega antes. En la VPS: `MCP_TOKEN` en el `.env` de ppc-manager y `PPC_MCP_URL` / `PPC_MCP_TOKEN` en el
+del provider.
+
 ### Added — El chat responde con componentes, y la IA corre en Opus 5 (2026-09-17)
 
 **Las respuestas del chat se dibujan.** El modelo contesta con una lista de componentes que el panel dibuja en orden:

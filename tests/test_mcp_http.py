@@ -1,10 +1,12 @@
 """El transporte HTTP: qué deja pasar, qué rechaza y qué herramientas publica."""
 import asyncio
+from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
 
 from services.mcp_server.http_app import (
+    DEFAULT_ALLOWED_HOSTS,
     HEALTH_PATH,
     MCP_PATH,
     allowed_hosts,
@@ -34,7 +36,7 @@ def test_health_answers_without_a_token_so_docker_can_check_the_process(client):
 
 def test_health_lists_the_tools_so_a_deploy_can_be_verified_from_outside(client):
     assert set(client.get(HEALTH_PATH).json()["tools"]) == {
-        "list_accounts", "list_analyses", "get_analysis", "top_search_terms"}
+        "list_accounts", "list_analyses", "get_analysis", "top_search_terms", "daily_metrics", "breakdown"}
 
 
 def test_the_mcp_endpoint_without_a_token_is_rejected(client):
@@ -90,7 +92,18 @@ def test_the_account_tools_require_the_profile_they_talk_about():
 
     assert "profile_id" in required["get_analysis"]
     assert "profile_id" in required["top_search_terms"]
+    assert required["daily_metrics"] == ["profile_id"]      # la ventana y la campaña son opcionales
+    assert sorted(required["breakdown"]) == ["by", "profile_id"]
     assert required["list_accounts"] == []      # el punto de entrada no pide nada
+
+
+def test_the_breakdown_offers_its_dimensions_and_metrics_as_closed_lists():
+    """Un enum en el schema: el modelo elige entre lo que existe en vez de adivinar un nombre."""
+    server = build_server(build_tools(object()))
+    schema = next(tool.input_schema for tool in asyncio.run(server.list_tools()) if tool.name == "breakdown")
+
+    assert schema["properties"]["by"]["enum"] == ["campaign", "portfolio", "match_type", "search_term"]
+    assert "acos" in schema["properties"]["sort_by"]["enum"]
 
 
 def test_the_dns_rebinding_protection_stays_on_with_an_explicit_host_list(monkeypatch):
@@ -122,3 +135,34 @@ def test_the_mcp_path_answers_without_a_redirect(client):
                            headers={"Authorization": f"Bearer {TOKEN}"}, follow_redirects=False)
 
     assert response.status_code != 307
+
+
+def _compose_service(name: str) -> str:
+    compose = (Path(__file__).resolve().parents[1] / "docker-compose.db.yml").read_text(encoding="utf-8")
+    return compose.split(f"\n  {name}:\n", 1)[1].split("\n\n  ", 1)[0]
+
+
+def test_the_vps_runs_the_mcp_server_on_the_private_network_only():
+    """The provider reaches it as http://mcp-server:8790/mcp; nothing outside the host can."""
+    service = _compose_service("mcp-server")
+
+    assert '"services.mcp_server.server"' in service
+    assert "image: ppc-manager-mcp:" in service      # its own image: the app's has no mcp package
+    assert "ports:" not in service
+    assert "networks: [web]" in service
+    assert "mcp-server:8790" in DEFAULT_ALLOWED_HOSTS
+
+
+def test_the_mcp_server_reads_with_the_apps_web_role_never_the_workers():
+    service = _compose_service("mcp-server")
+
+    assert "MCP_JWT: ${SUPABASE_KEY" in service
+    assert "WORKER_JWT" not in service and "PGRST_JWT_SECRET" not in service
+    assert "MCP_TOKEN: ${MCP_TOKEN" in service
+
+
+def test_the_mcp_server_is_checked_on_its_own_port_not_on_streamlits():
+    service = _compose_service("mcp-server")
+
+    assert "8790/health" in service and "8501" not in service
+

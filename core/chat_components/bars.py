@@ -61,7 +61,7 @@ COMPONENT = Component(
     kind="bars",
     fields={"metric": {"type": "string"}, "items": {"type": "array", "minItems": 1, "items": _ITEM}},
     purpose=("El peso relativo de una sola métrica entre entidades: quién gasta más, qué keyword tiene más "
-             "volumen, cómo se reparte un presupuesto."),
+             "volumen, qué cuenta tiene el ACoS más alto."),
     looks=("arriba el nombre de la métrica en gris; una fila por entidad con el nombre a la izquierda y la cifra "
            "a la derecha, y debajo una barra cuyo largo es proporcional al valor más alto; tone colorea la barra "
            "y la cifra (la barra es gris si es neutral)."),

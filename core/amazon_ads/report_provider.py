@@ -1,14 +1,16 @@
 """Module-agnostic read API for synced Amazon Ads search-term data.
 
-Reads `ads_profile_sync` and `search_terms_between` over PostgREST and returns the canonical console frame.
+Reads `ads_profile_sync` and `search_terms_between` over PostgREST and returns the canonical console frame;
+`ads_daily_totals` gives the same data summed by day.
 """
 from __future__ import annotations
 
 import hashlib
 import io
 import logging
+from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import requests
@@ -31,6 +33,7 @@ log = logging.getLogger(__name__)
 
 PROFILE_SYNC_TABLE = "ads_profile_sync"
 SEARCH_TERMS_RPC = "search_terms_between"
+DAILY_TOTALS_RPC = "ads_daily_totals"
 READ_TIMEOUT_SECONDS = 120
 SELLER_ATTRIBUTION_DAYS = 7
 VENDOR_ATTRIBUTION_DAYS = 14
@@ -65,6 +68,26 @@ _ATTRIBUTION_FIELDS = {
 
 class ReportReadError(StoreError):
     """Amazon Ads data could not be read; the message is ready to show to the user."""
+
+
+@dataclass(frozen=True)
+class DayTotals:
+    day: date
+    impressions: int
+    clicks: int
+    spend: float
+    sales: float
+    orders: int
+
+
+@dataclass(frozen=True)
+class DailySeries:
+    """One profile's search-term totals per day, every day of the window present, zero where nothing ran."""
+
+    days: tuple[DayTotals, ...]
+    campaigns: tuple[str, ...]
+    currency_code: str
+    attribution_days: int
 
 
 @dataclass(frozen=True)
@@ -152,6 +175,62 @@ class ReportProvider:
             window_start=start,
             window_end=end,
         )
+
+
+    def daily_totals(self, option: ProfileOption, start: date, end: date, campaign: str = "") -> DailySeries:
+        """One profile's totals per day over [start, end]; with `campaign`, only campaigns whose name contains it."""
+        if end < start:
+            raise ValueError(f"daily totals range ends before it starts: {start}..{end}")
+        fragment = campaign.strip() or None
+        attribution_days = _attribution_days(option.account_type)
+        try:
+            rows = self._rest.rpc(
+                DAILY_TOTALS_RPC,
+                {"p_profile_id": option.profile_id, "p_from": start.isoformat(), "p_to": end.isoformat(),
+                 "p_campaign": fragment},
+                timeout_s=READ_TIMEOUT_SECONDS,
+            ) or []
+            by_day = {totals.day: totals for totals in (_day_totals(row, attribution_days) for row in rows)}
+        except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+            raise ReportReadError(_error_message(exc, "leer la serie diaria de Amazon Ads")) from exc
+
+        days = tuple(by_day.get(day) or DayTotals(day, 0, 0, 0.0, 0.0, 0) for day in _each_day(start, end))
+        campaigns = sorted({name for row in rows for name in row.get("campaign_names") or ()}) if fragment else []
+        currencies = {valid_currency_code(row.get("currency_code")) for row in rows} - {""}
+        return DailySeries(
+            days=days,
+            campaigns=tuple(campaigns),
+            currency_code=option.currency_code or (currencies.pop() if len(currencies) == 1 else ""),
+            attribution_days=attribution_days,
+        )
+
+
+def account_labels(profiles: list[ProfileOption]) -> dict[str, str]:
+    """Client and country, plus the account type when one client has two profiles in the same country."""
+    repeated = Counter((profile.label, profile.country_code) for profile in profiles)
+    labels = {}
+    for profile in profiles:
+        label = f"{profile.label} · {profile.country_code}" if profile.country_code else profile.label
+        if repeated[(profile.label, profile.country_code)] > 1:
+            label += f" · {profile.account_type or profile.account_name or profile.profile_id}"
+        labels[profile.profile_id] = label
+    return labels
+
+
+def _day_totals(row: dict, attribution_days: int) -> DayTotals:
+    sales_field, orders_field, _ = _ATTRIBUTION_FIELDS[attribution_days]
+    return DayTotals(
+        day=date.fromisoformat(str(row["report_date"])),
+        impressions=int(row.get("impressions") or 0),
+        clicks=int(row.get("clicks") or 0),
+        spend=float(row.get("cost") or 0),
+        sales=float(row.get(sales_field) or 0),
+        orders=int(row.get(orders_field) or 0),
+    )
+
+
+def _each_day(start: date, end: date) -> list[date]:
+    return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
 
 
 def _attribution_days(account_type: str) -> int:

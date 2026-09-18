@@ -199,6 +199,8 @@ class ChatReply:
     blocks: list[dict] | None
     tool_calls: tuple[str, ...]
     session_id: str | None
+    # One entry per call that failed; empty when the provider does not report outcomes.
+    failed_tools: tuple[str, ...] = ()
 
 
 def stream_followup(slug: str, session_id: str | None, question: str,
@@ -211,19 +213,23 @@ def stream_followup(slug: str, session_id: str | None, question: str,
     The model reads the catalog of what the panel can draw and is held to its
     schema; which components to use, and in what order, is its call.
     Yields {"type": "tool", "name": ...} for each tool the model asks for while it
-    works, then one {"type": "reply", "reply": ChatReply}. Raises what
+    works, {"type": "tool_result", "name": ..., "ok": ...} when that call comes back,
+    then one {"type": "reply", "reply": ChatReply}. Raises what
     `ask_followup` raises."""
     call = _followup_call(slug, session_id, question, ads_scope, context_docs, note, thread,
                           guide=chat_components.GUIDE, output_schema=chat_components.SCHEMA)
     for event in client.ask_stream(**call):
         if event.get("type") == "tool":
             yield {"type": "tool", "name": str(event.get("name") or "")}
+        elif event.get("type") == "tool_result":
+            yield {"type": "tool_result", "name": str(event.get("name") or ""), "ok": event.get("ok") is not False}
         elif event.get("type") == "result":
             blocks = chat_components.normalize(event.get("structured_output"))
             text = chat_components.plain_text(blocks) if blocks else str(event.get("text") or "")
             yield {"type": "reply", "reply": ChatReply(
                 text=text, blocks=blocks, tool_calls=tuple(event.get("tool_calls") or ()),
-                session_id=_remember_session(call, event))}
+                session_id=_remember_session(call, event),
+                failed_tools=tuple(event.get("failed_tools") or ()))}
 
 
 def _followup_call(slug: str, session_id: str | None, question: str, ads_scope: dict | None,
