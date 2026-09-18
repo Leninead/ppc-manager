@@ -430,7 +430,8 @@ def _render_bid_stored_analysis(source, frame, target_acos, currency_code, bid_l
     """Busca el análisis de exactamente estos datos y parámetros; si no existe, ofrece pedirlo."""
     from ai.agent_call import build_agent_call
     from ai.agents.bid_optimizer import chat_document as bid_chat_document
-    from core import ai_tab, app_chat
+    from core import ai_tab
+    from core.chat import app_chat
     from core.ai_analysis import stored_tab
     from core.bid_analysis import ANALYSIS_MODULE, BidAnalysisParams, build_analysis_input
     from modules.pages import search_term_source
@@ -474,4 +475,4 @@ def _render_bid_stored_analysis(source, frame, target_acos, currency_code, bid_l
         + ({"title": f"Bid Optimizer · {source.label} · Lectura de la IA",
             "content": bid_chat_document.reading_text(result.analysis.result, records)},),
         annotate=partial(ai_tab.annotate_row_ids, labels_by_id=bid_row_labels(records)),
-        country_code=""))
+        country_code="", profile_id=source.profile_id))

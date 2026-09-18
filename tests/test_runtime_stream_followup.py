@@ -1,6 +1,6 @@
 """runtime.stream_followup: the same turn as ask_followup, with the component catalog, read as it arrives."""
 from ai import runtime
-from core import chat_components
+from core.chat import components as chat_components
 
 
 def _quiet(monkeypatch, tools=None):
@@ -88,3 +88,24 @@ def test_a_provider_that_does_not_report_outcomes_leaves_nothing_failed(monkeypa
         {"type": "result", "text": "ok", "session_id": "s3", "tool_calls": ["x"]}]))
 
     assert list(runtime.stream_followup("orchestrator", None, "¿?"))[-1]["reply"].failed_tools == ()
+
+
+def test_the_reply_names_the_model_asked_for_and_the_cost_the_provider_reports(monkeypatch):
+    """The streamed result carries no model of its own, so the reply keeps the one the turn asked for."""
+    _quiet(monkeypatch)
+    streamed = []
+    monkeypatch.setattr(runtime.client, "ask_stream", lambda **call: streamed.append(call) or iter([
+        {"type": "result", "text": "ok", "session_id": "s4", "total_cost_usd": 0.0831}]))
+
+    reply = list(runtime.stream_followup("orchestrator", None, "¿?"))[-1]["reply"]
+
+    assert reply.model == streamed[0]["model"] == "claude-opus-5"
+    assert reply.cost_usd == 0.0831
+
+
+def test_a_result_without_a_cost_leaves_it_unknown(monkeypatch):
+    _quiet(monkeypatch)
+    monkeypatch.setattr(runtime.client, "ask_stream", lambda **call: iter([
+        {"type": "result", "text": "ok", "session_id": "s5"}]))
+
+    assert list(runtime.stream_followup("orchestrator", None, "¿?"))[-1]["reply"].cost_usd is None

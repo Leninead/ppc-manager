@@ -3,6 +3,7 @@ Run inside the app container. No writes (safe on prod). Skips if the DB backend 
 """
 import os
 import sys
+import urllib.error
 import urllib.request
 
 # `--require` turns the skip into a failure. The caller passes it when the
@@ -58,6 +59,10 @@ TABLES = [
     ("meli_rendimiento_diario", "id"),
     ("meli_ads_daily", "id"),
 ]
+# Tables the app writes and never reads back: a refused read proves the grant, and that the table exists.
+WRITE_ONLY_TABLES = [
+    ("chat_turns", "id"),  # 016_chat_turns.sql
+]
 base = base.rstrip("/") + "/rest/v1/"
 hdrs = {"Authorization": f"Bearer {key}", "apikey": key}
 for table, columns in TABLES:
@@ -66,4 +71,17 @@ for table, columns in TABLES:
     )
     urllib.request.urlopen(req, timeout=10).read()  # raises on non-2xx (401 if the token is rejected)
     print("OK", table)
-print(f"DB smoke OK: {len(TABLES)} tables reachable")
+for table, columns in WRITE_ONLY_TABLES:
+    req = urllib.request.Request(
+        f"{base}{table}?select={columns}&limit=1", headers=hdrs
+    )
+    try:
+        urllib.request.urlopen(req, timeout=10).read()
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (401, 403):
+            raise
+        print("OK", table, f"(write-only: read refused with {exc.code})")
+        continue
+    print(f"{table}: the app can read it, and it must only write it.")
+    sys.exit(1)
+print(f"DB smoke OK: {len(TABLES)} tables reachable, {len(WRITE_ONLY_TABLES)} write-only")

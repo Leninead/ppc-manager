@@ -1,7 +1,7 @@
 """The shape of one series over time."""
 import math
 
-from core.chat_components.base import (INK, LINE, MUTED, TONE_COLOR, TONE_SCHEMA, Component, list_of, number,
+from core.chat.components.base import (INK, LINE, MUTED, TONE_COLOR, TONE_SCHEMA, Component, list_of, number,
                                        one_line, text_value, tone_of)
 
 _NEUTRAL_LINE = "#5F5B53"

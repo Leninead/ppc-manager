@@ -63,7 +63,7 @@ def test_the_runtime_keeps_its_registry_digest_and_its_call():
 def test_the_analysis_worker_imports_without_streamlit_or_the_chat_runtime():
     # A fresh interpreter: this test session already imported Streamlit through other tests.
     probe = ("import sys; sys.modules['streamlit'] = None; import core.ai_analysis.worker; "
-             "leaked = [m for m in sys.modules if m.startswith(('ai.runtime', 'core.chat_skills'))]; "
+             "leaked = [m for m in sys.modules if m.startswith(('ai.runtime', 'core.chat.skills'))]; "
              "print('leaked', leaked)")
     completed = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=120,
                                cwd=Path(__file__).resolve().parents[1])

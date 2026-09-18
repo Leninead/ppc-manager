@@ -2,9 +2,9 @@
 import jsonschema
 import pytest
 
-from core import chat_components
-from core.chat_components import CATALOG, bars, pie, trend
-from core.chat_components.base import TONE_COLOR
+from core.chat import components as chat_components
+from core.chat.components import CATALOG, bars, pie, trend
+from core.chat.components.base import TONE_COLOR
 
 KINDS = [component.kind for component in CATALOG]
 

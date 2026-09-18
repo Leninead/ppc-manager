@@ -650,7 +650,7 @@ def render():
 
     file_sqp = st.file_uploader("Sube tu SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="sqp")
     if not file_sqp:
-        from core import app_chat
+        from core.chat import app_chat
         app_chat.withdraw_analysis("sqp")
         return
 
@@ -852,5 +852,5 @@ def render():
                                          row_labels=_sqp_row_labels(render_records)))
 
     if analysis is None:
-        from core import app_chat
+        from core.chat import app_chat
         app_chat.withdraw_analysis("sqp")

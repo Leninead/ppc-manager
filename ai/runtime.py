@@ -14,7 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from ai import agent_call, client
-from core import chat_components, chat_skills
+from core.chat import components as chat_components
+from core.chat import skills as chat_skills
 
 _AGENTS_DIR = agent_call.AGENTS_DIR
 _TTL_S = 24 * 3600
@@ -201,6 +202,9 @@ class ChatReply:
     session_id: str | None
     # One entry per call that failed; empty when the provider does not report outcomes.
     failed_tools: tuple[str, ...] = ()
+    # The model asked for: the streamed result does not say which one answered.
+    model: str | None = None
+    cost_usd: float | None = None
 
 
 def stream_followup(slug: str, session_id: str | None, question: str,
@@ -229,7 +233,8 @@ def stream_followup(slug: str, session_id: str | None, question: str,
             yield {"type": "reply", "reply": ChatReply(
                 text=text, blocks=blocks, tool_calls=tuple(event.get("tool_calls") or ()),
                 session_id=_remember_session(call, event),
-                failed_tools=tuple(event.get("failed_tools") or ()))}
+                failed_tools=tuple(event.get("failed_tools") or ()),
+                model=call["model"], cost_usd=event.get("total_cost_usd"))}
 
 
 def _followup_call(slug: str, session_id: str | None, question: str, ads_scope: dict | None,
@@ -240,7 +245,7 @@ def _followup_call(slug: str, session_id: str | None, question: str, ads_scope: 
     tools = usable_tools(slug, ads_scope) or None
     session_id = _session_to_resume(session_id, bool(tools))
     # Uploaded from Sistema, not from the repo. A broken registry costs a skill,
-    # never the turn — see core.chat_skills.enabled_payload.
+    # never the turn — see core.chat.skills.enabled_payload.
     skills = chat_skills.enabled_payload()
     context = [] if session_id else _opening_context(context_docs, thread)
     input_text = f"{note}\n\n{question}" if note else question

@@ -1,5 +1,5 @@
 """What the AM has to know before using the answer."""
-from core.chat_components.base import Component, INK, esc, md_bold, text_value
+from core.chat.components.base import Component, INK, esc, md_bold, text_value
 
 LEVELS = ("info", "warning", "critical")
 _STYLE = {"info": ("#F4F2EE", "#8A867C"), "warning": ("#FFF4E0", "#D98A00"),

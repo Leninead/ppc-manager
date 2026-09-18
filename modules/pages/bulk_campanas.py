@@ -476,7 +476,8 @@ def _render_stored_analysis(source, params, products=None) -> None:
     """Busca el análisis de exactamente estas campañas y parámetros; si no existe, ofrece pedirlo."""
     from ai.agent_call import build_agent_call
     from ai.agents.bulk_campaigns import chat_document
-    from core import ai_tab, app_chat
+    from core import ai_tab
+    from core.chat import app_chat
     from core.ai_analysis import stored_tab
     from core.campaign_analysis import build_analysis_input, campaign_row_labels
     from core.date_labels import date_range_label

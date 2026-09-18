@@ -1,5 +1,5 @@
 """A few loose figures read at a glance: the state of an account or a campaign."""
-from core.chat_components.base import (INK, LINE, MUTED, SURFACE, TONE_COLOR, TONE_SCHEMA, Component, items_of,
+from core.chat.components.base import (INK, LINE, MUTED, SURFACE, TONE_COLOR, TONE_SCHEMA, Component, items_of,
                                        one_line, text_value, tone_of)
 
 _ITEM = {"type": "object", "additionalProperties": False, "required": ["label", "value", "detail", "tone"],

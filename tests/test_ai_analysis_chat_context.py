@@ -51,7 +51,7 @@ def test_another_analysis_on_screen_starts_a_new_chat_session_and_keeps_the_thre
     from streamlit.testing.v1 import AppTest
     app = AppTest.from_string("""
 import streamlit as st
-from core.ai_chat import ChatTurn, floating_chat
+from core.chat.panel import ChatTurn, floating_chat
 floating_chat(chat_id="str", agent="str", session_key=lambda: st.session_state.get("shown", "8"),
               turn=lambda: ChatTurn(documents=[{"title": "t", "content": "c"}]))
 """, default_timeout=30)

@@ -703,7 +703,7 @@ def _render_stored_analysis(source, ai_input, params, *, lang, labels):
     """Tab 4 for Amazon Ads data: the stored analysis of exactly these data and parameters, never an older one.
 
     Returns it with the state the app chat is told, or None with the state that explains why there is none."""
-    from core.app_chat import AnalysisState
+    from core.chat.app_chat import AnalysisState
     feedback = st.session_state.pop(_AI_REQUEST_FEEDBACK_KEY, None)
     if feedback:
         st.toast(feedback)
@@ -823,7 +823,8 @@ def _analysis_chat_context(source, stored):
 def _share_stored_analysis(source, stored, state) -> None:
     """The app chat reads the account's analysis on screen and its earlier ones, and whether there is one."""
     from ai.config import AI_ENABLED
-    from core import ai_tab, app_chat
+    from core import ai_tab
+    from core.chat import app_chat
     from core.amazon_ads.report_provider import account_labels
     if not AI_ENABLED:
         app_chat.withdraw_analysis("str")
@@ -925,7 +926,7 @@ def render():
     if source is None:
         # A period without searches must not wipe brand terms, prices and filters typed before it.
         _park_inputs(_all_input_keys())
-        from core import app_chat
+        from core.chat import app_chat
         app_chat.withdraw_analysis("str")
         return
 
@@ -1806,7 +1807,7 @@ def render():
                 use_container_width=True, key="str_camp_dl",
             )
 
-    from core import app_chat
+    from core.chat import app_chat
     if source.source != SOURCE_FILE:
         _share_stored_analysis(source, stored_analysis, stored_state or app_chat.AnalysisState.MISSING)
     elif analysis is None:

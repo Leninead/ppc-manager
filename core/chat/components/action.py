@@ -1,5 +1,5 @@
 """The next concrete step on the account, set apart at the end of an answer."""
-from core.chat_components.base import ACCENT, Component, esc, md_bold, text_value
+from core.chat.components.base import ACCENT, Component, esc, md_bold, text_value
 
 
 def _clean(block: dict) -> dict | None:

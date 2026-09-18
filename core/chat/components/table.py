@@ -1,5 +1,5 @@
 """Several entities of one kind, compared on the same metrics."""
-from core.chat_components.base import (INK, LINE, MUTED, TONE_COLOR, TONE_SCHEMA, Component, list_of, one_line,
+from core.chat.components.base import (INK, LINE, MUTED, TONE_COLOR, TONE_SCHEMA, Component, list_of, one_line,
                                        text_value, tone_of)
 
 _CELL = {"type": "object", "additionalProperties": False, "required": ["value", "tone"],

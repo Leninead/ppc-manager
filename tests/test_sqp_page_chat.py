@@ -17,7 +17,7 @@ _EXPORT = '''"Search Query","Search Query Score","Search Query Volume","Impressi
 
 _SCRIPT = """
 import streamlit as st
-from core import app_chat
+from core.chat import app_chat
 from modules.pages import search_query_performance
 if st.session_state.get("shared_before"):
     app_chat.report_failed("sqp")

@@ -1402,5 +1402,5 @@ def render():
                 )
 
     if ai_analysis is None:
-        from core import app_chat
+        from core.chat import app_chat
         app_chat.withdraw_analysis("datadive")

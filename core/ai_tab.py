@@ -33,7 +33,7 @@ What the layer resolves, so the module must NOT reimplement it:
   button. See decide_analysis_action for the exact decision table.
 - Polling while running (st.fragment every 5s) and the one full rerun that
   stops it on completion; failed runs end in an error plus a human Retry.
-- What the app-wide chat (core.app_chat) reads about the tab: the analysis
+- What the app-wide chat (core.chat.app_chat) reads about the tab: the analysis
   documents and the AI reading once done, and its state otherwise.
 
 render_result(result, analysis) receives the provider's structured_output
@@ -53,7 +53,7 @@ import streamlit as st
 from ai import agent_call
 from ai import runtime as ai_runtime
 from ai.agents.row_annotation import annotate_row_ids  # noqa: F401 — part of this layer's kit
-from core import app_chat
+from core.chat import app_chat
 
 _BASE_LABELS = {
     "es": {"analyzing": "Analizando los datos por IA",

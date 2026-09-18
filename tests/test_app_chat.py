@@ -1,16 +1,17 @@
-"""core/app_chat - the one AI chat of the app and what the pages share with it.
+"""core/chat/app_chat - the one AI chat of the app and what the pages share with it.
 
 ZERO network: the provider transport and every database read are patched.
 AppTest.from_string / from_file only for what needs the Streamlit runtime.
 """
 import types
+import uuid
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
 import ai.client as ai_client
 from ai import runtime
-from core import app_chat
+from core.chat import app_chat
 
 
 @pytest.fixture
@@ -18,6 +19,13 @@ def session(monkeypatch):
     state = {"selected_page": "🔍 Search Query Performance"}
     monkeypatch.setattr(app_chat, "st", types.SimpleNamespace(session_state=state))
     return state
+
+
+@pytest.fixture
+def recorded(monkeypatch):
+    turns = []
+    monkeypatch.setattr(app_chat.turns, "record", turns.append)
+    return turns
 
 
 def _analysis(module, key, subject="", profile_id="", country_code="", annotate=None):
@@ -161,7 +169,7 @@ class TestMount:
     def test_the_chat_opens_over_every_shared_analysis_and_nothing_else(self, session, mounted):
         app_chat.share_analysis(_analysis("str", "str:111:8:5", profile_id="111", country_code="MX"))
 
-        app_chat.mount_app_chat("🔍 Search Query Performance")
+        app_chat.mount_app_chat("🔍 Search Query Performance", "am.test")
 
         call = mounted[-1]
         turn = call["turn"]()
@@ -177,7 +185,7 @@ class TestMount:
         monkeypatch.setattr(app_chat.ads_account_picker, "request_scope",
                             lambda country_hint=None: reads.append("scope"))
 
-        app_chat.mount_app_chat("🏠 Inicio")
+        app_chat.mount_app_chat("🏠 Inicio", "am.test")
         key = mounted[-1]["session_key"]()
 
         assert (key, reads) == ("str:1", [])
@@ -206,7 +214,7 @@ class TestMount:
     def test_a_question_sent_after_an_analysis_finished_in_the_background_reads_it(self, session, mounted,
                                                                                   monkeypatch):
         app_chat.report_running("sqp", "d2", finish=lambda analysis: _analysis("sqp", f"sqp:{analysis.digest}"))
-        app_chat.mount_app_chat("🏠 Inicio")
+        app_chat.mount_app_chat("🏠 Inicio", "am.test")
         send = mounted[-1]["turn"]
         monkeypatch.setattr(app_chat.ai_runtime, "get", lambda module, digest: types.SimpleNamespace(
             digest=digest, running=False, done=True, failed=False))
@@ -219,9 +227,76 @@ class TestMount:
     def test_with_ai_disabled_there_is_no_chat(self, session, mounted, monkeypatch):
         monkeypatch.setattr(app_chat.ai_config, "AI_ENABLED", False)
 
-        app_chat.mount_app_chat("🏠 Inicio")
+        app_chat.mount_app_chat("🏠 Inicio", "am.test")
 
         assert mounted == []
+
+    def test_every_finished_turn_is_kept_with_the_page_and_the_user_it_was_mounted_for(self, session, mounted,
+                                                                                         recorded):
+        app_chat.mount_app_chat("📊 Search Term Report", "am.test")
+
+        mounted[-1]["on_turn_finished"]("¿qué negativizo?", None, "No se pudo responder: timeout")
+
+        assert [(turn.page, turn.username, turn.question) for turn in recorded] == [
+            ("📊 Search Term Report", "am.test", "¿qué negativizo?")]
+
+
+def _reply() -> runtime.ChatReply:
+    return runtime.ChatReply(text="Frenar N01", blocks=None, tool_calls=("mcp__ppc_manager__breakdown",),
+                             session_id="s1", model="claude-opus-5", cost_usd=0.21)
+
+
+class TestRecordTurn:
+    def test_an_answer_is_kept_as_the_am_read_it_with_the_account_of_the_page(self, session, recorded):
+        session["selected_page"] = "📊 Search Term Report"
+        app_chat.share_analysis(_analysis("str", "str:1", subject="Dermaglós · US", profile_id="279177258676903"))
+
+        app_chat.record_turn("📊 Search Term Report", "am.test", "¿qué negativizo?", _reply(),
+                             "Frenar N01 (toy box)")
+
+        [turn] = recorded
+        assert (turn.username, turn.page, turn.question) == ("am.test", "📊 Search Term Report", "¿qué negativizo?")
+        assert (turn.answer, turn.error) == ("Frenar N01 (toy box)", None)
+        assert (turn.ads_profile_id, turn.ads_account) == ("279177258676903", "Dermaglós · US")
+        assert (turn.tools, turn.model, turn.cost_usd) == (("mcp__ppc_manager__breakdown",), "claude-opus-5", 0.21)
+
+    def test_the_account_is_only_the_one_on_the_page_the_am_asked_from(self, session, recorded):
+        """The chat reaches every account; the row says which one the AM had open, and no other."""
+        session["selected_page"] = "📊 Search Term Report"
+        app_chat.share_analysis(_analysis("str", "str:1", subject="Dermaglós · US", profile_id="279177258676903"))
+        session["selected_page"] = "🔍 Search Query Performance"
+        app_chat.share_analysis(_analysis("sqp", "sqp:1", subject="marca luna · semana 36"))
+
+        app_chat.record_turn("🏠 Inicio", "am.test", "¿cómo va?", _reply(), "Bien")
+        app_chat.record_turn("🔍 Search Query Performance", "am.test", "¿cómo va?", _reply(), "Bien")
+
+        assert [(turn.ads_profile_id, turn.ads_account) for turn in recorded] == [(None, None), (None, None)]
+
+    def test_a_page_whose_analysis_came_from_a_file_has_no_account(self, session, recorded):
+        session["selected_page"] = "📊 Search Term Report"
+        app_chat.share_analysis(_analysis("str", "str:file", subject="search_terms.csv"))
+
+        app_chat.record_turn("📊 Search Term Report", "am.test", "¿qué negativizo?", _reply(), "Frenar N01")
+
+        assert (recorded[0].ads_profile_id, recorded[0].ads_account) == (None, None)
+
+    def test_a_failed_turn_keeps_the_question_and_the_error_the_am_read(self, session, recorded):
+        app_chat.record_turn("🏠 Inicio", "am.test", "¿qué pasa?", None, "No se pudo responder: timeout")
+
+        [turn] = recorded
+        assert (turn.question, turn.answer, turn.error) == ("¿qué pasa?", None, "No se pudo responder: timeout")
+        assert (turn.tools, turn.model, turn.cost_usd) == ((), None, None)
+
+    def test_the_turns_of_a_session_share_a_conversation_and_another_session_starts_its_own(self, session,
+                                                                                          recorded, monkeypatch):
+        app_chat.record_turn("🏠 Inicio", "am.test", "uno", _reply(), "a")
+        app_chat.record_turn("📊 Search Term Report", "am.test", "dos", _reply(), "b")
+        monkeypatch.setattr(app_chat, "st", types.SimpleNamespace(session_state={}))
+        app_chat.record_turn("🏠 Inicio", "am.test", "tres", _reply(), "c")
+
+        first, second, other = (turn.conversation_id for turn in recorded)
+        assert first == second != other
+        assert str(uuid.UUID(first)) == first  # the column is a uuid
 
 
 def test_the_orchestrator_is_an_agent_with_the_three_tool_profiles():
@@ -256,8 +331,8 @@ def test_a_chat_turn_asks_the_provider_about_tools_only_when_the_am_sends(monkey
     monkeypatch.setattr(app_chat.ads_account_picker, "request_scope", lambda country_hint=None: None)
 
     app = AppTest.from_string("""
-from core import app_chat
-app_chat.mount_app_chat("🏠 Inicio")
+from core.chat import app_chat
+app_chat.mount_app_chat("🏠 Inicio", "am.test")
 """, default_timeout=30)
     app.run()
     assert not app.exception
@@ -280,7 +355,7 @@ def test_an_answer_keeps_the_annotation_of_the_analyses_it_was_answered_from(mon
     monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
     app = AppTest.from_string("""
 import streamlit as st
-from core.ai_chat import ChatTurn, floating_chat
+from core.chat.panel import ChatTurn, floating_chat
 term = st.session_state.get("term_on_screen", "toy box")
 floating_chat(chat_id="t", agent="orchestrator", session_key=lambda: "k", turn=lambda: ChatTurn(
     annotate=lambda text: text.replace("N01", f"N01 ({term})")))
@@ -308,7 +383,7 @@ def test_the_turn_is_built_when_the_am_sends_and_never_on_a_plain_render(monkeyp
     monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
     app = AppTest.from_string("""
 import streamlit as st
-from core.ai_chat import ChatTurn, floating_chat
+from core.chat.panel import ChatTurn, floating_chat
 builds = st.session_state.setdefault("builds", [])
 
 def turn():
@@ -330,6 +405,57 @@ floating_chat(chat_id="t", agent="orchestrator", session_key=lambda: "k", turn=t
     assert not app.exception
     assert builds_at_send == 1
     assert sent[0]["context"][0]["content"] == "1"
+
+
+_REPORTING_CHAT = """
+import streamlit as st
+from core.chat.panel import ChatTurn, floating_chat
+finished = st.session_state.setdefault("finished", [])
+floating_chat(chat_id="t", agent="orchestrator", session_key=lambda: "k",
+              turn=lambda: ChatTurn(annotate=lambda text: text.replace("N01", "N01 (toy box)")),
+              on_turn_finished=lambda question, reply, shown: finished.append((question, reply, shown)))
+"""
+
+
+def _ask(app: AppTest, question: str) -> None:
+    app.run()
+    app.text_area(key="aichat_t_q_0").input(question)
+    app.button[0].click()
+    app.run()
+    app.run()  # a plain render afterwards reports nothing new
+
+
+def test_the_chat_reports_each_finished_turn_once_with_what_the_am_read(monkeypatch):
+    monkeypatch.setattr(runtime.client, "ask_stream", lambda **call: iter([
+        {"type": "result", "text": "Frenar N01", "session_id": "s1", "tool_calls": ["mcp__ppc_manager__breakdown"],
+         "total_cost_usd": 0.05}]))
+    monkeypatch.setattr(runtime, "usable_tools", lambda slug, scope: [])
+    monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
+    app = AppTest.from_string(_REPORTING_CHAT, default_timeout=30)
+
+    _ask(app, "¿qué negativizo?")
+
+    assert not app.exception
+    [(question, reply, shown)] = app.session_state["finished"]
+    assert (question, shown) == ("¿qué negativizo?", "Frenar N01 (toy box)")
+    assert (reply.tool_calls, reply.model, reply.cost_usd) == (
+        ("mcp__ppc_manager__breakdown",), "claude-opus-5", 0.05)
+
+
+def test_a_turn_the_provider_could_not_answer_is_reported_with_the_error_the_am_read(monkeypatch):
+    def unreachable(**call):
+        raise ai_client.ProviderDown("No se pudo contactar al AI provider.")
+
+    monkeypatch.setattr(runtime.client, "ask_stream", unreachable)
+    monkeypatch.setattr(runtime, "usable_tools", lambda slug, scope: [])
+    monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
+    app = AppTest.from_string(_REPORTING_CHAT, default_timeout=30)
+
+    _ask(app, "¿qué pasa?")
+
+    assert not app.exception
+    assert app.session_state["finished"] == [
+        ("¿qué pasa?", None, "No se pudo responder: No se pudo contactar al AI provider.")]
 
 
 def test_the_app_boots_on_home_with_the_chat_mounted(monkeypatch):

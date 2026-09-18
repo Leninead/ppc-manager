@@ -1,8 +1,8 @@
 """Floating AI chat, pinned to the bottom-right of the page.
 
-The app mounts one, for every page, through core.app_chat:
+The app mounts one, for every page, through core.chat.app_chat:
 
-    from core.ai_chat import floating_chat
+    from core.chat.panel import floating_chat
     floating_chat(chat_id="app", agent="orchestrator",
                   session_key=key_of_the_analyses, turn=what_a_question_is_sent_with)
 
@@ -20,8 +20,8 @@ import streamlit.components.v1 as components
 
 from ai import runtime
 from ai.client import AIError
-from core import chat_components
-from core.chat_components.base import ACCENT, esc, prose_html
+from core.chat import components as chat_components
+from core.chat.components.base import ACCENT, esc, prose_html
 
 
 @dataclass(frozen=True)
@@ -323,7 +323,8 @@ def _enter_sends(panel: str) -> None:
 
 
 def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | None],
-                  turn: Callable[[], ChatTurn], title: str | None = None, lang: str = "es") -> None:
+                  turn: Callable[[], ChatTurn], title: str | None = None, lang: str = "es",
+                  on_turn_finished: Callable[[str, runtime.ChatReply | None, str], None] | None = None) -> None:
     """Every question is answered by the provider; the first one opens the session.
 
     `session_key` runs on every render of every page, so it stays cheap; a new
@@ -332,7 +333,9 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
     alone: what the page computed on its last full run can be stale by then
     (an analysis that finished in the background).
     History keeps each answer's raw text for the model and its annotated text
-    for the bubbles and the transcript."""
+    for the bubbles and the transcript.
+    `on_turn_finished(question, reply, shown)` hears of every finished turn:
+    reply is None when it failed, and shown is what the AM read."""
     L = _L.get(lang, _L["es"])
     title = title or L["title"]
     anchor = f"aichat_{chat_id}_anchor"
@@ -525,9 +528,12 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                                       "blocks": blocks, "tools": _tool_labels(reply.tool_calls, L),
                                       "tools_failed": _failed_labels(reply.tool_calls, reply.failed_tools, L)}
                         except AIError as e:
+                            reply = None
                             failure = f"{L['error']}: {e}"
                             answer = {"role": "assistant", "text": failure, "shown": failure,
                                       "error": True}
+                    if on_turn_finished is not None:
+                        on_turn_finished(question, reply, answer["shown"])
                     history.append({"role": "user", "text": question})
                     history.append(answer)
                     st.rerun(scope="fragment")

@@ -8,6 +8,7 @@ other accounts are not pasted: the model reads them through the app's MCP server
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -18,7 +19,8 @@ import streamlit as st
 from ai import config as ai_config
 from ai import runtime as ai_runtime
 from core import ads_account_picker, navigation
-from core.ai_chat import ChatTurn, floating_chat
+from core.chat import turns
+from core.chat.panel import ChatTurn, floating_chat
 from core.ui import i18n
 
 log = logging.getLogger(__name__)
@@ -27,6 +29,7 @@ CHAT_ID = "app"
 AGENT = "orchestrator"
 _STATE_KEY = "app_chat_modules"
 _REGION_KEY = "app_chat_session_country"
+_CONVERSATION_KEY = "app_chat_conversation_id"
 
 
 class AnalysisState(str, Enum):  # str-valued: entries survive a module reload in session_state
@@ -124,12 +127,28 @@ def turn_note(page: str, entries: dict) -> str:
     return "[Nota de la app, no la cites: " + " ".join(lines) + "]"
 
 
-def mount_app_chat(page: str) -> None:
+def mount_app_chat(page: str, username: str) -> None:
     """The bubble, on every page. Nothing is read or sent until the AM asks something."""
     if not ai_config.AI_ENABLED:
         return
     floating_chat(chat_id=CHAT_ID, agent=AGENT, lang=i18n.current_lang(),
-                  session_key=chat_session_key, turn=partial(chat_turn, page))
+                  session_key=chat_session_key, turn=partial(chat_turn, page),
+                  on_turn_finished=partial(record_turn, page, username))
+
+
+def record_turn(page: str, username: str, question: str, reply: ai_runtime.ChatReply | None,
+                shown: str) -> None:
+    """Keeps a finished turn in the database; one that failed keeps the error the AM read."""
+    analysis = _ads_analysis_on_page(page, _entries())
+    context = dict(conversation_id=_conversation_id(), username=username, page=page, question=question,
+                   ads_profile_id=analysis.profile_id if analysis else None,
+                   ads_account=analysis.subject if analysis else None)
+    if reply is None:
+        turn = turns.ChatTurnRecord(**context, answer=None, error=shown)
+    else:
+        turn = turns.ChatTurnRecord(**context, answer=shown, error=None, tools=reply.tool_calls,
+                                    model=reply.model, cost_usd=reply.cost_usd)
+    turns.record(turn)
 
 
 def chat_session_key() -> str:
@@ -158,6 +177,17 @@ def _entries() -> dict[str, _ModuleEntry]:
 
 def _current_page() -> str:
     return st.session_state.get("selected_page") or navigation.HOME
+
+
+def _conversation_id() -> str:
+    """One per browser session, as long as the thread the AM sees."""
+    return st.session_state.setdefault(_CONVERSATION_KEY, str(uuid.uuid4()))
+
+
+def _ads_analysis_on_page(page: str, entries: dict) -> ChatAnalysis | None:
+    """The analysis of an Amazon Ads account that the page the AM asked from has loaded."""
+    return next((entry.analysis for entry in entries.values()
+                 if entry.page == page and entry.analysis is not None and entry.analysis.profile_id), None)
 
 
 def _finish_running_analyses() -> None:
