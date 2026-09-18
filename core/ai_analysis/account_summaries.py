@@ -4,12 +4,11 @@ It lets the app-wide chat answer about a client the AM did not open in this sess
 """
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass
 
 from core.ai_analysis.chat_context import analysis_summary_text
 from core.ai_analysis.store import AiAnalysisStore, StoredAnalysis
-from core.amazon_ads.report_provider import ProfileOption, ReportProvider
+from core.amazon_ads.report_provider import ProfileOption, ReportProvider, account_labels
 from core.integrations.store import _Rest
 
 MODULE = "str"
@@ -55,14 +54,3 @@ def account_summaries_document(accounts: list[AccountAnalysis], max_chars: int =
                      f"de {len(accounts)})",
             "content": "\n\n".join(blocks)}
 
-
-def account_labels(profiles: list[ProfileOption]) -> dict[str, str]:
-    """Client and country, plus the account type when one client has two profiles in the same country."""
-    repeated = Counter((profile.label, profile.country_code) for profile in profiles)
-    labels = {}
-    for profile in profiles:
-        label = f"{profile.label} · {profile.country_code}" if profile.country_code else profile.label
-        if repeated[(profile.label, profile.country_code)] > 1:
-            label += f" · {profile.account_type or profile.account_name or profile.profile_id}"
-        labels[profile.profile_id] = label
-    return labels

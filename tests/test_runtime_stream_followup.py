@@ -65,3 +65,26 @@ def test_an_answer_that_did_not_come_in_components_falls_back_to_its_text(monkey
             {"type": "result", "text": "Solo prosa", "structured_output": structured, "session_id": "s1"}]))
         reply = list(runtime.stream_followup("orchestrator", None, "¿?"))[-1]["reply"]
         assert reply.blocks is None and reply.text == "Solo prosa" and reply.tool_calls == ()
+
+
+def test_a_failed_call_is_passed_on_as_it_happens_and_listed_on_the_reply(monkeypatch):
+    _quiet(monkeypatch, tools=["amazon_ads"])
+    name = "mcp__amazon_ads__campaign_management-query_portfolio"
+    monkeypatch.setattr(runtime.client, "ask_stream", lambda **call: iter([
+        {"type": "tool", "name": name},
+        {"type": "tool_result", "name": name, "ok": False},
+        {"type": "result", "text": "No pude leerlos", "session_id": "s2", "tool_calls": [name],
+         "failed_tools": [name]}]))
+
+    events = list(runtime.stream_followup("orchestrator", None, "¿portfolios?"))
+
+    assert events[1] == {"type": "tool_result", "name": name, "ok": False}
+    assert events[2]["reply"].failed_tools == (name,)
+
+
+def test_a_provider_that_does_not_report_outcomes_leaves_nothing_failed(monkeypatch):
+    _quiet(monkeypatch)
+    monkeypatch.setattr(runtime.client, "ask_stream", lambda **call: iter([
+        {"type": "result", "text": "ok", "session_id": "s3", "tool_calls": ["x"]}]))
+
+    assert list(runtime.stream_followup("orchestrator", None, "¿?"))[-1]["reply"].failed_tools == ()

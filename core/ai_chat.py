@@ -53,12 +53,15 @@ _L = {
            "error": "No se pudo responder",
            # Aparecen solas, por CSS, a los 8 y a los 25 segundos.
            "wait_tools": "Buscando los datos…",
+           "tool_failed": "falló",
            "wait_long": "Sigue trabajando. Puede tardar unos minutos.",
-           "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive",
+           "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive", "src_ppc_manager": "Agency OS",
            "reads": {"reports": "Reportes", "ad_groups": "Ad groups", "targets": "Targets",
                      "budgets": "Presupuestos", "portfolios": "Portfolios", "campaigns": "Campañas",
                      "accounts": "Cuentas", "competitors": "Competidores", "keywords": "Keywords",
-                     "rank_radar": "Rank Radar", "niches": "Niches"}},
+                     "rank_radar": "Rank Radar", "niches": "Niches", "analyses": "Análisis",
+                     "search_terms": "Search terms", "daily": "Serie diaria",
+                     "breakdown": "Desglose"}},
     "en": {"title": "Capybaras Copilot",
            "empty": "Ask about an analysis in the app, an Amazon Ads "
                     "account or a DataDive niche.",
@@ -69,12 +72,15 @@ _L = {
            "close": "Close",
            "error": "Could not answer",
            "wait_tools": "Looking up the data…",
+           "tool_failed": "failed",
            "wait_long": "Still working. This can take a few minutes.",
-           "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive",
+           "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive", "src_ppc_manager": "Agency OS",
            "reads": {"reports": "Reports", "ad_groups": "Ad groups", "targets": "Targets",
                      "budgets": "Budgets", "portfolios": "Portfolios", "campaigns": "Campaigns",
                      "accounts": "Accounts", "competitors": "Competitors", "keywords": "Keywords",
-                     "rank_radar": "Rank Radar", "niches": "Niches"}},
+                     "rank_radar": "Rank Radar", "niches": "Niches", "analyses": "Analyses",
+                     "search_terms": "Search terms", "daily": "Daily series",
+                     "breakdown": "Breakdown"}},
 }
 
 
@@ -105,6 +111,9 @@ _TOOL_SOURCES = (
     ("mcp__datadive__", "src_datadive",
      (("quota", None), ("competitor", "competitors"), ("keyword", "keywords"),
       ("rank_radar", "rank_radar"), ("niche", "niches"))),
+    ("mcp__ppc_manager__", "src_ppc_manager",
+     (("analys", "analyses"), ("search_term", "search_terms"), ("daily", "daily"), ("breakdown", "breakdown"),
+      ("account", "accounts"))),
 )
 
 
@@ -133,18 +142,38 @@ def _tool_labels(names, labels: dict) -> list[str]:
     return seen
 
 
-def _tools_row(tool_labels: list[str]) -> str:
+def _failed_labels(asked, failed, labels: dict) -> list[str]:
+    """The sources every call to which failed: one that answered even once did reach the answer."""
+    tally: dict[str, list[int]] = {}
+    for name in asked:
+        label = _tool_label(str(name), labels)
+        if label:
+            tally.setdefault(label, [0, 0])[0] += 1
+    for name in failed:
+        label = _tool_label(str(name), labels)
+        if label in tally:
+            tally[label][1] += 1
+    return [label for label, (calls, failures) in tally.items() if failures >= calls]
+
+
+_CHIP = "font-size:12px;line-height:1.5;border-radius:6px;white-space:nowrap;"
+
+
+def _tools_row(tool_labels: list[str], failed=(), failed_note: str = "") -> str:
     if not tool_labels:
         return ""
-    chips = "".join('<span style="font-size:12px;line-height:1.5;color:#5F5B53;'
-                    'background:#EFEBE4;border-radius:6px;padding:1px 8px;white-space:nowrap">'
-                    f'{html.escape(label)}</span>' for label in tool_labels)
+    chips = "".join(
+        f'<span style="{_CHIP}color:#8A867C;border:1px dashed #CFC6B4;padding:0 7px">'
+        f'{html.escape(label + (" · " + failed_note if failed_note else ""))}</span>'
+        if label in failed else
+        f'<span style="{_CHIP}color:#5F5B53;background:#EFEBE4;padding:1px 8px">{html.escape(label)}</span>'
+        for label in tool_labels)
     return f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0 2px">{chips}</div>'
 
 
-def _assistant_turn(turn: dict) -> str:
+def _assistant_turn(turn: dict, failed_note: str = "") -> str:
     """Chips and bubble inside one element: the thread lays its children out in reverse."""
-    return ("<div>" + _tools_row(turn.get("tools") or [])
+    return ("<div>" + _tools_row(turn.get("tools") or [], turn.get("tools_failed") or (), failed_note)
             + _assistant_bubble(turn.get("shown", turn["text"]), turn.get("blocks")) + "</div>")
 
 
@@ -400,7 +429,7 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                     # unsafe_allow_html, so scrolling it from JS is not on the
                     # table here; this does it in CSS.
                     thread = "".join(
-                        _user_bubble(t["text"]) if t["role"] == "user" else _assistant_turn(t)
+                        _user_bubble(t["text"]) if t["role"] == "user" else _assistant_turn(t, L["tool_failed"])
                         for t in reversed(history))
                     # `resize` gives the AM the drag handle they asked for: a
                     # long answer about a dozen campaigns does not fit in half a
@@ -456,7 +485,8 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                         # while the answer is still being worked out.
                         waiting = st.empty()
                         asked: list[str] = []
-                        reading: list[str] = []
+                        failed_calls: list[str] = []
+                        reading: tuple[list[str], list[str]] = ([], [])
                         waiting.markdown(_user_bubble(question) + _typing(L),
                                          unsafe_allow_html=True)
                         try:
@@ -468,13 +498,17 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                                 if event["type"] == "reply":
                                     reply = event["reply"]
                                     continue
-                                asked.append(event["name"])
-                                labels = _tool_labels(asked, L)
-                                if labels != reading:
-                                    reading = labels
+                                if event["type"] == "tool_result":
+                                    if not event["ok"]:
+                                        failed_calls.append(event["name"])
+                                else:
+                                    asked.append(event["name"])
+                                chips = (_tool_labels(asked, L), _failed_labels(asked, failed_calls, L))
+                                if chips != reading:
+                                    reading = chips
                                     waiting.markdown(
-                                        _user_bubble(question) + _tools_row(reading) + _typing(L),
-                                        unsafe_allow_html=True)
+                                        _user_bubble(question) + _tools_row(*reading, L["tool_failed"])
+                                        + _typing(L), unsafe_allow_html=True)
                             if reply is None:
                                 raise AIError("el provider no devolvió la respuesta")
                             st.session_state[sid_key] = reply.session_id
@@ -488,7 +522,8 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                             else:
                                 shown = sending.annotate(reply.text) if sending.annotate else reply.text
                             answer = {"role": "assistant", "text": reply.text, "shown": shown,
-                                      "blocks": blocks, "tools": _tool_labels(reply.tool_calls, L)}
+                                      "blocks": blocks, "tools": _tool_labels(reply.tool_calls, L),
+                                      "tools_failed": _failed_labels(reply.tool_calls, reply.failed_tools, L)}
                         except AIError as e:
                             failure = f"{L['error']}: {e}"
                             answer = {"role": "assistant", "text": failure, "shown": failure,

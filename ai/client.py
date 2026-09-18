@@ -238,7 +238,7 @@ def ask_stream(*, system: str, input_text: str, context: list, model: str,
                 if event.get("type") == "result":
                     result = event
                     break
-                if event.get("type") == "tool":
+                if event.get("type") in ("tool", "tool_result"):
                     yield event
         except requests.exceptions.RequestException as e:
             raise _unreached(e, base, timeout_s) from e

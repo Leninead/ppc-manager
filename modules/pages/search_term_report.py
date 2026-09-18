@@ -824,7 +824,7 @@ def _share_stored_analysis(source, stored, state) -> None:
     """The app chat reads the account's analysis on screen and its earlier ones, and whether there is one."""
     from ai.config import AI_ENABLED
     from core import ai_tab, app_chat
-    from core.ai_analysis.account_summaries import account_labels
+    from core.amazon_ads.report_provider import account_labels
     if not AI_ENABLED:
         app_chat.withdraw_analysis("str")
         return

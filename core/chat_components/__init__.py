@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from core.chat_components import action, alert, bars, kpis, table, text, trend
+from core.chat_components import action, alert, bars, kpis, pie, table, text, trend
 from core.chat_components.base import Component, list_of
 
 CATALOG: tuple[Component, ...] = (text.COMPONENT, kpis.COMPONENT, table.COMPONENT, bars.COMPONENT,
-                                  trend.COMPONENT, alert.COMPONENT, action.COMPONENT)
+                                  pie.COMPONENT, trend.COMPONENT, alert.COMPONENT, action.COMPONENT)
 _BY_KIND = {component.kind: component for component in CATALOG}
 
 SCHEMA = {
@@ -41,6 +41,7 @@ Cómo elegir:
 - Si pide más que eso, antes de escribir decidí qué componentes van y qué cifras muestra cada uno: el text va arriba, pero se escribe sabiendo qué muestran los de abajo.
 - Arrancá siempre con un text que conteste la pregunta en una o dos oraciones.
 - Un componente se gana su lugar cuando muestra algo que una oración no muestra igual de claro.
+- Cuando un gráfico muestra las cifras, va el gráfico y no una tabla: una sola métrica entre entidades va en bars; cómo se reparte un total entre sus partes, en pie; cómo se movió algo en el tiempo, en trend. La table queda para cuando cada entidad necesita dos o tres métricas a la vez. Un gráfico contesta la pregunta: si no tenés los datos que la contestan, decilo en el text y no dibujes otro gráfico en su lugar.
 - Un listado va entero en un solo componente: todas las entidades que contestan la pregunta, también las que quedan un escalón más abajo, y nunca sigue en un text. Cuando las reglas del chat piden dar un listado entero, ese listado es el componente. Si no entra en los límites de uno, elegí otro que lo muestre completo.
 - Si el AM pide una cantidad —"las 3 cuentas"—, el componente muestra exactamente esa cantidad. Si el text dice cuántas entidades muestra el componente, contalas en el componente antes de escribir el número.
 - Una cifra que muestra un componente no aparece en ningún text ni alert: ni repetida, ni resumida en un rango ("entre $10.00 y $45.00"), ni como desglose de un total, ni siquiera la de la entidad que encabeza el listado. El text cuenta con palabras lo que esas cifras muestran: si las reglas del chat piden la cifra que sostiene una afirmación, esa cifra ya está a la vista en el componente. Mal: "el gasto sin ventas es 41.7% del total y el ACoS, 38.2% contra un target de 25%" arriba de tarjetas con esas cifras, o "la peor es X, con ACoS 91.4% contra un target de 25%, y le siguen Y (81.6%) y Z (57.9%)" arriba de la tabla que las lista. Bien: "la cuenta paga caro cada venta y más de la mitad del gasto no deja órdenes", con las cifras solo en las tarjetas, o "la peor es X, que se gasta en publicidad casi todo lo que vende", con las cifras solo en la tabla.

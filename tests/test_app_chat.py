@@ -271,14 +271,24 @@ def test_a_database_that_fails_is_told_apart_from_one_with_no_analyses(monkeypat
     app_chat._stored_account_analyses.clear()
 
 
-def test_the_orchestrator_is_an_agent_with_amazon_ads_and_datadive_tools():
-    assert runtime.agent_tools("orchestrator") == ["amazon_ads", "datadive"]
+def test_the_orchestrator_is_an_agent_with_the_three_tool_profiles():
+    assert runtime.agent_tools("orchestrator") == ["amazon_ads", "datadive", "ppc_manager"]
     assert runtime._agent("orchestrator")["meta"]["model"] == "claude-opus-5"
     assert runtime._agent("orchestrator")["meta"]["effort"] == "high"
     assert runtime._agent("orchestrator")["meta"]["timeout_s"] == "3600"
     system = runtime._agent("orchestrator")["system"]
     for section in ("<fuentes>", "<elegir_la_fuente>", "<estado_de_la_app>", "<clientes>"):
         assert section in system
+    # El índice antes que el contenido: bajar todos los análisis "por las dudas" es justo lo que
+    # el MCP viene a evitar.
+    assert "list_analyses" in system and "no bajes todos por las dudas" in system
+    # Sin la serie diaria, el trend sólo aparecía cuando el AM tipeaba los valores.
+    assert "`daily_metrics`" in system and "La curva día a día" in system
+    # La serie no reemplaza al análisis: la primera versión de esta regla mandaba a la serie una
+    # pregunta por el CVR de un ASIN contra el tramo anterior, y el modelo negaba un dato que existía.
+    assert "antes de decir que no existe" in system
+    # Sin el desglose, un reparto por portfolio se contestaba "no lo tengo" o con 40 llamadas campaña por campaña.
+    assert "`breakdown`, en una sola llamada" in system
 
 
 def test_a_chat_turn_asks_the_provider_about_tools_only_when_the_am_sends(monkeypatch):

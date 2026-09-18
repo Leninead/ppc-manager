@@ -108,6 +108,36 @@ services:
     networks: [web]
     mem_limit: 512m
 
+  # The app's read-only MCP server (services/mcp_server): what the chat reads through the AI
+  # provider. Its own small image (Jenkins builds it next to the app's), the app's web_user role. No published port: the provider, which
+  # joins this network, dials http://mcp-server:8790/mcp. Without MCP_TOKEN it serves nothing and
+  # logs why, instead of crash-looping; the healthcheck then reports it unhealthy.
+  mcp-server:
+    image: ppc-manager-mcp:${IMAGE_TAG:-latest}
+    container_name: agency-mcp-server
+    command: ["python", "-m", "services.mcp_server.server"]
+    restart: unless-stopped
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    environment:
+      SUPABASE_URL: http://rest-gateway
+      MCP_JWT: ${SUPABASE_KEY:-}
+      MCP_TOKEN: ${MCP_TOKEN:-}   # same value as PPC_MCP_TOKEN in the provider's .env
+      MCP_PORT: "8790"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8790/health', timeout=4)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 20s
+    depends_on: [rest-gateway]
+    networks: [web]
+    mem_limit: 512m
+
   # Amazon Ads search term sync. Always on, unlike integrations-worker: no
   # profile, so a bare `up -d` starts it. Without the worker JWT or the sealing
   # key it logs once and idles instead of crash-looping.

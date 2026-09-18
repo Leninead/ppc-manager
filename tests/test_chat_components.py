@@ -3,7 +3,7 @@ import jsonschema
 import pytest
 
 from core import chat_components
-from core.chat_components import CATALOG, bars, trend
+from core.chat_components import CATALOG, bars, pie, trend
 from core.chat_components.base import TONE_COLOR
 
 KINDS = [component.kind for component in CATALOG]
@@ -73,6 +73,8 @@ def test_map_strings_reaches_every_string_the_am_reads(component):
     {"kind": "kpis", "items": []},
     {"kind": "bars", "metric": "", "items": [{"label": "A", "value": "12", "display": "12", "tone": "neutral"}]},
     {"kind": "trend", "label": "", "display": "", "points": [1], "start": "", "end": "", "tone": "neutral"},
+    {"kind": "pie", "metric": "", "items": [{"label": "A", "value": 1, "display": "1"}]},
+    {"kind": "pie", "metric": "", "items": [{"label": str(n), "value": 1, "display": "1"} for n in range(7)]},
     {"kind": "alert", "level": "urgent", "text": "x"},
     {"kind": "action", "text": "x", "extra": "y"},
 ])
@@ -206,3 +208,47 @@ def test_plain_text_is_one_paragraph_per_component():
                                                                      {"value": "$32.24", "tone": "bad"}]]},
         {"kind": "action", "text": "Pausar brita"}))
     assert chat_components.plain_text(blocks) == "Dos términos:\n\nTérmino | Gasto\nbrita | $32.24\n\nPausar brita"
+
+
+def _pie(*slices):
+    return {"kind": "pie", "metric": "Gasto por ASIN",
+            "items": [{"label": label, "value": value, "display": f"${value}"} for label, value in slices]}
+
+
+def test_a_pie_splits_its_ring_in_proportion_and_the_panel_computes_each_share():
+    block = chat_components.normalize(_answer(_pie(("A", 120), ("B", 60), ("C", 20))))[0]
+    html = chat_components.render([block])
+    assert [pie._shares(block["items"])] == [[60.0, 30.0, 10.0]]
+    assert html.count("<circle") == 3 and "60.0%" in html and "10.0%" in html
+    assert chat_components.plain_text([block]) == "Gasto por ASIN\nA: $120 (60.0%)\nB: $60 (30.0%)\nC: $20 (10.0%)"
+
+
+def test_each_slice_starts_where_the_previous_one_ends_from_twelve_o_clock():
+    block = chat_components.normalize(_answer(_pie(("A", 3), ("B", 1))))[0]
+    assert [offset for offset, _ in pie._arcs(block["items"])] == [25.0, 50.0]
+
+
+def test_a_pie_left_with_one_slice_is_read_as_text():
+    block = chat_components.normalize(_answer(_pie(("A", 10), ("B", 0), ("C", -4))))[0]
+    assert block == {"kind": "text", "text": "Gasto por ASIN: A $10"}
+
+
+@pytest.mark.parametrize("value", ["12", True, float("nan"), None, -3, 0])
+def test_a_slice_without_a_positive_number_is_dropped(value):
+    block = chat_components.normalize(_answer(
+        {"kind": "pie", "metric": "", "items": [{"label": "A", "value": value, "display": "x"},
+                                                 {"label": "B", "value": 3, "display": "3"},
+                                                 {"label": "C", "value": 1, "display": "1"}]}))[0]
+    assert [item["label"] for item in block["items"]] == ["B", "C"]
+
+
+def test_a_pie_with_more_slices_than_it_can_tell_apart_is_drawn_as_bars():
+    block = chat_components.normalize(_answer(_pie(*[(f"S{n}", 10 - n) for n in range(8)])))[0]
+    assert block["kind"] == "bars" and [item["label"] for item in block["items"]] == [f"S{n}" for n in range(8)]
+    assert block["metric"] == "Gasto por ASIN"
+
+
+def test_every_slice_of_a_full_pie_has_its_own_color():
+    block = chat_components.normalize(_answer(_pie(*[(f"S{n}", 10 - n) for n in range(6)])))[0]
+    html = chat_components.render([block])
+    assert all(color in html for color in pie.SLICE_COLORS)

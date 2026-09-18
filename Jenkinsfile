@@ -24,6 +24,7 @@ pipeline {
   environment {
     IMAGE      = 'ppc-manager'
     RECEIVER_IMAGE = 'ppc-manager-receiver'             // OAuth callback + MELI webhooks
+    MCP_IMAGE  = 'ppc-manager-mcp'                       // read-only MCP server the AI provider dials
     DEPLOY_DIR = '/srv/ppc-manager'                      // compose bind-mount on the VPS
     APP_CONTAINER = 'ppc-manager'                        // gated via the container's own healthcheck
   }
@@ -39,11 +40,12 @@ pipeline {
 
     // ── CI — always, no VPS needed ────────────────────────────────────────
     stage('Build images') {
-      // Two images, one tag. The receiver COPYs core/integrations/, so it has to
-      // be rebuilt on the same commit or the deploy ships two versions of it.
+      // Three images, one tag. The receiver and the MCP server COPY parts of core/, so they
+      // have to be rebuilt on the same commit or the deploy ships two versions of it.
       steps {
         sh 'docker build -t $IMAGE:$SHA -t $IMAGE:latest .'
         sh 'docker build -f services/integrations_receiver/Dockerfile -t $RECEIVER_IMAGE:$SHA -t $RECEIVER_IMAGE:latest .'
+        sh 'docker build -f services/mcp_server/Dockerfile -t $MCP_IMAGE:$SHA -t $MCP_IMAGE:latest .'
       }
     }
 
@@ -53,7 +55,7 @@ pipeline {
       steps {
         sh '''
           docker run --rm -v "$WORKSPACE":/w -w /w -e AGENCY_OS_LOCAL_MODE=1 python:3.11-slim \
-            bash -c "apt-get update -qq && apt-get install -y -qq git >/dev/null && pip install --no-cache-dir -q -r requirements.txt pytest && python -m pytest -q"
+            bash -c "apt-get update -qq && apt-get install -y -qq git >/dev/null && pip install --no-cache-dir -q -r requirements.txt -r services/mcp_server/requirements.txt pytest && python -m pytest -q"
         '''
       }
     }
@@ -171,6 +173,10 @@ pipeline {
               // Roll the pin back too, or the cron worker keeps running the
               // image this gate just rejected.
               sh 'sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$PREV/" "$DEPLOY_DIR/.env"'
+              // A build from before the MCP server has no MCP image with its tag; compose would try to
+              // pull it and abort the whole rollback. The server only reads, so this build's copy can
+              // run next to the previous app.
+              sh 'docker image inspect "$MCP_IMAGE:$PREV" >/dev/null 2>&1 || docker tag "$MCP_IMAGE:$SHA" "$MCP_IMAGE:$PREV"'
               dir("${DEPLOY_DIR}") { sh 'IMAGE_TAG=$PREV docker compose up -d' }
               // An image from before a worker has no module for it: stop the service instead of letting it crash-loop.
               dir("${DEPLOY_DIR}") {
@@ -214,7 +220,7 @@ pipeline {
       // images don't pile up one-per-build. Last: runs only after a healthy deploy, so PREV survives.
       steps {
         sh '''
-          for repo in $IMAGE $RECEIVER_IMAGE; do
+          for repo in $IMAGE $RECEIVER_IMAGE $MCP_IMAGE; do
             docker images "$repo" --format '{{.Tag}}' | grep -vx latest | awk 'NR>2' \\
               | while read t; do docker rmi "$repo:$t" || true; done
           done

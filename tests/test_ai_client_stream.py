@@ -158,3 +158,13 @@ def test_ask_still_posts_to_the_plain_endpoint(monkeypatch):
     monkeypatch.setattr(client, "_log", lambda record: None)
     assert client.ask(system="s", input_text="i", context=[], model="m")["text"] == "ok"
     assert seen["url"].endswith("/v1/answer") and "stream" not in seen
+
+
+def test_whether_each_tool_call_worked_reaches_the_chat_too(monkeypatch):
+    result = {"type": "result", "is_error": False, "text": "", "session_id": "s1", "tool_calls": ["x"],
+              "failed_tools": ["x"]}
+    _stream(monkeypatch, _Response(lines=[
+        _data({"type": "tool", "name": "x"}), _data({"type": "tool_result", "name": "x", "ok": False}),
+        _data(result)]))
+
+    assert _call() == [{"type": "tool", "name": "x"}, {"type": "tool_result", "name": "x", "ok": False}, result]
