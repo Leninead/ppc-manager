@@ -84,12 +84,17 @@ class _FakeRest:
     """In-memory PostgREST: the profile table, the campaign sync jobs, `campaigns_between`, and the stored
     analyses and account settings the AI tab looks up (none unless a test gives them)."""
 
-    def __init__(self, profile_rows, campaign_rows=(), jobs=(), jobs_down=False, settings=()):
+    def __init__(self, profile_rows, campaign_rows=(), jobs=(), jobs_down=False, settings=(), product_csv=b"",
+                 targets_csv=b""):
         self.profile_rows = list(profile_rows)
         self.campaign_rows = list(campaign_rows)
         self.jobs = list(jobs)
         self.jobs_down = jobs_down
         self.settings = list(settings)
+        # SB / SD campaigns and the targets Target Graduation looks at (migration 015): none unless a
+        # test gives them.
+        self.product_csv = product_csv
+        self.targets_csv = targets_csv
         self.campaign_reads: list[dict] = []
 
     def select(self, table, params):
@@ -112,6 +117,10 @@ class _FakeRest:
         raise AssertionError(f"unexpected select on {table}")
 
     def rpc_csv(self, name, args, *, timeout_s=8):
+        if name == "product_campaigns_between":
+            return self.product_csv
+        if name == "graduation_targets_between":
+            return self.targets_csv
         assert name == "campaigns_between"
         self.campaign_reads.append(args)
         return _csv(self.campaign_rows)
@@ -397,6 +406,146 @@ class TestBulkCampanasOnApiData:
 def _with_signals(row, *, capped="0", share="25.0", start=None):
     return {**row, "budget_capped_days": capped, "days_with_impressions": "7", "top_of_search_is": share,
             **({"start_date": start} if start else {})}
+
+
+_PRODUCT_HEADER = ["ad_product", "campaign_id", "name", "state", "start_date", "budget_amount", "budget_type",
+                   "cost_type", "portfolio_id", "portfolio_name", "is_multi_ad_groups", "bid_strategy",
+                   "metrics_known", "impressions", "clicks", "cost", "purchases", "sales", "purchases_clicks",
+                   "sales_clicks", "viewable_impressions", "currency_code"]
+_TARGET_HEADER = ["ad_product", "target_id", "campaign_id", "campaign_name", "ad_group_id", "target_kind",
+                  "target_text", "match_type", "bid", "impressions"]
+
+
+def _rows_csv(header, rows) -> bytes:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=header)
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue().encode("utf-8")
+
+
+# Booleans as PostgREST's CSV writes them: "t" / "f".
+def _product_campaign(ad_product, campaign_id, name, *, multi="t", cost="12.0", sales="60.0",
+                      sales_clicks="30.0") -> dict:
+    return {"ad_product": ad_product, "campaign_id": campaign_id, "name": name, "state": "ENABLED",
+            "start_date": "2026-01-10", "budget_amount": "20", "budget_type": "DAILY", "cost_type": "CPC",
+            "portfolio_id": "", "portfolio_name": "", "is_multi_ad_groups": multi if ad_product == "SB" else "",
+            "bid_strategy": "", "metrics_known": multi if ad_product == "SB" else "t",
+            "impressions": "700", "clicks": "14", "cost": cost, "purchases": "2", "sales": sales,
+            "purchases_clicks": "1", "sales_clicks": sales_clicks, "viewable_impressions": "0",
+            "currency_code": "MXN"}
+
+
+def _target(target_id, text, *, ad_product="SP", impressions="0") -> dict:
+    return {"ad_product": ad_product, "target_id": target_id, "campaign_id": "3", "campaign_name": "Winner",
+            "ad_group_id": "31", "target_kind": "keyword", "target_text": text, "match_type": "EXACT",
+            "bid": "0.75", "impressions": impressions}
+
+
+def _busy_targets(count, *, ad_product="SP") -> list[dict]:
+    return [_target(f"{ad_product}-{index}", f"busy {index}", ad_product=ad_product, impressions="40")
+            for index in range(count)]
+
+
+class TestBulkCampanasOtherProducts:
+    SP = [_campaign("2", "Bleeder", impressions=900, clicks=30, cost=30.0),
+          _campaign("3", "Winner", impressions=2000, clicks=40, cost=10.0, purchases=4, sales=100.0)]
+    PRODUCTS = [_product_campaign("SB", "701", "Brand Video"), _product_campaign("SB", "702", "Brand Legacy",
+                                                                                 multi="f"),
+                _product_campaign("SD", "801", "Display Views")]
+
+    def _run(self, monkeypatch, *, products=None, targets=None):
+        fake = _FakeRest([_profile_row()], self.SP, jobs=[_job_row()],
+                         product_csv=_rows_csv(_PRODUCT_HEADER, self.PRODUCTS if products is None else products),
+                         targets_csv=_rows_csv(_TARGET_HEADER, targets or []))
+        app = _app(monkeypatch, fake, script=_M6_SCRIPT)
+        app.run()
+        assert not app.exception
+        return app
+
+    def test_sb_and_sd_campaigns_join_the_sp_ones_with_their_type(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        overview = app.dataframe[0].value
+        assert dict(zip(overview["Campaign name"], overview["Type"])) == {
+            "Bleeder": "Sponsored Products", "Winner": "Sponsored Products", "Brand Video": "Sponsored Brands",
+            "Brand Legacy": "Sponsored Brands", "Display Views": "Sponsored Display"}
+        assert "SB 2 · SD 1" in " ".join(str(markdown.value) for markdown in app.markdown)
+
+    def test_the_product_filter_narrows_every_tab(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        control = next(control for control in app.button_group if control.label == "Producto")
+        control.set_value("Sponsored Display").run()
+
+        assert list(app.dataframe[0].value["Campaign name"]) == ["Display Views"]
+        assert {metric.label: metric.value for metric in app.metric}["Campañas analizadas"] == "1"
+
+    def test_an_sb_campaign_without_api_metrics_is_listed_apart_and_never_a_ghost(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        captions = " ".join(str(caption.value) for caption in app.caption)
+        assert "1 campaña de Sponsored Brands del formato anterior no tiene métricas" in captions
+        diagnosis = next(frame.value for frame in app.dataframe if "Diagnóstico" in frame.value.columns)
+        assert "Brand Legacy" not in list(diagnosis["Campaign name"])
+        assert {metric.label: metric.value for metric in app.metric}["Campañas analizadas"] == "4"
+
+    def test_sb_and_sd_sales_are_campaign_managers_with_the_click_only_ones_beside(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        overview = app.dataframe[0].value.set_index("Campaign name")
+        assert (overview.loc["Display Views", "Sales"], overview.loc["Display Views", "Sales (clicks)"]) == (60.0, 30.0)
+        assert overview.loc["Winner", "Sales (clicks)"] == overview.loc["Winner", "Sales"]
+
+    def test_target_graduation_lists_the_idle_targets_from_the_api(self, monkeypatch):
+        targets = [_target("91", "demo idle kw"), _target("92", "other idle"), *_busy_targets(23)]
+
+        app = self._run(monkeypatch, targets=targets)
+
+        assert any("#### Target Graduation" in str(markdown.value) for markdown in app.markdown)
+        assert "2 de 25 targets" in " ".join(str(caption.value) for caption in app.caption)
+        table = next(frame.value for frame in app.dataframe if "Targeting" in frame.value.columns)
+        assert list(table["Targeting"]) == ["demo idle kw", "other idle"]
+
+    def test_with_a_product_chosen_target_graduation_counts_only_its_targets(self, monkeypatch):
+        targets = [_target("91", "sp idle"), *_busy_targets(5), _target("92", "sd idle", ad_product="SD"),
+                   *_busy_targets(2, ad_product="SD")]
+        app = self._run(monkeypatch, targets=targets)
+
+        control = next(control for control in app.button_group if control.label == "Producto")
+        control.set_value("Sponsored Display").run()
+
+        assert "1 de 3 targets" in " ".join(str(caption.value) for caption in app.caption)
+        table = next(frame.value for frame in app.dataframe if "Targeting" in frame.value.columns)
+        assert list(table["Targeting"]) == ["sd idle"]
+
+    def test_a_product_without_targets_to_look_at_says_so(self, monkeypatch):
+        app = self._run(monkeypatch, targets=[_target("91", "sp idle"), *_busy_targets(5)])
+
+        control = next(control for control in app.button_group if control.label == "Producto")
+        control.set_value("Sponsored Brands").run()
+
+        assert "Todavía no hay targets de Sponsored Brands para evaluar en el período." in " ".join(
+            str(caption.value) for caption in app.caption)
+
+    def test_targets_that_all_had_impressions_are_not_read_as_unsynced(self, monkeypatch):
+        app = self._run(monkeypatch, targets=_busy_targets(3))
+
+        captions = " ".join(str(caption.value) for caption in app.caption)
+        assert "Todos los targets habilitados (3), en campañas habilitadas, tuvieron impresiones" in captions
+        assert "todavía no se sincronizaron" not in captions
+
+    def test_without_synced_targets_target_graduation_says_it_is_waiting(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        assert "Los targets de esta cuenta todavía no se sincronizaron" in " ".join(
+            str(caption.value) for caption in app.caption)
+
+    def test_an_account_with_only_sp_shows_no_product_filter(self, monkeypatch):
+        app = self._run(monkeypatch, products=[])
+
+        assert not any(control.label == "Producto" for control in app.button_group)
+        assert list(app.dataframe[0].value["Campaign name"]) == ["Bleeder", "Winner"]
 
 
 class TestBulkCampanasSignalsAndAi:

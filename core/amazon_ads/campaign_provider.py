@@ -70,6 +70,13 @@ _ATTRIBUTION_FIELDS = {
     SELLER_ATTRIBUTION_DAYS: ("sales_7d", "purchases_7d"),
     VENDOR_ATTRIBUTION_DAYS: ("sales_14d", "purchases_14d"),
 }
+# Campaign Manager's names for the codes the API returns; a code not listed here shows as it came.
+BID_STRATEGY_LABELS = {
+    "LEGACY_FOR_SALES": "Dynamic bids - down only",
+    "AUTO_FOR_SALES": "Dynamic bids - up and down",
+    "MANUAL": "Fixed bids",
+    "RULE_BASED": "Rule-based bidding",
+}
 
 
 @dataclass(frozen=True)
@@ -145,7 +152,7 @@ def campaign_frame(totals: pd.DataFrame, attribution_days: int) -> pd.DataFrame:
         PORTFOLIO_NAME: [_portfolio_label(portfolio_id, name) for portfolio_id, name
                          in zip(live["portfolio_id"], live["portfolio_name"])],
         START_DATE: live["start_date"],
-        BID_STRATEGY: live["bidding_strategy"],
+        BID_STRATEGY: live["bidding_strategy"].map(lambda code: BID_STRATEGY_LABELS.get(code.strip(), code)),
         BUDGET_AMOUNT: live["budget_amount"],
         IMPRESSIONS: impressions,
         CLICKS: clicks,

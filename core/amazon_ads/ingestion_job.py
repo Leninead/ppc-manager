@@ -15,7 +15,7 @@ from typing import BinaryIO
 
 import requests
 
-from core.amazon_ads import report_kinds
+from core.amazon_ads import ad_entities, report_kinds
 from core.amazon_ads.api_client import AdsAccessDenied, AdsApiClient, AdsThrottled
 from core.amazon_ads.campaign_entities import fetch_campaigns, save_campaigns
 from core.amazon_ads.portfolios import fetch_portfolios, save_portfolios
@@ -34,14 +34,20 @@ from core.amazon_ads.sync_planner import (
     CHUNK_DAYS,
     DAILY_WINDOW_DAYS,
     PORTFOLIOS_KIND,
+    PRODUCT_KINDS,
+    PRODUCT_REPORT_KINDS,
     PROFILE_ACTIVE,
     PROFILE_INACTIVE,
     PROFILE_NEEDS_REAUTH,
+    SB_ENTITIES_KIND,
+    SD_ENTITIES_KIND,
     SEARCH_TERMS_KIND,
+    SP_TARGETS_KIND,
     ProfileState,
     backfill_dedupe_prefix,
     chunk_days_for,
     is_backfill,
+    is_product_history,
     plan_jobs,
     profile_timezone,
     report_chunks,
@@ -84,13 +90,21 @@ MAX_LISTED_EMPTY_DAYS = 5
 
 NO_PORTFOLIO_ACCESS_WARNING = "sin permiso para leer portfolios"
 NO_CAMPAIGN_ACCESS_WARNING = "sin permiso para leer campañas"
+NO_TARGETS_ACCESS_WARNING = "sin permiso para leer keywords y targets"
+NO_SB_ACCESS_WARNING = "sin acceso a Sponsored Brands"
+NO_SD_ACCESS_WARNING = "sin acceso a Sponsored Display"
+# How recently the SB list must have shown a campaign of the old format for v2 to be asked for it.
+LEGACY_SB_SEEN_WITHIN = timedelta(days=2)
 PROFILE_INACTIVE_REASON = "cancelada: el perfil ya no está conectado"
 CLOSED_JOB_MESSAGE = "la solicitud se cerró antes de terminar este tramo"
 SAVE_CRASHED_MESSAGE = "El guardado de este tramo se cortó dos veces; revisá el tamaño del reporte."
 
 _PROFILE_STATUS_BY_CONNECTION = {ACTIVE_STATUS: PROFILE_ACTIVE, NEEDS_REAUTH: PROFILE_NEEDS_REAUTH}
 _ACCOUNT_COLUMNS = "id,nombre_externo,tipo,region,cliente,connection_id,profiles"
-_JOB_FLAG_COLUMNS = "id,job_kind,trigger,external_account_id,status,local_day,window_start,window_end,dedupe_key"
+_JOB_FLAG_COLUMNS = ("id,job_kind,trigger,external_account_id,status,local_day,window_start,window_end,dedupe_key,"
+                     "rows_written")
+# The triggers a job that loaded a report's whole history can carry: the planner's, or a manual retry of it.
+_HISTORY_TRIGGERS = "in.(backfill,retry)"
 _CLOSED_JOB_STATUSES = "in.(failed,cancelled)"
 _UNFINISHED_REQUEST_STATUSES = frozenset({"to_request", "requested", "saving"})
 _REQUEST_RETRY_RESET = {
@@ -296,11 +310,15 @@ class IngestionJob:
     def _plan(self, tick: _Tick) -> None:
         tick.summary.profiles_active = sum(1 for row in tick.profiles.values() if row.get("status") == PROFILE_ACTIVE)
         jobs_by_profile = self._recent_jobs_by_profile(tick.now)
+        histories = self._product_histories()
+        legacy_sb = self._profiles_with_legacy_sb(tick.now)
         for profile_id, row in tick.profiles.items():
             if row.get("status") != PROFILE_ACTIVE:
                 continue
             try:
-                state = _profile_state(row, jobs_by_profile.get(profile_id, ()), tick.now)
+                state = _profile_state(row, jobs_by_profile.get(profile_id, ()), tick.now,
+                                       histories.get(profile_id, frozenset()),
+                                       has_legacy_sb=profile_id in legacy_sb)
                 for new_job in plan_jobs(state, tick.now):
                     if self._jobs.enqueue(new_job):
                         tick.summary.jobs_planned += 1
@@ -318,6 +336,33 @@ class IngestionJob:
         for row in (*open_rows, *recent_rows):
             rows_by_profile.setdefault(str(row.get("external_account_id") or ""), {})[int(row["id"])] = row
         return {profile_id: list(rows.values()) for profile_id, rows in rows_by_profile.items()}
+
+    def _profiles_with_legacy_sb(self, now: datetime) -> frozenset[str]:
+        """Profiles whose SB list still had campaigns of the old format in the last days: only those ask v2."""
+        rows = self._rest.select(ad_entities.PRODUCT_CAMPAIGNS_TABLE, {
+            "select": "profile_id",
+            "ad_product": "eq.SB",
+            "is_multi_ad_groups": "is.false",
+            # Every listing rewrites seen_at, so an old-format campaign archived since has stopped being seen.
+            "seen_at": f"gte.{(now - LEGACY_SB_SEEN_WITHIN).isoformat()}",
+        })
+        return frozenset(str(row.get("profile_id") or "") for row in rows)
+
+    def _product_histories(self) -> dict[str, frozenset[str]]:
+        """Per profile, the new report kinds whose whole history already loaded once."""
+        rows = self._rest.select(JOBS_TABLE, {
+            "select": "external_account_id,job_kind,window_start,window_end",
+            "integration_slug": f"eq.{SLUG}",
+            "job_kind": _in_filter(PRODUCT_REPORT_KINDS),
+            "status": "eq.completed",
+            "trigger": _HISTORY_TRIGGERS,
+        })
+        histories: dict[str, set[str]] = {}
+        for row in rows:
+            if is_product_history(row.get("job_kind") or "", parse_date(row.get("window_start")),
+                                  parse_date(row.get("window_end"))):
+                histories.setdefault(str(row.get("external_account_id") or ""), set()).add(row["job_kind"])
+        return {profile_id: frozenset(kinds) for profile_id, kinds in histories.items()}
 
     def _start_jobs(self, tick: _Tick) -> None:
         for job in self._jobs.claim_due(self._holder, JOB_CLAIM_LIMIT, LEASE_SECONDS):
@@ -344,6 +389,10 @@ class IngestionJob:
             self._refresh_portfolios(tick, job)
         elif job.job_kind == CAMPAIGN_ENTITIES_KIND:
             self._refresh_campaign_entities(tick, job)
+        elif job.job_kind == SP_TARGETS_KIND:
+            self._refresh_sp_targets(tick, job)
+        elif job.job_kind in (SB_ENTITIES_KIND, SD_ENTITIES_KIND):
+            self._refresh_product_entities(tick, job)
         elif (kind := report_kinds.by_job_kind(job.job_kind)) is not None:
             self._prepare_report_requests(tick, job, kind)
         else:
@@ -369,6 +418,42 @@ class IngestionJob:
             self._complete(tick, job, rows_written=0, warning=NO_CAMPAIGN_ACCESS_WARNING)
             return
         saved_count = save_campaigns(self._rest, job.external_account_id, campaigns, tick.now)
+        self._complete(tick, job, rows_written=saved_count)
+
+    def _refresh_sp_targets(self, tick: _Tick, job: SyncJob) -> None:
+        api, _ = self._amazon(job)
+        try:
+            targets = ad_entities.fetch_sp_targets(api, job.external_account_id)
+        except AdsAccessDenied:
+            log.info("amazon_ads: profile %s may not list keywords and targets", job.external_account_id)
+            self._complete(tick, job, rows_written=0, warning=NO_TARGETS_ACCESS_WARNING)
+            return
+        saved_count = ad_entities.save_targets(self._rest, job.external_account_id, "SP", targets, tick.now)
+        self._complete(tick, job, rows_written=saved_count)
+
+    def _refresh_product_entities(self, tick: _Tick, job: SyncJob) -> None:
+        """Sponsored Brands or Display: campaigns first, then their targets.
+
+        The rows written are the campaigns: the planner asks this product's reports only when there are some,
+        so an account without the program is never asked for reports it would refuse every night.
+        """
+        is_brands = job.job_kind == SB_ENTITIES_KIND
+        ad_product = "SB" if is_brands else "SD"
+        api, _ = self._amazon(job)
+        try:
+            if is_brands:
+                campaigns = ad_entities.fetch_sb_campaigns(api, job.external_account_id)
+                targets = ad_entities.fetch_sb_targets(api, job.external_account_id) if campaigns else []
+            else:
+                campaigns = ad_entities.fetch_sd_campaigns(api, job.external_account_id)
+                targets = ad_entities.fetch_sd_targets(api, job.external_account_id) if campaigns else []
+        except AdsAccessDenied:
+            log.info("amazon_ads: profile %s has no %s access", job.external_account_id, ad_product)
+            self._complete(tick, job, rows_written=0,
+                           warning=NO_SB_ACCESS_WARNING if is_brands else NO_SD_ACCESS_WARNING)
+            return
+        saved_count = ad_entities.save_product_campaigns(self._rest, job.external_account_id, campaigns, tick.now)
+        ad_entities.save_targets(self._rest, job.external_account_id, ad_product, targets, tick.now)
         self._complete(tick, job, rows_written=saved_count)
 
     def _prepare_report_requests(self, tick: _Tick, job: SyncJob, kind: report_kinds.ReportKind) -> None:
@@ -425,7 +510,7 @@ class IngestionJob:
         first_day = max(job.window_start, self._earliest_retained_day(tick, job))
         if first_day > job.window_end:
             raise InvalidSyncJob(
-                f"job {job.id} window {job.window_start}..{job.window_end} is past Amazon's {RETENTION_DAYS}-day retention"
+                f"job {job.id} window {job.window_start}..{job.window_end} is past Amazon's {_retention_days(job)}-day retention"
             )
         return report_chunks(first_day, job.window_end, chunk_days)
 
@@ -502,7 +587,7 @@ class IngestionJob:
             **_LEASE_RELEASE,
         })
         log.info("amazon_ads: request %s (%s..%s) is past Amazon's %d-day retention, nothing left to request",
-                 request["id"], window_start, window_end, RETENTION_DAYS)
+                 request["id"], window_start, window_end, _retention_days(job))
         self._renew_job_lease_quietly(tick, job)
 
     def _poll_reports(self, tick: _Tick) -> None:
@@ -641,7 +726,7 @@ class IngestionJob:
                 report_rows[position] = None
             inserted = self._rest.rpc(
                 kind.replace_day_rpc,
-                {"p_profile_id": profile_id, "p_day": day.isoformat(), "p_rows": rows},
+                {"p_profile_id": profile_id, "p_day": day.isoformat(), "p_rows": rows, **kind.rpc_args},
                 timeout_s=REPLACE_DAY_TIMEOUT_SECONDS,
             )
             del rows
@@ -871,7 +956,7 @@ class IngestionJob:
         return tick.now.astimezone(zone).date()
 
     def _earliest_retained_day(self, tick: _Tick, job: SyncJob) -> date:
-        return self._local_today(tick, job.external_account_id, job.region) - timedelta(days=RETENTION_DAYS)
+        return self._local_today(tick, job.external_account_id, job.region) - timedelta(days=_retention_days(job))
 
     def _waited_too_long(self, tick: _Tick, request: dict) -> bool:
         requested_at = parse_timestamp(request.get("requested_at"))
@@ -885,7 +970,7 @@ class IngestionJob:
         clients = self._amazon_clients.get(key)
         if clients is None:
             api = self._api_factory(job.region, job.connection_id)
-            clients = (api, ReportFetcher(api, session=self._download_session, spec=kind.spec))
+            clients = (api, kind.fetcher(api, session=self._download_session, spec=kind.spec))
             self._amazon_clients[key] = clients
         return clients
 
@@ -930,14 +1015,30 @@ def _profile_changed(existing: dict | None, discovered: dict) -> bool:
     return existing is None or any(existing.get(column) != value for column, value in discovered.items())
 
 
-def _profile_state(row: dict, job_rows: Iterable[dict], now: datetime) -> ProfileState:
+def _profile_state(row: dict, job_rows: Iterable[dict], now: datetime,
+                   product_histories: frozenset[str] = frozenset(), *, has_legacy_sb: bool = False) -> ProfileState:
     local_today = now.astimezone(profile_timezone(row.get("timezone") or "", row.get("region") or "")).date()
     has_open_backfill = has_day_job_today = has_portfolio_job_today = False
     has_campaign_job_today = has_campaign_entities_job_today = False
+    product_today: set[str] = set()
+    product_open: set[str] = set()
+    entity_rows_today: dict[str, int] = {}
     for job in job_rows:
         is_open = job.get("status") in OPEN_STATUSES
+        is_today = parse_date(job.get("local_day")) == local_today
         # A closed job still holding today's dedupe key would make planning again a no-op; a released key does not.
-        blocks_today = parse_date(job.get("local_day")) == local_today and (is_open or bool(job.get("dedupe_key")))
+        blocks_today = is_today and (is_open or bool(job.get("dedupe_key")))
+        if job.get("job_kind") in PRODUCT_KINDS:
+            kind = job["job_kind"]
+            completed = job.get("status") == "completed"
+            product_open.update([kind] if is_open else [])
+            # A completed history releases its dedupe key; it still counts as today's job, or the same day
+            # would ask the last 14 days right after loading all of them.
+            if blocks_today or (is_today and completed):
+                product_today.add(kind)
+            if is_today and completed and kind in (SP_TARGETS_KIND, SB_ENTITIES_KIND, SD_ENTITIES_KIND):
+                entity_rows_today[kind] = max(entity_rows_today.get(kind, 0), int(job.get("rows_written") or 0))
+            continue
         if job.get("job_kind") == PORTFOLIOS_KIND:
             has_portfolio_job_today = has_portfolio_job_today or blocks_today
         elif job.get("job_kind") == CAMPAIGNS_KIND:
@@ -953,7 +1054,17 @@ def _profile_state(row: dict, job_rows: Iterable[dict], now: datetime) -> Profil
     return ProfileState.from_row(row, has_open_backfill=has_open_backfill, has_open_day_job_today=has_day_job_today,
                                  has_portfolio_job_today=has_portfolio_job_today,
                                  has_campaign_job_today=has_campaign_job_today,
-                                 has_campaign_entities_job_today=has_campaign_entities_job_today)
+                                 has_campaign_entities_job_today=has_campaign_entities_job_today,
+                                 product_kinds_today=frozenset(product_today),
+                                 product_kinds_open=frozenset(product_open),
+                                 product_histories_done=product_histories,
+                                 entity_rows_today=entity_rows_today, has_legacy_sb=has_legacy_sb)
+
+
+def _retention_days(job: SyncJob) -> int:
+    """How far back Amazon keeps the job's report: per ad product, 60 days for Sponsored Brands."""
+    kind = report_kinds.by_job_kind(job.job_kind)
+    return kind.spec.retention_days if kind is not None else RETENTION_DAYS
 
 
 def _capped(kind_limit: int | None, worker_limit: int) -> int:

@@ -46,6 +46,11 @@ TABLES = [
     ("ads_search_term_daily", "profile_id"),
     ("ads_portfolios", "profile_id"),
     ("integration_worker_heartbeats", "worker_name"),
+    # Amazon Ads SB, SD and targets (M6, chat) — 015_targeting_sb_sd.sql.
+    ("ads_sb_sd_campaign", "profile_id"),
+    ("ads_sb_sd_campaign_daily", "profile_id"),
+    ("ads_target", "profile_id"),
+    ("ads_target_daily", "profile_id"),
     # Meli API bridge (M36) — 003_meli_api.sql + 004_meli_ads_unique.sql.
     ("meli_auth_identities", "id"),         # refresh_token_sealed idem
     ("meli_ingestion_runs", "id"),

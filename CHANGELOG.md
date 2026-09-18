@@ -6,6 +6,51 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Bulk Campañas, su análisis IA y el chat suman Sponsored Brands, Sponsored Display y Target Graduation desde la API (2026-09-18)
+
+**SB y SD en la misma tabla.** Con datos de Amazon Ads, M6 muestra las campañas de Sponsored Brands y Sponsored
+Display junto a las de Sponsored Products, con la columna Type y un filtro por producto que alcanza a la Vista
+General y al Campaign Analyzer. Las compras y ventas de SB y SD son las de Campaign Manager (14 días, clicks o
+vistas), como con el CSV; las columnas «(clicks)» muestran lo comparable con SP.
+
+**Las campañas SB del formato anterior tienen métricas.** Los reportes v3 de SB están en preview y no traen las
+campañas con isMultiAdGroupsEnabled=false (en Shapermint US, 51 de 736 y el 31% del gasto de SB del 16/09). Las trae
+el reporte v2 de SB (`/v2/hsa/campaigns/report`), que se pide un día por reporte sólo para las cuentas que las tienen:
+medido el 16/09, sus cifras coinciden con las de v3 en las 587 campañas que tienen los dos. Hasta que carga su
+historia, esas campañas se listan aparte y nunca se diagnostican como fantasmas. Sus targets siguen sin reporte, así
+que quedan fuera de Target Graduation.
+
+**Estrategia de puja con los nombres de Campaign Manager.** SP muestra «Dynamic bids - down only», «Dynamic bids - up
+and down» o «Fixed bids» en vez del código de la API; SB, «Automated bidding» o «Custom bid adjustments»; SD, la
+optimización de sus ad groups («Optimize for page visits», «conversions», «reach»).
+
+**Target Graduation vuelve con la API.** Los targets habilitados, de campañas habilitadas, sin una impresión en el
+período, de los tres productos, con su campaña, texto, tipo, match type y bid. Con el filtro por producto, el
+«N de M» cuenta sólo los targets de ese producto.
+
+**El análisis IA cubre los tres productos.** Un análisis por cuenta, como el Campaign Analyzer en «Todos»: cada fila
+dice su producto y trae las ventas sólo por clicks para comparar SB y SD con SP. Espera a que cierren también los
+pedidos de campañas SB y SD, y se vuelve a pedir cuando terminan. Una cuenta sólo con SP lee lo mismo que antes.
+
+**El chat también.** `campaign_health` trae las campañas de los tres productos y filtra por `product`;
+`idle_targets` (nueva) da Target Graduation; `daily_metrics`, `breakdown` (por campaña, portfolio y el nuevo
+«producto») y `accounts_overview` suman SP, SB y SD de los reportes de campaña. Las cifras de SP sumadas de los
+search terms, que es lo que daban antes, siguen con `source=search_terms`: sólo traen términos con clicks, así que
+tienen muchas menos impresiones (Shapermint US, del 11 al 17/09: 8.916.572 contra 16.781.001 de los reportes de
+campaña; gasto, clicks, ventas y órdenes a menos de 0,5%). Cada respuesta dice de qué fuente salen sus cifras y cómo
+pedir la otra, y el chat da las dos cuando le preguntan por impresiones o CTR de SP o lo comparan con el Search Term
+Report. `breakdown` por tipo de match o search term sigue en los search terms de SP.
+
+**Sincronización.** Tres listas diarias (keywords y targets SP; campañas, keywords, targets y themes SB; campañas, ad
+groups y targets SD) y seis reportes: spTargeting, sbCampaigns, sbTargeting, sdCampaigns, sdTargeting y el v2 de SB.
+Cada reporte carga su historia una vez (65 días; 60 en SB, lo que Amazon guarda) y después pide los últimos 14 días
+cada noche. Los de SB y SD sólo se piden si la lista del día encontró campañas de ese producto, y el v2 sólo si
+encontró campañas del formato anterior.
+
+**Deploy.** Migración 015, aditiva: tablas nuevas y funciones nuevas; lo de SP no cambia. Da al worker de análisis
+(ai_worker) lectura de las campañas SB y SD. Entre "Deploy" y "DB migrate" M6 muestra sólo SP, las listas nuevas
+fallan y se reintentan solas, y las herramientas del chat que suman campañas contestan con error.
+
 ### Fixed — Un ajuste negativo de Amazon ya no tumba la sincronización de una cuenta (2026-09-18)
 
 **Shapermint US se quedó sin métricas de campañas** el día del deploy de #18: el reporte de un mes traía una fila con

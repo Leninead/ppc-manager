@@ -84,6 +84,7 @@ class AdsApiClient:
         content_type: str | None = None,
         accept: str | None = None,
         expected: tuple[int, ...] = (200,),
+        allow_redirects: bool = True,
     ) -> requests.Response:
         retries_used = 0
         token_refreshed = False
@@ -95,7 +96,7 @@ class AdsApiClient:
             network_error = None
             try:
                 response = self._send(method, path, profile_id, json_body, content_type, accept,
-                                      access_token)
+                                      access_token, allow_redirects)
             except requests.RequestException as exc:
                 network_error = exc
                 reason = f"no response ({type(exc).__name__})"
@@ -128,7 +129,8 @@ class AdsApiClient:
             self._back_off(method, path, reason, retries_used, retry_after)
 
     def _send(self, method: str, path: str, profile_id: str | None, json_body: dict | None,
-              content_type: str | None, accept: str | None, access_token: str) -> requests.Response:
+              content_type: str | None, accept: str | None, access_token: str,
+              allow_redirects: bool = True) -> requests.Response:
         headers = {
             CLIENT_ID_HEADER: self._client_id_source(),
             "Authorization": f"Bearer {access_token}",
@@ -140,12 +142,15 @@ class AdsApiClient:
         # The v3 entity endpoints answer 415 to the default `*/*`; reporting and portfolios do not.
         if accept:
             headers["Accept"] = accept
+        # Only a caller that reads the redirect itself (a v2 report download) asks not to follow it.
+        redirects = {} if allow_redirects else {"allow_redirects": False}
         return self._session.request(
             method,
             f"{self._host}{path}",
             headers=headers,
             json=json_body,
             timeout=self._timeout_s,
+            **redirects,
         )
 
     def _back_off(self, method: str, path: str, reason: str, attempt: int,

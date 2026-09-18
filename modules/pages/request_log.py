@@ -15,7 +15,13 @@ import streamlit as st
 
 from core.amazon_ads.raw_reports import REPORT_REQUESTS_TABLE
 from core.amazon_ads.report_kinds import REPORT_JOB_KINDS
-from core.amazon_ads.sync_planner import CAMPAIGN_ENTITIES_KIND, PORTFOLIOS_KIND
+from core.amazon_ads.sync_planner import (
+    CAMPAIGN_ENTITIES_KIND,
+    PORTFOLIOS_KIND,
+    SB_ENTITIES_KIND,
+    SD_ENTITIES_KIND,
+    SP_TARGETS_KIND,
+)
 from core.integrations import catalog, roles
 from core.integrations.notice import sync_alert_counts
 from core.integrations.store import StoreError, _Rest, _rest_credentials
@@ -36,7 +42,11 @@ PAGE_SIZE = 50
 SYNC_PROVIDERS = (ADS_SLUG,)
 # Daily photos of an account, with no report window: what they close with is a count, not a range.
 _SNAPSHOT_COUNT_KEYS = {PORTFOLIOS_KIND: "request_log.sub.portfolios",
-                        CAMPAIGN_ENTITIES_KIND: "request_log.sub.campaigns"}
+                        CAMPAIGN_ENTITIES_KIND: "request_log.sub.campaigns",
+                        SP_TARGETS_KIND: "request_log.sub.targets",
+                        # SB and SD lists close with their campaign count; their targets go along.
+                        SB_ENTITIES_KIND: "request_log.sub.campaigns",
+                        SD_ENTITIES_KIND: "request_log.sub.campaigns"}
 OVERVIEW_WINDOW = timedelta(hours=24)
 PERIOD_SPANS: dict[str, timedelta | None] = {
     "day": timedelta(hours=24),

@@ -35,9 +35,44 @@ CAMPAIGNS = [
 ]
 
 
+PRODUCT_HEADER = ["ad_product", "campaign_id", "name", "state", "start_date", "budget_amount", "budget_type",
+                  "cost_type", "portfolio_id", "portfolio_name", "is_multi_ad_groups", "bid_strategy", "metrics_known",
+                  "impressions", "clicks", "cost", "purchases", "sales", "purchases_clicks", "sales_clicks",
+                  "viewable_impressions", "currency_code"]
+TARGET_HEADER = ["ad_product", "target_id", "campaign_id", "campaign_name", "ad_group_id", "target_kind",
+                 "target_text", "match_type", "bid", "impressions"]
+
+
+def _product_campaign(ad_product, campaign_id, name, *, cost=12.0, sales=60.0, sales_clicks=30.0, orders=3,
+                      orders_clicks=1, known="t", strategy=""):
+    return {"ad_product": ad_product, "campaign_id": campaign_id, "name": name, "state": "ENABLED",
+            "start_date": "2026-01-10", "budget_amount": "20", "budget_type": "DAILY", "cost_type": "CPC",
+            "portfolio_id": "", "portfolio_name": "", "is_multi_ad_groups": "t" if known == "t" else "f",
+            "bid_strategy": strategy, "metrics_known": known, "impressions": "700", "clicks": "14",
+            "cost": str(cost), "purchases": str(orders), "sales": str(sales), "purchases_clicks": str(orders_clicks),
+            "sales_clicks": str(sales_clicks), "viewable_impressions": "0", "currency_code": "USD"}
+
+
+def _target(target_id, text, *, ad_product="SP", impressions="0"):
+    return {"ad_product": ad_product, "target_id": target_id, "campaign_id": "3", "campaign_name": "Winner",
+            "ad_group_id": "31", "target_kind": "keyword", "target_text": text, "match_type": "EXACT",
+            "bid": "0.75", "impressions": impressions}
+
+
+def _csv(header, rows) -> bytes:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=header)
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue().encode("utf-8")
+
+
 class FakeRest:
-    def __init__(self, campaigns=CAMPAIGNS, *, completed=True, settings=None):
+    def __init__(self, campaigns=CAMPAIGNS, *, completed=True, settings=None, products=(), targets=()):
         self.campaigns = list(campaigns)
+        # SB / SD campaigns and targets (migration 015): none unless a test gives them.
+        self.products = list(products)
+        self.targets = list(targets)
         self.reads = []
         self.profiles = [{"profile_id": "111", "account_id": 1, "cliente": "dermaglos", "account_name": "Dermaglos",
                           "country_code": "US", "currency_code": "USD", "account_type": "seller",
@@ -63,13 +98,13 @@ class FakeRest:
         raise AssertionError(f"unexpected select on {table}")
 
     def rpc_csv(self, name, args, **_):
+        if name == "product_campaigns_between":
+            return _csv(PRODUCT_HEADER, self.products) if self.products else b""
+        if name == "graduation_targets_between":
+            return _csv(TARGET_HEADER, self.targets) if self.targets else b""
         assert name == "campaigns_between"
         self.reads.append((args["p_from"], args["p_to"]))
-        buffer = io.StringIO()
-        writer = csv.DictWriter(buffer, fieldnames=RPC_HEADER)
-        writer.writeheader()
-        writer.writerows(self.campaigns)
-        return buffer.getvalue().encode("utf-8")
+        return _csv(RPC_HEADER, self.campaigns)
 
 
 def _health(rest=None, **options):
@@ -138,3 +173,82 @@ def test_an_account_the_campaign_sync_never_completed_says_so():
 def test_an_unknown_sort_is_refused():
     with pytest.raises(ValueError, match="sort_by"):
         _health(sort_by="roas")
+
+
+PRODUCTS = [_product_campaign("SB", "701", "Brand Video", strategy="MANUAL"),
+            _product_campaign("SD", "801", "Display Views", cost=30.0, sales=0.0, sales_clicks=0.0, orders=0,
+                              orders_clicks=0, strategy="conversions")]
+
+
+def test_sb_and_sd_campaigns_come_with_their_product_and_their_click_only_sales():
+    rows = {row["campaign"]: row for row in _health(FakeRest(products=PRODUCTS))["rows"]}
+
+    assert {name: row["product"] for name, row in rows.items()} == {
+        "Ghost": "SP", "Bleeder": "SP", "Winner": "SP", "Brand Video": "SB", "Display Views": "SD"}
+    assert (rows["Brand Video"]["sales"], rows["Brand Video"]["sales_clicks"]) == (60.0, 30.0)
+    assert rows["Winner"]["sales_clicks"] == rows["Winner"]["sales"]
+    assert rows["Brand Video"]["bid_strategy"] == "Custom bid adjustments"
+    assert (rows["Display Views"]["diagnosis"], rows["Display Views"]["bid_strategy"]) == (
+        "PAUSAR", "Optimize for conversions")
+
+
+def test_an_account_with_only_sp_answers_as_it_always_did():
+    row = _health()["rows"][0]
+
+    assert row["product"] == "SP" and "sales_clicks" not in row
+
+
+def test_a_product_narrows_the_rows_the_counts_and_the_totals():
+    payload = _health(FakeRest(products=PRODUCTS), product="SD")
+
+    assert [row["campaign"] for row in payload["rows"]] == ["Display Views"]
+    assert payload["counts"] == {"PAUSAR": 1}
+    assert payload["totals"]["spend"] == 30.0
+
+
+def test_old_format_sb_campaigns_without_metrics_stay_out_and_the_answer_says_so():
+    rest = FakeRest(products=[PRODUCTS[0], _product_campaign("SB", "702", "Brand Legacy", known="f", cost=0.0)])
+
+    payload = _health(rest)
+
+    assert "Brand Legacy" not in [row["campaign"] for row in payload["rows"]]
+    assert payload["old_format_note"].startswith("1 campaña SB del formato anterior todavía no tiene métricas")
+    assert "old_format_note" not in _health(rest, product="SD")
+
+
+def test_an_unknown_product_is_refused():
+    with pytest.raises(ValueError, match="product"):
+        _health(product="DSP")
+
+
+def _idle(rest, **options):
+    return amazon_ads.idle_targets(rest, profile_id="111", **options)
+
+
+def test_idle_targets_are_the_ones_without_impressions_counted_by_product():
+    rest = FakeRest(targets=[_target("91", "demo idle kw"), _target("92", "busy kw", impressions="40"),
+                             _target("93", "sd idle", ad_product="SD")])
+
+    payload = _idle(rest)
+
+    assert [(row["product"], row["target"], row["kind"], row["bid"]) for row in payload["rows"]] == [
+        ("SP", "demo idle kw", "Keyword", 0.75), ("SD", "sd idle", "Keyword", 0.75)]
+    assert payload["counts"] == {"SD": {"considered": 1, "idle": 1}, "SP": {"considered": 2, "idle": 1}}
+    assert payload["window"] == {"from": "2026-09-10", "to": "2026-09-16", "days": 7}
+    json.dumps(payload)
+
+
+def test_idle_targets_of_one_product_count_only_that_product():
+    rest = FakeRest(targets=[_target("91", "demo idle kw"), _target("93", "sd idle", ad_product="SD")])
+
+    payload = _idle(rest, product="SD")
+
+    assert [row["target"] for row in payload["rows"]] == ["sd idle"]
+    assert payload["counts"] == {"SD": {"considered": 1, "idle": 1}}
+    assert "note" not in payload or "Todavía no hay" not in payload["note"]
+
+
+def test_idle_targets_say_when_nothing_synced_yet():
+    payload = _idle(FakeRest())
+
+    assert payload["rows"] == [] and payload["note"] == "Los targets de esta cuenta todavía no se sincronizaron."

@@ -1,7 +1,8 @@
-"""Las cuentas de Amazon Ads sincronizadas, sus search terms, su serie diaria y sus campañas.
+"""Las cuentas de Amazon Ads sincronizadas, sus search terms, su serie diaria, sus campañas y sus targets.
 
-Se apoya en core/amazon_ads/ (report_provider, campaign_provider y campaign_analyzer), que ya leen y
-clasifican sin Streamlit: acá no hay lógica de negocio nueva, sólo la forma en que un modelo la consulta.
+Se apoya en core/amazon_ads/ (report_provider, campaign_provider, product_provider, campaign_totals y
+campaign_analyzer), que ya leen y clasifican sin Streamlit: acá no hay lógica de negocio nueva, sólo la forma
+en que un modelo la consulta.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from typing import Literal
 
 from core import search_term_frame as canonical
 from core.ai_analysis.store import AiAnalysisStore
+from core.amazon_ads import campaign_totals
 from core.amazon_ads.campaign_analyzer import (
     ANALYSIS_MODULE as CAMPAIGNS_MODULE,
     DIAGNOSIS_COLUMN,
@@ -26,10 +28,32 @@ from core.amazon_ads.campaign_provider import (
     CAMPAIGN_ID,
     CAMPAIGN_NAME,
     PORTFOLIO_NAME,
+    TYPE,
     CampaignProvider,
     campaign_sync_view,
 )
-from core.amazon_ads.report_provider import DayTotals, ProfileOption, ReportProvider, account_labels
+from core.amazon_ads.product_provider import (
+    PRODUCT_CODES,
+    PRODUCT_TYPES,
+    PURCHASES_CLICKS,
+    SALES_CLICKS,
+    TARGET_BID,
+    TARGET_ID,
+    TARGET_KIND,
+    TARGET_MATCH,
+    TARGET_PRODUCT,
+    TARGET_TEXT,
+    ProductCampaigns,
+    ProductProvider,
+    campaigns_to_analyze,
+)
+from core.amazon_ads.report_provider import (
+    DayTotals,
+    ProfileOption,
+    ReportProvider,
+    _attribution_days,
+    account_labels,
+)
 from core.amazon_ads.sync_planner import CAMPAIGNS_KIND
 from core.integrations.sync_jobs import SyncJobStore
 from services.mcp_server.limits import page
@@ -41,22 +65,48 @@ MAX_DAYS = 60
 # Dos semanas: alcanzan para ver una forma, y el patrón de los días de semana todavía se lee.
 DEFAULT_SERIES_DAYS = 14
 MAX_CAMPAIGNS_LISTED = 30
-SERIES_SOURCE = "Sponsored Products, sumado del reporte de search terms: no incluye Sponsored Brands ni Display."
+# Cómo cuenta cada producto sus ventas: sin esto, el modelo compara ACoS de SB con los de SP como si fueran iguales.
+ATTRIBUTION_NOTE = ("Las ventas y órdenes de cada producto son las de Campaign Manager: SP después de un click; SB y SD "
+                    "después de un click o una vista, a 14 días. sales_clicks y orders_clicks son sólo las de "
+                    "después de un click: lo comparable entre productos.")
+SERIES_SOURCE = "Sponsored Products, Brands y Display, de los reportes de campaña. " + ATTRIBUTION_NOTE
+SEARCH_TERMS_SOURCE = ("Sólo Sponsored Products, sumado del reporte de search terms: sólo trae términos con clicks, así "
+                       "que tiene muchas menos impresiones que los reportes de campaña; gasto, clicks, ventas y órdenes "
+                       "quedan casi iguales.")
+# Las cifras de SP salen de dos fuentes que no coinciden en impresiones: cada respuesta dice cómo pedir la otra,
+# para que el chat las ofrezca como dos datos y no presente una en lugar de la otra.
+SOURCE_CAMPAIGNS = "campaigns"
+SOURCE_SEARCH_TERMS = "search_terms"
+SOURCES = (SOURCE_CAMPAIGNS, SOURCE_SEARCH_TERMS)
+SEARCH_TERMS_ALTERNATIVE = ("Las cifras de Sponsored Products también salen sumadas del reporte de search terms, con "
+                            "source=search_terms: sólo traen términos con clicks, así que tienen muchas menos impresiones. "
+                            "Son las que coinciden con el Search Term Report.")
+CAMPAIGNS_ALTERNATIVE = ("Con source=campaigns salen de los reportes de campaña: suman Sponsored Brands y Display, y en "
+                         "Sponsored Products traen todas las impresiones, también las de términos sin clicks.")
 # Lo que el STR ya sabe agrupar: con esto una torta o un ranking sale de una llamada, no de sumar páginas.
-_GROUP_COLUMNS = {"campaign": canonical.CAMPAIGN_NAME, "portfolio": canonical.PORTFOLIO_NAME,
-                  "match_type": "_origin_match_type", "search_term": canonical.SEARCH_TERM}
+_SEARCH_TERM_GROUPS = {"campaign": canonical.CAMPAIGN_NAME, "portfolio": canonical.PORTFOLIO_NAME,
+                       "match_type": "_origin_match_type", "search_term": canonical.SEARCH_TERM}
+# Lo que agrupan los reportes de campaña de los tres productos: la fuente de siempre de campaña y portfolio.
+_CAMPAIGN_GROUPS = ("campaign", "portfolio", "product")
+_DIMENSIONS = ("campaign", "portfolio", "product", "match_type", "search_term")
 _EMPTY_GROUP = {"portfolio": "Sin portfolio", "match_type": "Sin tipo"}
 # El modelo copia lo que recibe: si le llega PRODUCT_TARGETING, el AM lee PRODUCT_TARGETING.
 _MATCH_TYPE_LABELS = {"AUTO": "Automática", "PRODUCT_TARGETING": "Product targeting", "BROAD": "Broad",
                       "PHRASE": "Phrase", "EXACT": "Exact"}
 RANKING_METRICS = ("spend", "sales", "orders", "clicks", "impressions", "acos", "cvr")
-Dimension = Literal["campaign", "portfolio", "match_type", "search_term"]
+Dimension = Literal["campaign", "portfolio", "product", "match_type", "search_term"]
 RankingMetric = Literal["spend", "sales", "orders", "clicks", "impressions", "acos", "cvr"]
 # "" = sin filtro: un parámetro opcional con None llegaría al modelo sin tipo.
 Diagnosis = Literal["", "FANTASMA", "PAUSAR", "REVISAR", "ESCALAR", "OK"]
 Signal = Literal["", "Limitada por presupuesto", "Nueva", "Baja visibilidad"]
-CAMPAIGNS_SOURCE = ("Sponsored Products, de la foto de campañas y el reporte de campañas: trae también las campañas "
-                    "habilitadas sin actividad. No incluye Sponsored Brands ni Display.")
+Product = Literal["", "SP", "SB", "SD"]
+# "" = la fuente de siempre de cada herramienta: los reportes de campaña, salvo tipo de match y search term.
+Source = Literal["", "campaigns", "search_terms"]
+CAMPAIGNS_SOURCE = ("Sponsored Products, Brands y Display, de la foto de campañas y sus reportes: trae también las "
+                    "campañas habilitadas sin actividad. Las señales sólo existen para SP. " + ATTRIBUTION_NOTE)
+TARGETS_SOURCE = ("Los targets habilitados de campañas habilitadas de SP, SB y SD, de las listas de keywords y targets, "
+                  "con las impresiones de sus reportes de targeting. No incluye las campañas SB del formato "
+                  "anterior: sus targets no tienen reporte.")
 
 
 def list_accounts(rest) -> dict:
@@ -104,19 +154,34 @@ def top_search_terms(rest, *, profile_id: str, days: int = DEFAULT_DAYS, offset:
     return payload
 
 
-def daily_metrics(rest, *, profile_id: str, days: int = DEFAULT_SERIES_DAYS, campaign: str = "") -> dict:
-    """Las métricas por día de una cuenta, o de las campañas cuyo nombre contiene `campaign`.
+def daily_metrics(rest, *, profile_id: str, days: int = DEFAULT_SERIES_DAYS, campaign: str = "",
+                  product: Product = "", source: Source = "") -> dict:
+    """Las métricas por día de las campañas de una cuenta (SP, SB y SD, o sólo `product`), o de las campañas
+    cuyo nombre contiene `campaign`.
 
-    Una fila por cada día de la ventana, también los que no gastaron: una serie con huecos se
+    Salen de los reportes de campaña; con `source`=search_terms, sólo las de SP, sumadas del reporte de search
+    terms. Una fila por cada día de la ventana, también los que no gastaron: una serie con huecos se
     dibujaría como si esos días no existieran.
     """
-    profile = _profile(rest, profile_id)
-    start, end = window_for(profile, days)
-    series = ReportProvider(rest).daily_totals(profile, start, end, campaign=campaign)
-    payload = {"rows": [_day_row(day) for day in series.days], "window": _window(start, end),
-               "currency": series.currency_code, "attribution_days": series.attribution_days,
-               "source": SERIES_SOURCE}
+    _check_product(product)
+    _check_source(source, product)
+    if source == SOURCE_SEARCH_TERMS:
+        profile = _profile(rest, profile_id)
+        start, end = window_for(profile, days)
+        series = ReportProvider(rest).daily_totals(profile, start, end, campaign=campaign)
+        rows, products = [_day_row(day) for day in series.days], ["SP"]
+    else:
+        profile = _campaign_profile(rest, profile_id, search_terms_hint=product in ("", "SP"))
+        start, end = window_for(profile, days)
+        series = campaign_totals.daily_totals(rest, profile, start, end, campaign=campaign, product=product)
+        rows = [{"date": day.day.isoformat(), **_totals_metrics(day.totals)} for day in series.days]
+        products = list(series.products)
+    payload = {"rows": rows, "window": _window(start, end), "currency": series.currency_code,
+               "attribution_days": series.attribution_days, "products": products,
+               **_source_fields(source or SOURCE_CAMPAIGNS, alternative=product in ("", "SP"))}
     _add_window_note(payload, int(days), start, end)
+    if source != SOURCE_SEARCH_TERMS:
+        _add_old_format_note(payload, rest, profile_id, start, end, product)
     fragment = campaign.strip()
     if fragment:
         payload["campaigns"] = list(series.campaigns[:MAX_CAMPAIGNS_LISTED])
@@ -125,63 +190,85 @@ def daily_metrics(rest, *, profile_id: str, days: int = DEFAULT_SERIES_DAYS, cam
         if not series.campaigns:
             payload["rows"] = []
             payload["note"] = (f"Ninguna campaña de la cuenta tiene «{fragment}» en el nombre en este período. "
-                               "Buscá el nombre exacto con top_search_terms o get_analysis.")
+                               "Buscá el nombre exacto con campaign_health o breakdown por campaña.")
     return payload
 
 
-def accounts_overview(rest, *, days: int = DEFAULT_DAYS) -> dict:
-    """Los totales de cada cuenta sincronizada en sus últimos `days` días, todas en una llamada.
+def accounts_overview(rest, *, days: int = DEFAULT_DAYS, source: Source = "") -> dict:
+    """Los totales de las campañas (SP, SB y SD) de cada cuenta sincronizada en sus últimos `days` días, todas
+    en una llamada; con `source`=search_terms, los de SP sumados del reporte de search terms.
 
     Una cuenta que no gastó vuelve en cero en vez de faltar: su ausencia se leería como que no
     existe. Cada una en su moneda, y la respuesta lo avisa: los montos no se suman entre monedas.
     """
-    provider = ReportProvider(rest)
-    profiles = [profile for profile in provider.profiles() if profile.data_through is not None]
+    _check_source(source)
+    source = source or SOURCE_CAMPAIGNS
+    jobs = SyncJobStore(rest)
+    profiles = ReportProvider(rest).profiles()
     labels = account_labels(profiles)
-    rows = []
+    rows, without_campaigns = [], []
     for profile in profiles:
-        start, end = window_for(profile, days)
-        series = provider.daily_totals(profile, start, end)
-        rows.append({"account": labels[profile.profile_id], "profile_id": profile.profile_id,
-                     "currency": series.currency_code, "window": _window(start, end),
-                     **_metrics(sum(day.spend for day in series.days), sum(day.sales for day in series.days),
-                                sum(day.orders for day in series.days), sum(day.clicks for day in series.days),
-                                sum(day.impressions for day in series.days))})
+        totals = _account_totals(rest, jobs, profile, days, source)
+        if totals is not None:
+            rows.append({"account": labels[profile.profile_id], "profile_id": profile.profile_id, **totals})
+        elif profile.data_through is not None:
+            without_campaigns.append(labels[profile.profile_id])
     rows.sort(key=lambda row: row["account"])
     payload = page(rows, limit=len(rows) or 1).as_payload(what="cuentas")
-    payload["source"] = SERIES_SOURCE
+    payload.update(_source_fields(source, alternative=True))
     payload["note"] = ("Cada cuenta está en su moneda: no sumes ni compares montos entre monedas distintas. "
                        "ACoS, CVR, órdenes y clicks sí se comparan entre cuentas.")
+    # Missing from the rows they would read as accounts that do not exist: they are named, with where their SP is.
+    if without_campaigns:
+        payload["without_campaigns"] = sorted(without_campaigns)
+        payload["without_campaigns_note"] = (
+            "Estas cuentas todavía no tienen campañas sincronizadas, así que no están en estos totales. Sus cifras de "
+            "Sponsored Products sumadas de los search terms están con source=search_terms.")
     return payload
 
 
-def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS, sort_by: RankingMetric = "spend",
-              offset: int = 0, limit: int = 50) -> dict:
-    """Los totales de una cuenta en la ventana, agrupados por campaña, portfolio, tipo de match o search term.
+def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS, product: Product = "",
+              source: Source = "", sort_by: RankingMetric = "spend", offset: int = 0, limit: int = 50) -> dict:
+    """Los totales de una cuenta en la ventana, agrupados por campaña, portfolio, producto, tipo de match o search term.
 
-    Ordenados de mayor a menor por `sort_by`; los grupos sin ventas no tienen ACoS y quedan al final
-    de ese orden. `totals` suma todos los grupos, también los que no entran en la página.
+    Campaña, portfolio y producto salen de los reportes de campaña de SP, SB y SD (`product` los acota a uno);
+    tipo de match y search term, de los search terms, que sólo son de SP. Campaña y portfolio también salen de
+    los search terms con `source`=search_terms. Ordenados de mayor a menor por `sort_by`; los grupos sin ventas
+    no tienen ACoS y quedan al final de ese orden. `totals` suma todos los grupos, también los que no entran en
+    la página.
     """
-    if by not in _GROUP_COLUMNS:
-        raise ValueError(f"by tiene que ser uno de: {', '.join(_GROUP_COLUMNS)}")
+    if by not in _DIMENSIONS:
+        raise ValueError(f"by tiene que ser uno de: {', '.join(_DIMENSIONS)}")
     if sort_by not in RANKING_METRICS:
         raise ValueError(f"sort_by tiene que ser uno de: {', '.join(RANKING_METRICS)}")
+    _check_product(product)
+    _check_source(source)
+    if source == SOURCE_CAMPAIGNS and by not in _CAMPAIGN_GROUPS:
+        raise ValueError(f"{by} sólo sale de los search terms: pedilo sin source o con source=search_terms.")
+    if source == SOURCE_SEARCH_TERMS and by not in _SEARCH_TERM_GROUPS:
+        raise ValueError(f"{by} sólo sale de los reportes de campaña: pedilo sin source o con source=campaigns.")
+    if source != SOURCE_SEARCH_TERMS and by in _CAMPAIGN_GROUPS:
+        return _campaign_breakdown(rest, profile_id, by, days, product, sort_by, offset, limit)
+    if product not in ("", "SP"):
+        raise ValueError(f"{by} sale de los search terms, que sólo son de Sponsored Products: pedilo sin product "
+                         "o con product=SP.")
     profile = _profile(rest, profile_id)
     start, end = window_for(profile, days)
-    source = ReportProvider(rest).search_terms(profile, start, end)
-    context = {"window": _window(start, end), "currency": source.currency_code,
-               "attribution_days": source.attribution_days, "source": SERIES_SOURCE}
-    frame = source.frame
+    terms = ReportProvider(rest).search_terms(profile, start, end)
+    context = {"window": _window(start, end), "currency": terms.currency_code,
+               "attribution_days": terms.attribution_days,
+               **_source_fields(SOURCE_SEARCH_TERMS, alternative=by in _CAMPAIGN_GROUPS)}
+    frame = terms.frame
     if frame.empty:
         return {"rows": [], "total": 0, "showing": 0, "offset": 0, "totals": None, **context,
                 "note": "La cuenta no tuvo búsquedas con clicks en ese período."}
 
-    groups = (frame[_GROUP_COLUMNS[by]].fillna("").astype(str).str.strip()
+    groups = (frame[_SEARCH_TERM_GROUPS[by]].fillna("").astype(str).str.strip()
               .replace(_MATCH_TYPE_LABELS if by == "match_type" else {})
               .replace("", _EMPTY_GROUP.get(by, "Sin nombre")))
     sums = frame.assign(_group=groups).groupby("_group", sort=False).agg(
-        spend=(canonical.SPEND, "sum"), sales=(canonical.sales_column(source.attribution_days), "sum"),
-        orders=(canonical.orders_column(source.attribution_days), "sum"), clicks=(canonical.CLICKS, "sum"),
+        spend=(canonical.SPEND, "sum"), sales=(canonical.sales_column(terms.attribution_days), "sum"),
+        orders=(canonical.orders_column(terms.attribution_days), "sum"), clicks=(canonical.CLICKS, "sum"),
         impressions=(canonical.IMPRESSIONS, "sum"))
     rows = [{"group": str(group), **_metrics(row.spend, row.sales, row.orders, row.clicks, row.impressions)}
             for group, row in sums.iterrows()]
@@ -195,21 +282,29 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
 
 
 def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, diagnosis: Diagnosis = "",
-                    signal: Signal = "", sort_by: RankingMetric = "spend", offset: int = 0, limit: int = 50) -> dict:
-    """Las campañas habilitadas de una cuenta en sus últimos `days` días, con el diagnóstico de Bulk Campañas y sus señales.
+                    signal: Signal = "", product: Product = "", sort_by: RankingMetric = "spend", offset: int = 0,
+                    limit: int = 50) -> dict:
+    """Las campañas habilitadas de una cuenta (SP, SB y SD) en sus últimos `days` días, con el diagnóstico de Bulk
+    Campañas y sus señales.
 
     Parte de la foto de campañas, así que trae también las que no tuvieron actividad (las FANTASMA), que
     `breakdown` por campaña no ve. Clasifica con los parámetros guardados de la cuenta en Bulk Campañas, o
-    con los de siempre, y dice cuáles usó. `counts` y `totals` cubren todas las habilitadas, no sólo la página.
+    con los de siempre, y dice cuáles usó. `product` acota todo a SP, SB o SD; `diagnosis` y `signal` sólo
+    filtran filas: `counts` y `totals` cubren todas las habilitadas del alcance, no sólo la página.
     """
     if sort_by not in RANKING_METRICS:
         raise ValueError(f"sort_by tiene que ser uno de: {', '.join(RANKING_METRICS)}")
+    _check_product(product)
     profile = _campaign_profile(rest, profile_id)
     start, end = window_for(profile, days)
     source = CampaignProvider(rest).campaigns(profile, start, end)
+    products = ProductProvider(rest).campaigns(profile_id, start, end)
+    frame = campaigns_to_analyze(source.frame, products)
+    if product and TYPE in frame.columns:
+        frame = frame[frame[TYPE] == PRODUCT_TYPES[product]]
     settings = AiAnalysisStore(rest).settings(CAMPAIGNS_MODULE, profile_id)
     params = CampaignAnalyzerParams.from_dict(settings.params) if settings else CampaignAnalyzerParams.defaults()
-    analyzer, campaigns = analyze(source.frame, source.signal_inputs, params, window_start=start, window_end=end)
+    analyzer, campaigns = analyze(frame, source.signal_inputs, params, window_start=start, window_end=end)
     context = {
         "window": _window(start, end), "currency": source.currency_code, "attribution_days": source.attribution_days,
         "source": CAMPAIGNS_SOURCE,
@@ -217,6 +312,7 @@ def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, diagnosi
                                                        else "los de siempre de Bulk Campañas")},
         "provisional_days": [day.isoformat() for day in provisional_days(start, end)],
     }
+    _add_old_format_note(context, rest, profile_id, start, end, product, products=products)
     if campaigns.empty:
         return {"rows": [], "total": 0, "showing": 0, "offset": 0, "counts": {}, "totals": None, **context,
                 "note": "La cuenta no tiene campañas habilitadas en este período."}
@@ -237,14 +333,51 @@ def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, diagnosi
     return payload
 
 
-def _campaign_profile(rest, profile_id: str) -> ProfileOption:
+def idle_targets(rest, *, profile_id: str, days: int = DEFAULT_DAYS, product: Product = "", offset: int = 0,
+                 limit: int = 50) -> dict:
+    """Target Graduation: los targets habilitados, de campañas habilitadas, sin una impresión en los últimos `days` días.
+
+    `counts` dice, por producto, cuántos se miraron y cuántos no tuvieron impresiones, también los que no
+    entran en la página. `product` acota a SP, SB o SD.
+    """
+    _check_product(product)
+    profile = _campaign_profile(rest, profile_id)
+    start, end = window_for(profile, days)
+    targets = ProductProvider(rest).idle_targets(profile_id, start, end)
+    context = {"window": _window(start, end), "source": TARGETS_SOURCE}
+    if targets is None or not targets.considered:
+        return {"rows": [], "total": 0, "showing": 0, "offset": 0, "counts": {}, **context,
+                "note": "Los targets de esta cuenta todavía no se sincronizaron."}
+    frame = targets.frame
+    considered = targets.considered
+    if product:
+        frame = frame[frame[TARGET_PRODUCT] == product]
+        considered = {product: considered.get(product, 0)}
+    idle_by_product = frame[TARGET_PRODUCT].value_counts()
+    counts = {code: {"considered": int(count), "idle": int(idle_by_product.get(code, 0))}
+              for code, count in considered.items()}
+    rows = [{"product": row[TARGET_PRODUCT], "campaign": str(row[CAMPAIGN_NAME] or "").strip(),
+             "campaign_id": str(row[CAMPAIGN_ID]), "target": str(row[TARGET_TEXT] or "").strip(),
+             "target_id": str(row[TARGET_ID]), "kind": row[TARGET_KIND], "match_type": row[TARGET_MATCH] or "",
+             "bid": _plain_number(row[TARGET_BID])} for _, row in frame.iterrows()]
+    payload = page(rows, offset=offset, limit=limit).as_payload(what="targets sin impresiones")
+    payload.update(context, counts=counts)
+    if product and not considered.get(product):
+        payload["note"] = f"Todavía no hay targets de {PRODUCT_TYPES[product]} para evaluar en este período."
+    _add_window_note(payload, int(days), start, end)
+    return payload
+
+
+def _campaign_profile(rest, profile_id: str, *, search_terms_hint: bool = False) -> ProfileOption:
     """La cuenta como la ve la sincronización de campañas: su ventana es la de su última corrida completa."""
     for profile in ReportProvider(rest).profiles():
         if profile.profile_id == profile_id:
             view = campaign_sync_view(
                 profile, SyncJobStore(rest).latest_completed_for_profile(profile_id, CAMPAIGNS_KIND))
             if view.data_through is None:
-                raise ValueError(f"La cuenta {profile_id} todavía no tiene campañas sincronizadas.")
+                hint = (" Sus cifras de Sponsored Products sumadas de los search terms están con source=search_terms."
+                        if search_terms_hint and profile.data_through is not None else "")
+                raise ValueError(f"La cuenta {profile_id} todavía no tiene campañas sincronizadas.{hint}")
             return view
     raise ValueError(f"No hay ninguna cuenta sincronizada con profile_id {profile_id}.")
 
@@ -253,6 +386,7 @@ def _campaign_row(row, has_impressions: bool) -> dict:
     record = {
         "campaign": str(row.get(CAMPAIGN_NAME) or "").strip(),
         "campaign_id": str(row.get(CAMPAIGN_ID) or ""),
+        "product": PRODUCT_CODES.get(str(row.get(TYPE) or ""), "SP"),
         "portfolio": str(row.get(PORTFOLIO_NAME) or "").strip(),
         "bid_strategy": str(row.get(BID_STRATEGY) or "").strip(),
         "daily_budget": _plain_number(row.get(BUDGET_AMOUNT)),
@@ -261,12 +395,113 @@ def _campaign_row(row, has_impressions: bool) -> dict:
         **_metrics(row["_spend"], row["_sales"], row["_orders"], row["_clicks"],
                    row["_impr"] if has_impressions else 0),
     }
+    # Only when the account has SB or SD: for SP they are its own sales and orders.
+    if SALES_CLICKS in row.index:
+        record["sales_clicks"] = _plain_number(row.get(SALES_CLICKS))
+        record["orders_clicks"] = _plain_number(row.get(PURCHASES_CLICKS))
     for key, column in (("budget_capped_days", "_budget_capped_days"), ("days_with_impressions",
                                                                         "_days_with_impressions"),
                         ("top_of_search_share", "_top_of_search_is"), ("days_live", "_days_live")):
         if column in row.index:
             record[key] = _plain_number(row.get(column))
     return record
+
+
+def _campaign_breakdown(rest, profile_id: str, by: str, days: int, product: str, sort_by: str, offset: int,
+                        limit: int) -> dict:
+    # By product there is no search-term split to offer: the search terms only know SP.
+    alternative = by != "product" and product in ("", "SP")
+    profile = _campaign_profile(rest, profile_id, search_terms_hint=alternative)
+    start, end = window_for(profile, days)
+    frame = campaign_totals.window_totals(rest, profile, start, end)
+    if product:
+        frame = frame[frame["product"] == product]
+    context = {"window": _window(start, end), "currency": profile.currency_code,
+               "attribution_days": _attribution_days(profile.account_type),
+               **_source_fields(SOURCE_CAMPAIGNS, alternative=alternative)}
+    _add_old_format_note(context, rest, profile_id, start, end, product)
+    if frame.empty:
+        return {"rows": [], "total": 0, "showing": 0, "offset": 0, "totals": None, **context,
+                "note": "Las campañas de la cuenta no tuvieron actividad en ese período."}
+    groups = frame[by].replace(PRODUCT_TYPES) if by == "product" else frame[by]
+    groups = groups.replace("", _EMPTY_GROUP.get(by, "Sin nombre"))
+    metric_columns = list(campaign_totals.Totals.__dataclass_fields__)
+    sums = frame.assign(_group=groups).groupby("_group", sort=False)[metric_columns].sum()
+    rows = [{"group": str(group), **_totals_metrics(campaign_totals.Totals(**row))}
+            for group, row in sums.to_dict("index").items()]
+    rows.sort(key=lambda row: (row[sort_by] is not None, row[sort_by] or 0), reverse=True)
+    payload = page(rows, offset=offset, limit=limit).as_payload(what="grupos")
+    payload.update(context, totals=_totals_metrics(campaign_totals.Totals(**sums.sum().to_dict())))
+    _add_window_note(payload, int(days), start, end)
+    return payload
+
+
+def _check_product(product: str) -> None:
+    if product and product not in PRODUCT_TYPES:
+        raise ValueError(f"product tiene que ser uno de: {', '.join(PRODUCT_TYPES)}, o vacío para los tres")
+
+
+def _check_source(source: str, product: str = "") -> None:
+    if source and source not in SOURCES:
+        raise ValueError(f"source tiene que ser uno de: {', '.join(SOURCES)}, o vacío para la fuente de siempre")
+    if source == SOURCE_SEARCH_TERMS and product not in ("", "SP"):
+        raise ValueError("Los search terms sólo son de Sponsored Products: pedilo sin product o con product=SP.")
+
+
+def _source_fields(source: str, *, alternative: bool) -> dict:
+    """Where the figures come from and, when SP's also exist in the other source, how to ask for those."""
+    fields = {"data_source": source,
+              "source": SERIES_SOURCE if source == SOURCE_CAMPAIGNS else SEARCH_TERMS_SOURCE}
+    if alternative:
+        fields["alternative"] = SEARCH_TERMS_ALTERNATIVE if source == SOURCE_CAMPAIGNS else CAMPAIGNS_ALTERNATIVE
+    return fields
+
+
+def _account_totals(rest, jobs: SyncJobStore, profile: ProfileOption, days: int, source: str) -> dict | None:
+    """One account's row of accounts_overview, or None while it has no data from that source yet."""
+    if source == SOURCE_SEARCH_TERMS:
+        if profile.data_through is None:
+            return None
+        start, end = window_for(profile, days)
+        series = ReportProvider(rest).daily_totals(profile, start, end)
+        return {"currency": series.currency_code, "window": _window(start, end), **_days_metrics(series.days)}
+    view = campaign_sync_view(profile, jobs.latest_completed_for_profile(profile.profile_id, CAMPAIGNS_KIND))
+    if view.data_through is None:
+        return None
+    start, end = window_for(view, days)
+    series = campaign_totals.daily_totals(rest, view, start, end)
+    return {"currency": series.currency_code, "window": _window(start, end),
+            **_totals_metrics(campaign_totals.series_total(series))}
+
+
+def _day_row(day: DayTotals) -> dict:
+    return {"date": day.day.isoformat(), **_days_metrics((day,))}
+
+
+def _days_metrics(days) -> dict:
+    return _metrics(sum(day.spend for day in days), sum(day.sales for day in days), sum(day.orders for day in days),
+                    sum(day.clicks for day in days), sum(day.impressions for day in days))
+
+
+def _totals_metrics(totals: campaign_totals.Totals) -> dict:
+    return {**_metrics(totals.spend, totals.sales, totals.orders, totals.clicks, totals.impressions),
+            "sales_clicks": round(float(totals.sales_clicks), 2), "orders_clicks": int(totals.orders_clicks)}
+
+
+def _add_old_format_note(payload: dict, rest, profile_id: str, start: date, end: date, product: str, *,
+                         products: ProductCampaigns | None = None) -> None:
+    """Says so when SB campaigns of the old format have unknown metrics: their spend is in no total."""
+    if product not in ("", "SB"):
+        return
+    products = products if products is not None else ProductProvider(rest).campaigns(profile_id, start, end)
+    if products is None or not products.without_metrics:
+        return
+    count = len(products.without_metrics)
+    payload["old_format_note"] = (
+        ("1 campaña SB del formato anterior todavía no tiene métricas: su gasto y sus ventas no están"
+         if count == 1 else
+         f"{count} campañas SB del formato anterior todavía no tienen métricas: su gasto y sus ventas no están")
+        + " en estos números. Aparecen cuando termina de cargarse su historia.")
 
 
 def _plain_number(value):
@@ -297,10 +532,6 @@ def _add_window_note(payload: dict, requested: int, start: date, end: date) -> N
     else:
         payload["window_note"] = (f"Se pidieron {requested} días y la cuenta tiene {returned} sincronizados: "
                                   "la ventana se recortó a esos.")
-
-
-def _day_row(day: DayTotals) -> dict:
-    return {"date": day.day.isoformat(), **_metrics(day.spend, day.sales, day.orders, day.clicks, day.impressions)}
 
 
 def _metrics(spend, sales, orders, clicks, impressions) -> dict:

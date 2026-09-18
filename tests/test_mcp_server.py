@@ -17,7 +17,7 @@ def test_the_server_exposes_the_read_tools_and_nothing_that_writes():
     names = set(_tools())
 
     assert names == {"list_accounts", "list_analyses", "get_analysis", "top_search_terms", "daily_metrics",
-                     "breakdown", "accounts_overview", "campaign_health"}
+                     "breakdown", "accounts_overview", "campaign_health", "idle_targets"}
     assert not any(word in name for name in names
                    for word in ("create", "update", "delete", "request", "save", "write"))
 
@@ -25,6 +25,12 @@ def test_the_server_exposes_the_read_tools_and_nothing_that_writes():
 def test_every_tool_says_what_it_does_so_the_model_can_choose():
     for name, tool in _tools().items():
         assert len(tool["description"]) > 40, f"{name} no explica qué hace"
+
+
+def test_the_figure_tools_say_sponsored_products_also_comes_summed_from_the_search_terms():
+    """Without it the model would only know one of the two SP figures, and read the other as an error."""
+    for name in ("accounts_overview", "daily_metrics", "breakdown"):
+        assert "source=search_terms" in _tools()[name]["description"], name
 
 
 def test_the_index_tool_names_the_modules_it_can_serve():

@@ -364,22 +364,61 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
   una solicitud abierta y redibuja la página cuando se cierra.
 - **Moneda**: la de la cuenta, con `money()` / `currency_symbol()`; con archivo manual queda el `$` de siempre.
 - Diferencias con el CSV: estado de hasta el día anterior, métricas hasta ayer, período de hasta 60 días sobre los 65
-  sincronizados, solo Sponsored Products, archivadas afuera.
+  sincronizados, archivadas afuera, y las campañas SB del formato anterior sin métricas hasta que carga su historia
+  v2 (ver abajo).
+
+### SB, SD y Target Graduation (2026-09-18 — migración 015)
+- `campaign_input.frame` sigue siendo sólo Sponsored Products (sus señales y su sincronización son de SP). SB y SD
+  llegan aparte en `campaign_input.products` (`core/amazon_ads/product_provider.py`, RPC
+  `product_campaigns_between`). `all_campaigns` los junta para mostrar y `campaigns_to_analyze` además saca las SB
+  sin métricas: lo usan la página, el análisis IA y el MCP, así los tres diagnostican lo mismo.
+- Compras y ventas de SB/SD = `purchases`/`sales` de Amazon (14 días, clicks o vistas), lo mismo que traía el CSV;
+  `Purchases (clicks)`/`Sales (clicks)` son las comparables con SP.
+- SB con `isMultiAdGroupsEnabled=false`: los reportes v3 de SB (preview) no las traen (medido: 0 de 31). Las trae el
+  reporte v2 (`SbV2ReportFetcher`, pedido `sb_legacy_campaigns`, un día por reporte, `creativeType: all`); se guarda
+  con `source = 'v2'` y el SQL deja entrar sólo las del formato anterior. Hasta que su historia v2 termina,
+  `metrics_known` es falso: métricas vacías, `products.without_metrics`, afuera del analyzer y listadas aparte.
+- Estrategia de puja: nombres de Campaign Manager (`BID_STRATEGY_LABELS` en campaign_provider y product_provider).
+  SD no la tiene en la campaña: sale de la optimización de sus ad groups (`/sd/adGroups`).
+- El CSV de PostgREST escribe los booleanos como `t`/`f`, no `true`/`false`.
+- Target Graduation con API: `campaign_input.idle_targets` (RPC `graduation_targets_between`): trae todos los
+  targets habilitados de campañas habilitadas con sus impresiones, así el "N de M" sale por producto y una cuenta sin
+  targets inactivos no se lee como "sin sincronizar". Sólo cuenta productos con métricas de targeting en el período.
+- Análisis IA: un análisis por cuenta con los tres productos (columna `producto`, `sales_clicks`, `orders_clicks`
+  sólo cuando hay SB o SD). El worker espera también a los pedidos de campañas SB/SD y replanifica cuando terminan;
+  la página cachea SB/SD con la hora del último de esos pedidos en la clave, para que la huella coincida.
+- Las listas se guardan con un único `seen_at`; las lecturas toman sólo la última lista (un target archivado deja de
+  aparecer).
+- Chat (MCP): `daily_metrics`, `accounts_overview` y `breakdown` por campaña, portfolio o producto suman SP, SB y SD de
+  los reportes de campaña (`core/amazon_ads/campaign_totals.py`, RPC `campaign_daily_totals` / `campaign_window_totals`).
+  Con `source="search_terms"` devuelven SP sumado de los search terms (`ReportProvider.daily_totals` /
+  `search_terms`), lo que daban antes: pocas impresiones, porque sólo traen términos con clicks. Cada respuesta trae
+  `data_source`, `source` y, si SP existe en la otra fuente, `alternative` con cómo pedirla. `accounts_overview` nombra
+  en `without_campaigns` las cuentas con search terms pero sin campañas sincronizadas todavía.
 
 ### Inputs
 - Datos de Amazon Ads (cuenta + país + período) o Bulk / Campaign CSV subido a mano
 
 ### Anti-patterns
 - Confundir bulk .xlsx (sin métricas) con Campaign CSV (con métricas)
+- ❌ NO meter SB/SD en `campaign_input.frame`: las señales y la ventana de ese frame son de SP; juntarlos es cosa de
+  `all_campaigns` / `campaigns_to_analyze`
+- ❌ NO guardar las filas v2 de SB con la fuente v3: el reemplazo del día de v3 las borraría (y viceversa)
+- ❌ NO leer una campaña SB sin métricas de la API como fantasma: Amazon no la reporta, no es que no entregó
+- ❌ NO comparar un booleano leído por CSV con `"true"`/`"false"`: PostgREST manda `t`/`f` y la comparación falla callada
 - ❌ NO armar la tabla solo con el reporte `spCampaigns`: trae únicamente campañas con actividad y los fantasmas desaparecen
 - ❌ NO tomar la frescura de `ads_profile_sync`: la actualizan sólo las solicitudes de search terms
 - ❌ NO copiar la regla del semáforo en la página ni en el MCP: se importa de `core/amazon_ads/campaign_analyzer.py`
 - ❌ NO leer un share vacío como 0: Amazon no lo reporta si la campaña no calificó; 0 dispararía "Baja visibilidad"
+- ❌ NO sacarle al chat las cifras de SP de los search terms al sumar los reportes de campaña: son dos datos que
+  difieren en impresiones y el AM compara con los dos (`source` en las herramientas)
 
 ### Tests
-`tests/test_campaign_analyzer.py` (regla y señales), `tests/test_campaign_analysis_job.py` (spec, ventana y payload),
-`tests/test_mcp_campaign_health.py`, `tests/test_campaign_source.py` (página con fake de PostgREST) y
-`tests/test_amazon_ads_campaign_rows.py` / `test_amazon_ads_campaign_provider.py`.
+`tests/test_campaign_analyzer.py` (regla y señales), `tests/test_campaign_analysis_job.py` (spec, ventana y payload,
+también con SB/SD), `tests/test_mcp_campaign_health.py` (también `idle_targets`), `test_mcp_daily_metrics.py`,
+`test_mcp_breakdown.py`, `test_mcp_accounts_overview.py`, `tests/test_campaign_source.py` (página con fake de
+PostgREST), `tests/test_amazon_ads_campaign_rows.py` / `test_amazon_ads_campaign_provider.py` y los de
+`product_provider`, `product_rows`, `ad_entities` y `report_fetcher` (v2).
 
 ---
 

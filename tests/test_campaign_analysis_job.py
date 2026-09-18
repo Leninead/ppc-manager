@@ -13,6 +13,7 @@ from core.ai_analysis.campaign_analysis_job import JOB_KIND, CampaignAnalysisJob
 from core.ai_analysis.store import AiAnalysisStore
 from core.amazon_ads.campaign_analyzer import CampaignAnalyzerParams
 from core.amazon_ads.campaign_provider import SIGNAL_COLUMNS, CampaignProvider
+from core.amazon_ads.product_provider import ProductCampaigns, ProductProvider
 from core.amazon_ads.report_provider import ProfileOption
 from core.campaign_analysis import (
     ANALYSIS_MODULE,
@@ -150,6 +151,71 @@ class TestPayload:
                                     window_end=WINDOW[1]).data is None
 
 
+def _products(*rows, without=()):
+    """SB / SD campaigns as ProductProvider hands them: the export's columns plus the click-only ones."""
+    frame = pd.DataFrame([{**_campaign(campaign_id, name, cost=cost, orders=orders, sales=sales),
+                           "Type": product_type, "Purchases (clicks)": orders_clicks, "Sales (clicks)": sales_clicks}
+                          for campaign_id, name, product_type, cost, orders, sales, orders_clicks, sales_clicks in rows])
+    return ProductCampaigns(frame=frame, without_metrics=frozenset(without))
+
+
+SB_AND_SD = _products(("701", "Brand video", "Sponsored Brands", 40.0, 4, 300.0, 1, 90.0),
+                      ("801", "Display views", "Sponsored Display", 22.0, 0, 0.0, 0, 0.0),
+                      ("702", "Brand legacy", "Sponsored Brands", 0.0, 0, 0.0, 0, 0.0), without={"702"})
+
+
+class TestThreeProducts:
+    def test_sb_and_sd_campaigns_join_the_document_with_their_product_and_click_only_sales(self):
+        records = {record["campaign"]: record for record in _input(products=SB_AND_SD).records}
+
+        assert {name: record["producto"] for name, record in records.items()} == {
+            "Beta bleeder": "SP", "Gamma ghost": "SP", "Delta big ok": "SP", "Alpha ok": "SP",
+            "Brand video": "SB", "Display views": "SD"}
+        assert (records["Brand video"]["sales"], records["Brand video"]["sales_clicks"]) == (300.0, 90.0)
+        assert (records["Alpha ok"]["sales_clicks"], records["Alpha ok"]["orders_clicks"]) == (100.0, 1)
+        # Diagnosed like SP, with the sales Campaign Manager shows: 22 spent and no order is a pause.
+        assert records["Display views"]["diagnostico"] == "PAUSAR"
+
+    def test_an_sb_campaign_without_metrics_stays_out_and_the_parameters_say_so(self):
+        analysis_input = _input(products=SB_AND_SD)
+        _, docs, _ = build_context(analysis_input.data)
+        params = docs[0]["content"]
+
+        assert "Brand legacy" not in [record["campaign"] for record in analysis_input.records]
+        assert "Por producto: SP 4, SB 1, SD 1." in params
+        assert "Campañas SB habilitadas del formato anterior sin métricas en la API: 1" in params
+        assert "SB y SD, 14 días con clicks o vistas" in params
+
+    def test_an_account_with_only_sp_reads_exactly_as_before(self):
+        only_sp = agent_call.build_agent_call(ANALYSIS_MODULE, _input().data)
+        no_products = agent_call.build_agent_call(ANALYSIS_MODULE, _input(products=_products()).data)
+        _, docs, _ = build_context(_input().data)
+
+        assert "producto" not in _input().records[0]
+        assert "Por producto" not in docs[0]["content"] and "SB y SD" not in docs[0]["content"]
+        assert only_sp.input_digest == no_products.input_digest
+
+    def test_the_chat_reads_the_product_of_each_campaign_the_analysis_cites(self):
+        from ai.agents.bulk_campaigns import chat_document
+
+        records = _input(products=SB_AND_SD).records
+        row_id = next(f"C{index + 1:02d}" for index, record in enumerate(records) if record["producto"] == "SD")
+        result = {"synthesis": {"situation": "x"}, "campaigns": [
+            {"row_id": row_id, "razon": "gastó sin vender", "causa": "SIN_CONVERSION", "veredicto": "ACTUAR",
+             "confianza": "media", "advertencia": None}]}
+
+        text = chat_document.reading_text(result, records)
+
+        assert f"{row_id} · Display views (SD · PAUSAR, gasto 22.0, sin ventas)" in text
+
+    def test_sb_or_sd_data_that_changes_changes_the_fingerprint(self):
+        before = agent_call.build_agent_call(ANALYSIS_MODULE, _input(products=SB_AND_SD).data)
+        after = agent_call.build_agent_call(ANALYSIS_MODULE, _input(products=_products(
+            ("701", "Brand video", "Sponsored Brands", 45.0, 4, 300.0, 1, 90.0))).data)
+
+        assert before.input_digest != after.input_digest
+
+
 # ── the spec and the runner over the campaign sync ────────────────────────────
 
 
@@ -193,6 +259,9 @@ class FakeRest:
         return True
 
     def rpc_csv(self, name, args, **_):
+        if name == "product_campaigns_between":
+            # SB / SD (migration 015): none unless a test gives them.
+            return b""
         assert name == "campaigns_between"
         self.campaign_reads.append((args["p_from"], args["p_to"]))
         buffer = io.StringIO()
@@ -230,12 +299,13 @@ def _profile(**overrides):
     return ProfileOption.from_row(row)
 
 
-def _campaign_job(fake, *, status="completed", job_id=441):
+def _campaign_job(fake, *, status="completed", job_id=441, kind="sp_campaigns",
+                  finished_at="2026-09-18T00:51:00+00:00"):
     fake.tables["integration_sync_jobs"].append({
-        "id": job_id, "integration_slug": "amazon_ads", "job_kind": "sp_campaigns", "trigger": "scheduled_daily",
+        "id": job_id, "integration_slug": "amazon_ads", "job_kind": kind, "trigger": "scheduled_daily",
         "external_account_id": "111", "status": status, "attempts": 0, "max_attempts": 6,
         "window_start": "2026-07-14", "window_end": "2026-09-16", "local_day": "2026-09-17",
-        "finished_at": "2026-09-18T00:51:00+00:00" if status == "completed" else None,
+        "finished_at": finished_at if status == "completed" else None,
         "created_at": "2026-09-18T00:43:00+00:00"})
 
 
@@ -283,12 +353,32 @@ class TestSpecAndPlanning:
 
     def test_the_spec_prepares_the_call_and_says_how_many_rows_travelled(self):
         fake = FakeRest([_rpc_campaign("1", "Alpha", 25.0, 0, 0.0), _rpc_campaign("2", "Beta", 10.0, 2, 100.0)])
-        spec = CampaignAnalysisSpec(CampaignProvider(fake))
+        spec = CampaignAnalysisSpec(CampaignProvider(fake), ProductProvider(fake))
 
         prepared = spec.prepare(None, _profile(), PARAMS, *WINDOW, "es")
 
         assert prepared.rows_written == 2 and list(prepared.record_columns) == ["records"]
         assert prepared.call.input_digest
+
+    def test_sb_or_sd_data_that_arrives_later_moves_the_view_so_the_analysis_is_planned_again(self):
+        fake = FakeRest()
+        _campaign_job(fake)
+        _campaign_job(fake, job_id=443, kind="sb_campaigns", finished_at="2026-09-18T02:10:00+00:00")
+
+        view = CampaignAnalysisSpec.data_view(_profile(), SyncJobStore(fake))
+
+        # The window stays the SP campaign sync's; its last success is SB's, later.
+        assert (view.data_from, view.data_through) == (date(2026, 7, 14), date(2026, 9, 16))
+        assert view.last_success_at == datetime(2026, 9, 18, 2, 10, tzinfo=timezone.utc)
+
+    def test_while_an_sb_or_sd_campaign_request_rewrites_days_the_planning_waits_too(self):
+        fake = FakeRest([_rpc_campaign("1", "Alpha", 25.0, 0, 0.0)])
+        _campaign_job(fake)
+        _campaign_job(fake, status="running", job_id=443, kind="sd_campaigns")
+
+        summary = _runner(fake, [_profile()]).plan()
+
+        assert summary.analyses_queued == 0 and fake.campaign_reads == []
 
 
 def test_the_search_term_runners_still_wait_on_the_search_term_sync():
@@ -306,3 +396,11 @@ def test_the_migration_lets_the_database_accept_this_module_and_validate_its_win
     assert "select p_module in ('str', 'bid_optimizer', 'bulk_campaigns')" in migration
     assert "if p_module = 'bulk_campaigns' then" in migration and "job_kind = 'sp_campaigns'" in migration
     assert "grant execute on function campaigns_between(text, date, date) to web_user, ai_worker" in migration
+
+
+def test_the_analysis_worker_may_read_the_sb_and_sd_campaigns_it_now_analyzes():
+    migration = __import__("pathlib").Path("deploy/db/migrations/015_targeting_sb_sd.sql").read_text(encoding="utf-8")
+
+    assert "grant select on ads_sb_sd_campaign, ads_sb_sd_campaign_daily to ai_worker;" in migration
+    assert ("grant execute on function sb_legacy_history_done(text), product_campaigns_between(text, date, date) "
+            "to ai_worker;") in migration
