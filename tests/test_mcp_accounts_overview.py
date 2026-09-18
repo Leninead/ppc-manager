@@ -1,6 +1,8 @@
 """accounts_overview: every synced account's totals in one call, so crossing accounts never takes thirty."""
 from __future__ import annotations
 
+import pytest
+
 from services.mcp_server.tools import amazon_ads
 
 
@@ -11,31 +13,61 @@ def _profile(profile_id, cliente, country, currency, data_through="2026-09-16", 
             "refreshed_on": "2026-09-17", "last_success_at": "2026-09-17T11:05:00+00:00", "last_error": ""}
 
 
-def _day(day, cost, sales, orders, clicks=20, impressions=500):
+def _campaign_job(profile_id):
+    """The campaign sync each account's window comes from."""
+    return {"id": int(profile_id), "integration_slug": "amazon_ads", "job_kind": "sp_campaigns",
+            "trigger": "scheduled_daily", "external_account_id": profile_id, "status": "completed",
+            "window_start": "2026-07-14", "window_end": "2026-09-16", "local_day": "2026-09-17",
+            "finished_at": "2026-09-17T11:05:00+00:00", "created_at": "2026-09-17T10:43:00+00:00"}
+
+
+def _day(day, cost, sales, orders, clicks=20, impressions=500, ad_product="SP"):
+    sp = ad_product == "SP"
+    return {"report_date": day, "ad_product": ad_product, "impressions": impressions, "clicks": clicks, "cost": cost,
+            "purchases_7d": orders if sp else 0, "sales_7d": sales if sp else 0, "purchases_14d": orders if sp else 0,
+            "sales_14d": sales if sp else 0, "purchases": 0 if sp else orders, "sales": 0 if sp else sales,
+            "purchases_clicks": 0 if sp else orders, "sales_clicks": 0 if sp else sales, "currency_code": "",
+            "campaign_names": None}
+
+
+def _term_day(day, cost, sales, orders, clicks=20, impressions=200):
+    """SP summed from the search terms: only the terms with clicks, so fewer impressions."""
     return {"report_date": day, "impressions": impressions, "clicks": clicks, "cost": cost, "purchases_7d": orders,
             "sales_7d": sales, "purchases_14d": orders, "sales_14d": sales, "currency_code": "", "campaign_names": None}
 
 
 class _FakeRest:
-    def __init__(self, profiles, days_by_profile):
+    def __init__(self, profiles, days_by_profile, synced=("1", "2", "3"), term_days_by_profile=None):
         self._profiles = profiles
         self._days = days_by_profile
+        self._term_days = term_days_by_profile or {}
+        self._synced = synced
         self.rpc_calls: list[dict] = []
+        self.rpc_names: list[str] = []
 
     def select(self, table, params):
+        if table == "integration_sync_jobs":
+            profile_id = params["external_account_id"].removeprefix("eq.")
+            return [_campaign_job(profile_id)] if profile_id in self._synced else []
         return self._profiles
 
     def rpc(self, name, args, *, timeout_s=8):
+        assert name in ("campaign_daily_totals", "ads_daily_totals")
         self.rpc_calls.append(args)
-        return self._days.get(args["p_profile_id"], [])
+        self.rpc_names.append(name)
+        days = self._days if name == "campaign_daily_totals" else self._term_days
+        return days.get(args["p_profile_id"], [])
 
 
-def _overview(**kwargs):
+def _overview(synced=("1", "2", "3"), **kwargs):
     rest = _FakeRest(
         [_profile("1", "wamery", "US", "USD"), _profile("2", "wamery", "MX", "MXN"),
          _profile("3", "harrick", "US", "USD"), _profile("4", "nueva", "US", "USD", data_through=None)],
-        {"1": [_day("2026-09-15", 30.0, 120.0, 4), _day("2026-09-16", 10.0, 0.0, 0)],
-         "2": [_day("2026-09-16", 500.0, 1000.0, 5)]})
+        {"1": [_day("2026-09-15", 30.0, 120.0, 4), _day("2026-09-16", 10.0, 0.0, 0),
+               _day("2026-09-16", 20.0, 80.0, 2, ad_product="SB")],
+         "2": [_day("2026-09-16", 500.0, 1000.0, 5)]},
+        synced=synced,
+        term_days_by_profile={"1": [_term_day("2026-09-15", 30.0, 120.0, 4), _term_day("2026-09-16", 10.0, 0.0, 0)]})
     return amazon_ads.accounts_overview(rest, **kwargs), rest
 
 
@@ -45,8 +77,9 @@ def test_every_synced_account_comes_back_with_its_totals_in_one_call():
     rows = {row["account"]: row for row in payload["rows"]}
     assert set(rows) == {"wamery · US", "wamery · MX", "harrick · US"}
     wamery = rows["wamery · US"]
+    # SB's day adds to SP's: the account's campaigns of every product.
     assert (wamery["spend"], wamery["sales"], wamery["orders"], wamery["acos"], wamery["currency"]) == (
-        40.0, 120.0, 4, 33.3, "USD")
+        60.0, 200.0, 6, 30.0, "USD")
     assert payload["total"] == 3 and len(rest.rpc_calls) == 3
 
 
@@ -70,5 +103,48 @@ def test_each_account_says_which_window_it_covers():
     assert row["window"] == {"from": "2026-09-10", "to": "2026-09-16", "days": 7}
 
 
-def test_the_overview_says_it_is_sponsored_products():
-    assert "Sponsored Products" in _overview()[0]["source"]
+def test_the_overview_says_it_covers_the_three_products():
+    assert "Sponsored Products, Brands y Display" in _overview()[0]["source"]
+
+
+def test_the_overview_tells_how_to_ask_for_sp_summed_from_the_search_terms():
+    payload, _ = _overview()
+
+    assert payload["data_source"] == "campaigns" and "source=search_terms" in payload["alternative"]
+
+
+def test_sp_totals_from_the_search_terms_are_still_there_on_request():
+    payload, rest = _overview(days=2, source="search_terms")
+
+    assert set(rest.rpc_names) == {"ads_daily_totals"}
+    rows = {row["account"]: row for row in payload["rows"]}
+    wamery = rows["wamery · US"]
+    # Only SP: SB's day is not in the search terms.
+    assert (wamery["spend"], wamery["sales"], wamery["orders"], wamery["impressions"], wamery["acos"]) == (
+        40.0, 120.0, 4, 400, 33.3)
+    assert payload["data_source"] == "search_terms" and "source=campaigns" in payload["alternative"]
+
+
+def test_the_search_term_overview_lists_the_accounts_with_search_terms_even_before_their_campaign_sync():
+    payload, _ = _overview(synced=("1",), source="search_terms")
+
+    assert {row["account"] for row in payload["rows"]} == {"wamery · US", "wamery · MX", "harrick · US"}
+    assert "without_campaigns" not in payload
+
+
+def test_accounts_whose_campaigns_are_not_synced_yet_are_named_instead_of_silently_missing():
+    """Out of the rows they would read as accounts that do not exist; their SP is in the search terms."""
+    payload, _ = _overview(synced=("1",))
+
+    assert [row["account"] for row in payload["rows"]] == ["wamery · US"]
+    assert payload["without_campaigns"] == ["harrick · US", "wamery · MX"]    # "nueva" has no data at all
+    assert "source=search_terms" in payload["without_campaigns_note"]
+
+
+def test_with_every_campaign_sync_done_no_account_is_named_as_missing():
+    assert "without_campaigns" not in _overview()[0]
+
+
+def test_an_unknown_source_is_refused():
+    with pytest.raises(ValueError, match="campaigns, search_terms"):
+        _overview(source="business_report")

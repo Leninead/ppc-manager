@@ -77,6 +77,20 @@ def test_the_frame_carries_every_column_m6_and_m8_read():
     assert list(frame.columns) == list(FRAME_COLUMNS)
 
 
+@pytest.mark.parametrize("code, label", [
+    ("LEGACY_FOR_SALES", "Dynamic bids - down only"),
+    ("AUTO_FOR_SALES", "Dynamic bids - up and down"),
+    ("MANUAL", "Fixed bids"),
+    ("RULE_BASED", "Rule-based bidding"),
+    # A code Amazon adds later shows as it came, never as empty.
+    ("SOME_NEW_STRATEGY", "SOME_NEW_STRATEGY"),
+])
+def test_the_bid_strategy_reads_as_campaign_manager_names_it(code, label):
+    frame, _ = _frame(_rpc_row(bidding_strategy=code))
+
+    assert frame.loc[0, "Campaign bid strategy"] == label
+
+
 def test_acos_is_a_fraction_because_m6_multiplies_it_by_one_hundred():
     frame, _ = _frame(_rpc_row(cost="25.0", sales_7d="100.0"))
 

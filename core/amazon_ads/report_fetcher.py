@@ -1,4 +1,7 @@
-"""Sponsored Products search term reports over Reporting v3: create, poll, download."""
+"""Reporting v3 reports of any ad product: create, poll, download. What differs travels in a ReportSpec.
+
+Plus Sponsored Brands' v2 campaign report, which answers the same three calls in its own way.
+"""
 from __future__ import annotations
 
 import logging
@@ -46,6 +49,11 @@ REPORT_COLUMNS = [
 ]
 DUPLICATE_STATUS = 425
 DOWNLOAD_TIMEOUT_SECONDS = 300
+SB_V2_REPORT_PATH = "/v2/hsa/campaigns/report"
+V2_REPORTS_PATH = "/v2/reports"
+# v2's statuses in the words the worker already reads from v3.
+_V2_STATUSES = {"SUCCESS": "COMPLETED", "IN_PROGRESS": "PROCESSING", "FAILURE": "FAILED"}
+_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,9 @@ class ReportSpec:
     group_by: tuple[str, ...]
     columns: tuple[str, ...]
     time_unit: str = "DAILY"
+    ad_product: str = "SPONSORED_PRODUCTS"
+    # How far back Amazon keeps this report's data. It differs by ad product: 60 days for Sponsored Brands.
+    retention_days: int = RETENTION_DAYS
 
 
 SEARCH_TERM_SPEC = ReportSpec(
@@ -165,6 +176,56 @@ class ReportFetcher:
             response.close()
 
 
+class SbV2ReportFetcher(ReportFetcher):
+    """Sponsored Brands' v2 campaign report, the only one with the campaigns v3 leaves out while in preview
+    (isMultiAdGroupsEnabled = false). One day per report; creativeType "all" brings video and the rest."""
+
+    def create(self, profile_id: str, start: date, end: date) -> str:
+        if start != end:
+            raise ValueError(f"a v2 report covers one day, not {start}..{end}")
+        response = self._api.request(
+            "POST",
+            SB_V2_REPORT_PATH,
+            profile_id=profile_id,
+            json_body={"reportDate": start.strftime("%Y%m%d"), "metrics": ",".join(self._spec.columns),
+                       "creativeType": "all"},
+            content_type="application/json",
+            expected=(200, 202),
+        )
+        report_id = str(_json_object(response).get("reportId") or "").strip()
+        if not report_id:
+            raise AdsApiError(f"create v2 report for profile {profile_id} returned no reportId",
+                              status=response.status_code, body=(response.text or "")[:2000])
+        log.info("amazon_ads: profile %s %s v2 report %s created", profile_id, start, report_id)
+        return report_id
+
+    def status(self, profile_id: str, report_id: str) -> ReportStatus:
+        response = self._api.request("GET", f"{V2_REPORTS_PATH}/{report_id}", profile_id=profile_id)
+        body = _json_object(response)
+        raw_status = str(body.get("status") or "").strip().upper()
+        if not raw_status:
+            raise AdsApiError(f"v2 report {report_id} status response has no status",
+                              status=response.status_code, body=(response.text or "")[:2000])
+        status = _V2_STATUSES.get(raw_status, raw_status)
+        file_size = body.get("fileSize")
+        return ReportStatus(
+            report_id=report_id,
+            status=status,
+            url=self._file_url(profile_id, report_id) if status == "COMPLETED" else "",
+            failure_reason=str(body.get("statusDetails") or "") if status == "FAILED" else "",
+            file_size=int(file_size) if isinstance(file_size, (int, float)) else None,
+        )
+
+    def _file_url(self, profile_id: str, report_id: str) -> str:
+        # The download answers with a redirect to a presigned file, which `download` reads without credentials.
+        response = self._api.request("GET", f"{V2_REPORTS_PATH}/{report_id}/download", profile_id=profile_id,
+                                     expected=_REDIRECT_STATUSES, allow_redirects=False)
+        location = str((response.headers or {}).get("Location") or "")
+        if not location:
+            raise AdsApiError(f"v2 report {report_id} download gave no location", status=response.status_code)
+        return location
+
+
 def parse_duplicate_report_id(body: str) -> str | None:
     """The in-flight report id from a 425 body; the format is community-observed, so any UUID is accepted."""
     if not body:
@@ -181,7 +242,7 @@ def _create_body(spec: ReportSpec, start: date, end: date) -> dict:
         "startDate": start.isoformat(),
         "endDate": end.isoformat(),
         "configuration": {
-            "adProduct": "SPONSORED_PRODUCTS",
+            "adProduct": spec.ad_product,
             "reportTypeId": spec.report_type_id,
             "groupBy": list(spec.group_by),
             "columns": list(spec.columns),

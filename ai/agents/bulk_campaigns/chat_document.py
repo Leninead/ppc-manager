@@ -21,7 +21,9 @@ def reading_text(result: dict, records: list) -> str:
 def _campaign_line(item: dict, record: dict) -> str:
     warning = f" · advertencia: {item['advertencia']}" if item.get("advertencia") else ""
     acos = f"ACoS {record['acos']}%" if record.get("acos") is not None else "sin ventas"
+    # Only an account with SB or SD carries the product; an SP-only one reads as it always did.
+    product = f"{record['producto']} · " if record.get("producto") else ""
     return (f"{item['row_id']} · {str(record.get('campaign', '')).strip()} "
-            f"({record.get('diagnostico', '')}, gasto {record.get('spend', 0)}, {acos}) → "
+            f"({product}{record.get('diagnostico', '')}, gasto {record.get('spend', 0)}, {acos}) → "
             f"{item.get('veredicto', '')} · {item.get('causa', '')} · {item.get('confianza', '')}: "
             f"{item.get('razon', '')}{warning}")

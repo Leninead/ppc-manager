@@ -24,7 +24,24 @@ from core.amazon_ads.campaign_analyzer import (
     missing_performance_columns,
     provisional_days,
 )
-from core.amazon_ads.campaign_provider import BID_STRATEGY, BUDGET_AMOUNT, CAMPAIGN_ID, CAMPAIGN_NAME, PORTFOLIO_NAME
+from core.amazon_ads.campaign_provider import (
+    BID_STRATEGY,
+    BUDGET_AMOUNT,
+    CAMPAIGN_ID,
+    CAMPAIGN_NAME,
+    PORTFOLIO_NAME,
+    SPONSORED_PRODUCTS,
+    TYPE,
+)
+from core.amazon_ads.product_provider import (
+    PRODUCT_CODES,
+    PRODUCT_TYPES,
+    PURCHASES_CLICKS,
+    SALES_CLICKS,
+    ProductCampaigns,
+    campaigns_to_analyze,
+    enabled_without_metrics,
+)
 
 __all__ = ["ANALYSIS_MODULE", "CANONICAL_LANG", "BulkCampaignsInput", "build_analysis_input",
            "campaign_row_labels", "canonical_analysis_window"]
@@ -51,16 +68,20 @@ class BulkCampaignsInput:
 def build_analysis_input(frame: pd.DataFrame, *, signal_inputs: pd.DataFrame | None,
                          params: CampaignAnalyzerParams, account_label: str, period_label: str,
                          currency_code: str, attribution_days: int, window_start: date, window_end: date,
-                         lang: str = CANONICAL_LANG) -> BulkCampaignsInput:
-    """The payload the agent reads, from the Campaign Manager frame and its signal inputs."""
+                         lang: str = CANONICAL_LANG, products: ProductCampaigns | None = None) -> BulkCampaignsInput:
+    """The payload the agent reads, from the SP Campaign Manager frame, its signal inputs and the SB / SD
+    campaigns: the three products, as the Campaign Analyzer diagnoses them under «Todos»."""
+    frame = campaigns_to_analyze(frame, products)
     if frame.empty or missing_performance_columns(frame):
         return BulkCampaignsInput(None, [])
     analyzer, campaigns = analyze(frame, signal_inputs, params, window_start=window_start, window_end=window_end)
     if campaigns.empty:
         return BulkCampaignsInput(None, [])
     has_signals = signal_inputs is not None
+    # An account with only SP reads as it always did: no product column, nothing about attribution by product.
+    with_products = TYPE in campaigns.columns and bool((campaigns[TYPE] != SPONSORED_PRODUCTS).any())
     records = campaign_records(campaigns, has_impressions=analyzer.has_impressions, has_signals=has_signals,
-                               keep=MAX_CAMPAIGNS)
+                               keep=MAX_CAMPAIGNS, with_products=with_products)
     counts = campaigns[DIAGNOSIS_COLUMN].map(diagnosis_name).value_counts()
     return BulkCampaignsInput(
         CampaignData(
@@ -79,12 +100,15 @@ def build_analysis_input(frame: pd.DataFrame, *, signal_inputs: pd.DataFrame | N
             has_signals=has_signals,
             campaigns=records,
             idioma=lang,
+            products=_product_counts(campaigns) if with_products else {},
+            without_metrics=enabled_without_metrics(products),
         ),
         records,
     )
 
 
-def campaign_records(campaigns: pd.DataFrame, *, has_impressions: bool, has_signals: bool, keep: int) -> list[dict]:
+def campaign_records(campaigns: pd.DataFrame, *, has_impressions: bool, has_signals: bool, keep: int,
+                     with_products: bool = False) -> list[dict]:
     """The campaigns the agent reads, in native types: flagged first (a diagnosis other than OK or any
     signal), then by spend, with name and id breaking ties so the order never depends on the database's."""
     flagged = (campaigns[DIAGNOSIS_COLUMN] != OK) | (campaigns[SIGNALS_COLUMN] != "")
@@ -93,7 +117,7 @@ def campaign_records(campaigns: pd.DataFrame, *, has_impressions: bool, has_sign
         _name=campaigns[CAMPAIGN_NAME].astype(str) if CAMPAIGN_NAME in campaigns.columns else "",
         _id=campaigns[CAMPAIGN_ID].astype(str) if CAMPAIGN_ID in campaigns.columns else "",
     ).sort_values(["_unflagged", "_spend", "_name", "_id"], ascending=[True, False, True, True], kind="mergesort")
-    return [_record(row, has_impressions, has_signals) for _, row in ordered.head(keep).iterrows()]
+    return [_record(row, has_impressions, has_signals, with_products) for _, row in ordered.head(keep).iterrows()]
 
 
 def campaign_row_labels(records) -> dict:
@@ -102,11 +126,19 @@ def campaign_row_labels(records) -> dict:
             for i, record in enumerate(records or [])}
 
 
-def _record(row, has_impressions: bool, has_signals: bool) -> dict:
+def _product_counts(campaigns: pd.DataFrame) -> dict:
+    """Enabled campaigns per product, in the order M6 lists the products."""
+    counts = campaigns[TYPE].map(PRODUCT_CODES).value_counts()
+    return {code: int(counts[code]) for code in PRODUCT_TYPES if counts.get(code, 0)}
+
+
+def _record(row, has_impressions: bool, has_signals: bool, with_products: bool = False) -> dict:
     spend, sales = round(float(row["_spend"]), 2), round(float(row["_sales"]), 2)
     orders, clicks = int(row["_orders"]), int(row["_clicks"])
-    record = {
-        "campaign": _text(row.get(CAMPAIGN_NAME)),
+    record = {"campaign": _text(row.get(CAMPAIGN_NAME))}
+    if with_products:
+        record["producto"] = PRODUCT_CODES.get(_text(row.get(TYPE)), "SP")
+    record |= {
         "portfolio": _text(row.get(PORTFOLIO_NAME)),
         "estrategia": _text(row.get(BID_STRATEGY)),
         "presupuesto": _rounded(row.get(BUDGET_AMOUNT), 2),
@@ -120,6 +152,10 @@ def _record(row, has_impressions: bool, has_signals: bool) -> dict:
         "acos": round(float(row["_acos"]), 1) if sales > 0 else None,
         "cpc": round(spend / clicks, 2) if clicks > 0 else None,
     }
+    if with_products:
+        # SB and SD count a purchase after a view too; these are after a click only, as SP counts them.
+        record["sales_clicks"] = _rounded(row.get(SALES_CLICKS), 2)
+        record["orders_clicks"] = _whole(row.get(PURCHASES_CLICKS))
     if has_impressions:
         impressions = int(row["_impr"])
         record["impressions"] = impressions

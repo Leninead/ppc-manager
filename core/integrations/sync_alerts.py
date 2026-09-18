@@ -47,6 +47,11 @@ _STUCK_PHASES = ("", "requesting", "saving")
 _CLOSED_WITHOUT_DATA = ("failed", "cancelled")
 _KIND_LABELS = {"sp_search_terms": "términos de búsqueda", "portfolio_names": "nombres de portfolios",
                 "sp_campaigns": "métricas de campañas", "campaign_entities": "campañas",
+                "sp_targets": "keywords y targets SP", "sb_entities": "campañas y targets SB",
+                "sd_entities": "campañas y targets SD", "sp_targeting": "métricas de targeting SP",
+                "sb_campaigns": "métricas de campañas SB", "sb_targeting": "métricas de targeting SB",
+                "sd_campaigns": "métricas de campañas SD", "sd_targeting": "métricas de targeting SD",
+                "sb_legacy_campaigns": "métricas de campañas SB del formato anterior",
                 "ai_str_analysis": "análisis IA de términos de búsqueda",
                 "ai_bulk_campaigns_analysis": "análisis IA de campañas"}
 ANALYSIS_WORKER_NAME = "ai_analysis"

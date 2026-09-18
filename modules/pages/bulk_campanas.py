@@ -20,6 +20,16 @@ from core.amazon_ads.campaign_analyzer import (
     with_diagnosis,
     with_signals,
 )
+from core.amazon_ads.campaign_provider import CAMPAIGN_ID, CAMPAIGN_NAME, TYPE
+from core.amazon_ads.product_provider import (
+    PRODUCT_TYPES,
+    TARGET_BID,
+    TARGET_KIND,
+    TARGET_MATCH,
+    TARGET_PRODUCT,
+    TARGET_TEXT,
+    all_campaigns,
+)
 from core.currency_format import currency_symbol, money
 from core.integrations.store import StoreError
 from modules.pages.campaign_source import render_campaign_source
@@ -40,6 +50,7 @@ _AI_LABELS = {
     "no_performance": "El análisis IA necesita las métricas de las campañas: gasto, ventas y órdenes.",
     "file_source": ("El análisis IA guardado corre sobre las campañas sincronizadas de Amazon Ads. Con un archivo "
                     "subido a mano no hay dónde guardarlo: elegí una cuenta conectada."),
+    "all_products": "Cubre Sponsored Products, Brands y Display, sin importar el producto elegido arriba.",
 }
 _AI_BADGE_COLORS = {
     "ACTUAR": "background-color:#EAF3DE;color:#173404",
@@ -58,6 +69,18 @@ _CAUSE_LABELS = {
     "RENTABLE": "Rentable",
     "POCA_MUESTRA": "Poca muestra",
 }
+_ALL_PRODUCTS = "Todos"
+_PRODUCT_HELP = ("Sponsored Brands y Display cuentan una compra después de un click o de una vista, a 14 días, como "
+                 "Campaign Manager; Sponsored Products sólo después de un click. Las columnas «(clicks)» muestran "
+                 "lo comparable entre productos.")
+_WITHOUT_METRICS_NOTE = ("{n} campañas de Sponsored Brands del formato anterior no tienen métricas en la API de "
+                         "Amazon: no se diagnostican ni cuentan en los totales.")
+_WITHOUT_METRICS_NOTE_ONE = ("1 campaña de Sponsored Brands del formato anterior no tiene métricas en la API de "
+                             "Amazon: no se diagnostica ni cuenta en los totales.")
+_TARGETS_WAITING = "Los targets de esta cuenta todavía no se sincronizaron: Target Graduation aparece cuando lleguen."
+_PRODUCT_TARGETS_WAITING = "Todavía no hay targets de {product} para evaluar en el período."
+_NO_IDLE_TARGETS = "Todos los targets habilitados ({n}), en campañas habilitadas, tuvieron impresiones en el período."
+
 _SIGNALS_HELP = (
     f"Marcas que no cambian el diagnóstico. Limitada por presupuesto: dentro del target y gastó al menos el 95% "
     f"de su presupuesto del día en {BUDGET_CAPPED_MIN_DAYS} días o más. Nueva: empezó hace menos de "
@@ -116,7 +139,8 @@ def render():
 
     campaign_input = render_campaign_source("bulk")
     if campaign_input is not None:
-        df_bulk_raw = campaign_input.frame
+        df_bulk_raw, product_choice = _campaigns_to_show(campaign_input)
+        without_metrics = campaign_input.products.without_metrics if campaign_input.products is not None else frozenset()
         currency = campaign_input.currency_code
         st.success(f"✅ {len(df_bulk_raw)} filas cargadas")
 
@@ -154,7 +178,12 @@ def render():
                 )
             else:
                 # ── Campañas habilitadas con sus métricas (reglas en core/amazon_ads/campaign_analyzer.py) ──
-                analyzer = analyzer_frame(df_bulk_raw)
+                # Las SB del formato anterior no tienen métricas en la API: afuera, nunca como fantasmas.
+                analyzed = df_bulk_raw
+                if without_metrics and CAMPAIGN_ID in df_bulk_raw.columns:
+                    analyzed = df_bulk_raw[~df_bulk_raw[CAMPAIGN_ID].isin(without_metrics)]
+                    _render_without_metrics(df_bulk_raw[df_bulk_raw[CAMPAIGN_ID].isin(without_metrics)])
+                analyzer = analyzer_frame(analyzed)
 
                 # ── Inputs del AM ─────────────────────────────────────────
                 # Abren con los parámetros guardados de la cuenta, que son con los que el worker genera su análisis.
@@ -206,16 +235,21 @@ def render():
                         axis=1
                     )
 
-                # ── Target Graduation (si hay columna Targeting) ─────────
-                tgt_col = next((c for c in df_ca.columns if 'targeting' in c.lower() and 'type' not in c.lower()), None)
-                has_tgt_graduation = False
-                df_tgt_dead = pd.DataFrame()
-                if tgt_col and _has_impr:
-                    # Targets con 0 impresiones = candidatos a pausar
-                    tgt_rows = df_ca[df_ca[tgt_col].notna() & (df_ca[tgt_col].astype(str).str.strip() != "")]
-                    if not tgt_rows.empty:
-                        df_tgt_dead = tgt_rows[tgt_rows['_impr'] == 0].copy()
-                        has_tgt_graduation = len(df_tgt_dead) > 0
+                # ── Target Graduation: targets con 0 impresiones = candidatos a pausar ─────────
+                # Con Amazon Ads salen de las listas de keywords y targets; con archivo, de su columna Targeting.
+                tgt_display, tgt_caption = None, ""
+                if source is not None:
+                    tgt_display, tgt_caption = _api_target_graduation(campaign_input.idle_targets, product_choice)
+                else:
+                    tgt_col = next((c for c in df_ca.columns if 'targeting' in c.lower() and 'type' not in c.lower()), None)
+                    if tgt_col and _has_impr:
+                        tgt_rows = df_ca[df_ca[tgt_col].notna() & (df_ca[tgt_col].astype(str).str.strip() != "")]
+                        df_tgt_dead = tgt_rows[tgt_rows['_impr'] == 0]
+                        if len(df_tgt_dead):
+                            tgt_show_cols = [c for c in [camp_col, tgt_col, '_spend', '_clicks'] if c in df_tgt_dead.columns]
+                            tgt_display = df_tgt_dead[tgt_show_cols].rename(columns={'_spend': 'Spend', '_clicks': 'Clicks'})
+                            tgt_caption = f"**{len(df_tgt_dead)} targets** con 0 impresiones en el período completo. Candidatos a pausar."
+                has_tgt_graduation = tgt_display is not None and not tgt_display.empty
 
                 # ── KPIs globales ─────────────────────────────────────────
                 total_spend   = df_ca['_spend'].sum()
@@ -275,14 +309,11 @@ def render():
                 # ── Target Graduation ─────────────────────────────────────
                 if has_tgt_graduation:
                     st.markdown("#### Target Graduation")
-                    st.caption(f"**{len(df_tgt_dead)} targets** con 0 impresiones en el período completo. Candidatos a pausar.")
-                    with st.expander(f"Ver {len(df_tgt_dead)} targets sin impresiones"):
-                        tgt_show_cols = [camp_col, tgt_col, '_spend', '_clicks']
-                        tgt_show_cols = [c for c in tgt_show_cols if c in df_tgt_dead.columns]
-                        st.dataframe(
-                            df_tgt_dead[tgt_show_cols].rename(columns={'_spend': 'Spend', '_clicks': 'Clicks'}),
-                            use_container_width=True, hide_index=True
-                        )
+                    st.caption(tgt_caption)
+                    with st.expander(f"Ver {len(tgt_display)} targets sin impresiones"):
+                        st.dataframe(tgt_display, use_container_width=True, hide_index=True)
+                elif source is not None and tgt_caption:
+                    st.caption(tgt_caption)
 
                 st.markdown("---")
 
@@ -347,9 +378,8 @@ def render():
                 buf_ca = io.BytesIO()
                 with pd.ExcelWriter(buf_ca, engine="openpyxl") as writer:
                     df_tabla.to_excel(writer, sheet_name="Diagnóstico", index=False)
-                    if has_tgt_graduation and not df_tgt_dead.empty:
-                        tgt_export = df_tgt_dead[tgt_show_cols].rename(columns={'_spend': 'Spend', '_clicks': 'Clicks'})
-                        tgt_export.to_excel(writer, sheet_name="Targets 0 Impr", index=False)
+                    if has_tgt_graduation:
+                        tgt_display.to_excel(writer, sheet_name="Targets 0 Impr", index=False)
                 st.download_button(
                     label=f"⬇️ Exportar diagnóstico ({len(df_tabla)} campañas)",
                     data=buf_ca.getvalue(),
@@ -362,7 +392,52 @@ def render():
         # TAB 3 — Análisis IA (guardado: lo genera el worker, la pantalla lo busca por huella)
         # ══════════════════════════════════════════════════════════════════
         with bulk_tab3:
-            _render_ai_tab(source, analysis_params)
+            _render_ai_tab(source, analysis_params, campaign_input.products)
+
+
+def _campaigns_to_show(campaign_input) -> tuple[pd.DataFrame, str]:
+    """(las campañas a mostrar, el producto elegido). Con SB o SD sincronizadas, un filtro por producto;
+    el análisis IA cubre los tres productos sin importar el filtro."""
+    products = campaign_input.products
+    if products is None or products.frame.empty:
+        return campaign_input.frame, _ALL_PRODUCTS
+    combined = all_campaigns(campaign_input.frame, products)
+    present = [name for name in PRODUCT_TYPES.values() if (combined[TYPE] == name).any()]
+    choice = st.segmented_control("Producto", options=[_ALL_PRODUCTS, *present], default=_ALL_PRODUCTS,
+                                  key="bulk_product", help=_PRODUCT_HELP) or _ALL_PRODUCTS
+    if choice == _ALL_PRODUCTS:
+        return combined, choice
+    return combined[combined[TYPE] == choice].reset_index(drop=True), choice
+
+
+def _render_without_metrics(campaigns: pd.DataFrame) -> None:
+    if campaigns.empty:
+        return
+    count = len(campaigns)
+    st.caption(_WITHOUT_METRICS_NOTE_ONE if count == 1 else _WITHOUT_METRICS_NOTE.format(n=count))
+    with st.expander("Ver 1 campaña sin métricas en la API" if count == 1
+                     else f"Ver {count} campañas sin métricas en la API"):
+        st.dataframe(campaigns[[CAMPAIGN_NAME, "State"]], use_container_width=True, hide_index=True)
+
+
+def _api_target_graduation(idle_targets, product_choice: str) -> tuple[pd.DataFrame | None, str]:
+    """(tabla, leyenda) de los targets habilitados sin impresiones, para el producto elegido."""
+    if idle_targets is None or not idle_targets.considered:
+        return None, _TARGETS_WAITING
+    frame = idle_targets.frame
+    considered = sum(idle_targets.considered.values())
+    if product_choice != _ALL_PRODUCTS:
+        short = next(key for key, name in PRODUCT_TYPES.items() if name == product_choice)
+        frame = frame[frame[TARGET_PRODUCT] == short]
+        considered = idle_targets.considered.get(short, 0)
+        if considered == 0:
+            return None, _PRODUCT_TARGETS_WAITING.format(product=product_choice)
+    display = frame[[TARGET_PRODUCT, CAMPAIGN_NAME, TARGET_TEXT, TARGET_KIND, TARGET_MATCH, TARGET_BID]]
+    if display.empty:
+        return None, _NO_IDLE_TARGETS.format(n=considered)
+    caption = (f"**{len(display)} de {considered} targets** habilitados, en campañas habilitadas, "
+               "sin una impresión en el período. Candidatos a pausar o a subir la puja.")
+    return display.reset_index(drop=True), caption
 
 
 def _account_params(source) -> CampaignAnalyzerParams:
@@ -380,11 +455,13 @@ def _account_params(source) -> CampaignAnalyzerParams:
     return CampaignAnalyzerParams.from_dict(settings.params) if settings else CampaignAnalyzerParams.defaults()
 
 
-def _render_ai_tab(source, params) -> None:
+def _render_ai_tab(source, params, products=None) -> None:
     from ai.config import AI_ENABLED
 
     st.subheader(_AI_LABELS["title"])
     st.caption(_AI_LABELS["caption"])
+    if products is not None and not products.frame.empty:
+        st.caption(_AI_LABELS["all_products"])
     if not AI_ENABLED:
         st.caption(_AI_LABELS["disabled"])
     elif source is None:
@@ -392,10 +469,10 @@ def _render_ai_tab(source, params) -> None:
     elif params is None:
         st.info(_AI_LABELS["no_performance"])
     else:
-        _render_stored_analysis(source, params)
+        _render_stored_analysis(source, params, products)
 
 
-def _render_stored_analysis(source, params) -> None:
+def _render_stored_analysis(source, params, products=None) -> None:
     """Busca el análisis de exactamente estas campañas y parámetros; si no existe, ofrece pedirlo."""
     from ai.agent_call import build_agent_call
     from ai.agents.bulk_campaigns import chat_document
@@ -409,7 +486,8 @@ def _render_stored_analysis(source, params) -> None:
     analysis_input = build_analysis_input(
         source.frame, signal_inputs=source.signal_inputs, params=params, account_label=source.label,
         period_label=date_range_label(source.window_start, source.window_end), currency_code=source.currency_code,
-        attribution_days=source.attribution_days, window_start=source.window_start, window_end=source.window_end)
+        attribution_days=source.attribution_days, window_start=source.window_start, window_end=source.window_end,
+        products=products)
     if analysis_input.data is None:
         st.info(_AI_LABELS["no_rows"])
         return

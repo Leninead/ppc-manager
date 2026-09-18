@@ -17,8 +17,9 @@ import requests
 import streamlit as st
 
 from core.amazon_ads.campaign_provider import CampaignProvider, CampaignSource, campaign_sync_view
+from core.amazon_ads.product_provider import IdleTargets, ProductCampaigns, ProductProvider
 from core.amazon_ads.report_provider import ProfileOption, ReportReadError
-from core.amazon_ads.sync_planner import CAMPAIGNS_KIND, PROFILE_NEEDS_REAUTH
+from core.amazon_ads.sync_planner import CAMPAIGNS_KIND, PRODUCT_CAMPAIGN_KINDS, PROFILE_NEEDS_REAUTH
 from core.date_labels import date_range_label
 from core.integrations.store import _error_message
 from core.integrations.sync_jobs import SyncJob, SyncJobStore
@@ -49,6 +50,9 @@ log = logging.getLogger(__name__)
 
 UPLOAD_LABEL = "Sube tu Bulk o Campaign CSV (.xlsx o .csv)"
 CAMPAIGNS_TTL_SECONDS = 60 * 60
+# SB, SD and targets sync on their own schedule; a short TTL picks up a finished sync without a key for each.
+PRODUCTS_TTL_SECONDS = 15 * 60
+PRODUCTS_UNREADABLE_NOTE = "No se pudieron leer las campañas SB y SD ni los targets; se muestra sólo Sponsored Products."
 NO_CAMPAIGN_DATA_MESSAGE = (
     "Todavía no hay métricas de campañas de esta cuenta: se sincronizan una vez por día. "
     "Mientras tanto podés subir el Campaign CSV a mano."
@@ -69,6 +73,10 @@ class CampaignInput:
     currency_code: str
     # The synced read behind `frame` (account, window, signal inputs); None for a file uploaded by hand.
     source: CampaignSource | None = None
+    # Sponsored Brands and Display campaigns, and the targets without impressions ("Target Graduation").
+    # Apart from `frame`, which stays Sponsored Products: its signal inputs and sync are SP's own.
+    products: ProductCampaigns | None = None
+    idle_targets: IdleTargets | None = None
 
 
 def render_campaign_source(key_prefix: str) -> CampaignInput | None:
@@ -88,6 +96,17 @@ def campaign_pill(view: ProfileOption, latest_job: SyncJob | None, now: datetime
     if view.data_through is None and latest_job is None and view.status != PROFILE_NEEDS_REAUTH:
         return "idle", "Sin datos todavía"
     return freshness_pill(view, latest_job, now)
+
+
+def campaign_count_label(sp_count: int, products: ProductCampaigns | None) -> str:
+    """"264 campañas", or with SB / SD "264 campañas · SB 385 · SD 131"."""
+    label = f"{count_label(sp_count)} campañas"
+    if products is None or products.frame.empty:
+        return label
+    counts = products.frame["Type"].value_counts()
+    parts = [f"{short} {count_label(int(counts[name]))}" for short, name in
+             (("SB", "Sponsored Brands"), ("SD", "Sponsored Display")) if counts.get(name, 0)]
+    return " · ".join([label, *parts])
 
 
 def read_campaign_file(file_bytes: bytes, file_name: str) -> pd.DataFrame:
@@ -148,11 +167,23 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption]) -> Campai
             _render_upload_action(key_prefix)
             return None
 
-        _render_info_row(key_prefix, source, view, now)
-        if source.frame.empty:
+        products, idle_targets = _load_extras(profile_id, start, end)
+        _render_info_row(key_prefix, source, view, now, products)
+        if source.frame.empty and (products is None or products.frame.empty):
             st.info(NO_CAMPAIGNS_MESSAGE)
             return None
-    return CampaignInput(frame=source.frame, currency_code=source.currency_code, source=source)
+    return CampaignInput(frame=source.frame, currency_code=source.currency_code, source=source,
+                         products=products, idle_targets=idle_targets)
+
+
+def _load_extras(profile_id: str, start: date, end: date) -> tuple[ProductCampaigns | None, IdleTargets | None]:
+    """SB / SD campaigns and idle targets; a failure here leaves the Sponsored Products page intact."""
+    try:
+        return _load_products(profile_id, start, end, _load_products_sync(profile_id))
+    except ReportReadError as exc:
+        log.warning("campaign extras unreadable for profile %s: %s", profile_id, exc)
+        st.caption(PRODUCTS_UNREADABLE_NOTE)
+        return None, None
 
 
 def _render_header(option: ProfileOption, sync_unreadable: bool, polling: bool) -> None:
@@ -184,12 +215,13 @@ def _render_without_data(view: ProfileOption, latest_job: SyncJob | None, now: d
         st.info(FIRST_LOAD_MESSAGE)
 
 
-def _render_info_row(key_prefix: str, source: CampaignSource, view: ProfileOption, now: datetime) -> None:
+def _render_info_row(key_prefix: str, source: CampaignSource, view: ProfileOption, now: datetime,
+                     products: ProductCampaigns | None = None) -> None:
     info_col, action_col = st.columns([4.2, 3.8], vertical_alignment="center")
     info_col.markdown(search_term_source._muted_line_html([
         html.escape(date_range_label(source.window_start, source.window_end)),
         palette.marketplace_chip_html(html.escape(source.currency_code)),
-        f"{count_label(len(source.frame))} campañas",
+        html.escape(campaign_count_label(len(source.frame), products)),
         html.escape(data_through_note(view.data_through, profile_today(view, now))),
     ]), unsafe_allow_html=True)
     with action_col:
@@ -246,6 +278,31 @@ def _load_campaign_sync(profile_id: str) -> tuple[SyncJob | None, SyncJob | None
                 store.latest_completed_for_profile(profile_id, CAMPAIGNS_KIND))
     except (requests.RequestException, ValueError) as exc:
         raise ReportReadError(_error_message(exc, "leer el estado de las campañas de Amazon Ads")) from exc
+
+
+@st.cache_data(ttl=STATUS_TTL_SECONDS, show_spinner=False)
+def _load_products_sync(profile_id: str) -> datetime | None:
+    """When the last SB or SD campaign request finished, None if none did."""
+    rest = search_term_source._open_rest()
+    if rest is None:
+        raise ReportReadError(NO_DATABASE_MESSAGE)
+    try:
+        job = SyncJobStore(rest).latest_completed_of_kinds(profile_id, PRODUCT_CAMPAIGN_KINDS)
+    except (requests.RequestException, ValueError) as exc:
+        raise ReportReadError(_error_message(exc, "leer el estado de las campañas SB y SD")) from exc
+    return job.finished_at if job is not None else None
+
+
+# synced_at is part of the key, as with SP: the analysis IA looks its payload up by what these campaigns say, so
+# a finished SB or SD request has to reach the page as soon as it reaches the worker.
+@st.cache_data(ttl=PRODUCTS_TTL_SECONDS, max_entries=16, show_spinner="Cargando campañas SB y SD, y targets…")
+def _load_products(profile_id: str, start: date, end: date,
+                   synced_at: datetime | None) -> tuple[ProductCampaigns | None, IdleTargets | None]:
+    rest = search_term_source._open_rest()
+    if rest is None:
+        raise ReportReadError(NO_DATABASE_MESSAGE)
+    provider = ProductProvider(rest)
+    return provider.campaigns(profile_id, start, end), provider.idle_targets(profile_id, start, end)
 
 
 @st.cache_data(ttl=CAMPAIGNS_TTL_SECONDS, max_entries=16, show_spinner="Cargando campañas de Amazon Ads…")

@@ -9,12 +9,14 @@ import pytest
 import requests
 
 from core.amazon_ads.api_client import AdsApiClient, AdsApiError
+from core.amazon_ads.product_rows import SB_LEGACY_CAMPAIGN_SPEC
 from core.amazon_ads.report_fetcher import (
     CREATE_CONTENT_TYPE,
     REPORT_COLUMNS,
     DuplicateWithoutId,
     ReportFailed,
     ReportFetcher,
+    SbV2ReportFetcher,
     parse_duplicate_report_id,
 )
 
@@ -117,6 +119,22 @@ def test_the_spec_decides_the_report_so_one_fetcher_serves_the_campaign_grain_to
     assert configuration["groupBy"] == ["campaign"]
     assert configuration["timeUnit"] == "DAILY"
     assert "campaignId" in configuration["columns"] and "date" in configuration["columns"]
+
+
+def test_the_spec_names_the_ad_product_so_sponsored_brands_and_display_share_the_fetcher():
+    from core.amazon_ads.report_fetcher import ReportSpec
+
+    spec = ReportSpec(report_type_id="sbCampaigns", group_by=("campaign",), columns=("date", "campaignId"),
+                      ad_product="SPONSORED_BRANDS", retention_days=60)
+    api_session = _FakeApiSession([_FakeResponse(200, {"reportId": "r-789", "status": "PENDING"})])
+    api = AdsApiClient(region="NA", client_id="client-abc", token_source=lambda force: "token",
+                       session=api_session, sleep=lambda seconds: None)
+
+    ReportFetcher(api, session=_FakeDownloadSession(None), spec=spec).create("555", date(2026, 9, 8),
+                                                                              date(2026, 9, 14))
+
+    configuration = api_session.calls[0]["json"]["configuration"]
+    assert (configuration["adProduct"], configuration["reportTypeId"]) == ("SPONSORED_BRANDS", "sbCampaigns")
 
 
 def test_report_columns_carry_both_attribution_windows_and_ids():
@@ -276,3 +294,79 @@ def test_download_errors_never_expose_the_presigned_url(download_outcome):
     assert "secret-signature" not in str(raised.value)
     assert raised.value.__cause__ is None
     assert raised.value.__suppress_context__ is True
+
+
+# ── SB's v2 campaign report ──────────────────────────────────────────────────────
+
+
+class _FakeV2Session:
+    """Answers the v2 calls in order and records whether each one asked not to follow a redirect."""
+
+    def __init__(self, outcomes):
+        self._outcomes = list(outcomes)
+        self.calls = []
+
+    def request(self, method, url, headers=None, json=None, timeout=None, **kwargs):
+        self.calls.append({"method": method, "url": url, "headers": dict(headers or {}), "json": json, **kwargs})
+        return self._outcomes.pop(0)
+
+
+def _v2_fetcher(api_outcomes=()):
+    session = _FakeV2Session(api_outcomes)
+    api = AdsApiClient(region="NA", client_id="client-abc", token_source=lambda force: "token", session=session,
+                       sleep=lambda seconds: None)
+    return SbV2ReportFetcher(api, session=_FakeDownloadSession(None), spec=SB_LEGACY_CAMPAIGN_SPEC), session
+
+
+def _redirect(location: str) -> _FakeResponse:
+    response = _FakeResponse(307, {})
+    response.headers["Location"] = location
+    return response
+
+
+def test_a_v2_report_asks_one_day_of_every_creative_type():
+    fetcher, session = _v2_fetcher([_FakeResponse(202, {"reportId": "amzn1.clicksAPI.v1.p1.X", "status": "IN_PROGRESS"})])
+
+    assert fetcher.create("555", date(2026, 9, 16), date(2026, 9, 16)) == "amzn1.clicksAPI.v1.p1.X"
+
+    [call] = session.calls
+    assert (call["method"], call["url"]) == ("POST", "https://advertising-api.amazon.com/v2/hsa/campaigns/report")
+    assert call["json"] == {"reportDate": "20260916", "metrics": ",".join(SB_LEGACY_CAMPAIGN_SPEC.columns),
+                            "creativeType": "all"}
+    assert call["headers"]["Amazon-Advertising-API-Scope"] == "555"
+
+
+def test_a_v2_report_is_never_asked_for_more_than_one_day():
+    fetcher, session = _v2_fetcher()
+
+    with pytest.raises(ValueError, match="one day"):
+        fetcher.create("555", date(2026, 9, 15), date(2026, 9, 16))
+    assert session.calls == []
+
+
+def test_a_finished_v2_report_gives_the_file_behind_its_redirect_without_following_it():
+    fetcher, session = _v2_fetcher([
+        _FakeResponse(200, {"reportId": "R1", "status": "SUCCESS", "fileSize": 9334,
+                            "location": "https://advertising-api.amazon.com/v2/reports/R1/download"}),
+        _redirect(PRESIGNED_URL),
+    ])
+
+    status = fetcher.status("555", "R1")
+
+    assert (status.status, status.url, status.file_size) == ("COMPLETED", PRESIGNED_URL, 9334)
+    download = session.calls[1]
+    assert download["url"] == "https://advertising-api.amazon.com/v2/reports/R1/download"
+    # Followed by requests, the redirect would carry the Amazon headers to the file host.
+    assert download["allow_redirects"] is False
+
+
+@pytest.mark.parametrize("amazon_status, status", [("IN_PROGRESS", "PROCESSING"), ("FAILURE", "FAILED")])
+def test_a_v2_status_reads_in_v3_words(amazon_status, status):
+    fetcher, session = _v2_fetcher([_FakeResponse(200, {"reportId": "R1", "status": amazon_status,
+                                                        "statusDetails": "Report generation failed"})])
+
+    report = fetcher.status("555", "R1")
+
+    assert (report.status, report.url) == (status, "")
+    assert report.failure_reason == ("Report generation failed" if status == "FAILED" else "")
+    assert len(session.calls) == 1

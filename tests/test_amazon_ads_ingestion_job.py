@@ -22,6 +22,7 @@ from core.amazon_ads.api_client import CLIENT_ID_HEADER, AdsApiClient
 from core.amazon_ads.ingestion_job import (
     NO_CAMPAIGN_ACCESS_WARNING,
     NO_PORTFOLIO_ACCESS_WARNING,
+    NO_SB_ACCESS_WARNING,
     PROFILE_INACTIVE_REASON,
     SAVE_CRASHED_MESSAGE,
     IngestionJob,
@@ -30,9 +31,21 @@ from core.amazon_ads.ingestion_job import (
     _Tick,
 )
 from core.amazon_ads import report_kinds
-from core.amazon_ads.sync_planner import CAMPAIGN_ENTITIES_KIND, CAMPAIGNS_KIND
+from core.amazon_ads.sync_planner import (
+    CAMPAIGN_ENTITIES_KIND,
+    CAMPAIGNS_KIND,
+    PRODUCT_KINDS,
+    SB_CAMPAIGNS_KIND,
+    SB_ENTITIES_KIND,
+    SB_LEGACY_KIND,
+    SB_TARGETING_KIND,
+    SD_CAMPAIGNS_KIND,
+    SD_ENTITIES_KIND,
+    SP_TARGETING_KIND,
+    SP_TARGETS_KIND,
+)
 from core.integrations import oauth
-from core.integrations.sync_jobs import SyncJobStore
+from core.integrations.sync_jobs import OPEN_STATUSES, SyncJobStore
 
 NOW = datetime(2026, 9, 14, 17, 0, tzinfo=timezone.utc)  # Monday 10:00 in Los Angeles
 YESTERDAY = "2026-09-13"
@@ -42,8 +55,28 @@ PROFILES = "ads_profile_sync"
 DAILY_ROWS = "ads_search_term_daily"
 CAMPAIGN_DAILY = "ads_campaign_daily"
 CAMPAIGNS = "ads_campaign"
+TARGETS = "ads_target"
+TARGET_DAILY = "ads_target_daily"
+PRODUCT_CAMPAIGNS = "ads_sb_sd_campaign"
+PRODUCT_CAMPAIGN_DAILY = "ads_sb_sd_campaign_daily"
 HEARTBEATS = "integration_worker_heartbeats"
 NEW_TABLES = {JOBS, REQUESTS, PROFILES, DAILY_ROWS, "ads_portfolios", HEARTBEATS}
+
+
+@pytest.fixture(autouse=True)
+def _without_product_jobs(request, monkeypatch):
+    """Most of this suite is about search terms and SP campaigns, and every count it asserts would change with
+    the targeting and SB / SD jobs planned on the same ticks. The tests about those ask for `with_products`."""
+    if "with_products" in request.fixturenames:
+        return
+    real_plan = ingestion_module.plan_jobs
+    monkeypatch.setattr(ingestion_module, "plan_jobs", lambda state, now: [
+        job for job in real_plan(state, now) if job.job_kind not in PRODUCT_KINDS])
+
+
+@pytest.fixture
+def with_products():
+    """Plan the targeting and SB / SD jobs too, as production does."""
 
 
 def _defaults(table: str, stamp: str) -> dict:
@@ -103,11 +136,19 @@ def _matches(row: dict, params: dict) -> bool:
                 return False
             left, right = _comparable(value), _comparable(operand)
             matched = {"lt": left < right, "lte": left <= right, "gt": left > right, "gte": left >= right}[operator]
+        elif operator == "is":
+            matched = {"false": value is False, "true": value is True, "null": value is None}[operand]
         else:
             raise AssertionError(f"the fake PostgREST does not support {column}={expression}")
         if not matched:
             return False
     return True
+
+
+def _is_day(row: dict, profile_id: str, ad_product: str, day: str, source: str | None) -> bool:
+    """A row of that profile, product and day, and of that source when one is given."""
+    return ((row["profile_id"], row["ad_product"], row["report_date"]) == (profile_id, ad_product, day)
+            and (source is None or row.get("source", "v3") == source))
 
 
 class _WorkerKilled(BaseException):
@@ -285,6 +326,39 @@ class _FakePostgrest:
                                            for row in p_rows)
         return len(p_rows)
 
+    def _replace_target_day(self, p_profile_id, p_ad_product, p_day, p_rows):
+        return self._replace_product_day(TARGET_DAILY, p_profile_id, p_ad_product, p_day, p_rows)
+
+    def _replace_sb_sd_campaign_day(self, p_profile_id, p_ad_product, p_day, p_rows, p_source="v3"):
+        if p_source == "v2" and p_rows:
+            # 015: from v2 only the old-format SB campaigns enter; v3 already has the rest. A payload left
+            # with none still clears the day's v2 rows, as the SQL deletes before it inserts nothing.
+            legacy = {row["campaign_id"] for row in self.tables[PRODUCT_CAMPAIGNS]
+                      if row.get("ad_product") == "SB" and row.get("is_multi_ad_groups") is False}
+            p_rows = [row for row in p_rows if row["campaign_id"] in legacy]
+            if not p_rows:
+                self.tables[PRODUCT_CAMPAIGN_DAILY] = [
+                    row for row in self.tables[PRODUCT_CAMPAIGN_DAILY]
+                    if not _is_day(row, p_profile_id, p_ad_product, p_day, p_source)]
+                return 0
+        return self._replace_product_day(PRODUCT_CAMPAIGN_DAILY, p_profile_id, p_ad_product, p_day, p_rows,
+                                         source=p_source)
+
+    def _replace_product_day(self, table, p_profile_id, p_ad_product, p_day, p_rows, *, source=None):
+        # 015: the day is replaced for one ad product only, never for the others of the same profile, and for
+        # one source only: v2 never erases v3's rows of the day, nor v3 v2's.
+        self._require(table)
+
+        def is_that_day(row):
+            return _is_day(row, p_profile_id, p_ad_product, p_day, source)
+
+        if not p_rows:
+            return -1 if any(is_that_day(row) for row in self.tables[table]) else 0
+        self.tables[table] = [row for row in self.tables[table] if not is_that_day(row)]
+        self.tables[table].extend({**row, "profile_id": p_profile_id, "ad_product": p_ad_product,
+                                   "report_date": p_day, **({"source": source} if source else {})} for row in p_rows)
+        return len(p_rows)
+
     def _append(self, table: str, row: dict) -> dict:
         full_row = {**_defaults(table, self.now.isoformat()), **copy.deepcopy(row)}
         if table in (JOBS, REQUESTS) and "id" not in full_row:
@@ -334,9 +408,21 @@ class _FakeAmazon:
              "targetingType": "MANUAL", "startDate": "2026-03-21",
              "budget": {"budget": 15.0, "budgetType": "DAILY"},
              "dynamicBidding": {"strategy": "MANUAL"}, "portfolioId": 444}]})
+        # Targeting and SB / SD lists answer empty unless a test fills them, so they stay out of the way.
+        self.sp_keywords: list[dict] = []
+        self.sp_targets: list[dict] = []
+        self.sb_campaigns: list[dict] = []
+        self.sd_campaigns: list[dict] = []
+        self.sd_ad_groups: list[dict] = []
+        self.sb_outcome: _FakeResponse | None = None
+        self.product_report_rows: dict[str, list[dict]] = {}
+        # SB's v2 campaign report, by day: it has no date field of its own.
+        self.v2_rows_by_day: dict[str, list[dict]] = {}
+        self.v2_creates: list[tuple[str, str, dict]] = []
         self.empty_days: set[str] = set()
         self.created: list[tuple[str, str, str]] = []
         self.campaign_creates: list[tuple[str, str, str]] = []
+        self.product_creates: list[tuple[str, str, str, str]] = []
         self.create_attempts = 0
         self.client_ids: list[str] = []
         self.connections_used: list[tuple[str, int]] = []
@@ -357,7 +443,45 @@ class _FakeAmazon:
             return self.portfolio_outcome
         if (method, path) == ("POST", "/sp/campaigns/list"):
             return self.campaign_outcome
+        if (method, path) == ("POST", "/sp/keywords/list"):
+            return _FakeResponse(200, {"keywords": self.sp_keywords, "totalResults": len(self.sp_keywords)})
+        if (method, path) == ("POST", "/sp/targets/list"):
+            return _FakeResponse(200, {"targetingClauses": self.sp_targets, "totalResults": len(self.sp_targets)})
+        if (method, path) == ("POST", "/sb/v4/campaigns/list"):
+            return self.sb_outcome or _FakeResponse(200, {"campaigns": self.sb_campaigns})
+        if method == "GET" and path.startswith(("/sb/keywords", "/sd/targets")):
+            return _FakeResponse(200, [])
+        if (method, path) in (("POST", "/sb/targets/list"), ("POST", "/sb/themes/list")):
+            return _FakeResponse(200, {"targets": [], "themes": []})
+        if method == "GET" and path.startswith(("/sd/campaigns", "/sd/adGroups")):
+            start_index = int(path.split("startIndex=", 1)[1].split("&", 1)[0]) if "startIndex=" in path else 0
+            listed = self.sd_campaigns if path.startswith("/sd/campaigns") else self.sd_ad_groups
+            return _FakeResponse(200, listed if start_index == 0 else [])
+        if (method, path) == ("POST", "/v2/hsa/campaigns/report"):
+            return self._create_v2(kwargs["headers"], kwargs["json"])
+        if method == "GET" and path.startswith("/v2/reports/"):
+            return self._v2_status_or_file(path.removeprefix("/v2/reports/"), kwargs)
         raise AssertionError(f"unexpected Amazon call {method} {path}")
+
+    def _create_v2(self, headers: dict, body: dict) -> _FakeResponse:
+        profile_id = headers["Amazon-Advertising-API-Scope"]
+        day = f"{body['reportDate'][:4]}-{body['reportDate'][4:6]}-{body['reportDate'][6:]}"
+        self.v2_creates.append((profile_id, day, body))
+        report_id = f"amzn1.clicksAPI.v1.p1.{len(self.reports) + 1:08d}"
+        self.reports[report_id] = {"profile_id": profile_id, "start": day, "end": day, "statuses": ["SUCCESS"],
+                                   "v2": True}
+        return _FakeResponse(202, {"reportId": report_id, "recordType": "campaign", "status": "IN_PROGRESS"})
+
+    def _v2_status_or_file(self, rest_of_path: str, kwargs: dict) -> _FakeResponse:
+        report_id, _, action = rest_of_path.partition("/")
+        if action == "download":
+            # The file sits behind a redirect the client must not follow with its credentials.
+            assert kwargs.get("allow_redirects") is False
+            response = _FakeResponse(307)
+            response.headers["Location"] = f"{self.REPORTS_HOST}/{report_id}.json.gz?X-Amz-Signature=test-signature"
+            return response
+        return _FakeResponse(200, {"reportId": report_id, "status": self.reports[report_id]["statuses"][0],
+                                   "location": f"https://advertising-api.amazon.com/v2/reports/{report_id}/download"})
 
     def get(self, url, **kwargs):
         report_id = url.removeprefix(f"{self.REPORTS_HOST}/").split(".json.gz", 1)[0]
@@ -367,9 +491,15 @@ class _FakeAmazon:
     def _create(self, headers: dict, body: dict) -> _FakeResponse:
         profile_id = headers["Amazon-Advertising-API-Scope"]
         window = (profile_id, body["startDate"], body["endDate"])
+        report_type = body["configuration"]["reportTypeId"]
+        if report_type not in ("spSearchTerm", "spCampaigns"):
+            self.product_creates.append((report_type, *window))
+            report_id = self.add_report(profile_id, body["startDate"], body["endDate"], ["COMPLETED"])
+            self.reports[report_id]["product"] = report_type
+            return _FakeResponse(200, {"reportId": report_id, "status": "PENDING"})
         # The campaign grain rides the same machinery; keeping its creates apart lets every
         # assertion below stay exhaustive over the search-term pipeline it is about.
-        if body["configuration"]["reportTypeId"] != "spSearchTerm":
+        if report_type != "spSearchTerm":
             self.campaign_creates.append(window)
             report_id = self.add_report(profile_id, body["startDate"], body["endDate"], ["COMPLETED"])
             self.reports[report_id]["campaigns"] = True
@@ -395,6 +525,11 @@ class _FakeAmazon:
     def _report_rows(self, report: dict) -> list[dict]:
         # Campaign reports are empty unless a test asks for rows, so they never reach the
         # search-term counts the rest of this suite asserts.
+        if report.get("v2"):
+            return self.v2_rows_by_day.get(report["start"], [])
+        if report.get("product"):
+            return [row for row in self.product_report_rows.get(report["product"], [])
+                    if report["start"] <= row["date"] <= report["end"]]
         if report.get("campaigns"):
             return self._campaign_report_rows(report)
         first_day, last_day = date.fromisoformat(report["start"]), date.fromisoformat(report["end"])
@@ -1253,3 +1388,202 @@ def test_a_profile_that_may_not_list_campaigns_completes_the_job_with_a_warning(
     job = _only(rest.rows(JOBS, job_kind=CAMPAIGN_ENTITIES_KIND))
     assert (job["status"], job["warning"]) == ("completed", NO_CAMPAIGN_ACCESS_WARNING)
     assert rest.rows(CAMPAIGNS) == [] and summary.errors == []
+
+
+# ── Targeting of SP, SB and SD, and SB / SD campaigns ───────────────────────────
+
+
+def _sd_campaign(campaign_id: int = 501) -> dict:
+    return {"campaignId": campaign_id, "portfolioId": 444, "name": "Demo - SD - Products", "tactic": "T00020",
+            "startDate": "20260110", "state": "enabled", "costType": "cpc", "budget": 15.0, "budgetType": "daily"}
+
+
+def _sd_campaign_row(day: str, campaign_id: int = 501, **overrides) -> dict:
+    row = {"date": day, "campaignId": campaign_id, "impressions": 900, "impressionsViews": 0, "clicks": 9,
+           "cost": 4.5, "purchases": 2, "sales": 40.0, "purchasesClicks": 1, "salesClicks": 20.0, "costType": "CPC",
+           "campaignBudgetAmount": 15.0, "campaignBudgetCurrencyCode": "USD"}
+    row.update(overrides)
+    return row
+
+
+def test_the_sp_target_list_is_saved_as_the_sp_target_universe(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sp_keywords = [{"keywordId": "7001", "campaignId": "909", "adGroupId": "8001", "keywordText": "demo kw",
+                           "matchType": "EXACT", "state": "ENABLED", "bid": 0.9}]
+    amazon.sp_targets = [{"targetId": "7002", "campaignId": "909", "adGroupId": "8002", "expressionType": "AUTO",
+                          "expression": [{"type": "QUERY_BROAD_REL_MATCHES"}], "state": "ENABLED", "bid": 0.4}]
+
+    summary = _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    targets = {row["target_id"]: row for row in rest.rows(TARGETS)}
+    assert set(targets) == {"7001", "7002"}
+    assert {row["ad_product"] for row in targets.values()} == {"SP"}
+    assert (targets["7001"]["target_kind"], targets["7002"]["target_kind"]) == ("keyword", "auto")
+    job = _only(rest.rows(JOBS, job_kind=SP_TARGETS_KIND))
+    assert (job["status"], job["rows_written"]) == ("completed", 2) and summary.errors == []
+
+
+def test_sb_and_sd_reports_are_only_planned_once_their_list_found_campaigns(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sd_campaigns = [_sd_campaign()]
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    _tick(ingestion, rest, NOW)
+    _tick(ingestion, rest, NOW + timedelta(seconds=61))
+
+    planned = {row["job_kind"] for row in rest.tables[JOBS]}
+    assert {SD_CAMPAIGNS_KIND, SP_TARGETING_KIND} <= planned
+    # No SB campaign in the account: its list closes with none, and no SB report is ever asked for.
+    assert _only(rest.rows(JOBS, job_kind=SB_ENTITIES_KIND))["rows_written"] == 0
+    assert not {SB_CAMPAIGNS_KIND, SB_TARGETING_KIND} & planned
+    assert _only(rest.rows(PRODUCT_CAMPAIGNS))["campaign_id"] == "501"
+
+
+def test_an_account_without_sponsored_brands_closes_its_list_with_a_warning_not_a_failure(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sb_outcome = _FakeResponse(403, {"code": "403", "details": "Forbidden"})
+
+    summary = _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    job = _only(rest.rows(JOBS, job_kind=SB_ENTITIES_KIND))
+    assert (job["status"], job["rows_written"], job["warning"]) == ("completed", 0, NO_SB_ACCESS_WARNING)
+    assert summary.errors == []
+
+
+def test_an_sd_report_writes_its_own_product_day_and_never_the_sp_campaign_table(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sd_campaigns = [_sd_campaign()]
+    amazon.product_report_rows["sdCampaigns"] = [_sd_campaign_row(YESTERDAY), _sd_campaign_row("2026-09-12")]
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    for seconds in (0, 61, 122, 183):
+        _tick(ingestion, rest, NOW + timedelta(seconds=seconds))
+
+    rows = rest.tables[PRODUCT_CAMPAIGN_DAILY]
+    assert {(row["ad_product"], row["report_date"]) for row in rows} == {("SD", YESTERDAY), ("SD", "2026-09-12")}
+    assert {(row["sales"], row["sales_clicks"]) for row in rows} == {(40.0, 20.0)}
+    assert rest.tables[CAMPAIGN_DAILY] == []
+    job = _only(rest.rows(JOBS, job_kind=SD_CAMPAIGNS_KIND))
+    assert (job["status"], job["trigger"], job["rows_written"]) == ("completed", "backfill", 2)
+    history = [create for create in amazon.product_creates if create[0] == "sdCampaigns"]
+    assert min(start for _, _, start, _ in history) == "2026-07-11"
+
+
+def _sb_campaign(campaign_id: str, *, old_format: bool) -> dict:
+    return {"campaignId": campaign_id, "name": f"Demo SBH {campaign_id}", "state": "ENABLED", "budget": 10.0,
+            "budgetType": "DAILY", "costType": "CPC", "isMultiAdGroupsEnabled": not old_format,
+            "bidding": {"bidOptimization": False}}
+
+
+def _sb_v3_row(day: str, campaign_id: int) -> dict:
+    return {"date": day, "campaignId": campaign_id, "impressions": 500, "clicks": 5, "cost": 7.0, "purchases": 1,
+            "sales": 25.0, "purchasesClicks": 1, "salesClicks": 25.0, "costType": "CPC", "viewableImpressions": 0,
+            "campaignBudgetAmount": 10.0, "campaignBudgetCurrencyCode": "USD", "topOfSearchImpressionShare": 12.5,
+            "newToBrandPurchases": 0, "newToBrandSales": 0}
+
+
+def _v2_row(campaign_id: int, **overrides) -> dict:
+    row = {"campaignId": campaign_id, "impressions": 900, "clicks": 12, "cost": 30.5, "attributedConversions14d": 3,
+           "attributedSales14d": 99.0, "attributedOrdersNewToBrand14d": 1, "attributedSalesNewToBrand14d": 33.0}
+    row.update(overrides)
+    return row
+
+
+def _tick_until_closed(ingestion: IngestionJob, rest: _FakePostgrest, kinds: tuple[str, ...],
+                       max_ticks: int = 60) -> None:
+    # A v2 history is 60 one-day reports at 6 in flight: about 20 ticks.
+    for position in range(max_ticks):
+        _tick(ingestion, rest, NOW + timedelta(seconds=61 * position))
+        jobs = [job for kind in kinds for job in rest.rows(JOBS, job_kind=kind)]
+        if len(jobs) == len(kinds) and all(job["status"] not in OPEN_STATUSES for job in jobs):
+            return
+    raise AssertionError(f"{kinds} still open after {max_ticks} ticks")
+
+
+def test_old_format_sb_campaigns_load_from_the_v2_report_a_day_at_a_time(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sb_campaigns = [_sb_campaign("601", old_format=True), _sb_campaign("602", old_format=False)]
+    # v2 also brings the new-format campaign, which v3 reports: it must not be stored twice.
+    amazon.v2_rows_by_day[YESTERDAY] = [_v2_row(601), _v2_row(602, cost=7.0)]
+    amazon.product_report_rows["sbCampaigns"] = [_sb_v3_row(YESTERDAY, 602)]
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    _tick_until_closed(ingestion, rest, (SB_LEGACY_KIND, SB_CAMPAIGNS_KIND))
+
+    job = _only(rest.rows(JOBS, job_kind=SB_LEGACY_KIND))
+    assert (job["status"], job["trigger"]) == ("completed", "backfill")
+    days = sorted(day for _, day, _ in amazon.v2_creates)
+    assert (days[0], days[-1], len(days)) == ("2026-07-16", YESTERDAY, 60)
+    assert {body["creativeType"] for *_, body in amazon.v2_creates} == {"all"}
+    by_campaign = {row["campaign_id"]: row for row in rest.tables[PRODUCT_CAMPAIGN_DAILY]}
+    # Each source rewrote only its own rows of the day: v2 kept v3's campaign, and v3 kept v2's.
+    assert {campaign_id: row["source"] for campaign_id, row in by_campaign.items()} == {"601": "v2", "602": "v3"}
+    legacy = by_campaign["601"]
+    assert (legacy["cost"], legacy["purchases"], legacy["purchases_clicks"], legacy["sales"], legacy["sales_clicks"],
+            legacy["new_to_brand_sales"]) == (30.5, 3, 3, 99.0, 99.0, 33.0)
+    assert by_campaign["602"]["cost"] == 7.0
+
+
+def test_an_account_without_old_format_sb_campaigns_never_asks_the_v2_report(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sb_campaigns = [_sb_campaign("602", old_format=False)]
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    for seconds in (0, 61, 122):
+        _tick(ingestion, rest, NOW + timedelta(seconds=seconds))
+
+    assert SB_CAMPAIGNS_KIND in {row["job_kind"] for row in rest.tables[JOBS]}
+    assert rest.rows(JOBS, job_kind=SB_LEGACY_KIND) == [] and amazon.v2_creates == []
+
+
+def test_a_completed_history_turns_the_next_days_into_fourteen_day_refreshes(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    ingestion = _ingestion(rest, amazon, tmp_path)
+    for seconds in (0, 61, 122):
+        _tick(ingestion, rest, NOW + timedelta(seconds=seconds))
+    assert _only(rest.rows(JOBS, job_kind=SP_TARGETING_KIND))["status"] == "completed"
+
+    next_day = NOW + timedelta(days=1)
+    _tick(ingestion, rest, next_day)
+
+    daily = _only(rest.rows(JOBS, job_kind=SP_TARGETING_KIND, local_day="2026-09-15"))
+    assert (daily["trigger"], daily["window_start"], daily["window_end"]) == (
+        "scheduled_daily", "2026-09-01", "2026-09-14")
+
+
+def test_the_same_day_a_history_finishes_no_second_refresh_is_planned(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    for seconds in (0, 61, 122, 183, 244):
+        _tick(ingestion, rest, NOW + timedelta(seconds=seconds))
+
+    assert len(rest.rows(JOBS, job_kind=SP_TARGETING_KIND)) == 1
+
+
+def test_profile_state_reads_the_new_kinds_from_the_job_queue():
+    row = {"profile_id": "1001", "timezone": "America/Los_Angeles", "region": "NA", "status": "active"}
+    jobs = [
+        {"id": 1, "job_kind": SP_TARGETS_KIND, "status": "completed", "local_day": "2026-09-14", "dedupe_key": None,
+         "rows_written": 12},
+        {"id": 2, "job_kind": SD_ENTITIES_KIND, "status": "completed", "local_day": "2026-09-14",
+         "dedupe_key": "k", "rows_written": 3},
+        {"id": 3, "job_kind": SP_TARGETING_KIND, "status": "running", "local_day": "2026-09-13", "dedupe_key": "k"},
+        {"id": 4, "job_kind": SB_ENTITIES_KIND, "status": "failed", "local_day": "2026-09-14", "dedupe_key": None,
+         "rows_written": None},
+    ]
+
+    state = _profile_state(row, jobs, NOW, frozenset({SD_CAMPAIGNS_KIND}))
+
+    assert state.product_kinds_today == {SP_TARGETS_KIND, SD_ENTITIES_KIND}
+    assert state.product_kinds_open == {SP_TARGETING_KIND}
+    assert state.entity_rows_today == {SP_TARGETS_KIND: 12, SD_ENTITIES_KIND: 3}
+    assert state.product_histories_done == {SD_CAMPAIGNS_KIND}

@@ -391,12 +391,16 @@ class SyncJobStore:
 
     def latest_completed_for_profile(self, external_account_id: str, job_kind: str) -> SyncJob | None:
         """The last job of this kind that finished well: its window is what is synced, its end is when."""
+        return self.latest_completed_of_kinds(external_account_id, (job_kind,))
+
+    def latest_completed_of_kinds(self, external_account_id: str, job_kinds: tuple[str, ...]) -> SyncJob | None:
+        """The last job of any of these kinds that finished well."""
         rows = self._rest.select(
             JOBS_TABLE,
             {
                 "select": "*",
                 "external_account_id": f"eq.{external_account_id}",
-                "job_kind": f"eq.{job_kind}",
+                "job_kind": f"eq.{job_kinds[0]}" if len(job_kinds) == 1 else _in_filter(job_kinds),
                 "status": "eq.completed",
                 "order": "finished_at.desc,id.desc",
                 "limit": "1",

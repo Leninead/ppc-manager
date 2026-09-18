@@ -11,11 +11,23 @@ from core.amazon_ads.sync_planner import (
     CAMPAIGN_ENTITIES_KIND,
     CAMPAIGNS_KIND,
     PORTFOLIOS_KIND,
+    PRODUCT_ENTITY_KINDS,
+    PRODUCT_KINDS,
+    SB_CAMPAIGNS_KIND,
+    SB_ENTITIES_KIND,
+    SB_LEGACY_KIND,
+    SB_TARGETING_KIND,
+    SD_CAMPAIGNS_KIND,
+    SD_ENTITIES_KIND,
+    SD_TARGETING_KIND,
     SEARCH_TERMS_KIND,
+    SP_TARGETING_KIND,
+    SP_TARGETS_KIND,
     ProfileState,
     backfill_dedupe_key,
     chunk_days_for,
     is_backfill,
+    is_product_history,
     plan_jobs,
     profile_local_now,
     profile_timezone,
@@ -40,7 +52,8 @@ def _utc(year, month, day, hour, minute=0) -> datetime:
 
 
 def _kinds(planned) -> list[tuple[str, str]]:
-    return [(job.job_kind, job.trigger) for job in planned]
+    # Targeting and SB / SD jobs have their own tests below; these ones are about search terms and SP campaigns.
+    return [(job.job_kind, job.trigger) for job in planned if job.job_kind not in PRODUCT_KINDS]
 
 
 def _search_terms_job(planned):
@@ -133,8 +146,8 @@ def test_refreshed_today_or_open_day_job_plans_no_day_job():
 
     assert _kinds(plan_jobs(_state(refreshed_on=date(2026, 9, 14)), now)) == [
         (PORTFOLIOS_KIND, "scheduled_daily"), (CAMPAIGN_ENTITIES_KIND, "scheduled_daily"), (CAMPAIGNS_KIND, "scheduled_daily")]
-    assert plan_jobs(_state(has_open_day_job_today=True, has_portfolio_job_today=True,
-                            has_campaign_job_today=True, has_campaign_entities_job_today=True), now) == []
+    assert _kinds(plan_jobs(_state(has_open_day_job_today=True, has_portfolio_job_today=True,
+                                   has_campaign_job_today=True, has_campaign_entities_job_today=True), now)) == []
 
 
 def test_refreshed_yesterday_is_due_again_today():
@@ -328,3 +341,110 @@ def test_the_entities_snapshot_carries_no_window_because_it_is_a_photo():
 
     assert (entities.window_start, entities.window_end) == (None, None)
     assert entities.dedupe_key == "amazon_ads:p-100:campaign-entities:2026-09-14"
+
+
+# ── Targeting of SP, SB and SD, and SB / SD campaigns ───────────────────────────
+
+
+def _product_jobs(planned) -> dict[str, object]:
+    return {job.job_kind: job for job in planned if job.job_kind in PRODUCT_KINDS}
+
+
+def test_each_product_entity_list_is_planned_once_a_day_without_a_window():
+    now = _utc(2026, 9, 14, 17)  # Monday 10:00 PDT
+
+    jobs = _product_jobs(plan_jobs(_state(), now))
+
+    for kind in PRODUCT_ENTITY_KINDS:
+        assert (jobs[kind].trigger, jobs[kind].window_start, jobs[kind].window_end) == ("scheduled_daily", None, None)
+        assert jobs[kind].dedupe_key == f"amazon_ads:p-100:{kind}:2026-09-14"
+
+
+def test_sp_targeting_loads_its_history_first_with_a_day_to_finish():
+    now = _utc(2026, 9, 14, 17)
+
+    history = _product_jobs(plan_jobs(_state(), now))[SP_TARGETING_KIND]
+
+    assert history.trigger == "backfill"
+    assert (history.window_start, history.window_end) == (date(2026, 7, 11), date(2026, 9, 13))
+    assert history.deadline_at == now + timedelta(hours=24)
+    assert history.dedupe_key == "amazon_ads:p-100:sp_targeting-history:2026-09-14"
+
+
+def test_once_the_history_is_in_each_night_asks_only_the_last_fourteen_days():
+    now = _utc(2026, 9, 14, 17)
+
+    state = _state(product_histories_done=frozenset({SP_TARGETING_KIND}))
+    daily = _product_jobs(plan_jobs(state, now))[SP_TARGETING_KIND]
+
+    assert daily.trigger == "scheduled_daily"
+    assert (daily.window_start, daily.window_end) == (date(2026, 8, 31), date(2026, 9, 13))
+    assert daily.deadline_at == _utc(2026, 9, 15, 6)  # 23:00 PDT
+
+
+def test_sb_and_sd_reports_wait_for_that_days_list_to_find_campaigns():
+    now = _utc(2026, 9, 14, 17)
+
+    waiting = _product_jobs(plan_jobs(_state(), now))
+    none_found = _product_jobs(plan_jobs(_state(entity_rows_today={SB_ENTITIES_KIND: 0, SD_ENTITIES_KIND: 0}), now))
+    found = _product_jobs(plan_jobs(_state(entity_rows_today={SB_ENTITIES_KIND: 12, SD_ENTITIES_KIND: 3}), now))
+
+    sb_sd = {SB_CAMPAIGNS_KIND, SB_TARGETING_KIND, SD_CAMPAIGNS_KIND, SD_TARGETING_KIND}
+    assert not sb_sd & set(waiting) and not sb_sd & set(none_found)
+    assert sb_sd <= set(found)
+
+
+def test_sponsored_brands_history_stops_at_amazons_sixty_days():
+    now = _utc(2026, 9, 14, 17)
+
+    history = _product_jobs(plan_jobs(_state(entity_rows_today={SB_ENTITIES_KIND: 5}), now))[SB_CAMPAIGNS_KIND]
+
+    assert (history.window_start, history.window_end) == (date(2026, 7, 16), date(2026, 9, 13))
+
+
+def test_the_v2_report_of_old_format_sb_campaigns_is_asked_only_where_there_are_some():
+    now = _utc(2026, 9, 14, 17)
+    listed = {SB_ENTITIES_KIND: 5}
+
+    without = _product_jobs(plan_jobs(_state(entity_rows_today=listed), now))
+    with_legacy = _product_jobs(plan_jobs(_state(entity_rows_today=listed, has_legacy_sb=True), now))
+    list_pending = _product_jobs(plan_jobs(_state(has_legacy_sb=True), now))
+
+    assert SB_LEGACY_KIND not in without and SB_LEGACY_KIND not in list_pending
+    history = with_legacy[SB_LEGACY_KIND]
+    assert history.trigger == "backfill"
+    assert (history.window_start, history.window_end) == (date(2026, 7, 16), date(2026, 9, 13))
+
+
+def test_after_its_history_the_v2_report_asks_the_last_fourteen_days_like_the_others():
+    now = _utc(2026, 9, 14, 17)
+    state = _state(entity_rows_today={SB_ENTITIES_KIND: 5}, has_legacy_sb=True,
+                   product_histories_done=frozenset({SB_LEGACY_KIND}))
+
+    daily = _product_jobs(plan_jobs(state, now))[SB_LEGACY_KIND]
+
+    assert daily.trigger == "scheduled_daily"
+    assert (daily.window_start, daily.window_end) == (date(2026, 8, 31), date(2026, 9, 13))
+
+
+def test_a_kind_already_planned_today_or_still_open_is_not_planned_again():
+    now = _utc(2026, 9, 14, 17)
+    state = _state(product_kinds_today=frozenset({SP_TARGETS_KIND}),
+                   product_kinds_open=frozenset({SP_TARGETING_KIND}))
+
+    jobs = _product_jobs(plan_jobs(state, now))
+
+    assert SP_TARGETS_KIND not in jobs and SP_TARGETING_KIND not in jobs
+    assert {SB_ENTITIES_KIND, SD_ENTITIES_KIND} <= set(jobs)
+
+
+def test_no_product_job_outside_the_profiles_three_to_twenty_three():
+    assert _product_jobs(plan_jobs(_state(), _utc(2026, 9, 14, 9))) == {}  # 02:00 PDT
+
+
+def test_a_history_is_recognized_by_its_window_whatever_its_trigger():
+    assert is_product_history(SP_TARGETING_KIND, date(2026, 7, 11), date(2026, 9, 13))
+    assert not is_product_history(SP_TARGETING_KIND, date(2026, 8, 31), date(2026, 9, 13))
+    assert is_product_history(SB_TARGETING_KIND, date(2026, 7, 16), date(2026, 9, 13))
+    assert not is_product_history(SEARCH_TERMS_KIND, date(2026, 7, 11), date(2026, 9, 13))
+    assert not is_product_history(SP_TARGETING_KIND, None, date(2026, 9, 13))

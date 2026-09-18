@@ -4,7 +4,7 @@ Serialization only: the diagnosis, the signals and every figure were already com
 module (core/amazon_ads/campaign_analyzer.py). The AI judges which campaigns to act on first and
 why; it never reclassifies one.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -36,6 +36,9 @@ class CampaignData:
     has_signals: bool           # budget per day, top-of-search share and start dates are present
     campaigns: list             # capped records, flagged first and then by spend
     idioma: str = "es"
+    # SP / SB / SD -> enabled campaigns; empty when the account has only SP, whose document reads as it always did.
+    products: dict = field(default_factory=dict)
+    without_metrics: int = 0    # enabled old-format SB campaigns left out: their metrics are unknown
 
 
 # razon before causa and veredicto on purpose: autoregressive generation conditions the verdict
@@ -121,18 +124,27 @@ def build_context(d: CampaignData) -> tuple[str, list, dict]:
     records = d.campaigns[:MAX_CAMPAIGNS]
     currency = d.currency_code or "no declarada"
     counts = ", ".join(f"{name} {int(d.counts.get(name, 0))}" for name in DIAGNOSIS_NAMES)
+    attribution = (
+        f"Atribución de ventas y órdenes: SP, {d.attribution_days} días y sólo clicks; SB y SD, 14 días con clicks "
+        "o vistas, como las muestra Campaign Manager. sales_clicks y orders_clicks son sólo las de clicks: lo "
+        "comparable con SP.\n"
+        if d.products else f"Atribución de ventas y órdenes: {d.attribution_days} días\n")
     params = (
         f"Cuenta: {d.account_label}\n"
         f"Período: {d.period_label or 'no informado'}\n"
         f"Moneda: {currency}\n"
-        f"Atribución de ventas y órdenes: {d.attribution_days} días\n"
+        + attribution
         + (f"Días provisorios: {', '.join(d.provisional_days)} — sus ventas atribuidas todavía pueden subir.\n"
            if d.provisional_days else "")
         + f"Target ACoS: {_number(d.target_acos)}%\n"
         f"Gasto mínimo para PAUSAR: {_number(d.spend_to_pause)}\n"
         f"Órdenes mínimas para ESCALAR: {d.min_orders_to_scale}\n"
         f"Campañas habilitadas: {d.enabled_campaigns}; por diagnóstico: {counts}.\n"
-        f"Gasto de las campañas en PAUSAR (sin órdenes en el período): {_number(d.pause_spend)}\n"
+        + (f"Por producto: {', '.join(f'{code} {count}' for code, count in d.products.items())}.\n"
+           if d.products else "")
+        + (f"Campañas SB habilitadas del formato anterior sin métricas en la API: {d.without_metrics}. No están en "
+           "el documento ni en los conteos.\n" if d.without_metrics else "")
+        + f"Gasto de las campañas en PAUSAR (sin órdenes en el período): {_number(d.pause_spend)}\n"
         f"El documento trae {len(records)} campañas: primero las que tienen un diagnóstico distinto de OK o "
         "alguna señal, después las de mayor gasto.\n"
         + ("Sin truncamiento: viajaron todas las campañas habilitadas.\n" if d.enabled_campaigns <= len(records) else

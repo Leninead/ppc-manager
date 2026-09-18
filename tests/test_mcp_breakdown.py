@@ -1,4 +1,4 @@
-"""breakdown: a total split by campaign, portfolio, match type or search term, in one call."""
+"""breakdown: a total split by campaign, portfolio, product, match type or search term, in one call."""
 from __future__ import annotations
 
 import csv
@@ -14,62 +14,100 @@ PROFILE = {
     "data_from": "2026-08-01", "data_through": "2026-09-16", "refreshed_on": "2026-09-17",
     "last_success_at": "2026-09-17T11:05:00+00:00", "last_error": "",
 }
-HEADER = ["campaign_id", "ad_group_id", "keyword_type", "keyword_id", "match_type", "targeting", "search_term",
-          "campaign_name", "campaign_status", "ad_group_name", "keyword_text", "ad_keyword_status", "portfolio_id",
-          "portfolio_name", "impressions", "clicks", "cost", "purchases_7d", "sales_7d", "units_7d",
-          "purchases_14d", "sales_14d", "units_14d", "currency_code"]
+CAMPAIGN_JOB = {"id": 441, "integration_slug": "amazon_ads", "job_kind": "sp_campaigns", "trigger": "scheduled_daily",
+                "external_account_id": "1111222233334444", "status": "completed", "window_start": "2026-08-01",
+                "window_end": "2026-09-16", "local_day": "2026-09-17", "finished_at": "2026-09-17T11:05:00+00:00",
+                "created_at": "2026-09-17T10:43:00+00:00"}
+TERM_HEADER = ["campaign_id", "ad_group_id", "keyword_type", "keyword_id", "match_type", "targeting", "search_term",
+               "campaign_name", "campaign_status", "ad_group_name", "keyword_text", "ad_keyword_status", "portfolio_id",
+               "portfolio_name", "impressions", "clicks", "cost", "purchases_7d", "sales_7d", "units_7d",
+               "purchases_14d", "sales_14d", "units_14d", "currency_code"]
+CAMPAIGN_HEADER = ["ad_product", "campaign_id", "campaign_name", "portfolio_id", "portfolio_name", "impressions",
+                   "clicks", "cost", "purchases_7d", "sales_7d", "purchases_14d", "sales_14d", "purchases", "sales",
+                   "purchases_clicks", "sales_clicks", "currency_code"]
 
 
-def _row(term: str, campaign: str, *, cost: float, clicks: int, sales: float = 0.0, orders: int = 0,
-         match_type: str = "EXACT", keyword_type: str = "EXACT", portfolio: str = "Marca", impressions: int = 100,
-         orders_14d: int | None = None) -> dict:
+def _term(term: str, campaign: str, *, cost: float, clicks: int, sales: float = 0.0, orders: int = 0,
+          match_type: str = "EXACT", keyword_type: str = "EXACT", portfolio: str = "Marca",
+          impressions: int = 100) -> dict:
     return {"campaign_id": campaign, "ad_group_id": "ag", "keyword_type": keyword_type, "keyword_id": term,
             "match_type": match_type, "targeting": term, "search_term": term, "campaign_name": campaign,
             "campaign_status": "ENABLED", "ad_group_name": "ag", "keyword_text": term, "ad_keyword_status": "ENABLED",
             "portfolio_id": "1" if portfolio else "", "portfolio_name": portfolio, "impressions": impressions,
             "clicks": clicks, "cost": cost, "purchases_7d": orders, "sales_7d": sales, "units_7d": orders,
-            "purchases_14d": orders if orders_14d is None else orders_14d, "sales_14d": sales, "units_14d": orders,
-            "currency_code": "USD"}
+            "purchases_14d": orders, "sales_14d": sales, "units_14d": orders, "currency_code": "USD"}
+
+
+def _campaign(name: str, *, cost: float, clicks: int, sales: float = 0.0, orders: int = 0, product: str = "SP",
+              portfolio: str = "Marca", impressions: int = 100, orders_14d: int | None = None,
+              sales_clicks: float | None = None, orders_clicks: int | None = None) -> dict:
+    sp = product == "SP"
+    return {"ad_product": product, "campaign_id": name, "campaign_name": name, "portfolio_id": "1" if portfolio else "",
+            "portfolio_name": portfolio, "impressions": impressions, "clicks": clicks, "cost": cost,
+            "purchases_7d": orders if sp else 0, "sales_7d": sales if sp else 0,
+            "purchases_14d": (orders if orders_14d is None else orders_14d) if sp else 0,
+            "sales_14d": sales if sp else 0, "purchases": 0 if sp else orders, "sales": 0 if sp else sales,
+            "purchases_clicks": 0 if sp else (orders if orders_clicks is None else orders_clicks),
+            "sales_clicks": 0 if sp else (sales if sales_clicks is None else sales_clicks), "currency_code": "USD"}
+
+
+def _csv(header, rows) -> bytes:
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=header)
+    writer.writeheader()
+    writer.writerows(rows)
+    return out.getvalue().encode("utf-8")
 
 
 class _FakeRest:
-    def __init__(self, rows, profile=None):
-        self._rows = rows
+    def __init__(self, terms=(), campaigns=(), profile=None):
+        self._terms = list(terms)
+        self._campaigns = list(campaigns)
         self._profile = profile or PROFILE
-        self.rpc_calls: list[dict] = []
+        self.rpc_calls: list[tuple[str, dict]] = []
 
     def select(self, table, params):
+        if table == "integration_sync_jobs":
+            return [dict(CAMPAIGN_JOB)] if params.get("job_kind") == "eq.sp_campaigns" else []
         return [self._profile]
 
     def rpc_csv(self, name, args, *, timeout_s=8):
-        self.rpc_calls.append(args)
-        out = io.StringIO()
-        writer = csv.DictWriter(out, fieldnames=HEADER)
-        writer.writeheader()
-        writer.writerows(self._rows)
-        return out.getvalue().encode("utf-8")
+        self.rpc_calls.append((name, args))
+        if name == "campaign_window_totals":
+            return _csv(CAMPAIGN_HEADER, self._campaigns)
+        if name == "product_campaigns_between":
+            return b""
+        assert name == "search_terms_between"
+        return _csv(TERM_HEADER, self._terms)
 
 
-ROWS = [
-    _row("zapatilla", "Camp A", cost=30.0, clicks=10, sales=120.0, orders=4),
-    _row("zapatilla roja", "Camp A", cost=10.0, clicks=30, match_type="BROAD", keyword_type="BROAD"),
-    _row("zapatilla", "Camp B", cost=5.0, clicks=5, sales=20.0, orders=1, match_type="", keyword_type="",
-         portfolio=""),
-    _row("b0asin", "Camp C", cost=15.0, clicks=2, match_type="TARGETING_EXPRESSION_PREDEFINED",
-         keyword_type="TARGETING_EXPRESSION_PREDEFINED", portfolio="Otro"),
+TERMS = [
+    _term("zapatilla", "Camp A", cost=30.0, clicks=10, sales=120.0, orders=4),
+    _term("zapatilla roja", "Camp A", cost=10.0, clicks=30, match_type="BROAD", keyword_type="BROAD"),
+    _term("zapatilla", "Camp B", cost=5.0, clicks=5, sales=20.0, orders=1, match_type="", keyword_type="",
+          portfolio=""),
+    _term("b0asin", "Camp C", cost=15.0, clicks=2, match_type="TARGETING_EXPRESSION_PREDEFINED",
+          keyword_type="TARGETING_EXPRESSION_PREDEFINED", portfolio="Otro"),
+]
+CAMPAIGNS = [
+    _campaign("Camp A", cost=40.0, clicks=40, sales=120.0, orders=4, impressions=200),
+    _campaign("Camp B", cost=5.0, clicks=5, sales=20.0, orders=1, portfolio=""),
+    _campaign("Camp C", cost=15.0, clicks=2, portfolio="Otro"),
 ]
 
 
 def _breakdown(**kwargs):
-    return amazon_ads.breakdown(_FakeRest(kwargs.pop("rows", ROWS)), profile_id="1111222233334444", **kwargs)
+    rest = _FakeRest(kwargs.pop("terms", TERMS), kwargs.pop("campaigns", CAMPAIGNS), kwargs.pop("profile", None))
+    return amazon_ads.breakdown(rest, profile_id="1111222233334444", **kwargs)
 
 
-def test_a_campaign_breakdown_sums_every_search_term_of_each_campaign_largest_spend_first():
+def test_a_campaign_breakdown_comes_from_the_campaign_reports_largest_spend_first():
     payload = _breakdown(by="campaign")
 
     assert [row["group"] for row in payload["rows"]] == ["Camp A", "Camp C", "Camp B"]
     assert payload["rows"][0] == {"group": "Camp A", "spend": 40.0, "sales": 120.0, "orders": 4, "clicks": 40,
-                                  "impressions": 200, "acos": 33.3, "cvr": 10.0}
+                                  "impressions": 200, "acos": 33.3, "cvr": 10.0, "sales_clicks": 120.0,
+                                  "orders_clicks": 4}
 
 
 def test_the_totals_cover_every_group_so_a_share_of_the_whole_can_be_computed():
@@ -77,13 +115,38 @@ def test_the_totals_cover_every_group_so_a_share_of_the_whole_can_be_computed():
 
     assert len(payload["rows"]) == 1 and payload["total"] == 3 and "note" in payload
     assert payload["totals"] == {"spend": 60.0, "sales": 140.0, "orders": 5, "clicks": 47, "impressions": 400,
-                                 "acos": 42.9, "cvr": 10.64}
+                                 "acos": 42.9, "cvr": 10.64, "sales_clicks": 140.0, "orders_clicks": 5}
+
+
+def test_a_product_breakdown_splits_the_spend_among_sp_sb_and_sd():
+    campaigns = [*CAMPAIGNS, _campaign("Brand Video", product="SB", cost=25.0, clicks=10, sales=90.0, orders=3,
+                                       sales_clicks=60.0, orders_clicks=2)]
+
+    rows = {row["group"]: row for row in _breakdown(by="product", campaigns=campaigns)["rows"]}
+
+    assert {group: row["spend"] for group, row in rows.items()} == {"Sponsored Products": 60.0,
+                                                                    "Sponsored Brands": 25.0}
+    assert (rows["Sponsored Brands"]["sales"], rows["Sponsored Brands"]["sales_clicks"]) == (90.0, 60.0)
+
+
+def test_a_product_narrows_the_campaign_groups_to_it():
+    campaigns = [*CAMPAIGNS, _campaign("Brand Video", product="SB", cost=25.0, clicks=10)]
+
+    payload = _breakdown(by="campaign", product="SB", campaigns=campaigns)
+
+    assert [row["group"] for row in payload["rows"]] == ["Brand Video"]
+    assert payload["totals"]["spend"] == 25.0
 
 
 def test_a_match_type_breakdown_tells_auto_from_the_keyword_types_in_words_the_am_reads():
     groups = {row["group"]: row["spend"] for row in _breakdown(by="match_type")["rows"]}
 
     assert groups == {"Exact": 30.0, "Broad": 10.0, "Automática": 15.0, "Sin tipo": 5.0}
+
+
+def test_match_types_and_search_terms_exist_only_for_sponsored_products():
+    with pytest.raises(ValueError, match="search terms"):
+        _breakdown(by="match_type", product="SB")
 
 
 def test_a_portfolio_breakdown_names_the_spend_outside_any_portfolio():
@@ -112,31 +175,78 @@ def test_ranking_by_acos_leaves_the_groups_that_never_sold_last():
 
 
 def test_a_vendor_account_reads_fourteen_day_orders():
-    rows = [_row("x", "Camp A", cost=10.0, clicks=10, sales=50.0, orders=1, orders_14d=3)]
-    payload = amazon_ads.breakdown(_FakeRest(rows, profile={**PROFILE, "account_type": "vendor"}),
-                                   profile_id="1111222233334444", by="campaign")
+    campaigns = [_campaign("Camp A", cost=10.0, clicks=10, sales=50.0, orders=1, orders_14d=3)]
+
+    payload = _breakdown(by="campaign", campaigns=campaigns, profile={**PROFILE, "account_type": "vendor"})
 
     assert payload["rows"][0]["orders"] == 3 and payload["attribution_days"] == 14
 
 
-def test_a_window_without_clicks_says_so_instead_of_answering_an_empty_split():
-    payload = _breakdown(by="campaign", rows=[])
+def test_a_window_without_activity_says_so_instead_of_answering_an_empty_split():
+    for by, empty in (("campaign", {"campaigns": []}), ("search_term", {"terms": []})):
+        payload = _breakdown(by=by, **empty)
 
-    assert payload["rows"] == [] and payload["totals"] is None and "note" in payload
+        assert payload["rows"] == [] and payload["totals"] is None and "note" in payload
 
 
-def test_the_breakdown_says_it_is_sponsored_products_and_which_window_it_covers():
-    payload = _breakdown(by="campaign", days=7)
+def test_each_breakdown_says_where_it_comes_from_and_which_window_it_covers():
+    by_campaign = _breakdown(by="campaign", days=7)
+    by_term = _breakdown(by="search_term", days=7)
 
-    assert "Sponsored Products" in payload["source"]
-    assert payload["window"] == {"from": "2026-09-10", "to": "2026-09-16", "days": 7}
+    assert "Sponsored Products, Brands y Display" in by_campaign["source"]
+    assert "search terms" in by_term["source"] and "Brands" not in by_term["source"]
+    assert by_campaign["window"] == {"from": "2026-09-10", "to": "2026-09-16", "days": 7}
 
 
 def test_an_unknown_dimension_is_refused_with_the_ones_that_exist():
-    with pytest.raises(ValueError, match="campaign, portfolio, match_type, search_term"):
+    with pytest.raises(ValueError, match="campaign, portfolio, product, match_type, search_term"):
         _breakdown(by="ad_group")
 
 
 def test_an_unknown_ranking_metric_is_refused_too():
     with pytest.raises(ValueError, match="spend"):
         _breakdown(by="campaign", sort_by="margen")
+
+
+def test_campaigns_can_still_be_split_from_the_search_terms_on_request():
+    rest = _FakeRest(TERMS, CAMPAIGNS)
+
+    payload = amazon_ads.breakdown(rest, profile_id="1111222233334444", by="campaign", source="search_terms")
+
+    assert [name for name, _ in rest.rpc_calls] == ["search_terms_between"]
+    assert payload["rows"][0] == {"group": "Camp A", "spend": 40.0, "sales": 120.0, "orders": 4, "clicks": 40,
+                                  "impressions": 200, "acos": 33.3, "cvr": 10.0}
+    assert payload["data_source"] == "search_terms" and "source=campaigns" in payload["alternative"]
+
+
+def test_portfolios_can_still_be_split_from_the_search_terms_on_request():
+    groups = {row["group"]: row["spend"] for row in _breakdown(by="portfolio", source="search_terms")["rows"]}
+
+    assert groups == {"Marca": 40.0, "Otro": 15.0, "Sin portfolio": 5.0}
+
+
+def test_the_campaign_split_tells_how_to_ask_for_the_search_term_one():
+    payload = _breakdown(by="campaign")
+
+    assert payload["data_source"] == "campaigns" and "source=search_terms" in payload["alternative"]
+
+
+def test_a_split_that_exists_in_one_source_only_offers_no_alternative():
+    """By product the search terms have nothing to add, and by match type the campaign reports have nothing."""
+    by_product = _breakdown(by="product")
+    by_match = _breakdown(by="match_type")
+
+    assert "alternative" not in by_product and "alternative" not in by_match
+    assert by_match["data_source"] == "search_terms"
+
+
+def test_a_split_asked_from_a_source_that_does_not_have_it_is_refused():
+    with pytest.raises(ValueError, match="sólo sale de los search terms"):
+        _breakdown(by="match_type", source="campaigns")
+    with pytest.raises(ValueError, match="sólo sale de los reportes de campaña"):
+        _breakdown(by="product", source="search_terms")
+
+
+def test_the_search_terms_refuse_brands_and_display():
+    with pytest.raises(ValueError, match="Sponsored Products"):
+        _breakdown(by="campaign", product="SB", source="search_terms")

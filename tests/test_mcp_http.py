@@ -37,7 +37,7 @@ def test_health_answers_without_a_token_so_docker_can_check_the_process(client):
 def test_health_lists_the_tools_so_a_deploy_can_be_verified_from_outside(client):
     assert set(client.get(HEALTH_PATH).json()["tools"]) == {
         "list_accounts", "list_analyses", "get_analysis", "top_search_terms", "daily_metrics", "breakdown",
-        "accounts_overview", "campaign_health"}
+        "accounts_overview", "campaign_health", "idle_targets"}
 
 
 def test_the_mcp_endpoint_without_a_token_is_rejected(client):
@@ -103,8 +103,19 @@ def test_the_breakdown_offers_its_dimensions_and_metrics_as_closed_lists():
     server = build_server(build_tools(object()))
     schema = next(tool.input_schema for tool in asyncio.run(server.list_tools()) if tool.name == "breakdown")
 
-    assert schema["properties"]["by"]["enum"] == ["campaign", "portfolio", "match_type", "search_term"]
+    assert schema["properties"]["by"]["enum"] == ["campaign", "portfolio", "product", "match_type", "search_term"]
+    assert schema["properties"]["product"]["enum"] == ["", "SP", "SB", "SD"]
     assert "acos" in schema["properties"]["sort_by"]["enum"]
+
+
+def test_the_figure_tools_offer_both_sources_of_sponsored_products_as_a_closed_list():
+    """Campaign reports or search terms: the model picks one of the two, it never guesses a third."""
+    server = build_server(build_tools(object()))
+    schemas = {tool.name: tool.input_schema for tool in asyncio.run(server.list_tools())}
+
+    for name in ("accounts_overview", "daily_metrics", "breakdown"):
+        assert schemas[name]["properties"]["source"]["enum"] == ["", "campaigns", "search_terms"], name
+        assert "source" not in schemas[name].get("required", []), name
 
 
 def test_the_dns_rebinding_protection_stays_on_with_an_explicit_host_list(monkeypatch):

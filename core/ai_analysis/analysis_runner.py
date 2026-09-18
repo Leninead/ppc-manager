@@ -130,7 +130,9 @@ class AnalysisRunner:
         if self._planned.get(profile.profile_id) == version:
             return
         # Days being rewritten right now would give a payload the next tick replaces.
-        if self._jobs.has_open(SLUG, getattr(self._spec, "source_job_kind", SEARCH_TERMS_KIND), profile.profile_id):
+        source_kinds = (getattr(self._spec, "source_job_kinds", None)
+                        or (getattr(self._spec, "source_job_kind", SEARCH_TERMS_KIND),))
+        if any(self._jobs.has_open(SLUG, kind, profile.profile_id) for kind in source_kinds):
             return
         params = self._spec.account_params(profile, settings)
         window_start, window_end = self._spec.canonical_window(profile)
