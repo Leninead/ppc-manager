@@ -91,6 +91,27 @@ def test_omits_scope_header_without_profile():
     assert "Amazon-Ads-AccountId" not in session.calls[0]["headers"]
 
 
+def test_sends_accept_when_the_endpoint_needs_it():
+    session = _FakeSession([_FakeResponse(200, {"campaigns": []})])
+    client, _ = _client(session)
+
+    client.request("POST", "/sp/campaigns/list", profile_id="123", json_body={},
+                   content_type="application/vnd.spCampaign.v3+json",
+                   accept="application/vnd.spCampaign.v3+json")
+
+    assert session.calls[0]["headers"]["Accept"] == "application/vnd.spCampaign.v3+json"
+
+
+def test_omits_accept_when_it_was_not_asked_for():
+    session = _FakeSession([_FakeResponse(200)])
+    client, _ = _client(session)
+
+    client.request("POST", "/portfolios/list", profile_id="123", json_body={},
+                   content_type="application/vnd.spPortfolio.v3+json")
+
+    assert "Accept" not in session.calls[0]["headers"]
+
+
 def test_unknown_region_is_rejected():
     with pytest.raises(ValueError):
         AdsApiClient(region="XX", client_id="c", token_source=lambda force: "t")

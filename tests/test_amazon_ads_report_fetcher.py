@@ -102,6 +102,23 @@ def test_create_posts_daily_search_term_configuration():
     assert configuration["columns"] == REPORT_COLUMNS
 
 
+def test_the_spec_decides_the_report_so_one_fetcher_serves_the_campaign_grain_too():
+    from core.amazon_ads.campaign_rows import CAMPAIGN_REPORT_SPEC
+
+    api_session = _FakeApiSession([_FakeResponse(200, {"reportId": "r-456", "status": "PENDING"})])
+    api = AdsApiClient(region="NA", client_id="client-abc", token_source=lambda force: "token",
+                       session=api_session, sleep=lambda seconds: None)
+    fetcher = ReportFetcher(api, session=_FakeDownloadSession(None), spec=CAMPAIGN_REPORT_SPEC)
+
+    fetcher.create("555", date(2026, 9, 8), date(2026, 9, 14))
+
+    configuration = api_session.calls[0]["json"]["configuration"]
+    assert configuration["reportTypeId"] == "spCampaigns"
+    assert configuration["groupBy"] == ["campaign"]
+    assert configuration["timeUnit"] == "DAILY"
+    assert "campaignId" in configuration["columns"] and "date" in configuration["columns"]
+
+
 def test_report_columns_carry_both_attribution_windows_and_ids():
     for column in ("date", "campaignId", "adGroupId", "keywordId", "keywordType", "campaignStatus",
                    "adKeywordStatus", "campaignBudgetCurrencyCode", "purchases7d", "sales7d",

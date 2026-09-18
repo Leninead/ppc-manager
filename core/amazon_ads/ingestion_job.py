@@ -15,7 +15,9 @@ from typing import BinaryIO
 
 import requests
 
+from core.amazon_ads import report_kinds
 from core.amazon_ads.api_client import AdsAccessDenied, AdsApiClient, AdsThrottled
+from core.amazon_ads.campaign_entities import fetch_campaigns, save_campaigns
 from core.amazon_ads.portfolios import fetch_portfolios, save_portfolios
 from core.amazon_ads.raw_reports import (
     REPORT_REQUESTS_TABLE,
@@ -26,8 +28,9 @@ from core.amazon_ads.raw_reports import (
     store_download,
 )
 from core.amazon_ads.report_fetcher import RETENTION_DAYS, ReportFailed, ReportFetcher, ReportStatus
-from core.amazon_ads.search_term_rows import day_row_positions, day_rows, load_compact_report
 from core.amazon_ads.sync_planner import (
+    CAMPAIGN_ENTITIES_KIND,
+    CAMPAIGNS_KIND,
     CHUNK_DAYS,
     DAILY_WINDOW_DAYS,
     PORTFOLIOS_KIND,
@@ -80,6 +83,7 @@ EMPTY_DAY_KEPT = -1
 MAX_LISTED_EMPTY_DAYS = 5
 
 NO_PORTFOLIO_ACCESS_WARNING = "sin permiso para leer portfolios"
+NO_CAMPAIGN_ACCESS_WARNING = "sin permiso para leer campañas"
 PROFILE_INACTIVE_REASON = "cancelada: el perfil ya no está conectado"
 CLOSED_JOB_MESSAGE = "la solicitud se cerró antes de terminar este tramo"
 SAVE_CRASHED_MESSAGE = "El guardado de este tramo se cortó dos veces; revisá el tamaño del reporte."
@@ -151,6 +155,9 @@ class _Tick:
     stop_requested: Callable[[], bool] = _never_stop
     profiles: dict[str, dict] = field(default_factory=dict)
     jobs: dict[int, SyncJob] = field(default_factory=dict)
+    # A 429 speaks for the whole app: once a step is throttled, no report kind continues it this tick.
+    create_throttled: bool = False
+    poll_throttled: bool = False
 
 
 def _utc_now() -> datetime:
@@ -182,7 +189,7 @@ class IngestionJob:
         self._max_inflight_reports = max_inflight_reports
         self._max_creates_per_tick = max_creates_per_tick
         self._clock = clock
-        self._amazon_clients: dict[tuple[str, int], tuple[AdsApiClient, ReportFetcher]] = {}
+        self._amazon_clients: dict[tuple[str, int, str], tuple[AdsApiClient, ReportFetcher]] = {}
         self._last_prune_at: datetime | None = None
 
     def run_tick(self, now_utc: datetime, stop_requested: Callable[[], bool] = _never_stop) -> TickSummary:
@@ -335,8 +342,10 @@ class IngestionJob:
             )
         if job.job_kind == PORTFOLIOS_KIND:
             self._refresh_portfolios(tick, job)
-        elif job.job_kind == SEARCH_TERMS_KIND:
-            self._prepare_report_requests(tick, job)
+        elif job.job_kind == CAMPAIGN_ENTITIES_KIND:
+            self._refresh_campaign_entities(tick, job)
+        elif (kind := report_kinds.by_job_kind(job.job_kind)) is not None:
+            self._prepare_report_requests(tick, job, kind)
         else:
             raise InvalidSyncJob(f"job {job.id} has an unknown kind {job.job_kind!r}")
 
@@ -351,16 +360,28 @@ class IngestionJob:
         saved_count = save_portfolios(self._rest, job.external_account_id, portfolios, tick.now)
         self._complete(tick, job, rows_written=saved_count)
 
-    def _prepare_report_requests(self, tick: _Tick, job: SyncJob) -> None:
+    def _refresh_campaign_entities(self, tick: _Tick, job: SyncJob) -> None:
+        api, _ = self._amazon(job)
+        try:
+            campaigns = fetch_campaigns(api, job.external_account_id)
+        except AdsAccessDenied:
+            log.info("amazon_ads: profile %s may not list campaigns", job.external_account_id)
+            self._complete(tick, job, rows_written=0, warning=NO_CAMPAIGN_ACCESS_WARNING)
+            return
+        saved_count = save_campaigns(self._rest, job.external_account_id, campaigns, tick.now)
+        self._complete(tick, job, rows_written=saved_count)
+
+    def _prepare_report_requests(self, tick: _Tick, job: SyncJob, kind: report_kinds.ReportKind) -> None:
         """Idempotent, so a job claimed again after its worker died resumes from the chunks it already has."""
         existing = self._rest.select(REPORT_REQUESTS_TABLE, {"select": "id,status,raw_status,raw_path",
                                                              "job_id": f"eq.{job.id}"})
         if not existing:
-            chunk_days = self._chunk_days(job.external_account_id)
+            chunk_days = kind.chunk_days or self._chunk_days(job.external_account_id)
             self._rest.insert(REPORT_REQUESTS_TABLE, [
                 {
                     "job_id": job.id,
                     "profile_id": job.external_account_id,
+                    "report_kind": kind.name,
                     "window_start": chunk_start.isoformat(),
                     "window_end": chunk_end.isoformat(),
                 }
@@ -409,14 +430,23 @@ class IngestionJob:
         return report_chunks(first_day, job.window_end, chunk_days)
 
     def _create_reports(self, tick: _Tick) -> None:
+        for kind in report_kinds.ALL:
+            if tick.stop_requested() or tick.create_throttled:
+                return
+            self._create_reports_of(tick, kind)
+
+    def _create_reports_of(self, tick: _Tick, kind: report_kinds.ReportKind) -> None:
+        max_inflight = _capped(kind.max_inflight_reports, self._max_inflight_reports)
         in_flight = self._rest.select(
             REPORT_REQUESTS_TABLE,
-            {"select": "id", "status": "in.(requested,saving)", "limit": str(self._max_inflight_reports)},
+            {"select": "id", "status": "in.(requested,saving)", "report_kind": f"eq.{kind.name}",
+             "limit": str(max_inflight)},
         )
-        create_budget = min(self._max_creates_per_tick, self._max_inflight_reports - len(in_flight))
+        create_budget = min(_capped(kind.max_creates_per_tick, self._max_creates_per_tick),
+                            max_inflight - len(in_flight))
         if create_budget <= 0:
             return
-        claimed = self._claim_requests(("to_request",), create_budget)
+        claimed = self._claim_requests(("to_request",), create_budget, kind)
         jobs = self._jobs_of(tick, claimed)
         for position, request in enumerate(claimed):
             if tick.stop_requested():
@@ -441,6 +471,7 @@ class IngestionJob:
                 log.warning("amazon_ads: report creation throttled, %d requests wait for the next tick",
                             len(claimed) - position)
                 self._release_requests(claimed[position:])
+                tick.create_throttled = True
                 return
             except Exception as exc:
                 self._fail_request(tick, job, request, exc)
@@ -475,11 +506,19 @@ class IngestionJob:
         self._renew_job_lease_quietly(tick, job)
 
     def _poll_reports(self, tick: _Tick) -> None:
-        claimed = self._claim_requests(("requested", "saving"), self._max_inflight_reports)
+        for kind in report_kinds.ALL:
+            if tick.stop_requested() or tick.poll_throttled:
+                return
+            self._poll_reports_of(tick, kind)
+
+    def _poll_reports_of(self, tick: _Tick, kind: report_kinds.ReportKind) -> None:
+        claimed = self._claim_requests(("requested", "saving"),
+                                       _capped(kind.max_inflight_reports, self._max_inflight_reports), kind)
         jobs = self._jobs_of(tick, claimed)
         saves_started = 0
+        max_saves = _capped(kind.max_saves_per_tick, MAX_SAVES_PER_TICK)
         for position, request in enumerate(claimed):
-            if saves_started >= MAX_SAVES_PER_TICK or tick.stop_requested():
+            if saves_started >= max_saves or tick.stop_requested():
                 self._release_requests(claimed[position:])
                 return
             job = jobs.get(int(request["job_id"]))
@@ -500,6 +539,7 @@ class IngestionJob:
                 log.warning("amazon_ads: report polling throttled, pausing %d requests", len(claimed) - position)
                 self._rest.update(REPORT_REQUESTS_TABLE, {"id": _in_filter(_request_ids(claimed[position:]))},
                                   {"next_poll_at": (tick.now + THROTTLE_PAUSE).isoformat(), **_LEASE_RELEASE})
+                tick.poll_throttled = True
                 return
             except Exception as exc:
                 self._fail_request(tick, job, request, exc)
@@ -585,20 +625,22 @@ class IngestionJob:
 
     def _replace_days(self, tick: _Tick, request: dict, stored_path: Path) -> tuple[int, list[date]]:
         profile_id = request["profile_id"]
+        kind = report_kinds.by_name(request.get("report_kind"))
         currency_code = (tick.profiles.get(profile_id) or {}).get("currency_code") or ""
-        report_rows: list[tuple | None] = load_compact_report(stored_path)
-        positions_by_day = day_row_positions(report_rows, window_start=parse_date(request["window_start"]),
-                                             window_end=parse_date(request["window_end"]))
+        report_rows: list[tuple | None] = kind.load_compact_report(stored_path)
+        positions_by_day = kind.day_row_positions(report_rows, window_start=parse_date(request["window_start"]),
+                                                  window_end=parse_date(request["window_end"]))
         rows_written = 0
         empty_days: list[date] = []
         # One day at a time, so only that day's rows are ever held in their table shape.
         for day in sorted(positions_by_day):
             positions = positions_by_day.pop(day)
-            rows = day_rows(report_rows, positions, profile_id=profile_id, currency_code=currency_code, day=day)
+            rows = kind.day_rows(report_rows, positions, profile_id=profile_id,
+                                 currency_code=currency_code, day=day)
             for position in positions:
                 report_rows[position] = None
             inserted = self._rest.rpc(
-                "replace_search_term_day",
+                kind.replace_day_rpc,
                 {"p_profile_id": profile_id, "p_day": day.isoformat(), "p_rows": rows},
                 timeout_s=REPLACE_DAY_TIMEOUT_SECONDS,
             )
@@ -615,7 +657,7 @@ class IngestionJob:
             for row in self._rest.select(JOBS_TABLE, {
                 "select": "*",
                 "integration_slug": f"eq.{SLUG}",
-                "job_kind": f"eq.{SEARCH_TERMS_KIND}",
+                "job_kind": _in_filter(report_kinds.REPORT_JOB_KINDS),
                 "status": "eq.running",
             })
         ]
@@ -633,7 +675,7 @@ class IngestionJob:
             statuses = {chunk.get("status") for chunk in chunks}
             try:
                 if statuses == {"saved"}:
-                    self._close_search_terms_job(tick, job, chunks)
+                    self._close_report_job(tick, job, chunks)
                 elif "failed" in statuses and not statuses & _UNFINISHED_REQUEST_STATUSES:
                     self._record_unrecorded_chunk_failure(tick, job, chunks)
             except Exception as exc:
@@ -646,9 +688,11 @@ class IngestionJob:
         self._record_job_failure(tick, job, failed_chunk.get("error_class") or "ReportFailed",
                                  failed_chunk.get("error_message") or "", retryable=True)
 
-    def _close_search_terms_job(self, tick: _Tick, job: SyncJob, chunks: list[dict]) -> None:
-        # The profile goes first: if completing the job then fails, the next tick redoes both safely.
-        self._update_profile(tick, job.external_account_id, self._success_changes(tick, job, chunks))
+    def _close_report_job(self, tick: _Tick, job: SyncJob, chunks: list[dict]) -> None:
+        # ads_profile_sync is the STR picker's freshness; a campaign job must never move it.
+        if job.job_kind == SEARCH_TERMS_KIND:
+            # The profile goes first: if completing the job then fails, the next tick redoes both safely.
+            self._update_profile(tick, job.external_account_id, self._success_changes(tick, job, chunks))
         empty_days = sorted({str(day) for chunk in chunks for day in chunk.get("skipped_days") or ()})
         rows_written = sum(int(chunk.get("row_count") or 0) for chunk in chunks)
         self._complete(tick, job, rows_written=rows_written, warning=_empty_days_warning(empty_days))
@@ -773,9 +817,11 @@ class IngestionJob:
                 tick.jobs[job.id] = job
         return {job_id: tick.jobs[job_id] for job_id in job_ids if job_id in tick.jobs}
 
-    def _claim_requests(self, statuses: tuple[str, ...], limit: int) -> list[dict]:
+    def _claim_requests(self, statuses: tuple[str, ...], limit: int,
+                        kind: report_kinds.ReportKind) -> list[dict]:
         rows = self._rest.rpc("claim_report_requests", {
-            "p_holder": self._holder, "p_statuses": list(statuses), "p_limit": limit, "p_lease_seconds": LEASE_SECONDS,
+            "p_holder": self._holder, "p_statuses": list(statuses), "p_kinds": [kind.name],
+            "p_limit": limit, "p_lease_seconds": LEASE_SECONDS,
         })
         return list(rows or [])
 
@@ -834,11 +880,12 @@ class IngestionJob:
     def _amazon(self, job: SyncJob) -> tuple[AdsApiClient, ReportFetcher]:
         if job.connection_id is None:
             raise ConnectionUnavailable(f"job {job.id} has no amazon_ads connection")
-        key = (job.region, job.connection_id)
+        kind = report_kinds.by_job_kind(job.job_kind) or report_kinds.SEARCH_TERMS
+        key = (job.region, job.connection_id, kind.name)
         clients = self._amazon_clients.get(key)
         if clients is None:
             api = self._api_factory(job.region, job.connection_id)
-            clients = (api, ReportFetcher(api, session=self._download_session))
+            clients = (api, ReportFetcher(api, session=self._download_session, spec=kind.spec))
             self._amazon_clients[key] = clients
         return clients
 
@@ -886,12 +933,17 @@ def _profile_changed(existing: dict | None, discovered: dict) -> bool:
 def _profile_state(row: dict, job_rows: Iterable[dict], now: datetime) -> ProfileState:
     local_today = now.astimezone(profile_timezone(row.get("timezone") or "", row.get("region") or "")).date()
     has_open_backfill = has_day_job_today = has_portfolio_job_today = False
+    has_campaign_job_today = has_campaign_entities_job_today = False
     for job in job_rows:
         is_open = job.get("status") in OPEN_STATUSES
         # A closed job still holding today's dedupe key would make planning again a no-op; a released key does not.
         blocks_today = parse_date(job.get("local_day")) == local_today and (is_open or bool(job.get("dedupe_key")))
         if job.get("job_kind") == PORTFOLIOS_KIND:
             has_portfolio_job_today = has_portfolio_job_today or blocks_today
+        elif job.get("job_kind") == CAMPAIGNS_KIND:
+            has_campaign_job_today = has_campaign_job_today or blocks_today
+        elif job.get("job_kind") == CAMPAIGN_ENTITIES_KIND:
+            has_campaign_entities_job_today = has_campaign_entities_job_today or blocks_today
         elif job.get("job_kind") != SEARCH_TERMS_KIND:
             continue
         elif is_backfill(job.get("trigger") or "", parse_date(job.get("window_start")), parse_date(job.get("window_end"))):
@@ -899,7 +951,14 @@ def _profile_state(row: dict, job_rows: Iterable[dict], now: datetime) -> Profil
         elif blocks_today:
             has_day_job_today = True
     return ProfileState.from_row(row, has_open_backfill=has_open_backfill, has_open_day_job_today=has_day_job_today,
-                                 has_portfolio_job_today=has_portfolio_job_today)
+                                 has_portfolio_job_today=has_portfolio_job_today,
+                                 has_campaign_job_today=has_campaign_job_today,
+                                 has_campaign_entities_job_today=has_campaign_entities_job_today)
+
+
+def _capped(kind_limit: int | None, worker_limit: int) -> int:
+    """A report kind may ask for less than the worker allows, never more."""
+    return min(kind_limit or worker_limit, worker_limit)
 
 
 def _classify(exc: Exception) -> tuple[str, bool]:

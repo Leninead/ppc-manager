@@ -14,7 +14,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import streamlit as st
 
 from core.amazon_ads.raw_reports import REPORT_REQUESTS_TABLE
-from core.amazon_ads.sync_planner import PORTFOLIOS_KIND, SEARCH_TERMS_KIND
+from core.amazon_ads.report_kinds import REPORT_JOB_KINDS
+from core.amazon_ads.sync_planner import CAMPAIGN_ENTITIES_KIND, PORTFOLIOS_KIND
 from core.integrations import catalog, roles
 from core.integrations.notice import sync_alert_counts
 from core.integrations.store import StoreError, _Rest, _rest_credentials
@@ -33,6 +34,9 @@ _ARGENTINA_FALLBACK = timezone(timedelta(hours=-3))
 
 PAGE_SIZE = 50
 SYNC_PROVIDERS = (ADS_SLUG,)
+# Daily photos of an account, with no report window: what they close with is a count, not a range.
+_SNAPSHOT_COUNT_KEYS = {PORTFOLIOS_KIND: "request_log.sub.portfolios",
+                        CAMPAIGN_ENTITIES_KIND: "request_log.sub.campaigns"}
 OVERVIEW_WINDOW = timedelta(hours=24)
 PERIOD_SPANS: dict[str, timedelta | None] = {
     "day": timedelta(hours=24),
@@ -208,8 +212,8 @@ def status_label(status: str, phase: str = "", warning: str = "", job_kind: str 
     if status == "running":
         return i18n.t(_PHASE_LABEL_KEYS.get(phase, "request_log.status.running"))
     if status == "completed" and warning:
-        # The only warning a search-term job closes with is a day Amazon returned empty.
-        empty_day = job_kind == SEARCH_TERMS_KIND
+        # The only warning a report job closes with is a day Amazon returned empty.
+        empty_day = job_kind in REPORT_JOB_KINDS
         return i18n.t("request_log.status.completed_empty_day" if empty_day
                       else "request_log.status.completed_warning")
     if status in JOB_STATUSES:
@@ -321,7 +325,7 @@ def account_label(job: SyncJob) -> str:
 
 def request_title(job: SyncJob) -> str:
     kind = _label_or(f"request_log.kind.{job.job_kind}", job.job_kind)
-    if job.job_kind == PORTFOLIOS_KIND:
+    if job.job_kind in _SNAPSHOT_COUNT_KEYS:
         return kind
     trigger = _label_or(f"request_log.trigger.{job.trigger}", job.trigger)
     if job.trigger == "manual" and job.requested_by:
@@ -338,8 +342,8 @@ def request_subline(job: SyncJob, progress: ReportProgress | None, now: datetime
         return job.error_message
     if job.status == "completed" and job.warning:
         return job.warning
-    if job.job_kind == PORTFOLIOS_KIND and job.status == "completed":
-        return i18n.tn("request_log.sub.portfolios", job.rows_written or 0)
+    if job.job_kind in _SNAPSHOT_COUNT_KEYS and job.status == "completed":
+        return i18n.tn(_SNAPSHOT_COUNT_KEYS[job.job_kind], job.rows_written or 0)
     return window_text(job.window_start, job.window_end)
 
 
@@ -620,7 +624,7 @@ def _account_options(rest: _Rest) -> dict[str, str]:
 
 
 def _load_report_progress(rest: _Rest, jobs: list[SyncJob]) -> dict[int, ReportProgress]:
-    open_ids = [job.id for job in jobs if job.is_open and job.job_kind == SEARCH_TERMS_KIND]
+    open_ids = [job.id for job in jobs if job.is_open and job.job_kind in REPORT_JOB_KINDS]
     if not open_ids:
         return {}
     try:
@@ -697,7 +701,7 @@ def _detail_body(rest: _Rest, job_id: int, username: str, role: str) -> None:
     st.markdown(_facts_html(_detail_facts(job, now)), unsafe_allow_html=True)
     st.markdown(_section_label_html(i18n.t("request_log.detail.timeline")), unsafe_allow_html=True)
     st.markdown(_timeline_html(timeline(job), now), unsafe_allow_html=True)
-    if job.job_kind == SEARCH_TERMS_KIND:
+    if job.job_kind in REPORT_JOB_KINDS:
         _report_chunks(rest, job)
     if job.error_class or job.error_message:
         st.markdown(_section_label_html(i18n.t("request_log.detail.error")), unsafe_allow_html=True)

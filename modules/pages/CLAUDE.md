@@ -316,11 +316,28 @@ Visualizar el bulk de campañas y diagnosticar con semáforo automático (PAUSAR
 - FANTASMAS: 0 impresiones activas
 - Las pausas se ejecutan MANUALMENTE en Campaign Manager — no desde este bulk
 
+### Fuente de datos (2026-09-17 — grano de campaña desde Amazon Ads API)
+- Los datos llegan de `render_campaign_source("bulk")` (`modules/pages/campaign_source.py`), que devuelve un
+  `CampaignInput(frame, currency_code)` o `None`. El frame tiene las 17 columnas del export de Campaign Manager
+  (`FRAME_COLUMNS` en `core/amazon_ads/campaign_provider.py`); de ahí para abajo M6 no sabe de dónde vino.
+- **Con cuentas sincronizadas** lo lee `CampaignProvider(rest).campaigns(option, desde, hasta)` sobre `campaigns_between`
+  (migración 013): arranca en `ads_campaign` (la foto de `/sp/campaigns/list`) y suma `ads_campaign_daily` (reporte
+  `spCampaigns` por día, 65 días) por left join, así que una campaña sin actividad es una fila en cero. Las archivadas
+  quedan afuera. Sin cuentas, sin base o con "Subir archivo manualmente": el uploader de siempre (Bulk o Campaign CSV).
+- **Frescura**: sale de las solicitudes `sp_campaigns` (la última y la última completada), nunca de `ads_profile_sync`,
+  que es del STR. El pill reusa `freshness_pill` del STR (día y hora); el encabezado se refresca cada 30 s mientras hay
+  una solicitud abierta y redibuja la página cuando se cierra.
+- **Moneda**: la de la cuenta, con `money()` / `currency_symbol()`; con archivo manual queda el `$` de siempre.
+- Diferencias con el CSV: estado de hasta el día anterior, métricas hasta ayer, período de hasta 60 días sobre los 65
+  sincronizados, solo Sponsored Products, archivadas afuera.
+
 ### Inputs
-- Campaign CSV con métricas (.csv) — requerido para Tab 2
+- Datos de Amazon Ads (cuenta + país + período) o Bulk / Campaign CSV subido a mano
 
 ### Anti-patterns
 - Confundir bulk .xlsx (sin métricas) con Campaign CSV (con métricas)
+- ❌ NO armar la tabla solo con el reporte `spCampaigns`: trae únicamente campañas con actividad y los fantasmas desaparecen
+- ❌ NO tomar la frescura de `ads_profile_sync`: la actualizan sólo las solicitudes de search terms
 
 ---
 
@@ -1460,8 +1477,16 @@ Audit lo sacan del Bulk File) puede leer lo mismo sin tocar la ingesta.
 **Qué hay que agregar según el módulo.**
 - Series por día (tendencias): una función SQL nueva sobre `ads_search_term_daily`; la tabla ya es diaria.
 - Módulos que esperan los IDs con nombres del Bulk File (`Campaign ID`, `Ad Group ID`): un adaptador chico, no otra ingesta.
-- Otro tipo de reporte de Amazon (targets, campañas, productos publicitados): un `job_kind` nuevo, su tabla y su
-  normalizador. La cola, los reintentos, el registro y las alertas son los mismos.
+- Otro tipo de reporte de Amazon (targets, productos publicitados): un `ReportKind` nuevo en
+  `core/amazon_ads/report_kinds.py` (su `job_kind`, su spec de reporte, su tabla y su normalizador, con topes
+  propios de reportes en vuelo). La cola, los reintentos, el registro y las alertas son los mismos.
+
+**Grano de campaña (2026-09-17).** Dos solicitudes diarias más por perfil, desde las 03:00: `campaign_entities`
+(foto de `/sp/campaigns/list` en `ads_campaign`) y `sp_campaigns` (reporte `spCampaigns` de 65 días en 3 tramos,
+reemplazado día por día en `ads_campaign_daily`). Tope compartido por todos los perfiles: 3 reportes en vuelo, 3
+pedidos y 3 guardados por tick, y los search terms van primero en cada paso. Selector: `render_campaign_source(key_prefix)`
+(`modules/pages/campaign_source.py`); sin UI: `CampaignProvider(rest).campaigns(option, desde, hasta)`. M8 puede
+leerlo igual que M6.
 
 **Operación.** Horarios: diaria de 14 días a las 03:00 del perfil (lunes a sábado), 42 días los domingos, carga
 inicial de 65 días (la retención de `spSearchTerm`) apenas aparece una cuenta, reintentos hasta las 23:00 del perfil.

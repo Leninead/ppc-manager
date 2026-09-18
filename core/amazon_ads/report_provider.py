@@ -323,12 +323,12 @@ def _portfolio_label(portfolio_id: str, name: str) -> str:
     return f"Portfolio {portfolio_id.strip()}" if portfolio_id.strip() else ""
 
 
-def _numbers(totals: pd.DataFrame, field: str) -> pd.Series:
+def _numbers(totals: pd.DataFrame, field: str, rpc: str = SEARCH_TERMS_RPC) -> pd.Series:
     raw = totals[field].astype(str).str.strip()
     parsed = pd.to_numeric(raw, errors="coerce")
     unreadable = parsed.isna() & raw.ne("")
     if unreadable.any():
-        raise ValueError(f"{SEARCH_TERMS_RPC} answered a non-numeric {field}: {raw[unreadable].iloc[0]!r}")
+        raise ValueError(f"{rpc} answered a non-numeric {field}: {raw[unreadable].iloc[0]!r}")
     return parsed.fillna(0)
 
 

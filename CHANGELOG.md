@@ -18,6 +18,27 @@ servidor MCP cuando la pregunta lo pide. Sale también la lectura de la base que
 en su moneda; `list_analyses` suma la situación, el target de ACoS y el tipo y urgencia de cada riesgo de cada
 análisis; `get_analysis` da cada fila con su row_id y la síntesis con el término al lado de cada id.
 
+### Added — Bulk Campañas lee las campañas de la cuenta de Amazon Ads (2026-09-17)
+
+**M6 sin Campaign CSV.** Bulk Campañas muestra las campañas de Sponsored Products de la cuenta conectada con sus
+métricas del período elegido (7, 14, 30 o 60 días, o un rango). Salen de dos solicitudes nuevas del sincronizador,
+una vez por día y por perfil desde las 03:00 de su hora: la foto de campañas (`/sp/campaigns/list`: nombre, estado,
+presupuesto, estrategia, portfolio) y las métricas diarias del reporte `spCampaigns` de los últimos 65 días, en 3
+tramos. Una campaña sin actividad aparece igual, en cero: el universo sale de la foto, no del reporte. El archivo
+manual queda como alternativa.
+
+**Frescura con día y hora.** El selector usa los controles del STR y su pill sale de las solicitudes de campañas
+("Al día · actualizado hoy HH:MM", "Primera carga en curso", "Sin datos todavía"). El Registro de solicitudes muestra
+"Campañas" y "Métricas de campañas", con los tramos del reporte en el detalle.
+
+**Diferencias con el CSV.** Estado de hasta el día anterior, métricas hasta ayer, 65 días sincronizados (el período
+llega a 60), solo Sponsored Products, archivadas afuera y 17 columnas en la Vista General.
+
+**Deploy.** El pipeline aplica la migración 013 en "DB migrate", segundos después de levantar la imagen nueva: los
+ticks del sincronizador de esa ventana fallan en el pedido de reportes y en los pasos de campañas, y se recuperan solos
+(las solicitudes de campañas reintentan a los 5 min). Nunca correr la imagen vieja y la nueva del sincronizador a la
+vez: la vieja toma tramos sin mirar su tipo.
+
 ### Added — El chat lee la app por MCP y grafica solo (2026-09-17)
 
 **El chat consulta la app en vez de recibirla pegada.** Un servidor MCP de sólo lectura (`services/mcp_server`,

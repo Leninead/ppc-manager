@@ -389,6 +389,21 @@ class SyncJobStore:
         )
         return SyncJob.from_row(rows[0]) if rows else None
 
+    def latest_completed_for_profile(self, external_account_id: str, job_kind: str) -> SyncJob | None:
+        """The last job of this kind that finished well: its window is what is synced, its end is when."""
+        rows = self._rest.select(
+            JOBS_TABLE,
+            {
+                "select": "*",
+                "external_account_id": f"eq.{external_account_id}",
+                "job_kind": f"eq.{job_kind}",
+                "status": "eq.completed",
+                "order": "finished_at.desc,id.desc",
+                "limit": "1",
+            },
+        )
+        return SyncJob.from_row(rows[0]) if rows else None
+
     def counts_since(self, since: datetime) -> dict[str, int]:
         rows = self._rest.select(
             JOBS_TABLE, {"select": "status", "created_at": f"gte.{since.isoformat()}"}

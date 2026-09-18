@@ -20,6 +20,7 @@ import requests
 from core.amazon_ads import ingestion_job as ingestion_module
 from core.amazon_ads.api_client import CLIENT_ID_HEADER, AdsApiClient
 from core.amazon_ads.ingestion_job import (
+    NO_CAMPAIGN_ACCESS_WARNING,
     NO_PORTFOLIO_ACCESS_WARNING,
     PROFILE_INACTIVE_REASON,
     SAVE_CRASHED_MESSAGE,
@@ -28,6 +29,8 @@ from core.amazon_ads.ingestion_job import (
     _profile_state,
     _Tick,
 )
+from core.amazon_ads import report_kinds
+from core.amazon_ads.sync_planner import CAMPAIGN_ENTITIES_KIND, CAMPAIGNS_KIND
 from core.integrations import oauth
 from core.integrations.sync_jobs import SyncJobStore
 
@@ -37,6 +40,8 @@ JOBS = "integration_sync_jobs"
 REQUESTS = "ads_report_requests"
 PROFILES = "ads_profile_sync"
 DAILY_ROWS = "ads_search_term_daily"
+CAMPAIGN_DAILY = "ads_campaign_daily"
+CAMPAIGNS = "ads_campaign"
 HEARTBEATS = "integration_worker_heartbeats"
 NEW_TABLES = {JOBS, REQUESTS, PROFILES, DAILY_ROWS, "ads_portfolios", HEARTBEATS}
 
@@ -53,7 +58,8 @@ def _defaults(table: str, stamp: str) -> dict:
         }
     if table == REQUESTS:
         return {
-            "status": "to_request", "amazon_report_id": "", "amazon_status": "", "requested_at": None,
+            "status": "to_request", "report_kind": "search_terms",
+            "amazon_report_id": "", "amazon_status": "", "requested_at": None,
             "next_poll_at": None, "poll_count": 0, "save_attempts": 0, "lease_holder": "", "lease_expires_at": None,
             "row_count": None,
             "skipped_days": [], "error_class": "", "error_message": "", "raw_status": "none", "raw_path": "",
@@ -114,6 +120,7 @@ class _FakePostgrest:
         self.tables: dict[str, list[dict]] = defaultdict(list)
         self.missing_tables: set[str] = set()
         self.replaced_days: list[str] = []
+        self.campaign_days: list[str] = []
         self.rpc_timeouts: dict[str, int] = {}
         self._armed_failures: list[tuple[str, str, object, BaseException]] = []
 
@@ -202,7 +209,7 @@ class _FakePostgrest:
                        started_at=job["started_at"] or self.now.isoformat())
         return copy.deepcopy(due_jobs[:p_limit])
 
-    def _claim_report_requests(self, p_holder, p_statuses, p_limit, p_lease_seconds):
+    def _claim_report_requests(self, p_holder, p_statuses, p_kinds, p_limit, p_lease_seconds):
         self._require(REQUESTS)
 
         def is_due(request):
@@ -210,7 +217,8 @@ class _FakePostgrest:
                           or _comparable(request["lease_expires_at"]) < self.now)
             poll_due = (request["status"] != "requested" or request["next_poll_at"] is None
                         or _comparable(request["next_poll_at"]) <= self.now)
-            return request["status"] in p_statuses and lease_free and poll_due
+            return (request["status"] in p_statuses and request["report_kind"] in p_kinds
+                    and lease_free and poll_due)
 
         due_requests = sorted((request for request in self.tables[REQUESTS] if is_due(request)),
                               key=lambda request: (_comparable(request["created_at"]), request["id"]))[:p_limit]
@@ -263,6 +271,20 @@ class _FakePostgrest:
         self.tables[DAILY_ROWS].extend({**row, "profile_id": p_profile_id, "report_date": p_day} for row in p_rows)
         return len(p_rows)
 
+    def _replace_campaign_day(self, p_profile_id, p_day, p_rows):
+        self._require(CAMPAIGN_DAILY)
+        self.campaign_days.append(p_day)
+
+        def is_that_day(row):
+            return row["profile_id"] == p_profile_id and row["report_date"] == p_day
+
+        if not p_rows:
+            return -1 if any(is_that_day(row) for row in self.tables[CAMPAIGN_DAILY]) else 0
+        self.tables[CAMPAIGN_DAILY] = [row for row in self.tables[CAMPAIGN_DAILY] if not is_that_day(row)]
+        self.tables[CAMPAIGN_DAILY].extend({**row, "profile_id": p_profile_id, "report_date": p_day}
+                                           for row in p_rows)
+        return len(p_rows)
+
     def _append(self, table: str, row: dict) -> dict:
         full_row = {**_defaults(table, self.now.isoformat()), **copy.deepcopy(row)}
         if table in (JOBS, REQUESTS) and "id" not in full_row:
@@ -299,15 +321,22 @@ class _FakeResponse:
 class _FakeAmazon:
     REPORTS_HOST = "https://reports.fake-amazon.test"
 
-    def __init__(self, rows_per_day: int = 2):
+    def __init__(self, rows_per_day: int = 2, campaign_rows_per_day: int = 0):
         self.rows_per_day = rows_per_day
+        self.campaign_rows_per_day = campaign_rows_per_day
         self.reports: dict[str, dict] = {}
         self.create_outcomes: list[_FakeResponse] = []
         self.status_scripts: list[list[str]] = []
         self.portfolio_outcome = _FakeResponse(200, {"portfolios": [
             {"portfolioId": 444, "name": "Brand Portfolio", "state": "ENABLED"}]})
+        self.campaign_outcome = _FakeResponse(200, {"campaigns": [
+            {"campaignId": 909, "name": "Demo - SP - KW - EXACT", "state": "ENABLED",
+             "targetingType": "MANUAL", "startDate": "2026-03-21",
+             "budget": {"budget": 15.0, "budgetType": "DAILY"},
+             "dynamicBidding": {"strategy": "MANUAL"}, "portfolioId": 444}]})
         self.empty_days: set[str] = set()
         self.created: list[tuple[str, str, str]] = []
+        self.campaign_creates: list[tuple[str, str, str]] = []
         self.create_attempts = 0
         self.client_ids: list[str] = []
         self.connections_used: list[tuple[str, int]] = []
@@ -326,6 +355,8 @@ class _FakeAmazon:
             return self._status(path.rsplit("/", 1)[1])
         if (method, path) == ("POST", "/portfolios/list"):
             return self.portfolio_outcome
+        if (method, path) == ("POST", "/sp/campaigns/list"):
+            return self.campaign_outcome
         raise AssertionError(f"unexpected Amazon call {method} {path}")
 
     def get(self, url, **kwargs):
@@ -334,13 +365,21 @@ class _FakeAmazon:
         return _FakeResponse(200, chunks=[body[:50], body[50:]])
 
     def _create(self, headers: dict, body: dict) -> _FakeResponse:
+        profile_id = headers["Amazon-Advertising-API-Scope"]
+        window = (profile_id, body["startDate"], body["endDate"])
+        # The campaign grain rides the same machinery; keeping its creates apart lets every
+        # assertion below stay exhaustive over the search-term pipeline it is about.
+        if body["configuration"]["reportTypeId"] != "spSearchTerm":
+            self.campaign_creates.append(window)
+            report_id = self.add_report(profile_id, body["startDate"], body["endDate"], ["COMPLETED"])
+            self.reports[report_id]["campaigns"] = True
+            return _FakeResponse(200, {"reportId": report_id, "status": "PENDING"})
         self.create_attempts += 1
         if self.create_outcomes:
             return self.create_outcomes.pop(0)
-        profile_id = headers["Amazon-Advertising-API-Scope"]
         statuses = self.status_scripts.pop(0) if self.status_scripts else ["COMPLETED"]
         report_id = self.add_report(profile_id, body["startDate"], body["endDate"], statuses)
-        self.created.append((profile_id, body["startDate"], body["endDate"]))
+        self.created.append(window)
         return _FakeResponse(200, {"reportId": report_id, "status": "PENDING"})
 
     def _status(self, report_id: str) -> _FakeResponse:
@@ -354,6 +393,10 @@ class _FakeAmazon:
         return _FakeResponse(200, body)
 
     def _report_rows(self, report: dict) -> list[dict]:
+        # Campaign reports are empty unless a test asks for rows, so they never reach the
+        # search-term counts the rest of this suite asserts.
+        if report.get("campaigns"):
+            return self._campaign_report_rows(report)
         first_day, last_day = date.fromisoformat(report["start"]), date.fromisoformat(report["end"])
         api_rows = []
         for offset in range((last_day - first_day).days + 1):
@@ -371,6 +414,25 @@ class _FakeAmazon:
                     "purchases14d": 1, "sales14d": 21.0, "unitsSoldClicks14d": 1,
                 })
         return api_rows
+
+    def _campaign_report_rows(self, report: dict) -> list[dict]:
+        first_day, last_day = date.fromisoformat(report["start"]), date.fromisoformat(report["end"])
+        return [
+            {"date": (first_day + timedelta(days=offset)).isoformat(), "campaignId": 900 + index,
+             "impressions": 50, "clicks": 2, "cost": 1.25, "purchases7d": 1, "sales7d": 15.0,
+             "purchases14d": 1, "sales14d": 16.0, "campaignBudgetCurrencyCode": "USD"}
+            for offset in range((last_day - first_day).days + 1)
+            for index in range(self.campaign_rows_per_day)
+        ]
+
+
+def _search_term_requests(rest: _FakePostgrest, **filters) -> list[dict]:
+    """The chunks of the search-term pipeline, which is what this suite is about.
+
+    A tick now also queues the campaign grain's own chunks into the same table; selecting by kind
+    keeps each assertion exhaustive over its own pipeline instead of counting the other one's rows.
+    """
+    return rest.rows(REQUESTS, report_kind=report_kinds.SEARCH_TERMS_REPORT, **filters)
 
 
 def _connect_profile(rest: _FakePostgrest, profile_id: str = "1001", *, connection_id: int = 5,
@@ -448,25 +510,26 @@ def test_first_tick_backfills_five_chunks_then_saves_them_and_closes_the_job(tmp
     first = _tick(ingestion, rest, NOW)
 
     assert first.errors == []
-    assert (first.profiles_active, first.jobs_planned, first.reports_created, first.jobs_completed) == (1, 2, 5, 1)
+    assert (first.profiles_active, first.jobs_planned, first.reports_created, first.jobs_completed) == (1, 4, 8, 2)
     backfill = _only(rest.rows(JOBS, trigger="backfill"))
     assert (backfill["status"], backfill["phase"]) == ("running", "waiting")
-    windows = [(row["window_start"], row["window_end"]) for row in rest.rows(REQUESTS)]
+    windows = [(row["window_start"], row["window_end"]) for row in _search_term_requests(rest)]
     assert windows[0] == ("2026-08-31", YESTERDAY) and windows[-1] == ("2026-07-11", "2026-07-19")
-    assert len(windows) == 5 and all(row["status"] == "requested" for row in rest.rows(REQUESTS))
+    assert len(windows) == 5 and all(row["status"] == "requested" for row in _search_term_requests(rest))
     assert _only(rest.rows("ads_portfolios"))["name"] == "Brand Portfolio"
 
     second = _tick(ingestion, rest, NOW + timedelta(seconds=61))
     third = _tick(ingestion, rest, NOW + timedelta(seconds=122))
 
-    assert (second.reports_saved, third.reports_saved) == (4, 1)
+    # Search terms keep their own cap of 4 saves a tick; the campaign grain saves its 3 alongside.
+    assert (second.reports_saved, third.reports_saved) == (4 + 3, 1)
     assert (third.jobs_completed, second.errors, third.errors) == (1, [], [])
     backfill = _only(rest.rows(JOBS, trigger="backfill"))
     assert (backfill["status"], backfill["rows_written"], backfill["dedupe_key"]) == ("completed", 130, None)
     assert len(rest.tables[DAILY_ROWS]) == 65 * 2
     assert rest.replaced_days[:14] == sorted(rest.replaced_days[:14]) and rest.replaced_days[13] == YESTERDAY
     assert rest.rpc_timeouts["replace_search_term_day"] == 120
-    assert all(row["raw_status"] == "kept" and (tmp_path / row["raw_path"]).is_file() for row in rest.rows(REQUESTS))
+    assert all(row["raw_status"] == "kept" and (tmp_path / row["raw_path"]).is_file() for row in _search_term_requests(rest))
     profile = _only(rest.rows(PROFILES))
     assert profile["backfill_done_at"] == (NOW + timedelta(seconds=122)).isoformat()
     assert (profile["data_from"], profile["data_through"], profile["refreshed_on"]) == ("2026-07-11", YESTERDAY,
@@ -487,13 +550,14 @@ def test_duplicate_create_resumes_the_report_amazon_already_has(tmp_path):
 
     _tick(ingestion, rest, NOW)
 
-    request = _only(rest.rows(REQUESTS))
+    request = _only(_search_term_requests(rest))
     assert (request["status"], request["amazon_report_id"]) == ("requested", in_flight_id)
     assert amazon.created == []
 
     summary = _tick(ingestion, rest, NOW + timedelta(seconds=61))
 
-    assert (summary.reports_saved, summary.jobs_completed, summary.rows_written) == (1, 1, 28)
+    # The campaign grain saves its three empty chunks and closes its own job alongside.
+    assert (summary.reports_saved, summary.jobs_completed, summary.rows_written) == (1 + 3, 1 + 1, 28)
     assert _only(rest.rows(JOBS, trigger="scheduled_daily", job_kind="sp_search_terms"))["status"] == "completed"
     assert _only(rest.rows(PROFILES))["refreshed_on"] == "2026-09-14"
 
@@ -511,12 +575,12 @@ def test_failed_report_retries_after_the_backoff_and_then_completes(tmp_path):
     job = _only(rest.rows(JOBS, job_kind="sp_search_terms"))
     assert (job["status"], job["attempts"], job["error_class"]) == ("retrying", 1, "ReportFailed")
     assert job["next_attempt_at"] == (failed_at + timedelta(minutes=5)).isoformat()
-    failed_chunk = _only(rest.rows(REQUESTS))
+    failed_chunk = _only(_search_term_requests(rest))
     assert (failed_chunk["status"], failed_chunk["amazon_status"]) == ("failed", "FAILED")
     assert failure.jobs_failed == 0 and len(failure.errors) == 1
 
     too_early = _tick(ingestion, rest, failed_at + timedelta(minutes=4))
-    assert too_early.reports_created == 0 and _only(rest.rows(REQUESTS))["status"] == "failed"
+    assert too_early.reports_created == 0 and _only(_search_term_requests(rest))["status"] == "failed"
 
     retried = _tick(ingestion, rest, failed_at + timedelta(minutes=5))
     assert retried.reports_created == 1 and len(amazon.created) == 2
@@ -525,7 +589,7 @@ def test_failed_report_retries_after_the_backoff_and_then_completes(tmp_path):
     assert completed.jobs_completed == 1
     job = _only(rest.rows(JOBS, job_kind="sp_search_terms"))
     assert (job["status"], job["attempts"], len(job["attempt_log"])) == ("completed", 1, 1)
-    assert _only(rest.rows(REQUESTS))["status"] == "saved"
+    assert _only(_search_term_requests(rest))["status"] == "saved"
 
 
 def test_chunks_failing_in_the_same_tick_spend_one_attempt_and_all_retry_together(tmp_path):
@@ -540,13 +604,13 @@ def test_chunks_failing_in_the_same_tick_spend_one_attempt_and_all_retry_togethe
 
     backfill = _only(rest.rows(JOBS, trigger="backfill"))
     assert (backfill["status"], backfill["attempts"]) == ("retrying", 1)
-    assert [row["status"] for row in rest.rows(REQUESTS)] == ["failed", "failed", "saved", "saved", "saved"]
+    assert [row["status"] for row in _search_term_requests(rest)] == ["failed", "failed", "saved", "saved", "saved"]
     assert len(summary.errors) == 2
 
     retried = _tick(ingestion, rest, failed_at + timedelta(minutes=5))
 
     assert retried.reports_created == 2
-    assert [row["status"] for row in rest.rows(REQUESTS)] == ["requested", "requested", "saved", "saved", "saved"]
+    assert [row["status"] for row in _search_term_requests(rest)] == ["requested", "requested", "saved", "saved", "saved"]
 
 
 def test_throttled_report_creation_stops_the_batch_without_spending_attempts(tmp_path):
@@ -559,12 +623,15 @@ def test_throttled_report_creation_stops_the_batch_without_spending_attempts(tmp
     summary = _tick(ingestion, rest, NOW)
 
     assert (summary.reports_created, amazon.create_attempts, summary.errors) == (0, 1, [])
-    assert [(row["status"], row["lease_holder"]) for row in rest.rows(REQUESTS)] == [("to_request", "")] * 2
+    # A 429 speaks for the whole app: the campaign grain waits for the next tick too.
+    assert amazon.campaign_creates == []
+    assert [(row["status"], row["lease_holder"]) for row in _search_term_requests(rest)] == [("to_request", "")] * 2
     assert [job["attempts"] for job in rest.rows(JOBS, job_kind="sp_search_terms")] == [0, 0]
 
     later = _tick(ingestion, rest, NOW + timedelta(seconds=61))
 
-    assert later.reports_created == 2
+    # Search terms get their two back first; the campaign grain then creates its slice of three.
+    assert later.reports_created == 2 + 3
     assert [job["attempts"] for job in rest.rows(JOBS, job_kind="sp_search_terms")] == [0, 0]
 
 
@@ -600,10 +667,17 @@ def test_needs_reauth_fails_jobs_for_good_and_flags_the_profile(tmp_path):
 
     summary = _tick(_ingestion(rest, amazon, tmp_path, token_source=dead_token), rest, NOW)
 
-    assert summary.jobs_failed == 2
-    for job in rest.rows(JOBS):
-        assert (job["status"], job["attempts"], job["error_class"]) == ("failed", 1, "NeedsReauth")
-    assert _only(rest.rows(REQUESTS))["status"] == "failed"
+    # A profile that needs re-authorization cannot run any Amazon job, the campaign grain's two included.
+    assert summary.jobs_failed == 2 + 2
+    assert {job["job_kind"]: (job["status"], job["attempts"], job["error_class"]) for job in rest.rows(JOBS)} == {
+        "sp_search_terms": ("failed", 1, "NeedsReauth"),
+        "portfolio_names": ("failed", 1, "NeedsReauth"),
+        # Started after the portfolio job hit the dead token: the profile guard fails them before
+        # they spend an Amazon call.
+        "campaign_entities": ("failed", 1, "ConnectionUnavailable"),
+        "sp_campaigns": ("failed", 1, "ConnectionUnavailable"),
+    }
+    assert _only(_search_term_requests(rest))["status"] == "failed"
     profile = _only(rest.rows(PROFILES))
     assert profile["status"] == "needs_reauth" and "invalid_grant" in profile["last_error"]
     assert amazon.create_attempts == 0
@@ -634,7 +708,7 @@ def test_queued_job_past_its_deadline_fails(tmp_path):
     job = _only(rest.rows(JOBS))
     assert (job["status"], job["error_class"], job["lease_holder"]) == ("failed", "deadline", "")
     assert summary.jobs_failed == 1
-    assert rest.rows(REQUESTS) == []
+    assert _search_term_requests(rest) == []
 
 
 def test_manual_refresh_is_requested_before_scheduled_jobs(tmp_path):
@@ -649,7 +723,8 @@ def test_manual_refresh_is_requested_before_scheduled_jobs(tmp_path):
 
     summary = _tick(_ingestion(rest, amazon, tmp_path, max_creates_per_tick=1), rest, NOW)
 
-    assert summary.reports_created == 1
+    # The worker's cap is a ceiling for every kind: the campaign grain gets one create too, not its usual three.
+    assert summary.reports_created == 1 + 1
     assert amazon.created == [("2002", "2026-08-31", YESTERDAY)]
     assert _only(rest.rows(REQUESTS, job_id=manual["id"]))["status"] == "requested"
     scheduled = _only(rest.rows(JOBS, trigger="scheduled_daily", job_kind="sp_search_terms"))
@@ -668,7 +743,7 @@ def test_empty_day_keeps_the_rows_already_saved_and_warns(tmp_path):
 
     assert summary.rows_written == 13 * 2
     assert [row["search_term"] for row in rest.rows(DAILY_ROWS, report_date=YESTERDAY)] == ["kept term"]
-    assert _only(rest.rows(REQUESTS))["skipped_days"] == [YESTERDAY]
+    assert _only(_search_term_requests(rest))["skipped_days"] == [YESTERDAY]
     job = _only(rest.rows(JOBS, job_kind="sp_search_terms"))
     assert job["status"] == "completed"
     assert job["warning"].startswith("día vacío") and YESTERDAY in job["warning"]
@@ -705,7 +780,7 @@ def test_reauthorized_profile_releases_its_failed_backfill_and_plans_a_new_one(t
     assert _only(rest.rows(JOBS, id=failed["id"]))["dedupe_key"] is None
     fresh = _only([job for job in rest.rows(JOBS, trigger="backfill") if job["id"] != failed["id"]])
     assert fresh["dedupe_key"] == "amazon_ads:1001:backfill:2026-09-14" and fresh["window_end"] == YESTERDAY
-    assert summary.jobs_planned == 2
+    assert summary.jobs_planned == 4
 
 
 def test_missing_tables_give_an_empty_summary_without_touching_amazon(tmp_path):
@@ -774,7 +849,8 @@ def test_saving_a_chunk_renews_the_job_lease_so_nobody_claims_the_job_meanwhile(
     _tick(ingestion, rest, NOW)
     summary = _tick(ingestion, rest, saved_at)
 
-    assert summary.reports_saved == 1
+    # The campaign grain saves its own three chunks in the same tick.
+    assert summary.reports_saved == 1 + 3
     backfill = _only(rest.rows(JOBS, trigger="backfill"))
     assert backfill["status"] == "running"
     assert backfill["lease_expires_at"] == (saved_at + timedelta(seconds=900)).isoformat()
@@ -818,7 +894,7 @@ def test_a_failed_chunk_whose_write_is_lost_still_sends_its_job_to_retry(tmp_pat
 
     job = _only(rest.rows(JOBS, job_kind="sp_search_terms"))
     assert (job["status"], job["attempts"], job["error_class"]) == ("retrying", 1, "ReportFailed")
-    assert _only(rest.rows(REQUESTS))["status"] == "requested"
+    assert _only(_search_term_requests(rest))["status"] == "requested"
 
 
 def test_a_report_amazon_failed_keeps_amazons_reason_when_the_gateway_blips(tmp_path):
@@ -832,7 +908,7 @@ def test_a_report_amazon_failed_keeps_amazons_reason_when_the_gateway_blips(tmp_
     _tick(ingestion, rest, NOW + timedelta(seconds=61))
 
     job = _only(rest.rows(JOBS, job_kind="sp_search_terms"))
-    chunk = _only(rest.rows(REQUESTS))
+    chunk = _only(_search_term_requests(rest))
     assert (job["status"], job["error_class"]) == ("retrying", "ReportFailed")
     assert (chunk["status"], chunk["error_class"], chunk["amazon_status"]) == ("failed", "ReportFailed", "FAILED")
 
@@ -864,7 +940,7 @@ def test_a_failed_job_write_after_a_save_keeps_the_chunk_saved(tmp_path):
 
     summary = _tick(ingestion, rest, NOW + timedelta(seconds=61))
 
-    request = _only(rest.rows(REQUESTS))
+    request = _only(_search_term_requests(rest))
     assert request["status"] == "saved" and (tmp_path / request["raw_path"]).is_file()
     job = _only(rest.rows(JOBS, job_kind="sp_search_terms"))
     assert (job["status"], job["attempts"]) == ("completed", 0)
@@ -879,7 +955,7 @@ def test_a_stop_request_ends_the_tick_between_report_requests_and_frees_the_rest
     summary = ingestion.run_tick(NOW, stop_requested=lambda: len(amazon.created) >= 2)
 
     assert (len(amazon.created), summary.reports_created) == (2, 2)
-    waiting = rest.rows(REQUESTS, status="to_request")
+    waiting = _search_term_requests(rest, status="to_request")
     assert len(waiting) == 3 and all(request["lease_holder"] == "" for request in waiting)
     assert _only(rest.rows(HEARTBEATS))["summary"]["reports_created"] == 2
 
@@ -903,11 +979,11 @@ def test_a_save_cut_off_twice_fails_the_chunk_instead_of_being_tried_again(tmp_p
         rest.fail_once("rpc", "replace_search_term_day", error=_WorkerKilled("out of memory"))
         with pytest.raises(_WorkerKilled):
             _tick(ingestion, rest, moment)
-    assert (_only(rest.rows(REQUESTS))["status"], _only(rest.rows(REQUESTS))["save_attempts"]) == ("saving", 2)
+    assert (_only(_search_term_requests(rest))["status"], _only(_search_term_requests(rest))["save_attempts"]) == ("saving", 2)
 
     _tick(ingestion, rest, NOW + timedelta(minutes=33))
 
-    request = _only(rest.rows(REQUESTS))
+    request = _only(_search_term_requests(rest))
     assert (request["status"], request["error_class"], request["error_message"]) == (
         "failed", "SaveCrashed", SAVE_CRASHED_MESSAGE)
     job = _only(rest.rows(JOBS, job_kind="sp_search_terms"))
@@ -928,7 +1004,7 @@ def test_retrying_a_failed_chunk_resets_its_save_count_and_removes_its_old_raw_f
 
     _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
 
-    request = _only(rest.rows(REQUESTS))
+    request = _only(_search_term_requests(rest))
     assert request["status"] == "requested"
     assert (request["save_attempts"], request["raw_status"], request["raw_path"], request["raw_bytes"],
             request["raw_sha256"]) == (0, "none", "", None, "")
@@ -979,7 +1055,7 @@ def test_reauthorized_profile_gets_todays_refresh_again_after_its_day_jobs_faile
 
     summary = _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
 
-    assert summary.jobs_planned == 2
+    assert summary.jobs_planned == 4
     assert _only(rest.rows(JOBS, id=failed_day["id"]))["dedupe_key"] is None
     fresh_day = _only([job for job in rest.rows(JOBS, trigger="scheduled_daily", job_kind="sp_search_terms")
                        if job["id"] != failed_day["id"]])
@@ -1013,7 +1089,7 @@ def test_a_claimed_job_of_a_disconnected_profile_fails_without_calling_amazon(tm
 
     job = _only(rest.rows(JOBS, id=retry["id"]))
     assert (job["status"], job["error_class"], job["attempts"]) == ("failed", "ConnectionUnavailable", 1)
-    assert rest.rows(REQUESTS) == [] and amazon.create_attempts == 0
+    assert _search_term_requests(rest) == [] and amazon.create_attempts == 0
 
 
 def test_cached_tokens_of_connections_that_are_not_active_are_forgotten(tmp_path):
@@ -1038,7 +1114,8 @@ def test_amazon_calls_carry_the_client_id_of_the_latest_token_refresh(tmp_path, 
 
     _tick(ingestion, rest, NOW)
 
-    assert amazon.client_ids == ["client-before-swap", "client-after-swap"]
+    # The campaign grain's entity listing and its three report creates carry the latest id too.
+    assert amazon.client_ids == ["client-before-swap", "client-after-swap"] + ["client-after-swap"] * 4
 
 
 def test_a_failed_profile_read_only_writes_the_heartbeat(tmp_path):
@@ -1126,3 +1203,53 @@ def test_a_retried_job_uses_the_authorization_its_profile_has_now(tmp_path):
     assert set(amazon.connections_used) == {("NA", 6)}
     rest.tables[PROFILES][0]["status"] = "inactive"
     assert SyncJobStore(rest).retry(failed["id"], "admin") is None
+
+
+def test_the_campaign_grain_writes_its_own_table_and_never_moves_the_search_term_freshness(tmp_path):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon(campaign_rows_per_day=2)
+    freshness = {"data_from": "2026-07-11", "data_through": YESTERDAY,
+                 "last_success_at": "2026-09-14T10:00:00+00:00"}
+    _connect_profile(rest, profile_row=_backfilled(refreshed_on="2026-09-14", **freshness))
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    _tick(ingestion, rest, NOW)
+    _tick(ingestion, rest, NOW + timedelta(seconds=61))
+
+    campaign_rows = rest.tables[CAMPAIGN_DAILY]
+    days = {row["report_date"] for row in campaign_rows}
+    assert {row["campaign_id"] for row in campaign_rows} == {"900", "901"}
+    assert len(campaign_rows) == 2 * len(days) and max(days) == YESTERDAY
+    assert rest.tables[DAILY_ROWS] == []
+    campaign_job = _only(rest.rows(JOBS, job_kind=CAMPAIGNS_KIND))
+    assert (campaign_job["status"], campaign_job["rows_written"]) == ("completed", len(campaign_rows))
+    # ads_profile_sync describes search-term coverage; the STR picker reads its freshness from there.
+    profile = _only(rest.rows(PROFILES))
+    assert {column: profile[column] for column in freshness} == freshness
+    assert profile["refreshed_on"] == "2026-09-14"
+
+
+def test_campaign_entities_are_saved_as_the_profile_campaign_universe(tmp_path):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+
+    _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    campaign = _only(rest.rows(CAMPAIGNS))
+    assert {key: campaign[key] for key in ("profile_id", "campaign_id", "name", "state", "budget_amount",
+                                            "bidding_strategy", "portfolio_id", "start_date")} == {
+        "profile_id": "1001", "campaign_id": "909", "name": "Demo - SP - KW - EXACT", "state": "ENABLED",
+        "budget_amount": 15.0, "bidding_strategy": "MANUAL", "portfolio_id": "444", "start_date": "2026-03-21",
+    }
+    assert _only(rest.rows(JOBS, job_kind=CAMPAIGN_ENTITIES_KIND))["status"] == "completed"
+
+
+def test_a_profile_that_may_not_list_campaigns_completes_the_job_with_a_warning(tmp_path):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.campaign_outcome = _FakeResponse(403, {"code": "403", "details": "Forbidden"})
+
+    summary = _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    job = _only(rest.rows(JOBS, job_kind=CAMPAIGN_ENTITIES_KIND))
+    assert (job["status"], job["warning"]) == ("completed", NO_CAMPAIGN_ACCESS_WARNING)
+    assert rest.rows(CAMPAIGNS) == [] and summary.errors == []

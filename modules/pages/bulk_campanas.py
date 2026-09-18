@@ -4,12 +4,8 @@ import re
 import streamlit as st
 import pandas as pd
 
-
-@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
-def _load_bulk(data, name):
-    """Cached reader for Bulk/Campaign CSV files."""
-    buf = io.BytesIO(data)
-    return pd.read_excel(buf) if name.endswith(".xlsx") else pd.read_csv(buf)
+from core.currency_format import currency_symbol, money
+from modules.pages.campaign_source import render_campaign_source
 
 
 # ── Naming convention Capybaras: [Marca] | [ASIN] | [MKT] | [Tipo] | [Match] | [Cluster]
@@ -36,7 +32,7 @@ def _check_naming(name):
 
 def render():
     st.header("📁 Bulk File de Campañas")
-    st.caption("Archivo bulk exportado desde Amazon Ads con todas las campañas, grupos y keywords.")
+    st.caption("Campañas de Amazon Ads con sus métricas, de la cuenta conectada o de un archivo subido a mano.")
     st.divider()
 
     with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
@@ -45,23 +41,25 @@ def render():
             st.markdown("**🎯 Para qué sirve**")
             st.caption("Ver estructura de campañas y diagnosticar estado con semáforo automático (pausar/revisar/escalar/fantasmas).")
         with col2:
-            st.markdown("**📂 Archivo necesario**")
-            st.caption("Campaign CSV → Amazon Ads → Campaign Manager → Export con todas las métricas (.csv).")
+            st.markdown("**📂 De dónde salen los datos**")
+            st.caption("De las campañas de la cuenta conectada de Amazon Ads, o del Campaign CSV exportado "
+                       "de Campaign Manager.")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Business Report (M7) para cruzar con salud del catálogo.")
         st.markdown("**▶️ Pasos:**")
         st.markdown(
-            "1. Subí el Campaign CSV\n"
+            "1. Elegí la cuenta y el período (o subí el Campaign CSV a mano)\n"
             "2. Ingresá Target ACoS + precio promedio\n"
             "3. Tab Campaign Analyzer: revisá semáforo (PAUSAR, REVISAR, ESCALAR, FANTASMA)\n"
             "4. Tab Auditoría: revisá naming convention y target graduation\n"
             "5. Descargá el Excel y pausá manualmente en Campaign Manager las rojas"
         )
 
-    file_bulk = st.file_uploader("Sube tu Bulk o Campaign CSV (.xlsx o .csv)", type=["xlsx", "csv"], key="bulk")
-    if file_bulk:
-        df_bulk_raw = _load_bulk(file_bulk.getvalue(), file_bulk.name)
+    campaign_input = render_campaign_source("bulk")
+    if campaign_input is not None:
+        df_bulk_raw = campaign_input.frame
+        currency = campaign_input.currency_code
         st.success(f"✅ {len(df_bulk_raw)} filas cargadas")
 
         bulk_tab1, bulk_tab2 = st.tabs(["📋 Vista General", "🚦 Campaign Analyzer"])
@@ -133,7 +131,7 @@ def render():
                     help="ACoS objetivo para esta cuenta. Define los umbrales de REVISAR y ESCALAR."
                 )
                 spend_pausar = cfg2.number_input(
-                    "Spend mínimo para PAUSAR ($)",
+                    f"Spend mínimo para PAUSAR ({currency_symbol(currency)})",
                     min_value=1.0, value=20.0, step=1.0,
                     help="Spend acumulado sin órdenes a partir del cual se recomienda pausar. El AM lo ajusta según el objetivo de la cuenta."
                 )
@@ -200,10 +198,10 @@ def render():
 
                 k1, k2, k3, k4, k5 = st.columns(5)
                 k1.metric("Campañas analizadas", len(df_ca))
-                k2.metric("Total Spend", f"${total_spend:,.2f}")
-                k3.metric("Total Sales", f"${total_sales:,.2f}")
+                k2.metric("Total Spend", money(total_spend, currency))
+                k3.metric("Total Sales", money(total_sales, currency))
                 k4.metric("ACoS cuenta", f"{total_acos:.1f}%")
-                k5.metric("💰 Spend recuperable", f"${spend_recup:,.2f}",
+                k5.metric("💰 Spend recuperable", money(spend_recup, currency),
                           help="Spend acumulado en campañas marcadas como PAUSAR")
 
                 _avisos = []
@@ -275,8 +273,8 @@ def render():
                     show_cols = [c for c in show_cols if c != '_impr']
 
                 rename_map = {
-                    '_spend': 'Spend ($)',
-                    '_sales': 'Sales ($)',
+                    '_spend': f"Spend ({currency_symbol(currency)})",
+                    '_sales': f"Sales ({currency_symbol(currency)})",
                     '_acos': 'ACoS (%)',
                     '_orders': 'Purchases',
                     '_impr': 'Impressions',

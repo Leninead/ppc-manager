@@ -25,6 +25,12 @@ TIMEZONE_BY_REGION = {"NA": "America/Los_Angeles", "EU": "Europe/London", "FE": 
 
 SEARCH_TERMS_KIND = "sp_search_terms"
 PORTFOLIOS_KIND = "portfolio_names"
+CAMPAIGNS_KIND = "sp_campaigns"
+CAMPAIGN_ENTITIES_KIND = "campaign_entities"
+# Campaign reports are small enough to rewrite the whole window nightly: no backfill state to keep.
+CAMPAIGN_WINDOW_DAYS = 65
+CAMPAIGN_CHUNK_DAYS = 31
+CAMPAIGN_MAX_ATTEMPTS = 6
 PROFILE_ACTIVE = "active"
 PROFILE_NEEDS_REAUTH = "needs_reauth"
 PROFILE_INACTIVE = "inactive"
@@ -55,10 +61,13 @@ class ProfileState:
     has_open_backfill: bool = False
     has_open_day_job_today: bool = False
     has_portfolio_job_today: bool = False
+    has_campaign_job_today: bool = False
+    has_campaign_entities_job_today: bool = False
 
     @classmethod
     def from_row(cls, row: dict, *, has_open_backfill: bool = False, has_open_day_job_today: bool = False,
-                 has_portfolio_job_today: bool = False) -> ProfileState:
+                 has_portfolio_job_today: bool = False, has_campaign_job_today: bool = False,
+                 has_campaign_entities_job_today: bool = False) -> ProfileState:
         """From an `ads_profile_sync` row plus what the job queue says about the profile."""
         return cls(
             profile_id=str(row["profile_id"]),
@@ -77,6 +86,8 @@ class ProfileState:
             has_open_backfill=has_open_backfill,
             has_open_day_job_today=has_open_day_job_today,
             has_portfolio_job_today=has_portfolio_job_today,
+            has_campaign_job_today=has_campaign_job_today,
+            has_campaign_entities_job_today=has_campaign_entities_job_today,
         )
 
 
@@ -123,6 +134,13 @@ def plan_jobs(state: ProfileState, now_utc: datetime) -> list[NewSyncJob]:
 
     if not state.has_portfolio_job_today and before_cutoff and (planning_backfill or after_start):
         planned.append(_portfolio_job(state, local_now))
+
+    # The campaign grain does not wait for the search-term backfill: M6 and M8 read it on its own.
+    if after_start and before_cutoff:
+        if not state.has_campaign_entities_job_today:
+            planned.append(_campaign_entities_job(state, local_now))
+        if not state.has_campaign_job_today:
+            planned.append(_campaign_job(state, local_now))
     return planned
 
 
@@ -207,6 +225,37 @@ def _portfolio_job(state: ProfileState, local_now: datetime) -> NewSyncJob:
         deadline_at=_local_cutoff_utc(local_now),
         max_attempts=PORTFOLIO_MAX_ATTEMPTS,
         dedupe_key=f"{SLUG}:{state.profile_id}:portfolios:{local_today.isoformat()}",
+    )
+
+
+def _campaign_job(state: ProfileState, local_now: datetime) -> NewSyncJob:
+    local_today = local_now.date()
+    yesterday = local_today - timedelta(days=1)
+    return _new_job(
+        state,
+        job_kind=CAMPAIGNS_KIND,
+        trigger="scheduled_daily",
+        window_start=yesterday - timedelta(days=CAMPAIGN_WINDOW_DAYS - 1),
+        window_end=yesterday,
+        local_day=local_today,
+        deadline_at=_local_cutoff_utc(local_now),
+        max_attempts=CAMPAIGN_MAX_ATTEMPTS,
+        dedupe_key=f"{SLUG}:{state.profile_id}:campaigns:{local_today.isoformat()}",
+    )
+
+
+def _campaign_entities_job(state: ProfileState, local_now: datetime) -> NewSyncJob:
+    local_today = local_now.date()
+    return _new_job(
+        state,
+        job_kind=CAMPAIGN_ENTITIES_KIND,
+        trigger="scheduled_daily",
+        window_start=None,
+        window_end=None,
+        local_day=local_today,
+        deadline_at=_local_cutoff_utc(local_now),
+        max_attempts=PORTFOLIO_MAX_ATTEMPTS,
+        dedupe_key=f"{SLUG}:{state.profile_id}:campaign-entities:{local_today.isoformat()}",
     )
 
 
