@@ -39,7 +39,7 @@ from typing import Iterable
 
 import pandas as pd
 
-from core.proposal_paths import (
+from core.proposals.paths import (
     CATALOG_FILE,
     PROPOSALS_DIR,
     SEED_DIR,

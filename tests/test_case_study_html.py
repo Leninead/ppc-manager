@@ -7,7 +7,7 @@ de métricas condicional, labels ES y el render de steps.
 
 from __future__ import annotations
 
-from core.case_study_html import render_case_study_html
+from core.case_studies.renderer import render_case_study_html
 
 # cs_result mínimo válido (mismo shape que produce el módulo).
 CS_SAMPLE = {

@@ -12,7 +12,7 @@ import sys
 import pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import core.proposal_persistence as pp
+import core.proposals.persistence as pp
 
 PROPOSAL_ID = "01fbf5c2-1fd9-44dd-9806-742e5deb8f71"
 

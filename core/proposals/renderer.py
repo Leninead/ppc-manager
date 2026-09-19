@@ -16,7 +16,7 @@ Diseño:
   como seguro en el punto de inyección (`markupsafe.Markup`), así Jinja2 no lo
   re-escapa al meterlo en `_base.html`.
 - cwd-independiente: TEMPLATES_HTML_DIR y CATALOG_FILE (relativos en
-  proposal_paths) se resuelven a absoluto anclados contra la raíz del repo.
+  core/proposals/paths.py) se resuelven a absoluto anclados contra la raíz del repo.
 """
 
 from __future__ import annotations
@@ -28,13 +28,13 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup, escape
 
-from core.proposal_paths import CATALOG_FILE, TEMPLATES_HTML_DIR
+from core.proposals.paths import CATALOG_FILE, TEMPLATES_HTML_DIR
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Anclaje cwd-independiente: core/ → raíz del repo
+# Anclaje cwd-independiente: core/proposals/ → raíz del repo
 # ─────────────────────────────────────────────────────────────────────────────
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _TEMPLATES_ABS = (_REPO_ROOT / TEMPLATES_HTML_DIR).resolve()
 _CATALOG_ABS = (_REPO_ROOT / CATALOG_FILE).resolve()
 

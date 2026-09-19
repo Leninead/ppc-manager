@@ -14,8 +14,8 @@ from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
-from core import agency_dashboard_export as exp
-from core import agency_dashboard_format as fmt
+from core.agency_dashboard import export as exp
+from core.agency_dashboard import format as fmt
 
 
 _REPO_ROOT = str(Path(__file__).resolve().parents[1])

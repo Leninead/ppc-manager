@@ -1,7 +1,7 @@
 """Formato y semáforo del Dashboard Global de Agencia (M39).
 
 Capa PURA: formatea las celdas de la tabla y decide su color. No toca Streamlit,
-no lee disco y no calcula métricas — el cálculo vive en `core/agency_dashboard.py`
+no lee disco y no calcula métricas — el cálculo vive en `core/agency_dashboard/dashboard.py`
 (B2) y esto solo presenta lo que ese agregador devuelve.
 
 Vive acá, y no en `modules/pages/agency_dashboard_page.py`, porque lo consumen

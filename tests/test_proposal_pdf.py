@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import re
 
-import core.proposal_persistence as pp
-from core.proposal_pdf import render_proposal_pdf, _sanitize_html_for_pdf
+import core.proposals.persistence as pp
+from core.proposals.pdf import render_proposal_pdf, _sanitize_html_for_pdf
 
 
 def _launch_proposal(client_name: str = "Capybaras Test Client") -> dict:

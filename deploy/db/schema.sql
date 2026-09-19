@@ -64,7 +64,7 @@ create table if not exists forecast_clients (
     primary key (area, cliente, modulo, name)
 );
 
--- ── Sales Proposals (core/proposal_persistence.py) ──────────────────────────
+-- ── Sales Proposals (core/proposals/persistence.py) ──────────────────────────
 create table if not exists proposals (
     id          text    not null,
     version     integer not null,

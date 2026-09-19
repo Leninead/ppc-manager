@@ -8,8 +8,8 @@ en CI). El renderer es una función pura que recibe el dict.
 
 from __future__ import annotations
 
-import core.proposal_persistence as pp
-from core.proposal_renderer import (
+import core.proposals.persistence as pp
+from core.proposals.renderer import (
     _catalog_module_index,
     _compute_bar_chart,
     _effective_data,

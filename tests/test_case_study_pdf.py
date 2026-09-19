@@ -7,7 +7,7 @@ que corre en 'es' y 'en' sin excepción y empieza con el magic b'%PDF'.
 
 from __future__ import annotations
 
-from core.case_study_pdf import render_case_study_pdf
+from core.case_studies.pdf import render_case_study_pdf
 
 CS_SAMPLE = {
     "en": {
@@ -58,11 +58,11 @@ def test_no_font_import_in_pdf_path():
     """El @import de Google Fonts se remueve antes de entrar al motor PDF.
 
     El sanitizer de M29 solo quita <link> remotos; el @import lo remueve el strip
-    local de case_study_pdf. Sin esto xhtml2pdf intenta bajar la fuente por red.
+    local de core/case_studies/pdf.py. Sin esto xhtml2pdf intenta bajar la fuente por red.
     """
-    from core.case_study_html import render_case_study_html
-    from core.case_study_pdf import _FONT_IMPORT_RE
-    from core.proposal_pdf import _sanitize_html_for_pdf
+    from core.case_studies.renderer import render_case_study_html
+    from core.case_studies.pdf import _FONT_IMPORT_RE
+    from core.proposals.pdf import _sanitize_html_for_pdf
 
     html = _sanitize_html_for_pdf(render_case_study_html(CS_SAMPLE, "en"))
     html = _FONT_IMPORT_RE.sub("", html)
@@ -71,7 +71,7 @@ def test_no_font_import_in_pdf_path():
 
 def test_steps_simplified_for_pdf():
     """El círculo .steps .n se transforma a número plano naranja sin bullet."""
-    from core.case_study_pdf import _simplify_steps_for_pdf
+    from core.case_studies.pdf import _simplify_steps_for_pdf
 
     raw = '<ul class="steps"><li><span class="n">1</span><span class="stxt">x</span></li></ul>'
     out = _simplify_steps_for_pdf(raw)

@@ -6,6 +6,19 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Dashboard Global, Case Study Studio y Proposal Studio pasan a sus paquetes en `core/` (2026-09-19)
+
+Lote 5 de la reorganización de `core/` por feature. Solo cambian rutas: `core/agency_dashboard.py`,
+`agency_dashboard_export.py` y `agency_dashboard_format.py` → `core/agency_dashboard/` (`dashboard`, `export`,
+`format`); `core/case_study_html.py` → `core/case_studies/renderer.py` y `core/case_study_pdf.py` →
+`core/case_studies/pdf.py`; y los cuatro `core/proposal_*.py` → `core/proposals/` (`paths`, `pdf`, `persistence`,
+`renderer`). El HTML del case study queda como `renderer.py` y no `html.py` porque el archivo hace `import html` de
+la stdlib. Un ajuste para que nada cambie de comportamiento: `_REPO_ROOT` de `core/proposals/renderer.py` sube un
+nivel más desde `__file__`, así los templates de `templates/proposal_modules/` y el catálogo de `data/sales/` se
+siguen resolviendo contra la raíz del repo. No hay shims en las rutas viejas: se actualizaron los imports, los scripts
+de M29 (`inject_v*_demo`, `parse_seed_proposals`, `discover_m29_template_instantiation`), el E2E de la base
+self-hosted y los docs y comentarios que nombraban los archivos. Ninguna imagen de `services/` copia estos archivos.
+
 ### Changed — `core/chat/ads_account_picker.py` pasa a llamarse `core/chat/ads_scope.py` (2026-09-19)
 
 El nombre decía "picker", pero el módulo no elige nada en la UI (su docstring lo aclara): resuelve con qué credencial
