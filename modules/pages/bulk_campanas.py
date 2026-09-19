@@ -479,7 +479,7 @@ def _render_stored_analysis(source, params, products=None) -> None:
     from core import ai_tab
     from core.chat import app_chat
     from core.ai_analysis import stored_tab
-    from core.campaign_analysis import build_analysis_input, campaign_row_labels
+    from core.bulk_campaigns.analysis import build_analysis_input, campaign_row_labels
     from core.date_labels import date_range_label
     from modules.pages import search_term_source
 
@@ -524,7 +524,7 @@ def _render_stored_analysis(source, params, products=None) -> None:
 
 def _render_ai_result(result, analysis, records, labels, currency_code) -> None:
     from core import ai_tab
-    from core.campaign_analysis import campaign_row_labels
+    from core.bulk_campaigns.analysis import campaign_row_labels
 
     row_labels = campaign_row_labels(records)
     by_id = dict(zip(row_labels, records))

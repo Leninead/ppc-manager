@@ -1,4 +1,4 @@
-"""Smoke test de core/supply_persistence.py (M37 B1).
+"""Smoke test de core/supply/persistence.py (M37 B1).
 
 Corre contra un data root temporal (AGENCY_OS_DATA_DIR) y lo limpia al final.
 Cubre la API publica completa + los 3 casos de robustez de esta iteracion.
@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd  # noqa: E402
 
-from core.supply_paths import EVENTOS_LOG_FILE, OCS_DIR, SUPPLY_ROOT  # noqa: E402
-from core.supply_persistence import (  # noqa: E402
+from core.supply.paths import EVENTOS_LOG_FILE, OCS_DIR, SUPPLY_ROOT  # noqa: E402
+from core.supply.persistence import (  # noqa: E402
     _EVENTO_COLUMNS,
     anular_oc,
     archivar_proveedor,

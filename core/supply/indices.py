@@ -1,6 +1,6 @@
 """Cálculo de la tabla de índices estacionales (M37 B2.1b).
 
-Contraparte de `core/supply_seasonality.py`: allá se CONSUME una tabla de
+Contraparte de `core/supply/seasonality.py`: allá se CONSUME una tabla de
 índices (desestacionalizar, reestacionalizar, validar), acá se CALCULA desde
 historia de ventas. La tabla que sale de este módulo es exactamente la que
 entra allá — mismo shape `dict[grupo, list[float]]` de 12 posiciones.
@@ -40,7 +40,7 @@ from datetime import date
 
 import pandas as pd
 
-from core.supply_seasonality import INDICE_NEUTRO, MESES, normalizar_tabla
+from core.supply.seasonality import INDICE_NEUTRO, MESES, normalizar_tabla
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constantes

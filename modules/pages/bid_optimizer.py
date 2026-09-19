@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pandas as pd
 import streamlit as st
 
-from core.bid_analysis import (
+from core.bid_optimizer.analysis import (
     _PLACEMENT_RULES,
     NO_ASIN_WARNING,
     _limpiar_num,
@@ -407,7 +407,7 @@ def render():
 def _previous_frame(source):
     """El tramo anterior del mismo largo, para que el agente lea qué cambió. None si no hay."""
     from core.amazon_ads.report_provider import ReportReadError, ReportProvider
-    from core.bid_analysis import previous_window
+    from core.bid_optimizer.analysis import previous_window
     from modules.pages import search_term_source
 
     if source.window_start is None or source.window_end is None:
@@ -433,7 +433,7 @@ def _render_bid_stored_analysis(source, frame, target_acos, currency_code, bid_l
     from core import ai_tab
     from core.chat import app_chat
     from core.ai_analysis import stored_tab
-    from core.bid_analysis import ANALYSIS_MODULE, BidAnalysisParams, build_analysis_input
+    from core.bid_optimizer.analysis import ANALYSIS_MODULE, BidAnalysisParams, build_analysis_input
     from modules.pages import search_term_source
 
     params = BidAnalysisParams(int(target_acos))

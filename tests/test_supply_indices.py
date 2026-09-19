@@ -1,6 +1,6 @@
-"""Tests de core/supply_indices.py — M37 B2.1b, cálculo de la tabla de índices.
+"""Tests de core/supply/indices.py — M37 B2.1b, cálculo de la tabla de índices.
 
-Contraparte de `supply_seasonality` (B2.1a, ya en producción): aquel CONSUME una
+Contraparte de `core/supply/seasonality.py` (B2.1a, ya en producción): aquel CONSUME una
 tabla de índices, este la CALCULA desde historia de ventas.
 
 Los invariantes que se defienden acá:
@@ -32,7 +32,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from core.supply_indices import (
+from core.supply.indices import (
     agregar_a_mensual,
     calcular_indices,
     indices_por_sku,
@@ -664,12 +664,12 @@ def test_un_valle_tambien_se_recupera():
 
 
 def test_la_tabla_calculada_la_consume_b2_1a():
-    """Contrato con supply_seasonality: lo que sale de acá entra allá.
+    """Contrato con core/supply/seasonality.py: lo que sale de acá entra allá.
 
     Es el handshake entre los dos bloques: `indice_mes` tiene que poder leer una
     tabla recién calculada sin ninguna conversión intermedia.
     """
-    from core.supply_seasonality import indice_mes, validar_tabla
+    from core.supply.seasonality import indice_mes, validar_tabla
 
     r = calcular_indices(
         _historia(_filas_anio("A", "gorros", 2026, _con_pico_diciembre(400, 1000)))

@@ -23,7 +23,7 @@ API pública (10 helpers):
 Reglas duras:
 - Cero lógica de negocio acá. Solo CRUD y validación de forma.
 - El lead time medido, el fill rate y la secuencia de códigos de OC NO viven
-  en este archivo: van en `core/supply_metrics.py`.
+  en este archivo: van en `core/supply/metrics.py`.
 - Soft delete: archivar proveedor = activo=False; anular OC = estado='ANULADA'.
   Nunca se borra un archivo.
 - El `id` de la OC lo trae el caller (lo genera supply_metrics). Acá solo se
@@ -43,7 +43,7 @@ from typing import Iterable
 
 import pandas as pd
 
-from core.supply_paths import (
+from core.supply.paths import (
     EVENTOS_LOG_FILE,
     OCS_DIR,
     PROVEEDORES_FILE,
@@ -366,7 +366,7 @@ def _validate_oc(oc: dict) -> None:
     oc_id = str(oc.get("id") or "").strip()
     if not oc_id:
         raise ValueError(
-            "OC: falta 'id'. El código de OC lo genera el caller (core/supply_metrics.py)."
+            "OC: falta 'id'. El código de OC lo genera el caller (core/supply/metrics.py)."
         )
 
     if not str(oc.get("proveedor_id") or "").strip():

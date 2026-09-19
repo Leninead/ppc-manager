@@ -8,8 +8,8 @@ proveedores, con el lead time DECLARADO (lo que dice el proveedor) al lado del
 lead time MEDIDO (lo que tardo de verdad, calculado sobre las ordenes de compra).
 Ese gap es el punto de la pantalla.
 
-Esta UI no toca disco ni calcula metricas: todo sale de core.supply_persistence
-(CRUD) y core.supply_metrics (lead time medido, fill rate).
+Esta UI no toca disco ni calcula metricas: todo sale de core.supply.persistence
+(CRUD) y core.supply.metrics (lead time medido, fill rate).
 
 B1 no tiene selector de cliente -- Gamboa es el piloto implicito. La
 clientizacion va en B2.
@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from core.supply_metrics import resumen_proveedor
-from core.supply_persistence import (
+from core.supply.metrics import resumen_proveedor
+from core.supply.persistence import (
     archivar_proveedor,
     get_proveedor,
     list_proveedores,
@@ -387,7 +387,7 @@ def _fila_proveedor(prov: dict) -> None:
     nombre = str(prov.get("nombre") or prov_id)
     activo = bool(prov.get("activo", True))
 
-    # Las metricas las calcula supply_metrics; aca solo se formatean.
+    # Las metricas las calcula core/supply/metrics.py; aca solo se formatean.
     resumen = resumen_proveedor(prov_id)
     lt_txt, lt_delta, lt_color = _fmt_lt_medido(
         resumen["lt_medido"], prov.get("lt_tip")

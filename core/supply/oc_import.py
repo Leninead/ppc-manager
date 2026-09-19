@@ -11,7 +11,7 @@ L637 (`normDate`), L645 (`findHeader`) y L745-756 (`mergeOCsLab`). Cada regla
 cita la línea de la que sale. Donde este módulo se aparta del HTML es a
 propósito y está marcado como DESVÍO.
 
-Regla dura, igual que el resto de `core/supply_*`:
+Regla dura, igual que el resto de `core/supply/`:
 - CERO acceso a disco, CERO Streamlit, CERO import de la capa de persistencia.
   Las filas entran por parámetro y las líneas salen por retorno; guardar la OC
   es trabajo del caller.

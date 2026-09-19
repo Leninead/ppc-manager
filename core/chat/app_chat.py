@@ -18,8 +18,8 @@ import streamlit as st
 
 from ai import config as ai_config
 from ai import runtime as ai_runtime
-from core import ads_account_picker, navigation
-from core.chat import turns
+from core import navigation
+from core.chat import ads_account_picker, turns
 from core.chat.panel import ChatTurn, floating_chat
 from core.ui import i18n
 

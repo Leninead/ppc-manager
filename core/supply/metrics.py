@@ -1,6 +1,6 @@
 """Lógica de negocio del módulo Supply Chain (M37).
 
-Contrapartida exacta de `core/supply_persistence.py`: allá va el CRUD y la
+Contrapartida exacta de `core/supply/persistence.py`: allá va el CRUD y la
 validación de forma, acá va todo lo que decide *qué es legal* y *qué significan*
 los datos — máquina de estados, secuencia de códigos de OC, lead time medido y
 fill rate.
@@ -26,7 +26,7 @@ import re
 from datetime import datetime
 from statistics import median
 
-from core.supply_persistence import (
+from core.supply.persistence import (
     ESTADOS_OC,
     get_oc,
     leer_eventos,

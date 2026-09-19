@@ -61,7 +61,7 @@ pipeline {
     }
 
     stage('Launch Score drift') {
-      // The Launch Score is not in DataDive's API: core/datadive.py replicates
+      // The Launch Score is not in DataDive's API: core/datadive/client.py replicates
       // their frontend formula, and a replica breaks silently when the original
       // changes. Both sources it checks are public, so this needs no secrets.
       // Never blocks a deploy — a third party changing a formula is news, not a

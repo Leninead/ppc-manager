@@ -11,7 +11,7 @@ L302-365 (`zInv`, `poissonQ`, `computeABC`, `calcPolicy`). Cada fórmula cita la
 línea de la que sale. Se portea verbatim, con sus redondeos y sus bordes: una
 "mejora" acá cambia qué se compra y deja de ser comparable con el Lab.
 
-Regla dura, igual que `core/supply_seasonality.py` y `core/supply_indices.py`:
+Regla dura, igual que `core/supply/seasonality.py` y `core/supply/indices.py`:
 - CERO acceso a disco, CERO Streamlit, CERO import de la capa de persistencia.
   La demanda, el lead time y la posición entran por parámetro; este archivo no
   sabe de dónde salieron.

@@ -1,4 +1,4 @@
-"""Tests de core/supply_politica.py — M37 punto 2, política de stock (R, s, S).
+"""Tests de core/supply/politica.py — M37 punto 2, política de stock (R, s, S).
 
 Port del motor del Laboratorio de Compras de Fede. Fuente de verdad:
 `notes/supply-chain/originales/laboratorio-compras-2026-08-17.html` L302-365
@@ -23,7 +23,7 @@ Los invariantes que se defienden acá:
 - **Todo redondea hacia arriba.** ss, rop y S pasan por ceil, como en el HTML.
 - **Sin dato de inventario no hay diagnóstico.** `posicion_actual=None` devuelve
   None, no una señal calculada contra cero.
-- **Lógica pura.** Cero disco, cero Streamlit, cero `supply_persistence`.
+- **Lógica pura.** Cero disco, cero Streamlit, cero `core/supply/persistence.py`.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pytest
 
-from core.supply_politica import (
+from core.supply.politica import (
     _poisson_inv,
     _z_inv,
     calcular_politica,
@@ -378,14 +378,14 @@ class TestDiagnostico:
 class TestPureza:
     def test_modulo_sin_io_ni_dependencias_prohibidas(self):
         fuente = (
-            Path(__file__).resolve().parents[1] / "core" / "supply_politica.py"
+            Path(__file__).resolve().parents[1] / "core" / "supply" / "politica.py"
         ).read_text(encoding="utf-8")
         for prohibido in (
             "import streamlit",
-            "supply_persistence",
+            "persistence",
             "open(",
             "pd.read",
             "scipy",
             "numpy",
         ):
-            assert prohibido not in fuente, f"core/supply_politica.py contiene {prohibido!r}"
+            assert prohibido not in fuente, f"core/supply/politica.py contiene {prohibido!r}"

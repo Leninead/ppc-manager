@@ -4,7 +4,9 @@ import streamlit as st
 
 from core.constants import _BR_OPTIONAL_COLS
 
-_BIZ_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "business_report")
+# Three levels up from core/business_report/parser.py is the repo root.
+_BIZ_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data",
+                        "business_report")
 
 
 def _parse_business_report_map(filepath_or_file):

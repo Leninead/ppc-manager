@@ -3,7 +3,7 @@
 -- ----------------------------------------------------------------------------
 -- Ejecutar UNA vez en Supabase ANTES de encender el backend remoto
 -- (AGENCY_OS_INNOVATION_BACKEND="supabase"). Espeja el layout local de
--- core/innovation_persistence.py.
+-- core/innovation/persistence.py.
 --
 -- NO ejecutado automáticamente por ningún proceso — es el DDL de swap-day.
 -- Idempotente: usa "create ... if not exists" y "on conflict do nothing".

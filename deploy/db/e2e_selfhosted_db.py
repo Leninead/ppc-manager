@@ -12,8 +12,8 @@ import uuid
 import pandas as pd
 
 import core.persistence as P
-import core.forecast_persistence as F
-import core.innovation_persistence as I
+import core.forecast.persistence as F
+import core.innovation.persistence as I
 import core.proposal_persistence as PP
 
 results = []

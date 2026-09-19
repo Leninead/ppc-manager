@@ -1,4 +1,4 @@
-"""Tests de core/supply_oc_import.py — M37, carga masiva de órdenes de compra.
+"""Tests de core/supply/oc_import.py — M37, carga masiva de órdenes de compra.
 
 Pedido de Fede tras testear el punto 1: carga OCs de ~150 SKUs y hoy solo puede
 hacerlo línea por línea (el diálogo de alta tope en 20 líneas). Este módulo es
@@ -42,7 +42,7 @@ from pathlib import Path
 
 import pytest
 
-from core.supply_oc_import import (
+from core.supply.oc_import import (
     consolidar_duplicados,
     detectar_columnas,
     parsear_lineas,
@@ -527,13 +527,13 @@ class TestCasoCompleto:
 class TestPureza:
     def test_modulo_sin_io_ni_dependencias_prohibidas(self):
         fuente = (
-            Path(__file__).resolve().parents[1] / "core" / "supply_oc_import.py"
+            Path(__file__).resolve().parents[1] / "core" / "supply" / "oc_import.py"
         ).read_text(encoding="utf-8")
         for prohibido in (
             "import streamlit",
-            "supply_persistence",
+            "persistence",
             "import pandas",
             "open(",
             "pd.read",
         ):
-            assert prohibido not in fuente, f"core/supply_oc_import.py contiene {prohibido!r}"
+            assert prohibido not in fuente, f"core/supply/oc_import.py contiene {prohibido!r}"

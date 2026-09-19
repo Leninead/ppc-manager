@@ -7,7 +7,7 @@ import numpy as np
 import streamlit as st
 import pandas as pd
 
-from core import datadive as dd_api
+from core.datadive import client as dd_api
 from core.helpers import read_sqp, kpi_card
 from modules.parsers import datadive as _dd
 

@@ -127,7 +127,7 @@ def parse_mkl(data: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
         sugg_bid = float(bid_match.group()) if bid_match else 0
         # A blank Launch Score cell in a real export is the below-gate case, not
         # a zero: DataDive leaves it empty on purpose. Keep it empty so the file
-        # source agrees with the API source (core/datadive.py::_launch_score).
+        # source agrees with the API source (core/datadive/client.py::_launch_score).
         launch_score = _coerce_float_safe(_cell(ri, COL_LAUNCH_SCORE),
                                           default=float("nan"))
 

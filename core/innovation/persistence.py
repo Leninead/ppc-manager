@@ -1,6 +1,6 @@
 """Capa de persistencia DEDICADA a M24 Innovation Board.
 
-Sigue el mismo patrón que `core/forecast_persistence.py` (backend dormido
+Sigue el mismo patrón que `core/forecast/persistence.py` (backend dormido
 opt-in, transport HTTP inyectable, cache + invalidación), adaptado al dominio
 del board de ideas: ideas + votos + comentarios + prototipos.
 

@@ -20,7 +20,7 @@ import uuid
 
 import pytest
 
-from core import innovation_persistence as ip
+from core.innovation import persistence as ip
 
 
 # ─────────────────────────────────────────────────────────────────────────────
