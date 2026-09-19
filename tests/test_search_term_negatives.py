@@ -9,9 +9,9 @@ import pandas as pd
 import pytest
 
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider
-from core.bulk_export import build_adgroup_negative
-from core.search_term_frame import ANY_WINDOW_PURCHASES, HIDDEN_ID_COLUMNS, PORTFOLIO_NAME_MISSING, add_ratios
-from core.search_term_negatives import (
+from core.bulk.export import build_adgroup_negative
+from core.search_term.frame import ANY_WINDOW_PURCHASES, HIDDEN_ID_COLUMNS, PORTFOLIO_NAME_MISSING, add_ratios
+from core.search_term.negatives import (
     ACTION_LOWER_BID,
     ACTION_NEGATIVE,
     ACTION_REVIEW,

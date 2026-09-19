@@ -16,7 +16,7 @@ import pandas as pd
 
 from ai.agents.str.context import StrData
 from core.currency_format import money
-from core.search_term_negatives import NegativeCandidate, evaluate_candidates
+from core.search_term.negatives import NegativeCandidate, evaluate_candidates
 
 ANALYSIS_MODULE = "str"
 CANONICAL_WINDOW_DAYS = 7

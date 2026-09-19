@@ -1,4 +1,4 @@
-"""Tests de core/bulk_parser.py contra el Bulk File sintético.
+"""Tests de core/bulk/parser.py contra el Bulk File sintético.
 
 Fixture: tests/fixtures/bulk_sintetico.xlsx, generado por
 tests/fixtures/make_bulk_fixture.py. Datos 100% inventados.
@@ -17,7 +17,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from core.bulk_parser import (
+from core.bulk.parser import (
     calcular_cvr_cuenta,
     calcular_cvr_por_campana,
     clicks_threshold,

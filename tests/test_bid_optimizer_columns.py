@@ -1,7 +1,7 @@
 """Las reglas del Bid Optimizer sobre el frame canónico: columnas, origen del ASIN y la matemática del bid."""
 import pandas as pd
 
-from core.search_term_frame import console_columns
+from core.search_term.frame import console_columns
 from core.bid_analysis import (
     ASIN_FROM_CAMPAIGN,
     ASIN_FROM_FILE,

@@ -5,13 +5,13 @@ import unicodedata
 import streamlit as st
 import pandas as pd
 
-from core.bulk_export import (
+from core.bulk.export import (
     aggregate_str_with_top_campaign,
     build_bid_update,
     build_keyword_create,
     write_bulk_excel,
 )
-from core.bulk_parser import (
+from core.bulk.parser import (
     SHEET_CAMPAIGNS,
     SHEET_STR,
     get_exact_activas,

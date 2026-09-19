@@ -1,4 +1,4 @@
-"""Tests de core.bulk_parser.validate_bulk — contrato INV-5.
+"""Tests de core.bulk.parser.validate_bulk — contrato INV-5.
 
 Amazon hace rollback total: una sola fila invalida rechaza el archivo entero
 (INV-5.4, evidencia report__60_ -> 0 de 8 filas aplicadas). Estos tests
@@ -15,7 +15,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from core.bulk_parser import ErrorBulk, validate_bulk
+from core.bulk.parser import ErrorBulk, validate_bulk
 
 
 # ============================================================================

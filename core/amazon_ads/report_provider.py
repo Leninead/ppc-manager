@@ -15,10 +15,10 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import requests
 
-from core import search_term_frame as canonical
+from core.search_term import frame as canonical
 from core.integrations.store import StoreError, _error_message, _Rest
 from core.integrations.sync_jobs import parse_date, parse_timestamp
-from core.search_term_frame import (
+from core.search_term.frame import (
     ANY_WINDOW_PURCHASES,
     HIDDEN_ID_COLUMNS,
     PORTFOLIO_NAME_MISSING,

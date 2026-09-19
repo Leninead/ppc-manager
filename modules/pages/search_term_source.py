@@ -27,7 +27,7 @@ from core.amazon_ads.report_provider import ProfileOption, ReportProvider, Repor
 from core.amazon_ads.sync_planner import BACKFILL_DAYS, PROFILE_NEEDS_REAUTH, profile_timezone
 from core.integrations.store import StoreError, _Rest, _rest_credentials
 from core.integrations.sync_jobs import SyncJob, SyncJobStore, parse_date, sanitize_error
-from core.search_term_file import (
+from core.search_term.file import (
     FORMAT_CONSOLE_2026,
     FORMAT_CONSOLE_LEGACY,
     FileAccount,
@@ -35,7 +35,7 @@ from core.search_term_file import (
     SearchTermFileError,
     read_search_term_file,
 )
-from core.search_term_frame import SearchTermSource
+from core.search_term.frame import SearchTermSource
 from core.ui import palette
 
 log = logging.getLogger(__name__)

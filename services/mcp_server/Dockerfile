@@ -22,7 +22,8 @@ COPY --chown=mcp:mcp core/__init__.py core/
 COPY --chown=mcp:mcp core/integrations/ core/integrations/
 COPY --chown=mcp:mcp core/amazon_ads/ core/amazon_ads/
 COPY --chown=mcp:mcp core/ai_analysis/ core/ai_analysis/
-COPY --chown=mcp:mcp core/search_term_frame.py core/search_term_analysis.py core/date_labels.py core/
+COPY --chown=mcp:mcp core/date_labels.py core/
+COPY --chown=mcp:mcp core/search_term/__init__.py core/search_term/frame.py core/search_term/analysis.py core/search_term/
 COPY --chown=mcp:mcp services/mcp_server/ services/mcp_server/
 # Sólo el nombre de las filas (N03 -> su término), no los agentes: row_annotation es Python puro.
 COPY --chown=mcp:mcp ai/__init__.py ai/

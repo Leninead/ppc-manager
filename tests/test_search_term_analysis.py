@@ -1,11 +1,11 @@
-"""What the STR agent analyzes (core/search_term_analysis.py): parameters, the canonical window and the payload."""
+"""What the STR agent analyzes (core/search_term/analysis.py): parameters, the canonical window and the payload."""
 from datetime import date
 
 import pandas as pd
 import pytest
 
 from ai.agent_call import build_agent_call
-from core.search_term_analysis import (
+from core.search_term.analysis import (
     BLOCKED_NO_CANDIDATES,
     StrAnalysisParams,
     add_metric_columns,
@@ -16,7 +16,7 @@ from core.search_term_analysis import (
     normalized_brand_terms,
     suggested_bid,
 )
-from core.search_term_frame import add_ratios
+from core.search_term.frame import add_ratios
 from modules.pages.search_term_source import default_period_key, period_options
 
 _ROWS = [

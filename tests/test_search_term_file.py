@@ -1,4 +1,4 @@
-"""Tests for core/search_term_file.py with synthetic files that copy the real console header layouts."""
+"""Tests for core/search_term/file.py with synthetic files that copy the real console header layouts."""
 from __future__ import annotations
 
 import codecs
@@ -10,7 +10,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from core.search_term_file import (
+from core.search_term.file import (
     ALL_ACCOUNTS_KEY,
     CONSOLE_2026_ATTRIBUTION_DAYS,
     FORMAT_CONSOLE_2026,
@@ -20,7 +20,7 @@ from core.search_term_file import (
     SearchTermFileError,
     read_search_term_file,
 )
-from core.search_term_frame import SOURCE_FILE, console_columns
+from core.search_term.frame import SOURCE_FILE, console_columns
 from modules.pages.search_term_report import _detect_cols
 
 LEGACY_HEADERS = [
