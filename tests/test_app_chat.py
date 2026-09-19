@@ -161,7 +161,7 @@ class TestMount:
     def mounted(self, session, monkeypatch):
         calls = []
         monkeypatch.setattr(app_chat, "floating_chat", lambda **kwargs: calls.append(kwargs))
-        monkeypatch.setattr(app_chat.ads_account_picker, "request_scope",
+        monkeypatch.setattr(app_chat.ads_scope, "request_scope",
                             lambda country_hint=None: {"hint": country_hint})
         monkeypatch.setattr(app_chat.ai_config, "AI_ENABLED", True)
         return calls
@@ -182,7 +182,7 @@ class TestMount:
         """Mounted on every page: only the key is computed on a render, never the account."""
         app_chat.share_analysis(_analysis("str", "str:1", profile_id="111"))
         reads = []
-        monkeypatch.setattr(app_chat.ads_account_picker, "request_scope",
+        monkeypatch.setattr(app_chat.ads_scope, "request_scope",
                             lambda country_hint=None: reads.append("scope"))
 
         app_chat.mount_app_chat("🏠 Inicio", "am.test")
@@ -328,7 +328,7 @@ def test_a_chat_turn_asks_the_provider_about_tools_only_when_the_am_sends(monkey
     sent = []
     monkeypatch.setattr(runtime.client, "ask", lambda **call: sent.append(call) or {"text": "ok", "session_id": "s1"})
     monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
-    monkeypatch.setattr(app_chat.ads_account_picker, "request_scope", lambda country_hint=None: None)
+    monkeypatch.setattr(app_chat.ads_scope, "request_scope", lambda country_hint=None: None)
 
     app = AppTest.from_string("""
 from core.chat import app_chat
@@ -462,7 +462,7 @@ def test_the_app_boots_on_home_with_the_chat_mounted(monkeypatch):
     monkeypatch.setenv("AGENCY_OS_LOCAL_MODE", "1")
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_KEY", raising=False)
-    monkeypatch.setattr(app_chat.ads_account_picker, "request_scope", lambda country_hint=None: None)
+    monkeypatch.setattr(app_chat.ads_scope, "request_scope", lambda country_hint=None: None)
     monkeypatch.setattr(ai_client, "available_tools", lambda: pytest.fail("the mount must not ask the provider"))
     monkeypatch.setattr(app_chat.ai_config, "AI_ENABLED", True)
 

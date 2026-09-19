@@ -6,6 +6,14 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — `core/chat/ads_account_picker.py` pasa a llamarse `core/chat/ads_scope.py` (2026-09-19)
+
+El nombre decía "picker", pero el módulo no elige nada en la UI (su docstring lo aclara): resuelve con qué credencial
+y en qué región abre sesión cada turno del chat contra Amazon Ads, y `request_scope()` devuelve el `ads_scope` del
+turno. Queda en `core/chat/` porque su único consumidor es `core/chat/app_chat.py`, y además usa Streamlit y
+`ai.config`, que no van en `core/amazon_ads/` (el lado worker, que se copia entero a la imagen del MCP). Solo cambian
+el nombre y los imports.
+
 ### Changed — Bid Optimizer, Bulk Campañas, Business Report, DataDive, forecast, innovación y supply pasan a sus paquetes en `core/` (2026-09-18)
 
 Lotes 2 a 4 de la reorganización de `core/` por feature. Solo cambian rutas: `core/bid_analysis.py` →

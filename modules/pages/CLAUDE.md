@@ -40,8 +40,9 @@ vive una sola vez en `ai/agents/__init__.py` y cada `context.py` lo re-exporta.
 
 Todo el chat vive en `core/chat/` (desde 2026-09-18): `panel.py` (la burbuja, `floating_chat`),
 `app_chat.py` (lo que comparten las páginas, el montaje y el registro), `components/` (lo que
-dibuja el panel), `skills.py` (los skills que se suben desde Sistema) y `turns.py` (el registro
-en la base). `core/chat/ads_account_picker.py` sigue en `core/`.
+dibuja el panel), `skills.py` (los skills que se suben desde Sistema), `turns.py` (el registro
+en la base) y `ads_scope.py` (con qué credencial y en qué región abre sesión cada turno contra Amazon
+Ads; antes `core/ads_account_picker.py`).
 
 Un solo chat, montado una vez al final de `app.py` (`app_chat.mount_app_chat(selected, _username)`),
 en todas las pantallas y para todos los usuarios; con `AI_ENABLED=0` no se monta. Lo
