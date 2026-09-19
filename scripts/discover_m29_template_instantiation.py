@@ -12,7 +12,7 @@ REGLAS DE ESTE SCRIPT:
   - SOLO LECTURA del repo. No instancia propuestas reales, no escribe en `data/`.
   - El único archivo que escribe es `scripts/_m29_discovery_output.json` (gitignored).
   - `instantiate_proposal_from_template` es una función PURA (construye el dict en
-    memoria, NO persiste — verificado por lectura estática en core/proposal_persistence.py).
+    memoria, NO persiste — verificado por lectura estática en core/proposals/persistence.py).
     Por eso es seguro invocarla para confirmar conteos.
 
 Uso:
@@ -31,7 +31,7 @@ from pathlib import Path
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Bootstrapping de paths — chdir a la raíz del repo para que los paths relativos
-# de core/proposal_paths.py (Path("data")/"sales") resuelvan sin importar el cwd.
+# de core/proposals/paths.py (Path("data")/"sales") resuelvan sin importar el cwd.
 # ─────────────────────────────────────────────────────────────────────────────
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -45,8 +45,8 @@ try:
 except (AttributeError, ValueError):  # stdout no soporta reconfigure
     pass
 
-import core.proposal_persistence as pp  # noqa: E402
-from core.proposal_paths import (  # noqa: E402
+import core.proposals.persistence as pp  # noqa: E402
+from core.proposals.paths import (  # noqa: E402
     CATALOG_FILE,
     PROPOSALS_DIR,
     TEMPLATES_DIR,

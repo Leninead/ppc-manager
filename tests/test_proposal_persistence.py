@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from core import proposal_persistence as pp
-from core.proposal_paths import PROPOSALS_DIR, VOTES_LOG_FILE
+from core.proposals import persistence as pp
+from core.proposals.paths import PROPOSALS_DIR, VOTES_LOG_FILE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -50,16 +50,16 @@ def isolated_storage(tmp_path, monkeypatch):
         def write_proposal(self, proposal):
             tmp_proposals.mkdir(parents=True, exist_ok=True)
             path = tmp_proposals / f"{proposal['id']}__v{proposal['version']}.json"
-            from core.proposal_persistence import _write_json
+            from core.proposals.persistence import _write_json
             _write_json(path, proposal)
             return path
 
         def read_proposal(self, proposal_id, version):
-            from core.proposal_persistence import _read_json
+            from core.proposals.persistence import _read_json
             return _read_json(tmp_proposals / f"{proposal_id}__v{version}.json")
 
         def list_proposal_files(self):
-            from core.proposal_persistence import _read_json
+            from core.proposals.persistence import _read_json
             if not tmp_proposals.exists():
                 return
             for f in sorted(tmp_proposals.glob("*__v*.json")):

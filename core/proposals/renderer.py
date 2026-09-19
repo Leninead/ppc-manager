@@ -28,13 +28,13 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup, escape
 
-from core.proposal_paths import CATALOG_FILE, TEMPLATES_HTML_DIR
+from core.proposals.paths import CATALOG_FILE, TEMPLATES_HTML_DIR
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Anclaje cwd-independiente: core/ → raíz del repo
+# Anclaje cwd-independiente: core/proposals/ → raíz del repo
 # ─────────────────────────────────────────────────────────────────────────────
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _TEMPLATES_ABS = (_REPO_ROOT / TEMPLATES_HTML_DIR).resolve()
 _CATALOG_ABS = (_REPO_ROOT / CATALOG_FILE).resolve()
 

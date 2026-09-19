@@ -27,7 +27,7 @@ import tracemalloc
 
 import pytest
 
-from core import agency_dashboard as ad
+from core.agency_dashboard import dashboard as ad
 from core.forecast import persistence as fp
 from modules.pages import revenue_forecast as rf
 

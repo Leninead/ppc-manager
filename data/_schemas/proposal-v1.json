@@ -2,7 +2,7 @@
   "module": "proposal",
   "version": 1,
   "created": "2026-05-11",
-  "description": "Schema versionado del sistema de Sales Proposals del Agency OS. Define 5 entidades: Proposal (propuesta versionada), Block (instancia de módulo en propuesta), Catalog Module (definición canónica de módulo), Template (preset por arquetipo) e InterestedVote (log append-only de votos del equipo). Diseñado para migrar a Supabase sin tocar consumidores (capa abstracta ProposalStorage en core/proposal_persistence.py).",
+  "description": "Schema versionado del sistema de Sales Proposals del Agency OS. Define 5 entidades: Proposal (propuesta versionada), Block (instancia de módulo en propuesta), Catalog Module (definición canónica de módulo), Template (preset por arquetipo) e InterestedVote (log append-only de votos del equipo). Diseñado para migrar a Supabase sin tocar consumidores (capa abstracta ProposalStorage en core/proposals/persistence.py).",
   "primary_key": ["id", "version"],
   "entities": {
     "proposal": {

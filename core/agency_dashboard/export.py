@@ -1,6 +1,6 @@
 """Export HTML del Dashboard Global de Agencia (M39 · B3b).
 
-Capa PURA: recibe el dict que devuelve `core.agency_dashboard._build_agency_dashboard`
+Capa PURA: recibe el dict que devuelve `core.agency_dashboard.dashboard._build_agency_dashboard`
 y devuelve un string. No toca Streamlit, no lee disco y no llama a `date.today()`
 adentro — la fecha entra por parámetro, para que la misma entrada dé el mismo
 documento byte a byte.
@@ -17,7 +17,7 @@ en cada celda) y no el archivo:
 - **Apilado con índice de anclas**, sin pestañas: el reporte se lee de corrido y
   se le sacan capturas, y una pestaña oculta es contenido que nadie captura.
 
-El semáforo y el formato de celda se IMPORTAN de `core.agency_dashboard_format`
+El semáforo y el formato de celda se IMPORTAN de `core.agency_dashboard.format`
 — los mismos que usa la pantalla. Duplicarlos acá haría que el PDF que ve
 Dirección pudiera pintar una celda distinto que la app.
 """
@@ -33,7 +33,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from core.agency_dashboard_format import (
+from core.agency_dashboard.format import (
     _LEYENDA_ACCO,
     _METRICS,
     _PCT_METRICS,

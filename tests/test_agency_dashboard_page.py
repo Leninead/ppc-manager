@@ -1,6 +1,6 @@
 """Tests B3a-2 — pantalla del Dashboard Global (M39).
 
-La página no calcula nada: consume `core.agency_dashboard`. Por eso los tests
+La página no calcula nada: consume `core.agency_dashboard.dashboard`. Por eso los tests
 mockean la capa de datos y NO tocan disco.
 
 Los helpers de formato y de color se testean PUROS, aparte del render: son lo
@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from core import agency_dashboard_format as fmt
+from core.agency_dashboard import format as fmt
 from modules.pages import agency_dashboard_page as page
 
 
@@ -275,7 +275,7 @@ _APP = """
 import sys
 sys.path.insert(0, r"__REPO_ROOT__")
 import streamlit as st
-from core import agency_dashboard_format as fmt
+from core.agency_dashboard import format as fmt
 from modules.pages import agency_dashboard_page as page
 
 llamadas = []

@@ -1,7 +1,7 @@
 """Capa PDF de propuestas (S6).
 
 Función pura `render_proposal_pdf(proposal, lang) -> bytes` construida ENCIMA del
-renderer HTML (`core.proposal_renderer.render_proposal_html`). Mismo contrato puro:
+renderer HTML (`core.proposals.renderer.render_proposal_html`). Mismo contrato puro:
 sin streamlit, sin escritura a disco, sin side effects.
 
 Se mantiene en un módulo separado a propósito: importar xhtml2pdf arrastra un stack
@@ -24,7 +24,7 @@ import re
 
 from xhtml2pdf import pisa
 
-from core.proposal_renderer import render_proposal_html
+from core.proposals.renderer import render_proposal_html
 
 
 # Remote web-fonts: xhtml2pdf intenta bajar el CSS de Google Fonts y sus woff2;

@@ -11,7 +11,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from core.proposal_persistence import SupabaseStorage, _PROPOSALS_TABLE
+from core.proposals.persistence import SupabaseStorage, _PROPOSALS_TABLE
 
 
 class FakeTransport:
@@ -151,7 +151,7 @@ class TestStorageSelector:
     def test_config_none_without_env(self, monkeypatch):
         monkeypatch.delenv("SUPABASE_URL", raising=False)
         monkeypatch.delenv("SUPABASE_KEY", raising=False)
-        from core import proposal_persistence as pp
+        from core.proposals import persistence as pp
 
         # Sin env y sin [supabase] en secrets → None (no rompe fuera de runtime Streamlit).
         assert pp._storage_config() is None
@@ -159,6 +159,6 @@ class TestStorageSelector:
     def test_config_from_env(self, monkeypatch):
         monkeypatch.setenv("SUPABASE_URL", "https://proj.supabase.co")
         monkeypatch.setenv("SUPABASE_KEY", "k123")
-        from core import proposal_persistence as pp
+        from core.proposals import persistence as pp
 
         assert pp._storage_config() == ("https://proj.supabase.co", "k123")

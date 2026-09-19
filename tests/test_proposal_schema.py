@@ -15,7 +15,7 @@ import json
 
 import pytest
 
-from core.proposal_paths import (
+from core.proposals.paths import (
     CATALOG_FILE,
     PROPOSAL_SCHEMA_FILE,
     TEMPLATES_DIR,

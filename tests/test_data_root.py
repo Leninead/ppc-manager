@@ -32,7 +32,7 @@ def test_los_4_modulos_comparten_la_raiz():
     import core.forecast.persistence as f
     import core.innovation.persistence as i
     import core.persistence as p
-    import core.proposal_paths as pp
+    import core.proposals.paths as pp
 
     assert p.DATA_ROOT == dr.DATA_ROOT
     assert f.DATA_ROOT == dr.DATA_ROOT

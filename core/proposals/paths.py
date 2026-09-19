@@ -5,7 +5,7 @@ scripts, tests) hardcodea rutas — todo pasa por estas constantes.
 
 Esto facilita la migración Fase 1 (local JSON) → Fase 2 (SQLite) → Fase 3 (Supabase):
 cuando cambien las rutas o el backend, sólo se toca este archivo + la implementación
-de `core/proposal_persistence.py`. Los consumidores no se enteran.
+de `core/proposals/persistence.py`. Los consumidores no se enteran.
 """
 
 from __future__ import annotations

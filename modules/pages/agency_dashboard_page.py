@@ -6,10 +6,10 @@ Version: v1 — B3a-2 (tabla en pantalla; los exports llegan en B3b)
 Pantalla de Direccion: proyectado vs real cross-cuenta en 5 metricas (Revenue /
 Ad Sales / Spend / ACOS / TACOS), mes a mes, una tabla por cuenta.
 
-Esta pagina NO calcula nada: toda la logica vive en `core/agency_dashboard.py`
+Esta pagina NO calcula nada: toda la logica vive en `core/agency_dashboard/dashboard.py`
 (B2), que es pura y esta testeada. Aca solo se elige la ventana de meses, se
 llama al agregador, se formatea y se pinta. El nombre del archivo lleva `_page`
-a proposito, para no confundirlo con `core/agency_dashboard.py`.
+a proposito, para no confundirlo con `core/agency_dashboard/dashboard.py`.
 """
 from __future__ import annotations
 
@@ -17,11 +17,11 @@ from datetime import date
 
 import streamlit as st
 
-from core.agency_dashboard import _build_agency_dashboard
+from core.agency_dashboard.dashboard import _build_agency_dashboard
 # El formato y el semáforo viven en un módulo compartido: los consumen esta
 # pantalla y los exports (B3b). Una sola fuente de verdad del color.
-from core.agency_dashboard_export import _build_agency_excel, _build_agency_html
-from core.agency_dashboard_format import (
+from core.agency_dashboard.export import _build_agency_excel, _build_agency_html
+from core.agency_dashboard.format import (
     _LEYENDA_ACCO,
     _account_df,
     _build_periods,

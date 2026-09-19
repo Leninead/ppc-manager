@@ -397,7 +397,7 @@ class _LocalBackend:
 # Backend Supabase (Fase 2) — PostgREST vía requests (sin SDK)
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Adaptado del patrón de M29 (`core/proposal_persistence.py`). Persiste snapshots
+# Adaptado del patrón de M29 (`core/proposals/persistence.py`). Persiste snapshots
 # y configs de Account Health en dos tablas PostgREST. El history NO se almacena:
 # es derivado (concat de snapshots en query-time), igual que en local.
 

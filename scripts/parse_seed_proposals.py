@@ -27,7 +27,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from core.proposal_paths import SEED_DIR, ensure_dirs  # noqa: E402
+from core.proposals.paths import SEED_DIR, ensure_dirs  # noqa: E402
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Lookup paths para los archivos fuente

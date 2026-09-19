@@ -2,7 +2,7 @@
 
 Capa de persistencia del sistema **Sales Proposals** del Agency OS.
 
-Toda I/O pasa por `core/proposal_persistence.py`. Nada se lee/escribe a mano desde módulos Streamlit ni scripts.
+Toda I/O pasa por `core/proposals/persistence.py`. Nada se lee/escribe a mano desde módulos Streamlit ni scripts.
 
 ---
 
@@ -44,10 +44,10 @@ data/sales/
 
 ---
 
-## API de persistencia (`core/proposal_persistence.py`)
+## API de persistencia (`core/proposals/persistence.py`)
 
 ```python
-from core.proposal_persistence import (
+from core.proposals.persistence import (
     load_catalog,
     list_proposals,
     get_proposal,
@@ -87,7 +87,7 @@ pytest tests/test_proposal_persistence.py -v   # save/get/delete/votes
 
 ## Migración a Supabase (futuro)
 
-Cuando se migre, solo cambia la implementación interna de `core/proposal_persistence.py`:
+Cuando se migre, solo cambia la implementación interna de `core/proposals/persistence.py`:
 
 1. Implementar `SupabaseStorage(ProposalStorage)`.
 2. Cambiar `_default_storage()` para devolver `SupabaseStorage`.
@@ -102,4 +102,4 @@ Schema de tablas Supabase: derivar 1:1 de `data/_schemas/proposal-v1.json`.
 
 - Schema: `data/_schemas/proposal-v1.json`
 - Skill: `.claude/skills/data-persistence-standard.md`
-- Paths: `core/proposal_paths.py`
+- Paths: `core/proposals/paths.py`

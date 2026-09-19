@@ -14,7 +14,7 @@ import pandas as pd
 import core.persistence as P
 import core.forecast.persistence as F
 import core.innovation.persistence as I
-import core.proposal_persistence as PP
+import core.proposals.persistence as PP
 
 results = []
 

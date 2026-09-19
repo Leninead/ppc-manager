@@ -1,6 +1,6 @@
-"""Case study → PDF (bytes). Reusa el sanitizer de M29 (`core/proposal_pdf`).
+"""Case study → PDF (bytes). Reusa el sanitizer de M29 (`core/proposals/pdf`).
 
-Función pura, sin Streamlit. El HTML lo produce `core/case_study_html`; acá solo
+Función pura, sin Streamlit. El HTML lo produce `core/case_studies/renderer`; acá solo
 se pasa por el sanitizer de xhtml2pdf de M29 (quita fuentes remotas, resuelve
 `var()`, normaliza `letter-spacing` em, remueve el flex `space-between`) y se
 renderiza con pisa. Mismo motor que M29 para consistencia (decisión del .md M31).
@@ -13,8 +13,8 @@ import re
 
 from xhtml2pdf import pisa
 
-from core.case_study_html import render_case_study_html
-from core.proposal_pdf import _sanitize_html_for_pdf  # REUSO del sanitizer de M29
+from core.case_studies.renderer import render_case_study_html
+from core.proposals.pdf import _sanitize_html_for_pdf  # REUSO del sanitizer de M29
 
 # `@import url(...Google Fonts...)` dentro de <style>. El sanitizer de M29 solo
 # remueve <link> a fuentes remotas, NO el @import; sin esto xhtml2pdf intenta
@@ -33,7 +33,7 @@ def _simplify_steps_for_pdf(html: str) -> str:
 
     También fuerza list-style:none inline en los <li> de .steps para matar el bullet
     que reportlab a veces mete igual. Seguro globalmente: en el HTML del case study
-    los únicos <li>/<ul> son los de .steps (ver core/case_study_html._steps_html).
+    los únicos <li>/<ul> son los de .steps (ver core/case_studies/renderer._steps_html).
     """
     html = _STEP_N_RE.sub(r'<b><font color="#FF3300">\1.</font></b> ', html)
     # el <li> del step: forzar sin bullet (reportlab ignora el list-style del CSS a veces)

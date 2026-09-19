@@ -19,7 +19,7 @@ Ver:
 - data/_schemas/proposal-v1.json (schema canónico)
 - data/sales/_catalog.json (37 módulos)
 - data/sales/_templates/ (4 arquetipos)
-- core/proposal_persistence.py (capa de I/O)
+- core/proposals/persistence.py (capa de I/O)
 - notes/brands/agency-os.md (contexto de negocio)
 """
 
@@ -29,9 +29,9 @@ import json
 import re
 import streamlit as st
 from datetime import datetime, timezone
-import core.proposal_persistence as pp
-from core.proposal_renderer import render_proposal_html
-# NOTA: `core.proposal_pdf` se importa LAZY dentro de _render_detail_screen().
+import core.proposals.persistence as pp
+from core.proposals.renderer import render_proposal_html
+# NOTA: `core.proposals.pdf` se importa LAZY dentro de _render_detail_screen().
 # Arrastra xhtml2pdf + reportlab + svglib + PIL (~42 MB de RSS) y solo hace falta
 # cuando el usuario baja el PDF. Ver core/__init__.py para el contexto de memoria.
 from modules.sales.b7_importer import extract_blocks, merge_blocks
@@ -1482,7 +1482,7 @@ def _commit_v1_to_disk(buf_block: dict, proposal: dict, block: dict, lang: str) 
     Devuelve el dict saved con version bumpeada.
     """
     import copy as _copy
-    import core.proposal_persistence as pp
+    import core.proposals.persistence as pp
 
     new_data, new_copy_lang = _build_v1_payload(buf_block, lang)
 
@@ -1795,7 +1795,7 @@ def _commit_v2_to_disk(buf_block: dict, proposal: dict, block: dict, lang: str) 
     Devuelve el dict saved con version bumpeada.
     """
     import copy as _copy
-    import core.proposal_persistence as pp
+    import core.proposals.persistence as pp
 
     new_data, new_copy_lang = _build_v2_payload(buf_block, lang)
 
@@ -2672,7 +2672,7 @@ def _render_detail_screen() -> None:
         try:
             # Lazy: xhtml2pdf + reportlab + svglib + PIL (~42 MB). El try/except
             # ya existente cubre tambien un fallo de import del motor de PDF.
-            from core.proposal_pdf import render_proposal_pdf
+            from core.proposals.pdf import render_proposal_pdf
             _proposal_pdf = render_proposal_pdf(proposal, _render_lang)
         except Exception as e:
             st.warning(f"PDF no disponible: {type(e).__name__}: {e}")
