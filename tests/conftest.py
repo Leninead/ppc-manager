@@ -45,7 +45,7 @@ def isolated_data_root(tmp_path, monkeypatch):
     Yields:
         Path del data root temporal (por si el test quiere escribir en él).
     """
-    import core.forecast_persistence as P
+    import core.forecast.persistence as P
 
     def _reset():
         P._set_backend_for_testing(None)

@@ -1,4 +1,4 @@
-"""Test de integracion end-to-end de core/supply_metrics.py (M37 B1).
+"""Test de integracion end-to-end de core/supply/metrics.py (M37 B1).
 
 Data root temporal VIRGEN: shenzhen tiene exactamente 1 OC, asi n_ocs==1 es
 verificable. Todo el circuito pasa por la API publica -- ningun evento se
@@ -17,14 +17,14 @@ os.environ["AGENCY_OS_DATA_DIR"] = str(TMP_ROOT)
 # No hardcodear el worktree: este archivo tambien vive en main tras el merge.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.supply_persistence import (  # noqa: E402
+from core.supply.persistence import (  # noqa: E402
     get_oc,
     get_proveedor,
     leer_eventos,
     save_oc,
     save_proveedor,
 )
-from core.supply_metrics import (  # noqa: E402
+from core.supply.metrics import (  # noqa: E402
     cambiar_estado_oc,
     fill_rate,
     generar_codigo_oc,

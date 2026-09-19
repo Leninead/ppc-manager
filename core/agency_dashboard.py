@@ -20,7 +20,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Optional
 
-from core.forecast_persistence import _list_forecast_clients, _load_forecast_client
+from core.forecast.persistence import _list_forecast_clients, _load_forecast_client
 from modules.pages.revenue_forecast import (
     AREA,
     MODULE_SLUG,

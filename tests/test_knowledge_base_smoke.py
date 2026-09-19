@@ -21,7 +21,7 @@ import pytest
 _testing = pytest.importorskip("streamlit.testing.v1")
 AppTest = _testing.AppTest
 
-from core import innovation_persistence as ip
+from core.innovation import persistence as ip
 from modules.pages import knowledge_base as kb
 
 

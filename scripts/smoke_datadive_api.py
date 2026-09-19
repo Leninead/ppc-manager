@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import check_launch_score_drift
-from core.datadive import DataDiveClient, DataDiveError, keywords_to_mkl_df
+from core.datadive.client import DataDiveClient, DataDiveError, keywords_to_mkl_df
 
 
 def main() -> int:

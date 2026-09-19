@@ -1,6 +1,6 @@
 """Is DataDive's Launch Score replica still valid?
 
-The Launch Score is absent from the v1 API, so core/datadive.py replicates the
+The Launch Score is absent from the v1 API, so core/datadive/client.py replicates the
 formula from DataDive's frontend. A replica breaks silently when the original
 changes, and this detects that WITHOUT credentials — both the frontend bundle
 and the OpenAPI spec are public — which is why CI runs it (see the
@@ -86,7 +86,7 @@ def main() -> int:
         unverifiable = True
     elif official:
         print("  ACCION: 'launchScore' YA EXISTE en el spec oficial.\n"
-              "  core/datadive.py::_launch_score_of lo prefiere automáticamente,\n"
+              "  core/datadive/client.py::_launch_score_of lo prefiere automáticamente,\n"
               "  así que la app ya usa el valor oficial: se puede borrar la réplica.")
         return 1
     else:

@@ -6,7 +6,7 @@ import pandas as pd
 from core.i18n import _I18N
 from core.constants import _BR_OPTIONAL_COLS
 from core.helpers import _color_pct
-from core.business_report import _BIZ_DIR, _parse_business_report_map
+from core.business_report.parser import _BIZ_DIR, _parse_business_report_map
 from modules.atom11.parser import (_parse_atom11, _detect_atom11_type, _extract_period_df,
                                    _summarize_daterange, _split_two_weeks)
 from modules.atom11.analysis import _kpis, _generate_summary

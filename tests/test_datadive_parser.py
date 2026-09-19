@@ -47,7 +47,7 @@ def test_parse_mkl_coerces_nan_relevance_to_zero_but_keeps_launch_empty():
     """A blank Relevance cell still coerces to 0, but a blank Launch Score stays
     empty: in a real export that blank IS DataDive's below-gate case, and writing
     a 0 there would claim the keyword is the cheapest one to rank. Keeping it
-    empty is also what the API source produces (core/datadive.py::_launch_score).
+    empty is also what the API source produces (core/datadive/client.py::_launch_score).
     """
     data = _mkl_bytes([
         [1, "kw a", 500, None, 1.0, None, 5],  # Relevance + Launch blank

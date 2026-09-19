@@ -32,8 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
-from core.supply_paths import PROVEEDORES_FILE, ensure_dirs  # noqa: E402
-from core.supply_persistence import (  # noqa: E402
+from core.supply.paths import PROVEEDORES_FILE, ensure_dirs  # noqa: E402
+from core.supply.persistence import (  # noqa: E402
     get_proveedor,
     list_proveedores,
     save_proveedor,

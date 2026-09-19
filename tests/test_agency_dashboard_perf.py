@@ -28,7 +28,7 @@ import tracemalloc
 import pytest
 
 from core import agency_dashboard as ad
-from core import forecast_persistence as fp
+from core.forecast import persistence as fp
 from modules.pages import revenue_forecast as rf
 
 pytestmark = pytest.mark.skipif(

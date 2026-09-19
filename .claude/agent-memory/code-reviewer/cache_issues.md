@@ -15,6 +15,6 @@ type: feedback
 | modules/atom11/parser.py | _parse_atom11 | High — Atom11 sheets are large |
 | modules/merchanspring/parser.py | _parse_merchanspring | High — XLSX parsing is slow |
 | modules/merchanspring/parser.py | _parse_merchanspring_pdf | Very high — PDF parsing is CPU-intensive |
-| core/business_report.py | _parse_business_report_map | Medium — scans files at startup |
+| core/business_report/parser.py | _parse_business_report_map | Medium — scans files at startup |
 
 These should have been cached per CLAUDE.md project spec (line: "Check that file uploaders use caching on heavy parsing functions").

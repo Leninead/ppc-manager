@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from core.datadive import (
+from core.datadive.client import (
     DataDiveClient,
     DataDiveError,
     client_from_env,
@@ -255,7 +255,7 @@ def test_official_launch_score_wins_over_the_replica():
 
 def test_launch_score_drift_detector():
     """A real export audits the formula: a match stays quiet, a recalibration warns."""
-    from core.datadive import launch_score_drifted
+    from core.datadive.client import launch_score_drifted
 
     sv = pd.Series(range(1000, 1000 + 40 * 100, 100), dtype=float)
     rel = pd.Series([8.0] * 40)

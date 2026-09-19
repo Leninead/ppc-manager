@@ -53,7 +53,7 @@ Decisiones de diseño F1 (documentadas in-line)
 
 3. PERSISTENCIA DORMIDA (Patrón M30/Caso 2)
    Los helpers `_persist_clients()` / `_hydrate_clients()` están definidos y
-   cablean a la API dedicada de `core.forecast_persistence`. Pero en Fase 1
+   cablean a la API dedicada de `core.forecast.persistence`. Pero en Fase 1
    están GUARDIADOS por el flag `_PERSISTENCE_ENABLED = False` y NUNCA se
    invocan desde el flujo de inicialización. El state vive 100% en session_state.
 
@@ -66,13 +66,13 @@ Decisiones de diseño F1 (documentadas in-line)
        4) Si se persisten DataFrames (snapshots de forecast), agregar el
           schema `data/_schemas/revenue-forecast-v1.json` y validarlo.
 
-   La persistencia respeta `_get_backend()` de core.forecast_persistence:
+   La persistencia respeta `_get_backend()` de core.forecast.persistence:
    local por default, Supabase sólo con flag `AGENCY_OS_FORECAST_BACKEND=
    "supabase"` + creds. Independiente del flag de Account Health.
 
 4. CLIENTES M31 ≠ CLIENTES DE ACCOUNT HEALTH (D3 — convivencia, no unión)
    M31 mantiene su PROPIO catálogo de clientes y su PROPIA capa de
-   persistencia (`core.forecast_persistence`). NO se unifica con `ah_*_configs`
+   persistencia (`core.forecast.persistence`). NO se unifica con `ah_*_configs`
    ni con `_list_clientes("account-health", ...)`. M31 vive en
    area="account-manager"; AH vive en area="account-health". Paths y tablas
    disjuntos. Si más adelante se decide unificar, el accessor `_cur_client`
@@ -101,9 +101,9 @@ from core.helpers import kpi_card
 
 # Imports de la capa de persistencia DEDICADA a M31 (cableados pero DORMIDOS
 # en F1). Capa separada de Account Health por decisión D3: los clientes M31
-# conviven con AH pero NO comparten storage. Ver `core/forecast_persistence.py`
+# conviven con AH pero NO comparten storage. Ver `core/forecast/persistence.py`
 # para el contrato y la motivación.
-from core.forecast_persistence import (
+from core.forecast.persistence import (
     _save_forecast_client,
     _load_forecast_client,
     _list_forecast_clients,
@@ -152,7 +152,7 @@ def _k_asin_model(client_id: str) -> str:
 # (hidrata si el catálogo está vacío) + botón "💾 Guardar cliente" en `render()`
 # + autosave post-demo-load y post-forecast-gen. Backend por default local; para
 # Supabase, seteá `AGENCY_OS_FORECAST_BACKEND="supabase"` + creds (ver
-# `core/forecast_persistence.py`).
+# `core/forecast/persistence.py`).
 _PERSISTENCE_ENABLED = True
 
 # SOP in-app — Fase 4.
@@ -438,7 +438,7 @@ def _get_selected_asin(state: Optional[Any] = None) -> Optional[str]:
 #   - _persist_clients() es no-op (no toca disco).
 #
 # Cuando se enciendan, usan `_save_forecast_client` / `_load_forecast_client` /
-# `_list_forecast_clients` de core.forecast_persistence (capa dedicada M31),
+# `_list_forecast_clients` de core.forecast.persistence (capa dedicada M31),
 # que respetan su propio `_get_backend()` — local por default, Supabase con
 # flag `AGENCY_OS_FORECAST_BACKEND="supabase"` + creds. NO comparte tablas con
 # Account Health.

@@ -6,6 +6,20 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Bid Optimizer, Bulk Campañas, Business Report, DataDive, forecast, innovación y supply pasan a sus paquetes en `core/` (2026-09-18)
+
+Lotes 2 a 4 de la reorganización de `core/` por feature. Solo cambian rutas: `core/bid_analysis.py` →
+`core/bid_optimizer/analysis.py`, `core/campaign_analysis.py` → `core/bulk_campaigns/analysis.py`,
+`core/business_report.py` → `core/business_report/parser.py`, `core/datadive.py` → `core/datadive/client.py`,
+`core/ads_account_picker.py` → `core/chat/ads_account_picker.py` (lo usa sólo el chat),
+`core/forecast_persistence.py` → `core/forecast/persistence.py`, `core/innovation_persistence.py` →
+`core/innovation/persistence.py`, y los siete `core/supply_*.py` → `core/supply/` (`paths`, `persistence`, `oc_import`,
+`metrics`, `politica`, `seasonality`, `indices`). Dos ajustes para que nada cambie de comportamiento: `_BIZ_DIR` sube un
+nivel más desde `__file__`, así sigue apuntando a `data/business_report` en la raíz del repo; y los tests que leen el
+código de `oc_import` y `politica` ahora prohíben el texto `persistence` en lugar de `supply_persistence`, así siguen
+atrapando ese import con el nombre nuevo. Ninguna imagen de `services/` copia estos archivos, y las huellas de los
+análisis no dependen de la ruta del módulo.
+
 ### Changed — Search terms y Bulk File pasan a sus paquetes en `core/` (2026-09-18)
 
 Primer lote de la reorganización de `core/` por feature. Solo cambian rutas: `core/search_term_frame.py`,

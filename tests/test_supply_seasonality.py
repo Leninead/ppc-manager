@@ -1,4 +1,4 @@
-"""Tests de core/supply_seasonality.py — M37 B2.1a, índices estacionales.
+"""Tests de core/supply/seasonality.py — M37 B2.1a, índices estacionales.
 
 Los invariantes que se defienden acá, todos de la misma familia: **ausencia de
 dato no es cero**.
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.supply_seasonality import (
+from core.supply.seasonality import (
     demanda_corregida,
     desestacionalizar,
     indice_mes,

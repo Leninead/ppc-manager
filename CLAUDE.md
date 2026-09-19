@@ -117,7 +117,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - `core/i18n.py` — _I18N (dict ES/EN)
 - `core/constants.py` — _BR_OPTIONAL_COLS, _PAGES
 - `core/helpers.py` — _color_pct, read_sqp, extract_sqp_brand, kpi_card
-- `core/business_report.py` — _BIZ_DIR, _parse_business_report_map, _auto_load_business_report_map
+- `core/business_report/parser.py` — _BIZ_DIR, _parse_business_report_map, _auto_load_business_report_map
 - `modules/atom11/parser.py` — _parse_atom11, _detect_atom11_type, _extract_period_df, _summarize_daterange, _split_two_weeks
 - `modules/atom11/analysis.py` — _kpis, _generate_summary, _diag_items, _rec_items
 - `modules/atom11/parent_evolution.py` — _build_parent_evolution, _generate_parent_evo_summary

@@ -41,7 +41,7 @@ vive una sola vez en `ai/agents/__init__.py` y cada `context.py` lo re-exporta.
 Todo el chat vive en `core/chat/` (desde 2026-09-18): `panel.py` (la burbuja, `floating_chat`),
 `app_chat.py` (lo que comparten las páginas, el montaje y el registro), `components/` (lo que
 dibuja el panel), `skills.py` (los skills que se suben desde Sistema) y `turns.py` (el registro
-en la base). `core/ads_account_picker.py` sigue en `core/`.
+en la base). `core/chat/ads_account_picker.py` sigue en `core/`.
 
 Un solo chat, montado una vez al final de `app.py` (`app_chat.mount_app_chat(selected, _username)`),
 en todas las pantallas y para todos los usuarios; con `AI_ENABLED=0` no se monta. Lo
@@ -358,7 +358,7 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
   la última solicitud `sp_campaigns` completada (`source_job_kind` + `data_view` del spec), nunca de `ads_profile_sync`.
 - La pestaña 3 busca el análisis de exactamente lo que está en pantalla (misma huella): vigente, generándose, falló
   con "Reintentar" o "Generar análisis IA". Con archivo manual muestra una nota, como M9: no hay análisis en memoria.
-- **Payload** (`core/campaign_analysis.build_analysis_input`): Parámetros + CSV de campañas habilitadas con `row_id`
+- **Payload** (`core/bulk_campaigns/analysis.build_analysis_input`): Parámetros + CSV de campañas habilitadas con `row_id`
   `C01…` (hasta 60: primero las marcadas —diagnóstico ≠ OK o con señal— y después por gasto). La IA opina sobre
   hasta 12 campañas: `causa` (9 cerradas), `veredicto` ACTUAR/ESPERAR/INVESTIGAR, `confianza`, `advertencia`, más la
   `synthesis` canónica. **Nunca cambia el diagnóstico**: lo explica o lo pone en duda.
@@ -916,7 +916,7 @@ Analizar niches de DataDive (keywords, competidores, rank radar) para detectar o
 
 ### Arquitectura
 5 tabs: MKL Keywords | Competitors | Rank Radar | Ranking Volatility+PPC IS | Competitor Intel.
-Parsers puros en `modules/parsers/datadive.py` (shape canónico COL_*); cliente API en `core/datadive.py`; agente IA en `ai/agents/datadive/` consumido vía `core/ai_tab` (nunca wiring a mano).
+Parsers puros en `modules/parsers/datadive.py` (shape canónico COL_*); cliente API en `core/datadive/client.py`; agente IA en `ai/agents/datadive/` consumido vía `core/ai_tab` (nunca wiring a mano).
 
 ### Fuente API — tabs 1-5 (2026-09-01)
 - Gate: presencia de `DATADIVE_API_KEY` (env → `st.secrets["datadive"].api_key`). Sin key el módulo es idéntico al flujo solo-archivo.
@@ -925,7 +925,7 @@ Parsers puros en `modules/parsers/datadive.py` (shape canónico COL_*); cliente 
 - Tab 5: dos selectores de niche + "Traer ambos de DataDive"; el Gap se clasifica por el indicador del outer join (el shape MKL no tiene columnas "rank").
 - Tabs 3-4: selector de rank radar + rango 30/60/90 días (`rank_radar_to_df` → Search Term/SV/Relevance/Median Rank + columnas fecha con el rank orgánico diario). El historial es server-side (el bloque de snapshots en session_state queda solo para archivos); el tab 4 reusa el radar traído en el 3. La API no trae las columnas PPC/SQ Score del export — el tab las guarda con `if col in df`.
 - **`/v1/niches` devuelve el set completo en cada "página"** (paginación declarada pero no honrada, medido en vivo): `list_niches` dedupea por nicheId y corta cuando una página no aporta ids nuevos. Ante endpoints nuevos, asumir que la paginación puede mentir.
-- `keywords_to_mkl_df()` produce el MISMO DataFrame canónico que `parse_mkl` — el resto del tab no distingue la fuente. **Launch Score no viene en ningún endpoint v1, pero se CALCULA** con la fórmula del frontend de DataDive (bundle público): `round(SV × 0.003 / relevancy)` si relevancy ≥ 0.4, si no 0 — replicada en `core/datadive.py::_launch_score` y validada 419/419 contra el export real. `rankingJuice` de /roots NO es el Launch Score (verificado 0/419).
+- `keywords_to_mkl_df()` produce el MISMO DataFrame canónico que `parse_mkl` — el resto del tab no distingue la fuente. **Launch Score no viene en ningún endpoint v1, pero se CALCULA** con la fórmula del frontend de DataDive (bundle público): `round(SV × 0.003 / relevancy)` si relevancy ≥ 0.4, si no 0 — replicada en `core/datadive/client.py::_launch_score` y validada 419/419 contra el export real. `rankingJuice` de /roots NO es el Launch Score (verificado 0/419).
 - **Sostenibilidad del Launch Score, sin vigilancia manual** — la réplica se rompe en silencio si DataDive cambia su fórmula, así que hay tres redes, y la principal es automática:
   1. **CI, sin credenciales** (la red que no depende de nadie): `scripts/check_launch_score_drift.py` verifica que la fórmula siga en el bundle público y si `launchScore` apareció en el spec oficial. Corre en el stage `Launch Score drift` del Jenkinsfile — en cada build y por cron semanal (`H 6 * * 1`, que NO deploya porque el CD gatea en `SCMTrigger`). Marca el build UNSTABLE, nunca lo rompe: que un tercero recalibre una fórmula es una noticia, no un build roto.
   2. `_launch_score_of()` prefiere el campo oficial (`launchScore`/`launch_score`) si algún día aparece en el payload: el día que DataDive lo exponga, la réplica queda muerta sola, sin migración.

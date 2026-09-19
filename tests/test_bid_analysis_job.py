@@ -7,7 +7,7 @@ import pytest
 
 from ai import agent_call
 from core.ai_analysis.bid_analysis_job import JOB_KIND, BidAnalysisSpec
-from core.bid_analysis import (
+from core.bid_optimizer.analysis import (
     ANALYSIS_MODULE,
     CANONICAL_WINDOW_DAYS,
     BidAnalysisParams,

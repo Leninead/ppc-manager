@@ -15,7 +15,7 @@ from core.amazon_ads.campaign_analyzer import CampaignAnalyzerParams
 from core.amazon_ads.campaign_provider import SIGNAL_COLUMNS, CampaignProvider
 from core.amazon_ads.product_provider import ProductCampaigns, ProductProvider
 from core.amazon_ads.report_provider import ProfileOption
-from core.campaign_analysis import (
+from core.bulk_campaigns.analysis import (
     ANALYSIS_MODULE,
     CANONICAL_WINDOW_DAYS,
     build_analysis_input,

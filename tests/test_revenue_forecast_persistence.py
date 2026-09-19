@@ -25,7 +25,7 @@ Cubre lo que es verificable SIN red y SIN disco real:
 Estrategia: monkeypatchear los nombres importados en `rf`
 (`_save_forecast_client`, `_load_forecast_client`, `_list_forecast_clients`)
 con fakes en memoria — mismo patrón que los tests de state existentes. Para
-el test transport-level, se inyecta el backend directo en `core.forecast_persistence`
+el test transport-level, se inyecta el backend directo en `core.forecast.persistence`
 vía `_set_backend_for_testing` y se resetea en el teardown.
 
 NINGÚN test pega a red real ni escribe a disco real (data/).
@@ -361,7 +361,7 @@ def test_supabase_backend_save_client_dispatches_post_with_upsert():
     """`_save_forecast_client` a través de `_SupabaseBackend` con transport fake
     dispara UN post a "forecast_clients" con `upsert=True` y el row shape correcto.
     """
-    from core import forecast_persistence as fp
+    from core.forecast import persistence as fp
 
     fake = _FakeTransport()
     try:

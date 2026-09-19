@@ -1,7 +1,7 @@
 """Tests de `_leer_planilla` — M37, lectura del archivo para el import de OCs.
 
 `modules/pages/supply_ordenes.py::_leer_planilla(data, nombre) -> list[list]`
-convierte el archivo que sube el AM en filas crudas para `core.supply_oc_import`.
+convierte el archivo que sube el AM en filas crudas para `core.supply.oc_import`.
 NO parsea ni valida contenido: eso es del motor. Solo lee.
 
 Es la pieza que puede romper en silencio, y por eso tiene tests propios: los
@@ -18,7 +18,7 @@ tres defaults de pandas que hay que desactivar no fallan, devuelven datos mal.
 - **datetime a str.** El lector de Excel devuelve datetime en las celdas con
   formato fecha; el motor normaliza strings.
 
-A diferencia de los módulos de `core/supply_*`, acá se importa una página de UI
+A diferencia de los módulos de `core/supply/`, acá se importa una página de UI
 (trae streamlit). Es correcto: esto ES la capa de UI, no la capa pura.
 
 Los archivos se arman EN MEMORIA. Nada toca disco.
@@ -32,7 +32,7 @@ from io import BytesIO
 import openpyxl
 import pytest
 
-from core.supply_oc_import import detectar_columnas, parsear_lineas
+from core.supply.oc_import import detectar_columnas, parsear_lineas
 from modules.pages.supply_ordenes import _leer_planilla
 
 

@@ -18,7 +18,7 @@ from core.amazon_ads.campaign_provider import CampaignProvider, campaign_sync_vi
 from core.amazon_ads.product_provider import ProductProvider
 from core.amazon_ads.report_provider import ProfileOption
 from core.amazon_ads.sync_planner import CAMPAIGNS_KIND, PRODUCT_CAMPAIGN_KINDS
-from core.campaign_analysis import ANALYSIS_MODULE, CANONICAL_LANG, build_analysis_input, canonical_analysis_window
+from core.bulk_campaigns.analysis import ANALYSIS_MODULE, CANONICAL_LANG, build_analysis_input, canonical_analysis_window
 from core.date_labels import date_range_label
 
 JOB_KIND = analysis_job_kind(ANALYSIS_MODULE)

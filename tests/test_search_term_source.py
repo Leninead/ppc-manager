@@ -20,7 +20,7 @@ import ai.runtime as ai_runtime
 import modules.pages.search_term_report as search_term_report
 import modules.pages.search_term_source as picker
 from ai.agents.str.context import StrData, build_context
-from core import ads_account_picker
+from core.chat import ads_account_picker
 from ai.agent_call import build_agent_call
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider
 from core.search_term.analysis import (

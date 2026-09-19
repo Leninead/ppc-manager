@@ -54,7 +54,7 @@ create table if not exists ah_client_configs (
     primary key (area, cliente, modulo, name)
 );
 
--- ── Revenue Forecast (core/forecast_persistence.py) ─────────────────────────
+-- ── Revenue Forecast (core/forecast/persistence.py) ─────────────────────────
 create table if not exists forecast_clients (
     area     text  not null,
     cliente  text  not null,
@@ -85,7 +85,7 @@ create table if not exists proposal_votes (
     proposal_id text
 );
 
--- ── Innovation Board (core/innovation_persistence.py) — from m24 DDL, RLS dropped ──
+-- ── Innovation Board (core/innovation/persistence.py) — from m24 DDL, RLS dropped ──
 create table if not exists innovation_ideas (
     id                uuid primary key default gen_random_uuid(),
     titulo            text        not null,

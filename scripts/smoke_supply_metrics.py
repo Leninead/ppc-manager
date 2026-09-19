@@ -1,4 +1,4 @@
-"""Smoke test de core/supply_metrics.py (M37 B1 - capa de logica).
+"""Smoke test de core/supply/metrics.py (M37 B1 - capa de logica).
 
 Data root temporal (AGENCY_OS_DATA_DIR), limpiado al final.
 """
@@ -16,14 +16,14 @@ os.environ["AGENCY_OS_DATA_DIR"] = str(TMP_ROOT)
 # No hardcodear el worktree: este archivo tambien vive en main tras el merge.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.supply_persistence import (  # noqa: E402
+from core.supply.persistence import (  # noqa: E402
     get_oc,
     leer_eventos,
     list_ocs,
     save_oc,
     save_proveedor,
 )
-from core.supply_metrics import (  # noqa: E402
+from core.supply.metrics import (  # noqa: E402
     LT_DESDE,
     LT_HASTA,
     TRANSICIONES,

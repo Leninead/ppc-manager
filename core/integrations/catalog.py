@@ -5,7 +5,7 @@ renders from `fields` and the grid orders by `order`.
 
 Storage class is chosen per integration by *who consumes the credential*:
 
-  APP_READABLE  the Streamlit process itself reads it (core/datadive.py:441).
+  APP_READABLE  the Streamlit process itself reads it (core/datadive/client.py:441).
                 Sealing it would make it unusable, so the app can read it back.
   SEALED        only the worker can open it. Correct for an OAuth client secret,
                 which governs every client account at once.
@@ -165,7 +165,7 @@ _CATALOG: tuple[Integration, ...] = (
         storage=APP_READABLE,
         state=AVAILABLE,
         order=20,
-        consumer="core/datadive.py",
+        consumer="core/datadive/client.py",
         env_var="DATADIVE_API_KEY",
         secrets_section="datadive",
         secrets_key="api_key",

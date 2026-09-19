@@ -10,7 +10,7 @@ no vendió porque no podía, no porque no hubiera demanda. Sin esa corrección e
 modelo lee el quiebre como caída de demanda, compra de menos, y el quiebre se
 repite. Es el error más caro de la cadena.
 
-Regla dura, igual que `core/supply_metrics.py` pero por otro motivo:
+Regla dura, igual que `core/supply/metrics.py` pero por otro motivo:
 - CERO acceso a disco, CERO Streamlit, CERO import de `supply_persistence`.
   Este archivo no lee tablas, no las guarda y no sabe de dónde salieron: las
   recibe por parámetro. Es lógica pura y testeable sin fixtures de I/O.

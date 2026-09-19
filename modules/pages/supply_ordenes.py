@@ -13,7 +13,7 @@ lead time medido: el sistema mide desde que la OC se emite hasta la primera
 recepcion, y ese numero alimenta el Maestro de Proveedores.
 
 Esta UI no toca disco, no genera codigos y no decide que transicion es legal:
-todo sale de core.supply_persistence (CRUD) y core.supply_metrics (codigos,
+todo sale de core.supply.persistence (CRUD) y core.supply.metrics (codigos,
 maquina de estados). Los botones de avance se derivan de TRANSICIONES, asi que
 nunca se ofrece una accion que cambiar_estado_oc vaya a rechazar.
 
@@ -29,17 +29,17 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
-from core.supply_metrics import (
+from core.supply.metrics import (
     TRANSICIONES,
     cambiar_estado_oc,
     generar_codigo_oc,
 )
-from core.supply_oc_import import (
+from core.supply.oc_import import (
     consolidar_duplicados,
     detectar_columnas,
     parsear_lineas,
 )
-from core.supply_persistence import (
+from core.supply.persistence import (
     ESTADOS_OC,
     get_oc,
     get_proveedor,
@@ -263,7 +263,7 @@ def _sep_csv(data: bytes, encoding: str) -> str:
 
 
 def _leer_planilla(data: bytes, nombre: str) -> list[list]:
-    """Archivo subido -> filas crudas para `core.supply_oc_import`.
+    """Archivo subido -> filas crudas para `core.supply.oc_import`.
 
     Solo LEE. No busca el header, no valida cantidades y no descarta nada: eso
     es del motor. La extension decide el lector; el nombre es el del archivo que
@@ -489,7 +489,7 @@ def _dialog_alta_oc() -> None:
             st.error("Cargá al menos una linea con SKU.")
             return
 
-        # El codigo lo genera supply_metrics (secuencia por proveedor y por mes),
+        # El codigo lo genera core/supply/metrics.py (secuencia por proveedor y por mes),
         # no esta UI.
         oc = {
             "id": generar_codigo_oc(prov_id),

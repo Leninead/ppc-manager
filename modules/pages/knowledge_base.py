@@ -8,7 +8,7 @@ import pandas as pd
 from streamlit.components.v1 import html as st_html
 
 from core.helpers import kpi_card
-from core.innovation_persistence import (
+from core.innovation.persistence import (
     _add_comentario,
     _add_prototipo,
     _create_idea,
