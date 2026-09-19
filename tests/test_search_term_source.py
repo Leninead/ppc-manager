@@ -20,7 +20,7 @@ import ai.runtime as ai_runtime
 import modules.pages.search_term_report as search_term_report
 import modules.pages.search_term_source as picker
 from ai.agents.str.context import StrData, build_context
-from core.chat import ads_account_picker
+from core.chat import ads_scope
 from ai.agent_call import build_agent_call
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider
 from core.search_term.analysis import (
@@ -816,7 +816,7 @@ class TestManualFileApp:
         ).encode("utf-8")
         uploaded = type("Uploaded", (), {"name": "Search_term_file.csv", "getvalue": lambda self: csv_bytes})()
         monkeypatch.setattr(streamlit, "file_uploader", lambda *args, **kwargs: uploaded)
-        monkeypatch.setattr(ads_account_picker, "_load_vehicles", lambda: [])
+        monkeypatch.setattr(ads_scope, "_load_vehicles", lambda: [])
         asked = []
         monkeypatch.setattr(ai_client, "ask", lambda **call: asked.append(call) or {
             "structured_output": {"negativos": [], "harvest": [], "campanas": [],
@@ -902,7 +902,7 @@ class TestSearchTermReportWithApiSource:
         def _provider_offline(**kwargs):
             raise ai_client.ProviderDown("tests run offline")
         monkeypatch.setattr(ai_client, "ask", _provider_offline)
-        monkeypatch.setattr(ads_account_picker, "_load_vehicles", lambda: [])
+        monkeypatch.setattr(ads_scope, "_load_vehicles", lambda: [])
         with ai_runtime._lock:
             ai_runtime._registry.clear()
         yield

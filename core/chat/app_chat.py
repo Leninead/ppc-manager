@@ -19,7 +19,7 @@ import streamlit as st
 from ai import config as ai_config
 from ai import runtime as ai_runtime
 from core import navigation
-from core.chat import ads_account_picker, turns
+from core.chat import ads_scope, turns
 from core.chat.panel import ChatTurn, floating_chat
 from core.ui import i18n
 
@@ -165,7 +165,7 @@ def chat_turn(page: str) -> ChatTurn:
     return ChatTurn(
         documents=session_documents(analyses),
         note=turn_note(page, entries),
-        ads_scope=ads_account_picker.request_scope(
+        ads_scope=ads_scope.request_scope(
             _session_country_hint(session_key(analyses), page, entries)),
         annotate=_annotator(analyses),
     )
