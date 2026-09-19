@@ -13,8 +13,8 @@ from typing import Iterable, Mapping
 
 import pandas as pd
 
-from core import search_term_frame as canonical
-from core.search_term_frame import SOURCE_FILE, SearchTermSource, add_ratios, valid_currency_code
+from core.search_term import frame as canonical
+from core.search_term.frame import SOURCE_FILE, SearchTermSource, add_ratios, valid_currency_code
 
 log = logging.getLogger(__name__)
 

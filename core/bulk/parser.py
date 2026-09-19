@@ -357,7 +357,7 @@ def spend_threshold(precio: float) -> float:
 # Validacion del bulk antes de la descarga (INV-5)
 # ============================================================================
 #
-# Por que vive aca y no en bulk_export.py:
+# Por que vive aca y no en core/bulk/export.py:
 #   El que valida no puede ser el mismo que construye. Si el validador
 #   compartiera modulo con el builder, un bug de construccion se validaria a
 #   si mismo y el AM se enteraria recien cuando Amazon rechace el archivo.
@@ -556,8 +556,8 @@ def validate_bulk(df: pd.DataFrame) -> list[ErrorBulk]:
 
     No muta el df recibido (INV-8).
     """
-    # core.bulk_export imports this module at load time, so the shared keyword-text limits are imported here.
-    from core.bulk_export import negative_keyword_text_problem
+    # core.bulk.export imports this module at load time, so the shared keyword-text limits are imported here.
+    from core.bulk.export import negative_keyword_text_problem
 
     errores: list[ErrorBulk] = []
 

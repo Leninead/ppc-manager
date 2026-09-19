@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 import requests
 
-from core import search_term_frame as canonical
+from core.search_term import frame as canonical
 from core.amazon_ads.report_provider import (
     PROFILE_SYNC_TABLE,
     READ_TIMEOUT_SECONDS,
@@ -18,7 +18,7 @@ from core.amazon_ads.report_provider import (
     ReportProvider,
     ReportReadError,
 )
-from core.search_term_frame import HIDDEN_ID_COLUMNS, SOURCE_API, console_columns
+from core.search_term.frame import HIDDEN_ID_COLUMNS, SOURCE_API, console_columns
 from modules.pages.search_term_report import _detect_cols
 
 RPC_HEADER = ["campaign_id", "ad_group_id", "keyword_type", "keyword_id", "match_type", "targeting", "search_term",

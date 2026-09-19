@@ -1,4 +1,4 @@
-"""Tests de core/bulk_export.py — los cuatro constructores de bulks SP.
+"""Tests de core/bulk/export.py — los cuatro constructores de bulks SP.
 
 El módulo es código puro (sin Streamlit, sin I/O de disco salvo el Excel en
 memoria), así que se testea tal cual está.
@@ -29,7 +29,7 @@ import openpyxl
 import pandas as pd
 import pytest
 
-from core.bulk_export import (
+from core.bulk.export import (
     _BULK_COLS,
     _BULK_SHEET_NAME,
     _METADATA_SHEET_NAME,
@@ -43,7 +43,7 @@ from core.bulk_export import (
     negative_keyword_text_problem,
     write_bulk_excel,
 )
-from core.bulk_parser import validate_bulk
+from core.bulk.parser import validate_bulk
 
 
 # ---------------------------------------------------------------------

@@ -24,7 +24,7 @@ from core.bid_analysis import (
     resolve_asin_column,
 )
 from core.currency_format import currency_symbol, money
-from core.search_term_frame import SOURCE_FILE
+from core.search_term.frame import SOURCE_FILE
 from core.ui.kpi_grid import Kpi, render_kpi_grid
 from modules.pages.search_term_source import date_range_label, render_source_picker
 

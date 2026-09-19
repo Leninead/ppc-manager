@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Literal
 
-from core import search_term_frame as canonical
+from core.search_term import frame as canonical
 from core.ai_analysis.store import AiAnalysisStore
 from core.amazon_ads import campaign_totals
 from core.amazon_ads.campaign_analyzer import (

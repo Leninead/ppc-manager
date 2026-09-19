@@ -25,7 +25,7 @@ from core.ai_analysis.analysis_runner import (  # noqa: F401 — API del módulo
 )
 from core.ai_analysis.store import AnalysisSettings, analysis_job_kind
 from core.amazon_ads.report_provider import ProfileOption
-from core.search_term_analysis import (
+from core.search_term.analysis import (
     ANALYSIS_MODULE,
     CANONICAL_LANG,
     StrAnalysisParams,

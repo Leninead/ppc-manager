@@ -24,7 +24,7 @@ from core.amazon_ads.report_provider import (
     _portfolio_label,
 )
 from core.integrations.store import _error_message, _Rest
-from core.search_term_frame import valid_currency_code
+from core.search_term.frame import valid_currency_code
 
 DAILY_TOTALS_RPC = "campaign_daily_totals"
 WINDOW_TOTALS_RPC = "campaign_window_totals"

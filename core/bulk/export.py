@@ -29,7 +29,7 @@ Diseno actual — cuatro constructores, no uno:
 
 Doble llave:
   Antes de devolver, cada constructor pasa su propio bulk_df por
-  validate_bulk (core.bulk_parser). Lo que el validador marque como error de
+  validate_bulk (core.bulk.parser). Lo que el validador marque como error de
   severidad "error" sale del bulk y se va a invalid_df. El validador vive en
   otro modulo a proposito: el que valida no puede ser el mismo que construye.
 
@@ -48,10 +48,10 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-# _id_to_str es privado de bulk_parser, pero es LA normalizacion de IDs del
+# _id_to_str es privado de core.bulk.parser, pero es LA normalizacion de IDs del
 # repo y duplicarla seria garantizar que las dos copias se separen. Se importa
 # a proposito. validate_bulk es la segunda llave de cada constructor.
-from core.bulk_parser import _id_to_str, validate_bulk
+from core.bulk.parser import _id_to_str, validate_bulk
 from core.excel_text import force_text_cells
 
 
@@ -411,7 +411,7 @@ def _armar(
 
     bulk_df = pd.DataFrame(validas, columns=_BULK_COLS)
 
-    # ── Segunda llave: el validador de core.bulk_parser sobre lo ya armado.
+    # ── Segunda llave: el validador de core.bulk.parser sobre lo ya armado.
     # Si algo se le escapo al spec, la fila sale del bulk igual.
     if not bulk_df.empty:
         por_fila: dict[int, list[str]] = {}
@@ -533,7 +533,7 @@ def build_bid_update(
             campaign_id / ad_group_id / keyword_id: los TRES numericos.
                 Sin keyword_id Amazon no sabe que keyword modificar y la fila
                 es invalida. El dato sale del Bulk File
-                (core.bulk_parser.parse_bulk_str), no del STR standalone.
+                (core.bulk.parser.parse_bulk_str), no del STR standalone.
             keyword_text: el texto de la keyword. Amazon lo resuelve por
                 Keyword ID, pero la fila igual lo lleva — es lo que hace
                 legible el archivo cuando el AM lo revisa antes de subir.

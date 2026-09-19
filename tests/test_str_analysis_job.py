@@ -21,8 +21,8 @@ from core.ai_analysis.worker import WORKER_NAME, AnalysisWorker
 from core.amazon_ads.report_provider import ProfileOption
 from core.integrations.store import StoreError
 from core.integrations.sync_jobs import SyncJob, SyncJobStore
-from core.search_term_analysis import StrAnalysisParams
-from core.search_term_frame import SOURCE_API, SearchTermSource, add_ratios
+from core.search_term.analysis import StrAnalysisParams
+from core.search_term.frame import SOURCE_API, SearchTermSource, add_ratios
 
 NOW = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
 SEARCH_ROWS = [

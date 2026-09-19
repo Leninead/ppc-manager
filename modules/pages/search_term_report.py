@@ -20,13 +20,13 @@ from core.ai_analysis.chat_context import (
     in_memory_analysis,
 )
 from core.ai_analysis.store import TRIGGER_SCHEDULED, AiAnalysisStore
-from core.bulk_export import build_adgroup_negative, write_bulk_excel
+from core.bulk.export import build_adgroup_negative, write_bulk_excel
 from core.integrations.store import StoreError
 from core.integrations.sync_jobs import SyncJobStore
 from core.currency_format import currency_symbol, money
 from core.excel_text import force_text_cells
 from core.ui.kpi_grid import Kpi, render_kpi_grid
-from core.search_term_analysis import (
+from core.search_term.analysis import (
     ANALYSIS_MODULE,
     CANONICAL_LANG,
     CANONICAL_WINDOW_DAYS,
@@ -39,13 +39,13 @@ from core.search_term_analysis import (
     rule_two_cvr,
     sorted_harvest,
 )
-from core.search_term_analysis import detect_columns as _detect_cols
-from core.search_term_analysis import harvest_candidate_rows as _harvest_candidate_rows
-from core.search_term_analysis import negative_candidate_rows as _negative_candidate_rows
-from core.search_term_analysis import numeric_column as _to_num
-from core.search_term_analysis import uses_dollar_price as _uses_dollar_price
-from core.search_term_frame import SOURCE_FILE
-from core.search_term_negatives import (
+from core.search_term.analysis import detect_columns as _detect_cols
+from core.search_term.analysis import harvest_candidate_rows as _harvest_candidate_rows
+from core.search_term.analysis import negative_candidate_rows as _negative_candidate_rows
+from core.search_term.analysis import numeric_column as _to_num
+from core.search_term.analysis import uses_dollar_price as _uses_dollar_price
+from core.search_term.frame import SOURCE_FILE
+from core.search_term.negatives import (
     ACTION_NEGATIVE,
     AD_GROUP_STATE_UNVERIFIED_NOTE,
     EXACT_GUARD_PARTIAL_NOTE,
@@ -1574,8 +1574,8 @@ def render():
                     )
 
                 # TODO(M2-bulkfile): restaurar la descarga cuando el modulo lea el Bulk
-                # File. Los constructores ya existen en core.bulk_export; lo que falta
-                # son los IDs, que salen de core.bulk_parser.parse_bulk_str().
+                # File. Los constructores ya existen en core.bulk.export; lo que falta
+                # son los IDs, que salen de core.bulk.parser.parse_bulk_str().
                 st.warning(
                     "**La descarga de bulk esta temporalmente deshabilitada.** "
                     "Para que Amazon acepte un bulk hacen falta los IDs numericos "

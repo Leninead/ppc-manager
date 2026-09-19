@@ -20,8 +20,8 @@ from core.amazon_ads.report_provider import (
     ORIGIN_PHRASE,
     ORIGIN_PRODUCT_TARGETING,
 )
-from core.bulk_export import negative_keyword_text_problem
-from core.search_term_frame import ANY_WINDOW_PURCHASES, PORTFOLIO_NAME_MISSING, SEARCH_TERM, orders_column
+from core.bulk.export import negative_keyword_text_problem
+from core.search_term.frame import ANY_WINDOW_PURCHASES, PORTFOLIO_NAME_MISSING, SEARCH_TERM, orders_column
 
 ACTION_NEGATIVE = "Negativo"
 ACTION_LOWER_BID = "Bajar bid"
@@ -213,7 +213,7 @@ def negative_key(candidate: NegativeCandidate) -> tuple[str, str, str, str]:
 def select_for_bulk(candidates: list[NegativeCandidate], frame: pd.DataFrame, *,
                     released_ranking: frozenset[tuple] = frozenset(),
                     guards: AdGroupGuards | None = None) -> tuple[list[dict], list[BulkExclusion]]:
-    """Rows for `core.bulk_export.build_adgroup_negative` from the Negativo candidates, plus why the rest stay out.
+    """Rows for `core.bulk.export.build_adgroup_negative` from the Negativo candidates, plus why the rest stay out.
 
     `frame` must be the unfiltered API frame: the ad group guards read every row of it. RANKING and
     unnamed-portfolio candidates stay out unless their `negative_key` is in `released_ranking`.

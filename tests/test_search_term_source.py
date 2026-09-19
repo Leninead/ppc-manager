@@ -23,7 +23,7 @@ from ai.agents.str.context import StrData, build_context
 from core import ads_account_picker
 from ai.agent_call import build_agent_call
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider
-from core.search_term_analysis import (
+from core.search_term.analysis import (
     StrAnalysisParams,
     add_metric_columns,
     build_analysis_input,
@@ -31,8 +31,8 @@ from core.search_term_analysis import (
     detect_columns,
 )
 from core.integrations.sync_jobs import SyncJob
-from core.search_term_file import FORMAT_CONSOLE_2026, FORMAT_CONSOLE_LEGACY, FORMAT_UNKNOWN, FileAccount
-from core.search_term_negatives import AD_GROUP_STATE_UNVERIFIED_NOTE, BulkExclusion, NegativeCandidate, negative_key
+from core.search_term.file import FORMAT_CONSOLE_2026, FORMAT_CONSOLE_LEGACY, FORMAT_UNKNOWN, FileAccount
+from core.search_term.negatives import AD_GROUP_STATE_UNVERIFIED_NOTE, BulkExclusion, NegativeCandidate, negative_key
 from modules.pages.search_term_report import (
     RELEASED_RANKING_KEY,
     _amount_unit,
@@ -1293,7 +1293,7 @@ class TestSearchTermReportHelpers:
         assert (_amount_unit(""), _amount_unit("USD"), _amount_unit("MXN")) == ("$", "$", "MXN")
 
     def test_candidate_rows_expose_no_hidden_ids(self):
-        from core.search_term_negatives import NegativeCandidate
+        from core.search_term.negatives import NegativeCandidate
         candidate = NegativeCandidate(search_term="cheap toy box", campaign="C", ad_group="AG", clicks=40,
                                       impressions=1000, spend=25.0, orders=0, acos=None, rule="R2",
                                       action="Negativo", match_type="Negative Exact", priority="Alta",

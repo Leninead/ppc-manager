@@ -6,6 +6,15 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Search terms y Bulk File pasan a sus paquetes en `core/` (2026-09-18)
+
+Primer lote de la reorganización de `core/` por feature. Solo cambian rutas: `core/search_term_frame.py`,
+`search_term_file.py`, `search_term_analysis.py` y `search_term_negatives.py` → `core/search_term/`
+(`frame`, `file`, `analysis`, `negatives`), y `core/bulk_export.py` / `core/bulk_parser.py` → `core/bulk/`
+(`export`, `parser`). No hay shims en las rutas viejas: se actualizaron los imports, los `mock.patch` de los tests y el
+`COPY` del Dockerfile del MCP, que ahora copia `core/search_term/` con su `__init__.py`. Las huellas de los análisis
+no dependen de la ruta del módulo, así que no se re-encola ningún análisis.
+
 ### Added — Cada turno del chat queda guardado en la base (2026-09-18)
 
 Cada pregunta al chat de la app deja una fila en `chat_turns` (migración 016): la fecha, el usuario, la página, la

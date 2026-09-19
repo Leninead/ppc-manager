@@ -14,7 +14,7 @@ from core.bid_analysis import (
     build_analysis_input,
     canonical_analysis_window,
 )
-from core.search_term_frame import console_columns
+from core.search_term.frame import console_columns
 
 ATTRIBUTION_DAYS = 7
 
@@ -167,7 +167,7 @@ class _Reports:
         self.windows = []
 
     def search_terms(self, profile, start, end):
-        from core.search_term_frame import SearchTermSource
+        from core.search_term.frame import SearchTermSource
         self.windows.append((start, end))
         return SearchTermSource(frame=self.frame, source="api", currency_code="USD",
                                 label="dermaglos · US", signature="sig", attribution_days=7, bulk_ready=True)

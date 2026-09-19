@@ -1,4 +1,4 @@
-"""Tests for core/search_term_frame.py: canonical columns M2 detects and ratios from totals."""
+"""Tests for core/search_term/frame.py: canonical columns M2 detects and ratios from totals."""
 from __future__ import annotations
 
 import dataclasses
@@ -6,8 +6,8 @@ import dataclasses
 import pandas as pd
 import pytest
 
-from core import search_term_frame as canonical
-from core.search_term_frame import (
+from core.search_term import frame as canonical
+from core.search_term.frame import (
     HIDDEN_ID_COLUMNS,
     SOURCE_API,
     SOURCE_FILE,
