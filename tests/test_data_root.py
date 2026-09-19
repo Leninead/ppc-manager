@@ -28,7 +28,7 @@ def test_env_vacio_cae_al_default(monkeypatch):
 
 
 def test_los_4_modulos_comparten_la_raiz():
-    # persistence / forecast / innovation / proposal_paths share one resolver.
+    # persistence / forecast / innovation / proposals.paths share one resolver.
     import core.forecast.persistence as f
     import core.innovation.persistence as i
     import core.persistence as p

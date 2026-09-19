@@ -55,7 +55,7 @@ from core.proposals.paths import (  # noqa: E402
 # Arquetipos con template (custom no tiene — instantiate lanza ValueError).
 _ARCHETYPES_CON_TEMPLATE = ["launch", "scale_seo", "defense", "cvr"]
 
-# El conteo canónico documentado del catálogo (SOP §5.5 + docstring proposal_paths).
+# El conteo canónico documentado del catálogo (SOP §5.5 + docstring de core/proposals/paths.py).
 _CATALOGO_CANONICO_ESPERADO = 37
 
 # El conteo esperado del demo seed.

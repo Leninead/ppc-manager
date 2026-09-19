@@ -58,7 +58,7 @@ def test_no_font_import_in_pdf_path():
     """El @import de Google Fonts se remueve antes de entrar al motor PDF.
 
     El sanitizer de M29 solo quita <link> remotos; el @import lo remueve el strip
-    local de case_study_pdf. Sin esto xhtml2pdf intenta bajar la fuente por red.
+    local de core/case_studies/pdf.py. Sin esto xhtml2pdf intenta bajar la fuente por red.
     """
     from core.case_studies.renderer import render_case_study_html
     from core.case_studies.pdf import _FONT_IMPORT_RE

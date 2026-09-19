@@ -16,7 +16,7 @@ Diseño:
   como seguro en el punto de inyección (`markupsafe.Markup`), así Jinja2 no lo
   re-escapa al meterlo en `_base.html`.
 - cwd-independiente: TEMPLATES_HTML_DIR y CATALOG_FILE (relativos en
-  proposal_paths) se resuelven a absoluto anclados contra la raíz del repo.
+  core/proposals/paths.py) se resuelven a absoluto anclados contra la raíz del repo.
 """
 
 from __future__ import annotations
