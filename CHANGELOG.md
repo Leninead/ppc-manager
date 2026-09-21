@@ -6,6 +6,26 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — PPC Insights con datos de Amazon Ads: picker, ASIN por producto anunciado, análisis IA y chat (2026-09-21)
+
+PPC Insights deja de pedir el Search Term Report a mano: lo toma del picker de Amazon Ads (cuenta, país y período),
+con la carga manual como alternativa, que se sigue leyendo con el parser propio del módulo. SQP, BR y Campaign CSV
+quedan como uploaders opcionales. "Generar Insights" ahora conserva los resultados mientras no cambian los datos, los
+montos van en la moneda de la cuenta y el target y el precio se cargan de los parámetros guardados de la cuenta.
+
+El reporte de search terms de la API no trae el ASIN anunciado. Una solicitud nueva, `sp_product_ads`, guarda
+`/sp/productAds/list` en `ads_product_ad` (migración 017), y cada término toma el ASIN de su ad group cuando anuncia
+uno solo; si anuncia varios, o el listado no vio el ad group, el del nombre de la campaña aunque el ad group no lo
+anuncie (las cuentas que nombran por familia ponen el ASIN de la familia en el nombre y anuncian los hijos). Nunca se
+reparte gasto entre ASINs: lo que queda sin ASIN se muestra aparte, el KPI de gasto dice «Spend en cards: X de Y» y
+una card tomada del nombre de campaña en ad groups de varios ASINs dice cuántos agrupa. Medido en la base local el
+21/09, la cuenta de mayor gasto pasa de 0% (una sola fila con la cuenta entera) a 87,8% del gasto atribuido a un ASIN.
+
+La nueva pestaña Análisis IA usa un agente propio (`ai/agents/ppc_insights`, filas `P01…`): con datos de la API el
+análisis se guarda, lo pide el AM y lo corre el worker (nunca se planifica solo), con «Recalcular» cuando lo que está
+en pantalla no es lo analizado; con archivo corre en memoria. Se comparte con el chat, y el MCP suma `ppc_insights` a
+`list_analyses`/`get_analysis` y un `breakdown` por ASIN. La lógica por ASIN se movió sin cambios a `core/ppc_insights/`.
+
 ### Changed — Dashboard Global, Case Study Studio y Proposal Studio pasan a sus paquetes en `core/` (2026-09-19)
 
 Lote 5 de la reorganización de `core/` por feature. Solo cambian rutas: `core/agency_dashboard.py`,

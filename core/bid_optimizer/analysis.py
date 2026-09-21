@@ -13,6 +13,7 @@ from datetime import date, timedelta
 import pandas as pd
 
 from ai.agents.bid_optimizer.context import MAX_ASINS, MAX_CAMPAIGNS, BidData
+from core.amazon_ads.advertised_asins import asins_from_campaigns
 
 ANALYSIS_MODULE = "bid_optimizer"
 CANONICAL_LANG = "es"
@@ -23,8 +24,7 @@ DEFAULT_TARGET_ACOS = 25
 
 
 # El reporte spSearchTerm de Amazon no trae el ASIN anunciado: cuando no viene en el archivo,
-# el único origen posible es el nombre de la campaña.
-ASIN_PATTERN = r"(B0[A-Z0-9]{8})"
+# el Bid Optimizer lo toma del nombre de la campaña.
 ASIN_FROM_FILE = "columna Advertised ASIN del archivo"
 ASIN_FROM_CAMPAIGN = "extraído del nombre de la campaña"
 
@@ -128,11 +128,6 @@ def detect_columns(df):
         "sales": first(lambda c: "sales" in c and "other" not in c and "advertised" not in c),
         "spend": first(lambda c: "spend" in c),
     }
-
-
-def asins_from_campaigns(campaign_names):
-    """ASIN embebido en cada nombre de campaña; NaN donde el naming no lo trae."""
-    return campaign_names.astype(str).str.extract(ASIN_PATTERN, expand=False)
 
 
 def resolve_asin_column(df, cols):

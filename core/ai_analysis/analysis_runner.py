@@ -95,6 +95,9 @@ class AnalysisRunner:
 
     def plan(self, profile_ids: frozenset[str] | None = None) -> PlanSummary:
         summary = PlanSummary()
+        # An on-demand module is only analyzed when someone asks for it: nothing to plan.
+        if getattr(self._spec, "on_demand", False):
+            return summary
         settings = self._store.settings_by_subject(self._spec.module)
         for profile in self._reports.profiles():
             if profile.status != PROFILE_ACTIVE:
@@ -189,7 +192,10 @@ class AnalysisRunner:
             requested_digest = job.params.get("input_digest")
             if job.trigger != SCHEDULED_TRIGGER and requested_digest and requested_digest != call.input_digest:
                 raise AnalysisJobError(self._spec.data_changed_message, retryable=False)
-            if self._store.done_for_input(self._spec.module, profile.profile_id, call.input_digest) is not None:
+            # A job that names a prompt version asks for this data read by that version, not by an older one.
+            reusable_version = call.agent_version if job.params.get("agent_version") else ""
+            if self._store.done_for_input(self._spec.module, profile.profile_id, call.input_digest,
+                                          reusable_version) is not None:
                 self._jobs.complete(job, rows_written=0, warning=REUSED_WARNING, now=self._clock())
                 return JobOutcome(job.id, None, reused=True)
 

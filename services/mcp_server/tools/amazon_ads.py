@@ -12,6 +12,7 @@ from typing import Literal
 from core.search_term import frame as canonical
 from core.ai_analysis.store import AiAnalysisStore
 from core.amazon_ads import campaign_totals
+from core.amazon_ads.advertised_asins import SEVERAL_ASINS, WITHOUT_ASIN, attribute_asins
 from core.amazon_ads.campaign_analyzer import (
     ANALYSIS_MODULE as CAMPAIGNS_MODULE,
     DIAGNOSIS_COLUMN,
@@ -89,13 +90,19 @@ _SEARCH_TERM_GROUPS = {"campaign": canonical.CAMPAIGN_NAME, "portfolio": canonic
                        "match_type": "_origin_match_type", "search_term": canonical.SEARCH_TERM}
 # Lo que agrupan los reportes de campaña de los tres productos: la fuente de siempre de campaña y portfolio.
 _CAMPAIGN_GROUPS = ("campaign", "portfolio", "product")
-_DIMENSIONS = ("campaign", "portfolio", "product", "match_type", "search_term")
+_DIMENSIONS = ("campaign", "portfolio", "product", "match_type", "search_term", "asin")
 _EMPTY_GROUP = {"portfolio": "Sin portfolio", "match_type": "Sin tipo"}
+# Lo que no se atribuye a un ASIN queda en su grupo, sin repartir: los grupos siguen sumando el total.
+_UNATTRIBUTED_GROUPS = {SEVERAL_ASINS: "Varios ASINs en el ad group", WITHOUT_ASIN: "Sin ASIN"}
+ASIN_NOTE = ("El ASIN de cada término sale del producto anunciado de su ad group cuando anuncia uno solo; si anuncia "
+             "varios, o no está en el listado, del ASIN del nombre de la campaña aunque el ad group no lo anuncie. Ese "
+             "ASIN puede agrupar a toda una familia de productos: hablá del grupo, no de un producto solo. Lo que no se "
+             "pudo atribuir queda en «Varios ASINs en el ad group» o «Sin ASIN», sin repartir entre ASINs.")
 # El modelo copia lo que recibe: si le llega PRODUCT_TARGETING, el AM lee PRODUCT_TARGETING.
 _MATCH_TYPE_LABELS = {"AUTO": "Automática", "PRODUCT_TARGETING": "Product targeting", "BROAD": "Broad",
                       "PHRASE": "Phrase", "EXACT": "Exact"}
 RANKING_METRICS = ("spend", "sales", "orders", "clicks", "impressions", "acos", "cvr")
-Dimension = Literal["campaign", "portfolio", "product", "match_type", "search_term"]
+Dimension = Literal["campaign", "portfolio", "product", "match_type", "search_term", "asin"]
 RankingMetric = Literal["spend", "sales", "orders", "clicks", "impressions", "acos", "cvr"]
 # "" = sin filtro: un parámetro opcional con None llegaría al modelo sin tipo.
 Diagnosis = Literal["", "FANTASMA", "PAUSAR", "REVISAR", "ESCALAR", "OK"]
@@ -229,14 +236,16 @@ def accounts_overview(rest, *, days: int = DEFAULT_DAYS, source: Source = "") ->
 
 
 def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS, product: Product = "",
-              source: Source = "", sort_by: RankingMetric = "spend", offset: int = 0, limit: int = 50) -> dict:
-    """Los totales de una cuenta en la ventana, agrupados por campaña, portfolio, producto, tipo de match o search term.
+              source: Source = "", sort_by: RankingMetric = "spend", asin: str = "", offset: int = 0,
+              limit: int = 50) -> dict:
+    """Los totales de una cuenta en la ventana, agrupados por campaña, portfolio, producto, tipo de match, search term
+    o ASIN.
 
     Campaña, portfolio y producto salen de los reportes de campaña de SP, SB y SD (`product` los acota a uno);
-    tipo de match y search term, de los search terms, que sólo son de SP. Campaña, portfolio y producto también
-    salen de los search terms con `source`=search_terms (por producto, un solo grupo: SP). Ordenados de mayor a
-    menor por `sort_by`; los grupos sin ventas no tienen ACoS y quedan al final de ese orden. `totals` suma todos
-    los grupos, también los que no entran en la página.
+    tipo de match, search term y ASIN, de los search terms, que sólo son de SP. Campaña, portfolio y producto también
+    salen de los search terms con `source`=search_terms (por producto, un solo grupo: SP). `asin` deja sólo los
+    search terms de ese ASIN. Ordenados de mayor a menor por `sort_by`; los grupos sin ventas no tienen ACoS y quedan
+    al final de ese orden. `totals` suma todos los grupos, también los que no entran en la página.
     """
     if by not in _DIMENSIONS:
         raise ValueError(f"by tiene que ser uno de: {', '.join(_DIMENSIONS)}")
@@ -244,8 +253,12 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
         raise ValueError(f"sort_by tiene que ser uno de: {', '.join(RANKING_METRICS)}")
     _check_product(product)
     _check_source(source)
+    wanted_asin = asin.strip().upper()
     if source == SOURCE_CAMPAIGNS and by not in _CAMPAIGN_GROUPS:
         raise ValueError(f"{by} sólo sale de los search terms: pedilo sin source o con source=search_terms.")
+    if wanted_asin and source != SOURCE_SEARCH_TERMS and by in _CAMPAIGN_GROUPS:
+        raise ValueError("El filtro asin sale de los search terms: pedilo con source=search_terms, o agrupá por "
+                         "search_term o match_type.")
     if source != SOURCE_SEARCH_TERMS and by in _CAMPAIGN_GROUPS:
         return _campaign_breakdown(rest, profile_id, by, days, product, sort_by, offset, limit)
     if product not in ("", "SP"):
@@ -262,8 +275,22 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
         return {"rows": [], "total": 0, "showing": 0, "offset": 0, "totals": None, **context,
                 "note": "La cuenta no tuvo búsquedas con clicks en ese período."}
 
-    column = _SEARCH_TERM_GROUPS[by]
-    if column is None:  # by product: every search term is Sponsored Products
+    asin_groups = None
+    if by == "asin" or wanted_asin:
+        attribution = attribute_asins(frame, ReportProvider(rest).advertised_asins(profile.profile_id),
+                                      canonical.CAMPAIGN_NAME)
+        asin_groups = attribution.asins.where(attribution.asins.notna(), attribution.origins.map(_UNATTRIBUTED_GROUPS))
+        context["asin_note"] = ASIN_NOTE
+    if wanted_asin:
+        frame = frame[asin_groups.eq(wanted_asin)]
+        if frame.empty:
+            return {"rows": [], "total": 0, "showing": 0, "offset": 0, "totals": None, **context,
+                    "note": f"Ningún search term del período se atribuye al ASIN {wanted_asin}."}
+
+    column = _SEARCH_TERM_GROUPS.get(by)
+    if by == "asin":
+        groups = asin_groups.loc[frame.index]
+    elif column is None:  # by product: every search term is Sponsored Products
         groups = PRODUCT_TYPES["SP"]
     else:
         groups = (frame[column].fillna("").astype(str).str.strip()

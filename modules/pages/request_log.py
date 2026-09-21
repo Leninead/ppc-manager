@@ -20,6 +20,7 @@ from core.amazon_ads.sync_planner import (
     PORTFOLIOS_KIND,
     SB_ENTITIES_KIND,
     SD_ENTITIES_KIND,
+    SP_PRODUCT_ADS_KIND,
     SP_TARGETS_KIND,
 )
 from core.integrations import catalog, roles
@@ -44,6 +45,7 @@ SYNC_PROVIDERS = (ADS_SLUG,)
 _SNAPSHOT_COUNT_KEYS = {PORTFOLIOS_KIND: "request_log.sub.portfolios",
                         CAMPAIGN_ENTITIES_KIND: "request_log.sub.campaigns",
                         SP_TARGETS_KIND: "request_log.sub.targets",
+                        SP_PRODUCT_ADS_KIND: "request_log.sub.product_ads",
                         # SB and SD lists close with their campaign count; their targets go along.
                         SB_ENTITIES_KIND: "request_log.sub.campaigns",
                         SD_ENTITIES_KIND: "request_log.sub.campaigns"}

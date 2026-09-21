@@ -41,6 +41,7 @@ from core.amazon_ads.sync_planner import (
     SB_TARGETING_KIND,
     SD_CAMPAIGNS_KIND,
     SD_ENTITIES_KIND,
+    SP_PRODUCT_ADS_KIND,
     SP_TARGETING_KIND,
     SP_TARGETS_KIND,
 )
@@ -411,6 +412,7 @@ class _FakeAmazon:
         # Targeting and SB / SD lists answer empty unless a test fills them, so they stay out of the way.
         self.sp_keywords: list[dict] = []
         self.sp_targets: list[dict] = []
+        self.sp_product_ads: list[dict] = []
         self.sb_campaigns: list[dict] = []
         self.sd_campaigns: list[dict] = []
         self.sd_ad_groups: list[dict] = []
@@ -447,6 +449,8 @@ class _FakeAmazon:
             return _FakeResponse(200, {"keywords": self.sp_keywords, "totalResults": len(self.sp_keywords)})
         if (method, path) == ("POST", "/sp/targets/list"):
             return _FakeResponse(200, {"targetingClauses": self.sp_targets, "totalResults": len(self.sp_targets)})
+        if (method, path) == ("POST", "/sp/productAds/list"):
+            return _FakeResponse(200, {"productAds": self.sp_product_ads, "totalResults": len(self.sp_product_ads)})
         if (method, path) == ("POST", "/sb/v4/campaigns/list"):
             return self.sb_outcome or _FakeResponse(200, {"campaigns": self.sb_campaigns})
         if method == "GET" and path.startswith(("/sb/keywords", "/sd/targets")):
@@ -1421,6 +1425,24 @@ def test_the_sp_target_list_is_saved_as_the_sp_target_universe(tmp_path, with_pr
     assert {row["ad_product"] for row in targets.values()} == {"SP"}
     assert (targets["7001"]["target_kind"], targets["7002"]["target_kind"]) == ("keyword", "auto")
     job = _only(rest.rows(JOBS, job_kind=SP_TARGETS_KIND))
+    assert (job["status"], job["rows_written"]) == ("completed", 2) and summary.errors == []
+
+
+def test_the_sp_product_ads_list_saves_the_asin_each_ad_group_advertises(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sp_product_ads = [{"adId": "9001", "campaignId": "909", "adGroupId": "8001", "asin": "B0DEMO0001",
+                              "sku": "DEMO-1", "state": "ENABLED"},
+                             {"adId": "9002", "campaignId": "909", "adGroupId": "8001", "asin": "B0DEMO0002",
+                              "sku": "DEMO-2", "state": "PAUSED"}]
+
+    summary = _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    saved = {row["ad_id"]: row for row in rest.rows("ads_product_ad")}
+    assert set(saved) == {"9001", "9002"}
+    assert {(row["ad_group_id"], row["asin"]) for row in saved.values()} == {("8001", "B0DEMO0001"),
+                                                                            ("8001", "B0DEMO0002")}
+    job = _only(rest.rows(JOBS, job_kind=SP_PRODUCT_ADS_KIND))
     assert (job["status"], job["rows_written"]) == ("completed", 2) and summary.errors == []
 
 
