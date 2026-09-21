@@ -205,6 +205,16 @@ estos eventos que aparezca; si hubo parcial, la parcial gana por ser anterior.""
 _ESTADOS_FILL_RATE = ("CERRADA", "RECIBIDA_PARCIAL")
 """OC que ya recibieron algo y por lo tanto pueden aportar al fill rate."""
 
+MOTIVO_OK = "ok"
+MOTIVO_SIN_EVENTOS = "sin_eventos"
+MOTIVO_SIN_EMITIDA = "sin_emitida"
+MOTIVO_EMITIDA_DUPLICADA = "emitida_duplicada"
+MOTIVO_FECHA_ILEGIBLE = "fecha_ilegible"
+MOTIVO_SIN_RECEPCION = "sin_recepcion"
+MOTIVO_FECHAS_INVERTIDAS = "fechas_invertidas"
+"""Motivos de `diagnosticar_lead_time`. Literales: viajan a la UI y el AM los
+lee traducidos, pero el contrato es el string."""
+
 _ESTADO_EXCLUIDO_LT = "ANULADA"
 """Estado cuyas OC NO aportan muestra de lead time. Contrapartida de
 _ESTADOS_FILL_RATE: las dos metricas tienen que filtrar por estado, si no una OC
@@ -269,6 +279,91 @@ def _muestra_lead_time(oc_id: str) -> int | None:
         return dias if dias >= 0 else None
 
     return None
+
+
+def diagnosticar_lead_time(eventos: list[dict]) -> dict:
+    """Lead time de UNA OC, con el motivo cuando no se puede medir.
+
+    Es la version explicada de `_muestra_lead_time`: mismas reglas de calculo,
+    pero en vez de un `None` mudo devuelve por que. Hoy una OC con dos EMITIDA,
+    o con una fecha que no parsea, simplemente desaparece de la mediana del
+    proveedor y nadie se entera.
+
+    Las dos conviven a proposito en esta tanda: `_muestra_lead_time` sigue
+    alimentando `lead_time_medido` sin tocarse. El refactor para que una use a
+    la otra va aparte.
+
+    NO detecta una fecha mal cargada. Si el AM backdateo la emision y dejo el
+    default de hoy en la recepcion, el delta entre esas dos fechas es real y el
+    motivo es 'ok': un dato mal cargado es indistinguible de uno bueno. Eso lo
+    ataja el preview del lead time antes de confirmar la recepcion, no esta
+    funcion.
+
+    Motivos, en el orden en que se chequean:
+
+    | motivo              | cuando |
+    |---------------------|--------|
+    | `sin_eventos`       | la lista viene vacia |
+    | `sin_emitida`       | no hay ningun evento EMITIDA |
+    | `emitida_duplicada` | hay mas de un EMITIDA — se reporta AUNQUE el calculo hubiera dado un numero |
+    | `fecha_ilegible`    | la fecha de la emision o la de la recepcion no parsea |
+    | `sin_recepcion`     | no hay RECIBIDA_PARCIAL ni CERRADA despues de la emision (por posicion) |
+    | `fechas_invertidas` | el delta da negativo |
+    | `ok`                | midio |
+
+    Args:
+        eventos: Eventos de UNA OC, en ORDEN DE ESCRITURA (el que devuelve
+            `leer_eventos`), como lista de dicts con 'evento' y 'fecha'. Las
+            demas claves se ignoran.
+
+    Returns:
+        {'dias': int | None, 'motivo': str}. 'dias' es int >= 0 solo con
+        motivo 'ok'; en todos los demas es None.
+    """
+    if not eventos:
+        return {"dias": None, "motivo": MOTIVO_SIN_EVENTOS}
+
+    emitidas = [
+        i for i, ev in enumerate(eventos) if str(ev.get("evento")) == LT_DESDE
+    ]
+    if not emitidas:
+        return {"dias": None, "motivo": MOTIVO_SIN_EMITIDA}
+    if len(emitidas) > 1:
+        # Antes que cualquier otro chequeo: con dos emisiones el numero no es
+        # confiable ni cuando sale, porque se mide contra la PRIMERA por
+        # posicion, que puede ser la cargada por error.
+        return {"dias": None, "motivo": MOTIVO_EMITIDA_DUPLICADA}
+
+    idx_desde = emitidas[0]
+    fecha_desde = _parse_fecha(eventos[idx_desde].get("fecha"))
+    if fecha_desde is None:
+        return {"dias": None, "motivo": MOTIVO_FECHA_ILEGIBLE}
+
+    recepcion = next(
+        (
+            ev
+            for ev in eventos[idx_desde + 1:]
+            if str(ev.get("evento")) in LT_HASTA
+        ),
+        None,
+    )
+    if recepcion is None:
+        return {"dias": None, "motivo": MOTIVO_SIN_RECEPCION}
+
+    fecha_hasta = _parse_fecha(recepcion.get("fecha"))
+    if fecha_hasta is None:
+        return {"dias": None, "motivo": MOTIVO_FECHA_ILEGIBLE}
+
+    # DEUDA heredada de _muestra_lead_time, mantenida a proposito para no
+    # divergir: si una fecha trae hora y la otra es medianoche, `.days` trunca y
+    # descuenta un dia. Pasa cuando un evento se registro sin fecha explicita
+    # (el log usa _now_iso(), con hora) y el otro vino del date_input, que
+    # llega a medianoche. 2026-07-20T10:30 -> 2026-08-25 da 35, no 36.
+    dias = (fecha_hasta - fecha_desde).days
+    if dias < 0:
+        return {"dias": None, "motivo": MOTIVO_FECHAS_INVERTIDAS}
+
+    return {"dias": dias, "motivo": MOTIVO_OK}
 
 
 def lead_time_medido(proveedor_id: str) -> float | None:
