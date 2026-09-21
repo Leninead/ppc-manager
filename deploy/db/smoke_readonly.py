@@ -52,6 +52,8 @@ TABLES = [
     ("ads_sb_sd_campaign_daily", "profile_id"),
     ("ads_target", "profile_id"),
     ("ads_target_daily", "profile_id"),
+    # Amazon Ads SP product ads (PPC Insights, chat) — 017_ppc_insights.sql.
+    ("ads_product_ad", "profile_id"),
     # Meli API bridge (M36) — 003_meli_api.sql + 004_meli_ads_unique.sql.
     ("meli_auth_identities", "id"),         # refresh_token_sealed idem
     ("meli_ingestion_runs", "id"),

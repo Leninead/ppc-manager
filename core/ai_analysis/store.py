@@ -165,12 +165,24 @@ class AiAnalysisStore:
 
     # ── app reads ────────────────────────────────────────────────────────────
 
-    def done_for_input(self, module: str, subject_id: str, input_digest: str) -> StoredAnalysis | None:
-        """The newest finished analysis of exactly this data, whatever prompt version wrote it."""
-        rows = self._rest.select(ANALYSES_TABLE, {
+    def done_for_input(self, module: str, subject_id: str, input_digest: str,
+                       agent_version: str = "") -> StoredAnalysis | None:
+        """The newest finished analysis of exactly this data, by `agent_version` or by whatever prompt version."""
+        params = {
             "select": "*", "module": f"eq.{module}", "subject_id": f"eq.{subject_id}",
             "input_digest": f"eq.{input_digest}", "status": f"eq.{STATUS_DONE}",
             "order": "finished_at.desc,id.desc", "limit": "1",
+        }
+        if agent_version:
+            params["agent_version"] = f"eq.{agent_version}"
+        rows = self._rest.select(ANALYSES_TABLE, params)
+        return StoredAnalysis.from_row(rows[0]) if rows else None
+
+    def latest_done(self, module: str, subject_id: str) -> StoredAnalysis | None:
+        """The account's newest finished analysis, whatever data it read, with its row records."""
+        rows = self._rest.select(ANALYSES_TABLE, {
+            "select": "*", "module": f"eq.{module}", "subject_id": f"eq.{subject_id}",
+            "status": f"eq.{STATUS_DONE}", "order": "finished_at.desc,id.desc", "limit": "1",
         })
         return StoredAnalysis.from_row(rows[0]) if rows else None
 
@@ -262,13 +274,18 @@ class AiAnalysisStore:
             raise StoreError("No se pudieron guardar los parámetros: la cuenta ya no está sincronizada.")
 
     def request_analysis(self, module: str, subject_id: str, *, window_start: date, window_end: date, lang: str,
-                         params: dict, input_digest: str, requested_by: str) -> AnalysisRequest:
+                         params: dict, input_digest: str, requested_by: str,
+                         agent_version: str = "") -> AnalysisRequest:
+        """With `agent_version`, data an older prompt version analyzed can be asked for again."""
+        args = {
+            "p_module": module, "p_subject_id": subject_id, "p_window_start": window_start.isoformat(),
+            "p_window_end": window_end.isoformat(), "p_lang": lang, "p_params": params,
+            "p_input_digest": input_digest, "p_requested_by": requested_by,
+        }
+        if agent_version:
+            args["p_agent_version"] = agent_version
         try:
-            rows = self._rest.rpc(REQUEST_RPC, {
-                "p_module": module, "p_subject_id": subject_id, "p_window_start": window_start.isoformat(),
-                "p_window_end": window_end.isoformat(), "p_lang": lang, "p_params": params,
-                "p_input_digest": input_digest, "p_requested_by": requested_by,
-            })
+            rows = self._rest.rpc(REQUEST_RPC, args)
         except Exception as exc:
             raise StoreError(_error_message(exc, "pedir el análisis IA")) from exc
         row = (rows or [{}])[0] if isinstance(rows, list) else (rows or {})

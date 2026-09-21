@@ -9,10 +9,12 @@ import hashlib
 import html
 import logging
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 import requests
 import streamlit as st
 
@@ -28,6 +30,7 @@ from core.amazon_ads.sync_planner import BACKFILL_DAYS, PROFILE_NEEDS_REAUTH, pr
 from core.integrations.store import StoreError, _Rest, _rest_credentials
 from core.integrations.sync_jobs import SyncJob, SyncJobStore, parse_date, sanitize_error
 from core.search_term.file import (
+    DEFAULT_ATTRIBUTION_DAYS,
     FORMAT_CONSOLE_2026,
     FORMAT_CONSOLE_LEGACY,
     FileAccount,
@@ -35,7 +38,7 @@ from core.search_term.file import (
     SearchTermFileError,
     read_search_term_file,
 )
-from core.search_term.frame import SearchTermSource
+from core.search_term.frame import SOURCE_FILE, SearchTermSource
 from core.ui import palette
 
 log = logging.getLogger(__name__)
@@ -360,10 +363,13 @@ def file_currency_html(file_format: str, currency_code: str) -> str:
 
 
 def render_source_picker(key_prefix: str = "str", *, allow_manual: bool = True,
-                         module_label: str = "Search Term Report") -> SearchTermSource | None:
+                         module_label: str = "Search Term Report",
+                         manual_reader: Callable[[bytes, str], pd.DataFrame] | None = None) -> SearchTermSource | None:
     """Mounts the data source block; returns the Search Term data to analyze, or None while there is none.
 
     The returned frame is the caller's own copy: mutating it never changes what the picker keeps.
+    `manual_reader(file_bytes, file_name)` reads a hand-uploaded report instead of the picker's reader, for a
+    module that keeps its own parser; it raises SearchTermFileError when the file cannot be read.
     """
     _keep_choices(key_prefix)
     profiles = _available_profiles()
@@ -376,29 +382,31 @@ def render_source_picker(key_prefix: str = "str", *, allow_manual: bool = True,
         if not allow_manual:
             st.info(NO_ACCOUNTS_MESSAGE.format(module=module_label))
             return None
-        return _render_file_input(key_prefix, hint=NO_CONNECTION_HINT)
+        return _render_file_input(key_prefix, hint=NO_CONNECTION_HINT, manual_reader=manual_reader)
     if manual_mode:
-        return _render_manual_mode(key_prefix)
+        return _render_manual_mode(key_prefix, manual_reader)
     return _render_amazon_ads(key_prefix, profiles, allow_manual=allow_manual)
 
 
-def _render_manual_mode(key_prefix: str) -> SearchTermSource | None:
+def _render_manual_mode(key_prefix: str, manual_reader=None) -> SearchTermSource | None:
     with st.container(border=True):
         note_col, back_col = st.columns([4.2, 1.8], vertical_alignment="center")
         note_col.markdown(MANUAL_MODE_NOTE)
         back_col.button("Volver a datos de Amazon Ads", key=picker_key(key_prefix, "back_to_api"),
                         type="tertiary", icon=":material/arrow_back:",
                         on_click=_set_manual_mode, args=(key_prefix, False))
-        return _render_file_input(key_prefix, hint="")
+        return _render_file_input(key_prefix, hint="", manual_reader=manual_reader)
 
 
-def _render_file_input(key_prefix: str, *, hint: str) -> SearchTermSource | None:
+def _render_file_input(key_prefix: str, *, hint: str, manual_reader=None) -> SearchTermSource | None:
     uploaded = st.file_uploader(UPLOAD_LABEL, type=["xlsx", "csv"], key=picker_key(key_prefix, "file"))
     if hint:
         st.caption(hint)
     if uploaded is None:
         return None
     file_bytes = uploaded.getvalue()
+    if manual_reader is not None:
+        return _source_from_module_reader(manual_reader, file_bytes, uploaded.name)
     try:
         search_term_file = _read_uploaded_file(file_bytes, uploaded.name)
     except SearchTermFileError as exc:
@@ -411,6 +419,19 @@ def _render_file_input(key_prefix: str, *, hint: str) -> SearchTermSource | None
     st.markdown(file_currency_html(search_term_file.format, account.currency_code), unsafe_allow_html=True)
     return search_term_file.source_for(account_key, file_name=uploaded.name,
                                        file_bytes_digest=hashlib.sha256(file_bytes).hexdigest())
+
+
+def _source_from_module_reader(manual_reader, file_bytes: bytes, file_name: str) -> SearchTermSource | None:
+    """The report as the module's own parser reads it: no account chooser and no currency column."""
+    try:
+        frame = manual_reader(file_bytes, file_name)
+    except SearchTermFileError as exc:
+        st.error(str(exc))
+        return None
+    digest = hashlib.sha256(file_bytes).hexdigest()
+    return SearchTermSource(frame=frame, source=SOURCE_FILE, currency_code="", label=file_name,
+                            signature=f"{digest[:16]}:module-reader", attribution_days=DEFAULT_ATTRIBUTION_DAYS,
+                            bulk_ready=False)
 
 
 def _choose_file_account(key_prefix: str, search_term_file: SearchTermFile) -> str:

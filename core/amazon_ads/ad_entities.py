@@ -1,9 +1,10 @@
-"""Targets and SB/SD campaigns per profile, mapped to `ads_target` and `ads_sb_sd_campaign`.
+"""Targets, SB/SD campaigns and SP product ads per profile, mapped to `ads_target`, `ads_sb_sd_campaign`
+and `ads_product_ad`.
 
 The entity universe `campaign_entities` keeps for SP campaigns, extended to SP keywords and
-targeting clauses, SB campaigns, keywords, product targets and themes, and SD campaigns and
-targets. The reports only return what had activity in the range asked for; these listings return
-every enabled or paused entity, with the state and bid it has now.
+targeting clauses, SB campaigns, keywords, product targets and themes, SD campaigns and targets,
+and the ASIN and SKU each SP ad group advertises. The reports only return what had activity in the
+range asked for; these listings return every enabled or paused entity, with the state and bid it has now.
 """
 from __future__ import annotations
 
@@ -19,7 +20,10 @@ log = logging.getLogger(__name__)
 
 TARGETS_TABLE = "ads_target"
 PRODUCT_CAMPAIGNS_TABLE = "ads_sb_sd_campaign"
+PRODUCT_ADS_TABLE = "ads_product_ad"
 
+SP_PRODUCT_ADS_PATH = "/sp/productAds/list"
+SP_PRODUCT_AD_MEDIA_TYPE = "application/vnd.spProductAd.v3+json"
 SP_KEYWORDS_PATH = "/sp/keywords/list"
 SP_KEYWORD_MEDIA_TYPE = "application/vnd.spKeyword.v3+json"
 SP_TARGETS_PATH = "/sp/targets/list"
@@ -90,6 +94,13 @@ def fetch_sp_targets(api: AdsApiClient, profile_id: str) -> list[dict]:
             + [_sp_clause_row(raw) for raw in clauses if _has(raw, "targetId")])
 
 
+def fetch_sp_product_ads(api: AdsApiClient, profile_id: str) -> list[dict]:
+    """Every enabled or paused SP product ad, with the ASIN and SKU its ad group advertises."""
+    product_ads = _list_by_token(api, profile_id, SP_PRODUCT_ADS_PATH, "productAds",
+                                 _state_filtered(SP_PAGE_SIZE), SP_PRODUCT_AD_MEDIA_TYPE)
+    return [_product_ad_row(raw) for raw in product_ads if _has(raw, "adId")]
+
+
 def fetch_sb_campaigns(api: AdsApiClient, profile_id: str) -> list[dict]:
     campaigns = _list_by_token(api, profile_id, SB_CAMPAIGNS_PATH, "campaigns",
                                _state_filtered(SB_CAMPAIGNS_PAGE_SIZE), SB_CAMPAIGN_MEDIA_TYPE)
@@ -148,6 +159,16 @@ def save_product_campaigns(rest: _Rest, profile_id: str, campaigns: list[dict], 
     }
     return _upsert_in_batches(rest, PRODUCT_CAMPAIGNS_TABLE, list(rows_by_key.values()),
                               on_conflict="profile_id,ad_product,campaign_id")
+
+
+def save_product_ads(rest: _Rest, profile_id: str, product_ads: list[dict], seen_at: datetime) -> int:
+    """Upsert only: an archived ad drops out of the listing, and older search terms still need its ASIN."""
+    rows_by_id = {
+        product_ad["ad_id"]: {**product_ad, "profile_id": profile_id, "seen_at": seen_at.isoformat()}
+        for product_ad in product_ads
+        if product_ad.get("ad_id")
+    }
+    return _upsert_in_batches(rest, PRODUCT_ADS_TABLE, list(rows_by_id.values()), on_conflict="profile_id,ad_id")
 
 
 def _upsert_in_batches(rest: _Rest, table: str, rows: list[dict], on_conflict: str) -> int:
@@ -251,6 +272,17 @@ def _target_row(ad_product: str, raw: dict, id_key: str, kind: str, text: str, m
         "match_type": match_type,
         "state": _upper(raw.get("state")),
         "bid": _amount(raw.get("bid")),
+    }
+
+
+def _product_ad_row(raw: dict) -> dict:
+    return {
+        "ad_id": _id_text(raw["adId"]),
+        "campaign_id": _id_text(raw.get("campaignId")),
+        "ad_group_id": _id_text(raw.get("adGroupId")),
+        "asin": _upper(raw.get("asin")),
+        "sku": str(raw.get("sku") or "").strip(),
+        "state": _upper(raw.get("state")),
     }
 
 

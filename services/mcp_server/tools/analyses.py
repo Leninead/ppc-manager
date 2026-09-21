@@ -13,14 +13,16 @@ from services.mcp_server.limits import page
 
 # Los módulos con análisis guardado. Espejo de ai_analysis_module_allowed (migraciones 011 y 014): si
 # se suma uno a la base y no acá, el índice lo ignora en silencio.
-MODULES = ("str", "bid_optimizer", "bulk_campaigns")
-MODULE_LABELS = {"str": "Search Term Report", "bid_optimizer": "Bid Optimizer", "bulk_campaigns": "Bulk Campañas"}
+MODULES = ("str", "bid_optimizer", "bulk_campaigns", "ppc_insights")
+MODULE_LABELS = {"str": "Search Term Report", "bid_optimizer": "Bid Optimizer", "bulk_campaigns": "Bulk Campañas",
+                 "ppc_insights": "PPC Insights"}
 # Cómo nombró el agente las filas de cada módulo: (grupo, prefijo del row_id, campo con el término).
 # Copia de ai/agents/*/context.py, que esta imagen no trae; un test las mantiene iguales.
 ROW_IDS = {
     "str": (("negativos", "N", "Search Term"), ("harvest", "H", "Search Term")),
     "bid_optimizer": (("filas", "A", "asin"),),
     "bulk_campaigns": (("filas", "C", "campaign"),),
+    "ppc_insights": (("filas", "P", "asin"),),
 }
 _RECORDS = {"negativos": "negative_records", "harvest": "harvest_records", "filas": "records"}
 # La situación de cada análisis viaja en el índice para comparar cuentas en una llamada; el resto

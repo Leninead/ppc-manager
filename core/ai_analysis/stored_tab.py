@@ -44,6 +44,13 @@ PENDING_AUTO = ("Todavía no hay un análisis de estos datos. Se genera solo cua
                 "Ads; si no querés esperar, pedilo ahora.")
 PENDING_CUSTOM = ("No hay un análisis con estos parámetros o este período. Generalo para esta configuración: "
                   "los parámetros quedan guardados para la cuenta.")
+RECALCULATE_BUTTON = "Recalcular"
+FIRST_ANALYSIS_BUTTON = "Generar análisis IA"
+OTHER_DATA_TITLE = "Este análisis no es de lo que estás viendo"
+OLDER_VERSION_TITLE = "Hay una versión más nueva del análisis IA"
+OLDER_VERSION_BODY = "Este análisis es de estos datos, pero lo generó la versión anterior. Recalculalo para leerlos con la nueva."
+NO_ANALYSIS_TITLE = "Todavía no hay un análisis IA de esta cuenta"
+NO_ANALYSIS_BODY = "Se genera cuando lo pedís y queda guardado para todo el equipo."
 
 
 @dataclass(frozen=True)
@@ -81,8 +88,14 @@ def _settings(module, profile_id, _open_rest):
     return store.settings(module, profile_id) if store is not None else None
 
 
+@st.cache_data(ttl=STATUS_TTL_SECONDS, show_spinner=False)
+def _latest(module, profile_id, _open_rest):
+    store = _store(_open_rest)
+    return store.latest_done(module, profile_id) if store is not None else None
+
+
 def forget_reads() -> None:
-    for loader in (_stored, _job, _settings):
+    for loader in (_stored, _job, _settings, _latest):
         loader.clear()
 
 
@@ -128,6 +141,61 @@ def render_stored_analysis(*, module: str, key_prefix: str, source, input_digest
     return StoredTabResult(None, STATE_MISSING)
 
 
+def render_recalculable_analysis(*, module: str, key_prefix: str, source, input_digest: str, agent_version: str,
+                                 params, account_params, open_rest, current_username, render_result,
+                                 describe_difference, timezone=None) -> StoredTabResult:
+    """For a module nobody plans: the analysis of exactly these data or, without one, the account's latest.
+
+    Recalcular asks for the analysis of what is on screen; the same data are asked for again only when the stored
+    analysis came from an older prompt version, since the database keeps one analysis per data and version.
+    `describe_difference(stored)` says how the latest analysis differs from what is on screen.
+    """
+    feedback_key = f"{key_prefix}_ai_request_feedback"
+    feedback = st.session_state.pop(feedback_key, None)
+    if feedback:
+        st.toast(feedback)
+    try:
+        exact = _stored(module, source.profile_id, input_digest, open_rest)
+        job = _job(module, source.profile_id, input_digest, open_rest)
+        shown = exact or _latest(module, source.profile_id, open_rest)
+    except (requests.RequestException, StoreError) as exc:
+        log.warning("stored analysis for %s could not be read: %s", source.profile_id, exc)
+        st.error(READ_FAILED)
+        return StoredTabResult(None, STATE_MISSING)
+
+    is_current = exact is not None and exact.agent_version == agent_version
+    if job is not None and job.is_open:
+        _render_generating(module, source.profile_id, input_digest, job, open_rest, timezone, done_when_stored=False)
+        state = STATE_RUNNING
+    elif job is not None and job.status == "failed" and not is_current:
+        st.error(f"El análisis IA de estos datos falló: {job.error_message or job.error_class}")
+        if st.button("Reintentar", key=f"{key_prefix}_ai_retry_job"):
+            _retry(job, open_rest, current_username)
+        state = STATE_FAILED
+    elif is_current:
+        state = STATE_CURRENT
+    else:
+        from core import ai_tab
+
+        if exact is not None:
+            title, body = OLDER_VERSION_TITLE, OLDER_VERSION_BODY
+        elif shown is not None:
+            title, body = OTHER_DATA_TITLE, describe_difference(shown)
+        else:
+            title, body = NO_ANALYSIS_TITLE, NO_ANALYSIS_BODY
+        st.markdown(ai_tab.ai_notice_html(title, body), unsafe_allow_html=True)
+        label = FIRST_ANALYSIS_BUTTON if shown is None else RECALCULATE_BUTTON
+        if st.button(label, key=f"{key_prefix}_ai_recalculate", type="primary"):
+            _send_request(module, source, input_digest, params, account_params, open_rest, current_username,
+                          feedback_key, agent_version=agent_version if exact is not None else "")
+        state = STATE_MISSING
+
+    if shown is not None:
+        st.caption(analysis_caption(shown, timezone))
+        render_result(shown)
+    return StoredTabResult(shown, state)
+
+
 def _retry(job, open_rest, current_username) -> None:
     rest = open_rest()
     if rest is None:
@@ -142,13 +210,17 @@ def _retry(job, open_rest, current_username) -> None:
     st.rerun()
 
 
-def _render_generating(module, profile_id, input_digest, job, open_rest, timezone) -> None:
+def _render_generating(module, profile_id, input_digest, job, open_rest, timezone, *,
+                       done_when_stored: bool = True) -> None:
+    """While the job is open. A recalculation already has an analysis of these data: only the job says it ended."""
     @st.fragment(run_every=GENERATING_POLL)
     def _poll():
         _stored.clear()
         _job.clear()
+        _latest.clear()
         current = _job(module, profile_id, input_digest, open_rest) or job
-        if _stored(module, profile_id, input_digest, open_rest) is not None or not current.is_open:
+        stored_now = done_when_stored and _stored(module, profile_id, input_digest, open_rest) is not None
+        if stored_now or not current.is_open:
             st.rerun()
         created = current.created_at.astimezone(timezone) if (current.created_at and timezone) else current.created_at
         requested = created.strftime("%H:%M") if created else "?"
@@ -166,6 +238,11 @@ def _render_request(module, key_prefix, source, input_digest, params, account_pa
     st.markdown(ai_tab.ai_notice_html(PENDING_TITLE, body), unsafe_allow_html=True)
     if not st.button("Generar análisis IA", key=f"{key_prefix}_ai_request", type="primary"):
         return
+    _send_request(module, source, input_digest, params, account_params, open_rest, current_username, feedback_key)
+
+
+def _send_request(module, source, input_digest, params, account_params, open_rest, current_username, feedback_key,
+                  *, agent_version: str = "") -> None:
     store = _store(open_rest)
     if store is None or source.window_start is None or source.window_end is None:
         st.error(NO_DATABASE)
@@ -176,7 +253,8 @@ def _render_request(module, key_prefix, source, input_digest, params, account_pa
             store.save_settings(module, source.profile_id, params.as_dict(), username)
         outcome = store.request_analysis(
             module, source.profile_id, window_start=source.window_start, window_end=source.window_end,
-            lang="es", params=params.as_dict(), input_digest=input_digest, requested_by=username)
+            lang="es", params=params.as_dict(), input_digest=input_digest, requested_by=username,
+            agent_version=agent_version)
     except StoreError as exc:
         st.error(str(exc))
         return

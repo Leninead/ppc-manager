@@ -42,6 +42,7 @@ from core.amazon_ads.sync_planner import (
     SB_ENTITIES_KIND,
     SD_ENTITIES_KIND,
     SEARCH_TERMS_KIND,
+    SP_PRODUCT_ADS_KIND,
     SP_TARGETS_KIND,
     ProfileState,
     backfill_dedupe_prefix,
@@ -91,6 +92,7 @@ MAX_LISTED_EMPTY_DAYS = 5
 NO_PORTFOLIO_ACCESS_WARNING = "sin permiso para leer portfolios"
 NO_CAMPAIGN_ACCESS_WARNING = "sin permiso para leer campañas"
 NO_TARGETS_ACCESS_WARNING = "sin permiso para leer keywords y targets"
+NO_PRODUCT_ADS_ACCESS_WARNING = "sin permiso para leer los productos anunciados"
 NO_SB_ACCESS_WARNING = "sin acceso a Sponsored Brands"
 NO_SD_ACCESS_WARNING = "sin acceso a Sponsored Display"
 # How recently the SB list must have shown a campaign of the old format for v2 to be asked for it.
@@ -391,6 +393,8 @@ class IngestionJob:
             self._refresh_campaign_entities(tick, job)
         elif job.job_kind == SP_TARGETS_KIND:
             self._refresh_sp_targets(tick, job)
+        elif job.job_kind == SP_PRODUCT_ADS_KIND:
+            self._refresh_sp_product_ads(tick, job)
         elif job.job_kind in (SB_ENTITIES_KIND, SD_ENTITIES_KIND):
             self._refresh_product_entities(tick, job)
         elif (kind := report_kinds.by_job_kind(job.job_kind)) is not None:
@@ -429,6 +433,17 @@ class IngestionJob:
             self._complete(tick, job, rows_written=0, warning=NO_TARGETS_ACCESS_WARNING)
             return
         saved_count = ad_entities.save_targets(self._rest, job.external_account_id, "SP", targets, tick.now)
+        self._complete(tick, job, rows_written=saved_count)
+
+    def _refresh_sp_product_ads(self, tick: _Tick, job: SyncJob) -> None:
+        api, _ = self._amazon(job)
+        try:
+            product_ads = ad_entities.fetch_sp_product_ads(api, job.external_account_id)
+        except AdsAccessDenied:
+            log.info("amazon_ads: profile %s may not list its product ads", job.external_account_id)
+            self._complete(tick, job, rows_written=0, warning=NO_PRODUCT_ADS_ACCESS_WARNING)
+            return
+        saved_count = ad_entities.save_product_ads(self._rest, job.external_account_id, product_ads, tick.now)
         self._complete(tick, job, rows_written=saved_count)
 
     def _refresh_product_entities(self, tick: _Tick, job: SyncJob) -> None:

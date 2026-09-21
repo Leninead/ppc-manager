@@ -29,8 +29,8 @@ CAMPAIGN_HEADER = ["ad_product", "campaign_id", "campaign_name", "portfolio_id",
 
 def _term(term: str, campaign: str, *, cost: float, clicks: int, sales: float = 0.0, orders: int = 0,
           match_type: str = "EXACT", keyword_type: str = "EXACT", portfolio: str = "Marca",
-          impressions: int = 100) -> dict:
-    return {"campaign_id": campaign, "ad_group_id": "ag", "keyword_type": keyword_type, "keyword_id": term,
+          impressions: int = 100, ad_group: str = "ag") -> dict:
+    return {"campaign_id": campaign, "ad_group_id": ad_group, "keyword_type": keyword_type, "keyword_id": term,
             "match_type": match_type, "targeting": term, "search_term": term, "campaign_name": campaign,
             "campaign_status": "ENABLED", "ad_group_name": "ag", "keyword_text": term, "ad_keyword_status": "ENABLED",
             "portfolio_id": "1" if portfolio else "", "portfolio_name": portfolio, "impressions": impressions,
@@ -60,15 +60,18 @@ def _csv(header, rows) -> bytes:
 
 
 class _FakeRest:
-    def __init__(self, terms=(), campaigns=(), profile=None):
+    def __init__(self, terms=(), campaigns=(), profile=None, product_ads=()):
         self._terms = list(terms)
         self._campaigns = list(campaigns)
         self._profile = profile or PROFILE
+        self._product_ads = list(product_ads)
         self.rpc_calls: list[tuple[str, dict]] = []
 
     def select(self, table, params):
         if table == "integration_sync_jobs":
             return [dict(CAMPAIGN_JOB)] if params.get("job_kind") == "eq.sp_campaigns" else []
+        if table == "ads_product_ad":
+            return list(self._product_ads)
         return [self._profile]
 
     def rpc_csv(self, name, args, *, timeout_s=8):
@@ -97,8 +100,59 @@ CAMPAIGNS = [
 
 
 def _breakdown(**kwargs):
-    rest = _FakeRest(kwargs.pop("terms", TERMS), kwargs.pop("campaigns", CAMPAIGNS), kwargs.pop("profile", None))
+    rest = _FakeRest(kwargs.pop("terms", TERMS), kwargs.pop("campaigns", CAMPAIGNS), kwargs.pop("profile", None),
+                     kwargs.pop("product_ads", ()))
     return amazon_ads.breakdown(rest, profile_id="1111222233334444", **kwargs)
+
+
+ASIN_TERMS = [
+    _term("vitamin cream", "DG - Exact", cost=40.0, clicks=20, sales=160.0, orders=4, ad_group="AG1"),
+    _term("night cream", "DG - Exact", cost=10.0, clicks=10, ad_group="AG1"),
+    _term("lotion", "DG - Variants", cost=25.0, clicks=5, ad_group="AG2"),
+    _term("body lotion", "DG - B0NAMED001 - Broad", cost=15.0, clicks=6, sales=30.0, orders=1, ad_group="AG9"),
+    _term("cream", "DG - Auto", cost=10.0, clicks=4, ad_group="AG8"),
+]
+PRODUCT_ADS = [{"ad_group_id": "AG1", "asin": "B0HERO00001"},
+               {"ad_group_id": "AG2", "asin": "B0VARIANT01"}, {"ad_group_id": "AG2", "asin": "B0VARIANT02"}]
+
+
+def test_an_asin_breakdown_attributes_each_term_to_its_ad_groups_asin_and_keeps_the_rest_apart():
+    payload = _breakdown(by="asin", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
+
+    spend = {row["group"]: row["spend"] for row in payload["rows"]}
+    assert spend == {"B0HERO00001": 50.0, "Varios ASINs en el ad group": 25.0, "B0NAMED001": 15.0,
+                     "Sin ASIN": 10.0}
+    assert payload["totals"]["spend"] == 100.0
+    assert "producto anunciado" in payload["asin_note"]
+
+
+def test_a_family_asin_in_the_campaign_name_takes_its_several_asin_ad_group_and_the_groups_still_add_up():
+    terms = ASIN_TERMS + [_term("shaper shorts", "DG - B0FAMILY01 - Broad", cost=20.0, clicks=8, ad_group="AG2")]
+
+    payload = _breakdown(by="asin", terms=terms, product_ads=PRODUCT_ADS)
+
+    spend = {row["group"]: row["spend"] for row in payload["rows"]}
+    assert spend["B0FAMILY01"] == 20.0 and spend["Varios ASINs en el ad group"] == 25.0
+    assert sum(spend.values()) == payload["totals"]["spend"] == 120.0
+    assert "familia" in payload["asin_note"]
+
+
+def test_the_asin_filter_leaves_only_that_asins_search_terms():
+    payload = _breakdown(by="search_term", asin="b0hero00001", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
+
+    assert {row["group"] for row in payload["rows"]} == {"vitamin cream", "night cream"}
+    assert payload["totals"]["spend"] == 50.0
+
+
+def test_an_asin_without_attributed_terms_says_so():
+    payload = _breakdown(by="search_term", asin="B0NOTHERE01", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
+
+    assert payload["rows"] == [] and "B0NOTHERE01" in payload["note"]
+
+
+def test_the_asin_filter_on_a_campaign_report_dimension_asks_for_the_search_terms():
+    with pytest.raises(ValueError, match="source=search_terms"):
+        _breakdown(by="campaign", asin="B0HERO00001", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
 
 
 def test_a_campaign_breakdown_comes_from_the_campaign_reports_largest_spend_first():

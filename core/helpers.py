@@ -1,3 +1,4 @@
+import html
 import streamlit as st
 import pandas as pd
 import re
@@ -36,8 +37,10 @@ def read_sqp(file):
     return pd.read_csv(file, skiprows=1)
 
 
-def kpi_card(label, value, delta=None, delta_good=True):
-    """Genera HTML de KPI card estilo Capybaras. Usar con st.markdown(..., unsafe_allow_html=True)."""
+def kpi_card(label, value, delta=None, delta_good=True, caption=None):
+    """Genera HTML de KPI card estilo Capybaras. Usar con st.markdown(..., unsafe_allow_html=True).
+
+    `caption` es una línea chica debajo del valor (texto plano)."""
     delta_html = ""
     if delta is not None:
         try:
@@ -52,12 +55,15 @@ def kpi_card(label, value, delta=None, delta_good=True):
             )
         except (ValueError, TypeError):
             pass
+    # "$" escaped so Streamlit never reads two amounts as a LaTeX span.
+    caption_html = (f"<div style='font-size:0.72rem;color:#888;font-weight:600;'>"
+                    f"{html.escape(str(caption)).replace('$', '&#36;')}</div>" if caption else "")
     return (
         f"<div style='background:#FFF3E0;border:1px solid #FFD9B3;border-radius:10px;"
         f"padding:0.8rem 1rem;text-align:center;'>"
         f"<div style='font-size:0.72rem;color:#888;font-weight:600;text-transform:uppercase;"
         f"letter-spacing:0.05em;'>{label}</div>"
         f"<div style='font-size:1.4rem;font-weight:800;color:#1F1F1F;margin:0.2rem 0;'>{value}</div>"
-        f"{delta_html}"
+        f"{delta_html}{caption_html}"
         f"</div>"
     )

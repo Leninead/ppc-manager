@@ -43,7 +43,9 @@ SD_CAMPAIGNS_KIND = "sd_campaigns"
 SD_TARGETING_KIND = "sd_targeting"
 # SB campaigns of the old format, from the v2 report: v3's SB reports leave them out while in preview.
 SB_LEGACY_KIND = "sb_legacy_campaigns"
-PRODUCT_ENTITY_KINDS = (SP_TARGETS_KIND, SB_ENTITIES_KIND, SD_ENTITIES_KIND)
+# The advertised product of every SP ad group: the only source of the ASIN behind a search term.
+SP_PRODUCT_ADS_KIND = "sp_product_ads"
+PRODUCT_ENTITY_KINDS = (SP_TARGETS_KIND, SB_ENTITIES_KIND, SD_ENTITIES_KIND, SP_PRODUCT_ADS_KIND)
 # The requests that write SB and SD campaign days: whatever reads those campaigns reads again after one.
 PRODUCT_CAMPAIGN_KINDS = (SB_CAMPAIGNS_KIND, SD_CAMPAIGNS_KIND, SB_LEGACY_KIND)
 # After a profile's history is in, each night asks only the last days, like the search terms do: five

@@ -120,12 +120,16 @@ def build_tools(rest) -> list:
               partial(amazon_ads.daily_metrics, rest)),
         _tool("breakdown",
               "Los totales de una cuenta de Amazon Ads en los últimos días, agrupados por campaña, portfolio, "
-              "producto (SP, SB, SD), tipo de match o search term: gasto, ventas, órdenes, clicks, ACoS y CVR por "
-              "grupo, de mayor a menor por sort_by, y el total de la cuenta en totals. Campaña, portfolio y producto "
-              "salen de los reportes de campaña de los tres productos; tipo de match y search term, del reporte de "
-              "search terms, sólo Sponsored Products. Con source=search_terms, campaña, portfolio y producto (un solo "
-              "grupo, SP) también salen de ese reporte. Es lo que hace falta para repartir un total entre sus partes o "
-              "rankear campañas, portfolios, productos o términos, en una sola llamada.",
+              "producto (SP, SB, SD), tipo de match, search term o ASIN: gasto, ventas, órdenes, clicks, ACoS y CVR "
+              "por grupo, de mayor a menor por sort_by, y el total de la cuenta en totals. Campaña, portfolio y "
+              "producto salen de los reportes de campaña de los tres productos; tipo de match, search term y ASIN, del "
+              "reporte de search terms, sólo Sponsored Products. El ASIN de cada término sale del producto anunciado "
+              "de su ad group, o del nombre de la campaña cuando el ad group anuncia varios, y lo que no se puede "
+              "atribuir queda en su propio grupo. asin deja sólo los search terms "
+              "de ese ASIN, por ejemplo para ver los que gastan sin vender. Con source=search_terms, campaña, "
+              "portfolio y producto (un solo grupo, SP) también salen de ese reporte. Es lo que hace falta para "
+              "repartir un total entre sus partes o rankear campañas, portfolios, productos, términos o ASINs, en una "
+              "sola llamada.",
               partial(amazon_ads.breakdown, rest)),
         _tool("campaign_health",
               "Las campañas habilitadas de una cuenta de Amazon Ads (Sponsored Products, Brands y Display) en sus "

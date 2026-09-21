@@ -10,13 +10,16 @@ import pytest
 
 from core.amazon_ads import ad_entities
 from core.amazon_ads.ad_entities import (
+    PRODUCT_ADS_TABLE,
     PRODUCT_CAMPAIGNS_TABLE,
     TARGETS_TABLE,
     fetch_sb_campaigns,
     fetch_sb_targets,
     fetch_sd_campaigns,
     fetch_sd_targets,
+    fetch_sp_product_ads,
     fetch_sp_targets,
+    save_product_ads,
     save_product_campaigns,
     save_targets,
 )
@@ -30,6 +33,7 @@ TARGET_COLUMNS = {"ad_product", "target_id", "campaign_id", "ad_group_id", "targ
 EMPTY_PAGES = {
     "/sp/keywords/list": {"keywords": []},
     "/sp/targets/list": {"targetingClauses": []},
+    "/sp/productAds/list": {"productAds": []},
     "/sb/v4/campaigns/list": {"campaigns": []},
     "/sb/keywords": [],
     "/sb/targets/list": {"targets": []},
@@ -100,7 +104,12 @@ def _api(pages_by_path=None):
 
 
 def _ids(rows):
-    return [row.get("target_id") or row.get("campaign_id") for row in rows]
+    return [row.get("target_id") or row.get("ad_id") or row.get("campaign_id") for row in rows]
+
+
+def _sp_product_ad(ad_id=17, **overrides):
+    return {"adId": str(ad_id), "adGroupId": "21", "campaignId": "31", "asin": "b0demo0004", "sku": " DEMO-SKU ",
+            "state": "ENABLED", **overrides}
 
 
 def _sp_keyword(keyword_id=11, **overrides):
@@ -159,6 +168,7 @@ class _Listing(NamedTuple):
 
 
 TOKEN_LISTINGS = [
+    _Listing(fetch_sp_product_ads, "/sp/productAds/list", "productAds", _sp_product_ad),
     _Listing(fetch_sp_targets, "/sp/keywords/list", "keywords", _sp_keyword),
     _Listing(fetch_sp_targets, "/sp/targets/list", "targetingClauses", _sp_clause),
     _Listing(fetch_sb_campaigns, "/sb/v4/campaigns/list", "campaigns", _sb_campaign),
@@ -177,6 +187,8 @@ def _by_path(listing):
 
 
 @pytest.mark.parametrize("fetcher, path, media_type, body", [
+    pytest.param(fetch_sp_product_ads, "/sp/productAds/list", "application/vnd.spProductAd.v3+json",
+                 {"stateFilter": {"include": ["ENABLED", "PAUSED"]}, "maxResults": 1000}, id="sp-product-ads"),
     pytest.param(fetch_sp_targets, "/sp/keywords/list", "application/vnd.spKeyword.v3+json",
                  {"stateFilter": {"include": ["ENABLED", "PAUSED"]}, "maxResults": 1000}, id="sp-keywords"),
     pytest.param(fetch_sp_targets, "/sp/targets/list", "application/vnd.spTargetingClause.v3+json",
@@ -785,3 +797,27 @@ def test_saving_nothing_writes_nothing():
     assert save_targets(rest, "555", "SP", [_saved_target("", "SP")], SEEN_AT) == 0
     assert save_product_campaigns(rest, "555", [], SEEN_AT) == 0
     assert rest.upserts == []
+
+
+def test_sp_product_ads_map_to_the_asin_and_sku_each_ad_group_advertises():
+    api, _ = _api({"/sp/productAds/list": [{"productAds": [
+        _sp_product_ad(17), _sp_product_ad(adId=18.0, adGroupId=22.0, sku=None, state="PAUSED"), {"adId": ""}]}]})
+
+    rows = fetch_sp_product_ads(api, "555")
+
+    assert rows == [
+        {"ad_id": "17", "campaign_id": "31", "ad_group_id": "21", "asin": "B0DEMO0004", "sku": "DEMO-SKU",
+         "state": "ENABLED"},
+        {"ad_id": "18", "campaign_id": "31", "ad_group_id": "22", "asin": "B0DEMO0004", "sku": "", "state": "PAUSED"},
+    ]
+
+
+def test_save_product_ads_keeps_one_row_per_ad_with_the_profile_and_timestamp():
+    rest = _FakeRest()
+    ad = {"ad_id": "17", "campaign_id": "31", "ad_group_id": "21", "asin": "B0DEMO0004", "sku": "S", "state": "ENABLED"}
+
+    written = save_product_ads(rest, "555", [ad, {**ad, "state": "PAUSED"}, {**ad, "ad_id": ""}], SEEN_AT)
+
+    [(table, rows, on_conflict)] = rest.upserts
+    assert (written, table, on_conflict) == (1, PRODUCT_ADS_TABLE, "profile_id,ad_id")
+    assert rows == [{**ad, "state": "PAUSED", "profile_id": "555", "seen_at": SEEN_AT.isoformat()}]

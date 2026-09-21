@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import requests
 
+from core.amazon_ads.advertised_asins import load_ad_group_asins
 from core.search_term import frame as canonical
 from core.integrations.store import StoreError, _error_message, _Rest
 from core.integrations.sync_jobs import parse_date, parse_timestamp
@@ -176,6 +177,13 @@ class ReportProvider:
             window_end=end,
         )
 
+
+    def advertised_asins(self, profile_id: str) -> dict[str, frozenset[str]]:
+        """ad group id -> the ASINs its product ads advertise: the ASIN behind each search term."""
+        try:
+            return load_ad_group_asins(self._rest, profile_id)
+        except requests.RequestException as exc:
+            raise ReportReadError(_error_message(exc, "leer los productos anunciados de Amazon Ads")) from exc
 
     @property
     def rest(self):

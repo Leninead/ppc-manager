@@ -828,28 +828,88 @@ Upload BR diario + BR by Child + Campaign CSV → split PW/TW automático → Ex
 ---
 
 ## M18 — PPC Insights Engine
-**Archivo:** modules/pages/ppc_insights.py (~530 líneas)
-**Sección sidebar:** Intelligence
-**Session state prefix:** insights_
+**Archivo:** modules/pages/ppc_insights.py (~1.000 líneas). Reglas en `core/ppc_insights/` (`asin_health`, `analysis`).
+**Sección sidebar:** Research
+**Session state prefix:** insights_ (picker `insights_src_*`, IA en memoria `ppc_insights_ai_*`)
 
 ### Propósito
 Health score 0-100 por ASIN cruzando STR + SQP + BR + Campaign CSV. Identifica ASINs problemáticos.
 
-### Arquitectura
-Carga múltiples reports → cruza datos → score compuesto + cards por ASIN con expanders
+### Fuente de datos (2026-09-21 — picker de Amazon Ads)
+- El STR llega de `render_source_picker(key_prefix="insights", manual_reader=_read_manual_str)`: datos sincronizados
+  de Amazon Ads o un archivo subido a mano, que se lee con el parser propio del módulo (`_parse_str`) y no con el
+  lector del picker. `manual_reader` es un parámetro del picker para los módulos que conservan su parser.
+- SQP, BR by ASIN y Campaign CSV siguen siendo uploaders opcionales, sin cambios.
+- "Generar Insights" guarda la firma de los inputs (`_inputs_signature`: firma del STR, target y digest de cada
+  archivo) y los resultados quedan en pantalla mientras no cambie; el cálculo por ASIN se memoriza por esa firma
+  (`_insights_for`), así los reruns de la pestaña IA no recalculan.
+- Montos en la moneda de la cuenta (`money()`, `_excel_money_format`). Target ACoS y precio promedio: con datos de
+  API se cargan de los parámetros guardados de la cuenta (`ai_analysis_settings`, módulo `ppc_insights`); el precio
+  tiene un input por moneda y arranca vacío fuera de USD.
 
-### Reglas de negocio
-- Health Score (0-100): CVR (25 pts) + BuyBox (20 pts) + ACoS vs target (25 pts) + Funnel completo (15 pts) + Impression Share (15 pts)
-- Por ASIN: Top keywords, bleeders, wasted spend, top campaigns
+### El ASIN de cada search term (2026-09-21)
+El STR de la API no trae el ASIN anunciado. Orden (`resolve_asins` + `core/amazon_ads/advertised_asins.attribute_asins`,
+la misma función que usa `breakdown` por ASIN del MCP):
+1. La columna de ASIN del archivo, si existe (`Advertised ASIN`, o cualquiera que diga `ASIN`).
+2. Si el ad group anuncia un solo ASIN (`ads_product_ad`, de `/sp/productAds/list`), ese, diga lo que diga el nombre.
+3. Si anuncia varios, o el listado no vio el ad group: el ASIN del nombre de la campaña, **aunque el ad group no lo
+   anuncie**. Las cuentas que nombran campañas por familia ponen el ASIN de la familia en el nombre y anuncian los
+   hijos: medido el 21/09 en la base local, entre el 85% y el 100% del gasto con ASIN en el nombre de ad groups de
+   varios ASINs era de un ASIN que la cuenta no anuncia (…7029 pasa de 7,5% a 87,8% del gasto con ASIN). El caso
+   "PAT con el ASIN de un competidor en el nombre" midió 0,0% en los 12 perfiles.
+4. Si no, sin ASIN: «ad groups con varios ASINs sin ASIN en el nombre» o «sin ASIN». Nunca se reparte.
+Sin ningún ASIN queda la regla de siempre: una sola fila `ALL` con la cuenta entera, con aviso.
+- La pantalla dice de dónde salió el ASIN y cuánto gasto quedó afuera (`asin_coverage_caption`). El KPI de gasto
+  pasa a «Spend en cards: X de Y (Z%)» cuando las cards no suman todo el reporte (`spend_kpi`).
+- Una card tomada del nombre de campaña en ad groups de varios ASINs dice «agrupa N ASINs» (`grouped_asin_counts`):
+  es la etiqueta de una familia, no un producto solo. El agente lo recibe como `asins_agrupados`.
+- Una fila con ASIN de familia no cruza con el BR por `(Child) ASIN`: BuyBox y sesiones quedan en el neutro.
+
+### Reglas de negocio (sin cambios; movidas a `core/ppc_insights/asin_health.py`)
+- Health Score (0-100): CVR 25 + BuyBox 20 + ACoS vs target 25 + Funnel 15 + Impression Share 15. Sin su fuente,
+  cada parte vale su neutro (`NEUTRAL_POINTS`: 12 / 10 / 12 / 7 / 7) — `health_score_parts`.
+- Wasted spend = los hasta 10 términos de mayor gasto con más de 5 de gasto y 0 órdenes (en la moneda de la cuenta).
+- El SQP es de la marca: el mismo Impression Share para todos los ASINs.
+- En modo `ALL`, el BR toma la primera fila del archivo (regla heredada).
+
+### Capa IA
+- Agente `ai/agents/ppc_insights/` (`InsightsData`, row_ids `P01…`, `MAX_ASINS=40`): `asins[]` (`razon` → `foco`
+  DESPERDICIO/ACOS/CONVERSION/BUYBOX/FUNNEL/ESCALAR/MONITOREAR → `confianza` → `advertencia`) + `synthesis`
+  canónica. Nunca recalcula el score. Glosario en el prompt y `INSIGHTS_FIELD_NAMES` con `humanize_fields`.
+- **Datos de API: análisis guardado, pedido por el AM** (`core/ai_analysis/ppc_insights_analysis_job.py`,
+  `on_demand=True`: el worker no lo planifica, una cuenta no cuesta nada hasta que alguien lo pide). La pestaña
+  muestra el análisis de exactamente estos datos o, si no hay, el último de la cuenta con «Recalcular»
+  (`stored_tab.render_recalculable_analysis`). Si los datos son los mismos pero el análisis es de una versión
+  anterior del prompt, «Recalcular» lo pide con `p_agent_version` (migración 017). El guardado usa sólo datos de
+  Amazon Ads: no incluye SQP, BR ni Campaign CSV, y la pestaña lo avisa.
+- **Archivo a mano: en memoria** (`ai_tab.resolve_analysis`, `auto_fire=False`), con los archivos opcionales en el payload.
+- Chat: con API, `app_chat.share_analysis` con `profile_id` y país; con archivo, `publish_analysis_to_chat`.
+  MCP: `list_analyses`/`get_analysis` incluyen `ppc_insights`, y `breakdown` agrupa por ASIN o filtra con `asin`.
 
 ### Inputs
-- STR (.xlsx, .csv) — requerido
-- SQP (.xlsx, .csv) — opcional
-- BR by ASIN (.xlsx, .csv) — opcional
-- Campaign CSV (.csv) — opcional
+- Datos de Amazon Ads (cuenta + país + período) o STR subido a mano — requerido
+- SQP (.xlsx, .csv), BR by ASIN (.xlsx, .csv) y Campaign CSV (.csv) — opcionales
+
+### Tests
+`tests/test_ppc_insights_asin_health.py` (atribución, cobertura, conteo de ASINs agrupados, métricas y score),
+`tests/test_ppc_insights_agent.py` (payload, huella, texto del chat), `tests/test_ppc_insights_page.py` (filas de la
+IA, KPI de gasto, firma de inputs, pestaña guardada con Recalcular), `tests/test_ppc_insights_analysis_job.py`
+(job, worker y migración), `tests/test_amazon_ads_advertised_asins.py` y `tests/test_mcp_breakdown.py` (por ASIN).
 
 ### Anti-patterns
+- ❌ NO repartir el gasto de un ad group de varios ASINs entre sus ASINs: va entero a un ASIN o a su grupo sin ASIN.
+- ❌ NO recalcular el health score en la IA ni en el chat: sólo lo calcula el módulo.
+- ❌ NO borrar filas de `ads_product_ad`: sólo upserts, los search terms viejos necesitan el ASIN de anuncios archivados.
+- ❌ NO planificar el análisis de PPC Insights en el worker: es a pedido.
+- ❌ NO leer una card con «agrupa N ASINs» como un producto: es la etiqueta de la campaña para una familia.
 - Cargar STR sin SQP — pierde contexto de mercado en score
+
+### Pendiente (tickets aparte, recomendados por el panel del 21/09)
+- Cruzar el BR por `(Parent) ASIN` cuando el ASIN de la card no aparece como `(Child)`.
+- Sincronizar `spAdvertisedProduct`: el gasto que Amazon atribuye a cada ASIN anunciado, también en ad groups de
+  varios ASINs sin ASIN en el nombre (…4724 queda en 6,9% con cualquier regla por nombre).
+- Pasar el Bid Optimizer a `attribute_asins`, en su propio PR.
+- Traer también los anuncios `ARCHIVED` en el listado, para no marcar como «no anunciado» a un hijo archivado.
 
 ---
 
@@ -1582,6 +1642,12 @@ Audit lo sacan del Bulk File) puede leer lo mismo sin tocar la ingesta.
 - Otro tipo de reporte de Amazon (targets, productos publicitados): un `ReportKind` nuevo en
   `core/amazon_ads/report_kinds.py` (su `job_kind`, su spec de reporte, su tabla y su normalizador, con topes
   propios de reportes en vuelo). La cola, los reintentos, el registro y las alertas son los mismos.
+
+**Productos anunciados (2026-09-21).** El pedido `sp_product_ads` (entidades, junto a `sp_targets`) guarda
+`/sp/productAds/list` en `ads_product_ad` (migración 017, sólo upserts): cada anuncio SP con su ad group, ASIN y SKU.
+Es la única fuente del ASIN detrás de un search term: `ReportProvider(rest).advertised_asins(profile_id)` da
+ad group → ASINs y `core/amazon_ads/advertised_asins.attribute_asins` aplica la regla (ver M18). `asins_from_campaigns`
+(la regex del nombre de campaña que usa M9) vive ahí también.
 
 **Grano de campaña (2026-09-17).** Dos solicitudes diarias más por perfil, desde las 03:00: `campaign_entities`
 (foto de `/sp/campaigns/list` en `ads_campaign`) y `sp_campaigns` (reporte `spCampaigns` de 65 días en 3 tramos,
