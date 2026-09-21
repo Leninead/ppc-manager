@@ -494,9 +494,19 @@ def test_build_quick_stats_8_cards_minimum():
     cards = rf._build_quick_stats(hist)
     assert len(cards) == 8
     # Card 0 = revenue último mes, delta MoM ≈ +20%
-    assert cards[0]["label"] == "Revenue último mes"
+    assert cards[0]["label"] == "Revenue Junio 2025"
     assert cards[0]["delta"] == pytest.approx(20.0)
     assert cards[0]["delta_label"] == "MoM"
+
+
+def test_build_quick_stats_revenue_label_names_last_historical_month():
+    """The label names the month of historical[-1], so it can't be read as the month in progress."""
+    hist = [
+        {"date": "2026-07-01", "revenue": 4_000_000, "units": 5, "sessions": 300, "cvr": 6, "buyBox": 90, "pageViews": 450, "revenueB2B": 0, "spend": None, "ventasPPC": None},
+        {"date": "2026-08-01", "revenue": 4_416_527, "units": 6, "sessions": 350, "cvr": 6.5, "buyBox": 91, "pageViews": 500, "revenueB2B": 0, "spend": None, "ventasPPC": None},
+    ]
+    cards = rf._build_quick_stats(hist)
+    assert cards[0]["label"] == "Revenue Agosto 2026"
 
 
 def test_build_quick_stats_adds_spend_acos_tacos():
@@ -507,9 +517,20 @@ def test_build_quick_stats_adds_spend_acos_tacos():
     ]
     cards = rf._build_quick_stats(hist)
     labels = [c["label"] for c in cards]
-    assert "Spend último mes" in labels
+    assert "Spend Junio 2025" in labels
     assert "ACOS real" in labels
     assert "TACOS real" in labels
+
+
+def test_build_quick_stats_spend_label_names_last_historical_month():
+    """Same as the revenue card: the spend label names the month of historical[-1]."""
+    hist = [
+        {"date": "2026-07-01", "revenue": 4_000_000, "units": 5, "sessions": 300, "cvr": 6, "buyBox": 90, "pageViews": 450, "revenueB2B": 0, "spend": None, "ventasPPC": None},
+        {"date": "2026-08-01", "revenue": 4_416_527, "units": 6, "sessions": 350, "cvr": 6.5, "buyBox": 91, "pageViews": 500, "revenueB2B": 0, "spend": 250_000.0, "ventasPPC": 900_000.0},
+    ]
+    cards = rf._build_quick_stats(hist)
+    spend_card = next(c for c in cards if c["label"].startswith("Spend "))
+    assert spend_card["label"] == "Spend Agosto 2026"
 
 
 def test_build_quick_stats_yoy_card_when_history_long_enough():

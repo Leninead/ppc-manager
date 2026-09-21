@@ -2030,10 +2030,11 @@ def _build_quick_stats(historical: list[dict], currency: str = "USD") -> list[di
     last = historical[-1]
     prev = historical[-2] if len(historical) >= 2 else None
     yoy = _same_month_last_year(last["date"], historical)
+    last_month_label = f"{_MONTHS_FULL[int(last['date'][5:7]) - 1]} {last['date'][:4]}"
 
     cards: list[dict] = [
         {
-            "label": "Revenue último mes",
+            "label": f"Revenue {last_month_label}",
             "value": _fmt_currency(last.get("revenue"), currency),
             "delta": _delta_pct(last.get("revenue"), prev.get("revenue")) if prev else None,
             "delta_label": "MoM",
@@ -2094,7 +2095,7 @@ def _build_quick_stats(historical: list[dict], currency: str = "USD") -> list[di
         rev = last.get("revenue", 0) or 0
         last_tacos = (spend_f / rev * 100) if rev > 0 else None
         cards.append({
-            "label": "Spend último mes",
+            "label": f"Spend {last_month_label}",
             "value": _fmt_currency(spend_f, currency),
             "delta": None, "delta_label": "",
         })
