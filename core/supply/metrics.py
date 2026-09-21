@@ -366,6 +366,118 @@ def diagnosticar_lead_time(eventos: list[dict]) -> dict:
     return {"dias": dias, "motivo": MOTIVO_OK}
 
 
+def previsualizar_lead_time(
+    eventos: list[dict],
+    fecha_recepcion: str,
+    lt_min: float | None = None,
+    lt_max: float | None = None,
+) -> dict:
+    """Lead time que va a quedar registrado si se confirma esta recepcion.
+
+    Para que sirve: muestra el numero ANTES de confirmar la recepcion. Es lo
+    que hubiera atajado el caso de Fede (54 dias en Tarik por dejar la fecha de
+    hoy en la recepcion): `diagnosticar_lead_time` no lo ve, porque un dato mal
+    cargado es indistinguible de uno bueno; el AM si, si lo tiene enfrente
+    contra el rango del proveedor.
+
+    Reglas:
+
+    1. Simulacion: arma una copia de `eventos` con un RECIBIDA_PARCIAL
+       hipotetico en `fecha_recepcion` AL FINAL y la pasa por
+       `diagnosticar_lead_time`. 'dias' y 'motivo' salen de ahi. Para el lead
+       time da igual PARCIAL o CERRADA: los dos estan en LT_HASTA. La lista
+       recibida nunca se muta.
+    2. 'ya_medido': en los eventos ACTUALES ya hay un evento de LT_HASTA
+       despues, por posicion, del primer EMITIDA. Esta recepcion no cierra la
+       ventana. Sin EMITIDA -> False.
+    3. 'fecha_emision': fecha del PRIMER EMITIDA por posicion, 'YYYY-MM-DD'.
+       None si no hay EMITIDA o su fecha no parsea.
+    4. 'fuera_de_rango': solo si el motivo es 'ok' y no esta ya medido (es el
+       numero que el AM esta por registrar); si no, None. 'arriba' si
+       dias > lt_max, 'abajo' si dias < lt_min, bordes inclusivos. Con
+       lt_max None nunca 'arriba'; con lt_min None nunca 'abajo'.
+    5. 'bloquear': `fecha_recepcion`, a nivel DIA, es anterior a la emision
+       MAS TEMPRANA entre los EMITIDA con fecha parseable. Se evalua siempre,
+       este o no ya medido. La mas temprana y no la primera: si el AM cargo un
+       EMITIDA por error con la fecha de hoy y despues el correcto, comparar
+       contra el primero le impediria registrar una recepcion legitima. Solo
+       se bloquea lo fisicamente imposible. Sin EMITIDA parseable -> False.
+
+    `fecha_recepcion` que no parsea -> bloquear False: algo que no es fecha no
+    es anterior a nada. El date_input de la pantalla nunca da vacio.
+
+    DEUDA heredada del truncamiento de `.days`: si el EMITIDA trae hora y la
+    recepcion es el mismo dia a medianoche, el motivo sale 'fechas_invertidas'
+    pero bloquear es False (a nivel dia no es anterior). No pasa con datos
+    cargados desde la pantalla, que siempre escribe fechas sin hora. El arreglo
+    de fondo va aparte.
+
+    Args:
+        eventos: Eventos de UNA OC, en ORDEN DE ESCRITURA (el que devuelve
+            `leer_eventos`), como lista de dicts con 'evento' y 'fecha'.
+        fecha_recepcion: Fecha de la recepcion a confirmar, 'YYYY-MM-DD'
+            (lo que da el date_input).
+        lt_min: Lead time minimo declarado del proveedor, en dias. None si no
+            hay.
+        lt_max: Lead time maximo declarado del proveedor, en dias. None si no
+            hay.
+
+    Returns:
+        {'dias': int | None, 'motivo': str, 'ya_medido': bool,
+         'fecha_emision': str | None, 'fuera_de_rango': None | 'arriba' |
+         'abajo', 'bloquear': bool}
+    """
+    simulados = list(eventos) + [
+        {"evento": "RECIBIDA_PARCIAL", "fecha": fecha_recepcion}
+    ]
+    diagnostico = diagnosticar_lead_time(simulados)
+    dias = diagnostico["dias"]
+    motivo = diagnostico["motivo"]
+
+    idx_emitidas = [
+        i for i, ev in enumerate(eventos) if str(ev.get("evento")) == LT_DESDE
+    ]
+
+    ya_medido = False
+    fecha_emision = None
+    if idx_emitidas:
+        primera = idx_emitidas[0]
+        ya_medido = any(
+            str(ev.get("evento")) in LT_HASTA for ev in eventos[primera + 1:]
+        )
+        emision = _parse_fecha(eventos[primera].get("fecha"))
+        if emision is not None:
+            fecha_emision = emision.date().isoformat()
+
+    fuera_de_rango = None
+    if motivo == MOTIVO_OK and not ya_medido:
+        if lt_max is not None and dias > lt_max:
+            fuera_de_rango = "arriba"
+        elif lt_min is not None and dias < lt_min:
+            fuera_de_rango = "abajo"
+
+    emisiones = [
+        f
+        for f in (_parse_fecha(eventos[i].get("fecha")) for i in idx_emitidas)
+        if f is not None
+    ]
+    recepcion = _parse_fecha(fecha_recepcion)
+    bloquear = bool(
+        emisiones
+        and recepcion is not None
+        and recepcion.date() < min(f.date() for f in emisiones)
+    )
+
+    return {
+        "dias": dias,
+        "motivo": motivo,
+        "ya_medido": ya_medido,
+        "fecha_emision": fecha_emision,
+        "fuera_de_rango": fuera_de_rango,
+        "bloquear": bloquear,
+    }
+
+
 def lead_time_medido(proveedor_id: str) -> float | None:
     """Mediana, en días, del lead time real de las OC de un proveedor.
 
