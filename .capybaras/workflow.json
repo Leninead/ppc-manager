@@ -3,8 +3,13 @@
   "project": "ppc-manager",
   "language": "python",
   "test": {
-    "command": "pytest",
+    "command": "python -m pytest -q",
     "paths": ["tests"]
+  },
+  "e2e": {
+    "url": "http://localhost:8503",
+    "startCommand": "AGENCY_OS_LOCAL_MODE=1 python -m streamlit run app.py --server.headless true --server.port 8503",
+    "auth": "No login: AGENCY_OS_LOCAL_MODE=1 in startCommand skips it (read in app.py). The real login reads .streamlit/secrets.toml (gitignored; template in .streamlit/secrets.toml.example). Desktop preview: .claude/launch.json agency-os-e2e-local (Windows) / agency-os-e2e-local-macos (macOS)."
   },
   "version": {
     "source": "CHANGELOG.md",
