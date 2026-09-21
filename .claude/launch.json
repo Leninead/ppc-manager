@@ -37,6 +37,50 @@
       ],
       "port": 8504,
       "autoPort": false
+    },
+    {
+      "name": "agency-os-macos",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app.py",
+        "--server.headless",
+        "true",
+        "--server.port",
+        "8502"
+      ],
+      "port": 8502,
+      "autoPort": false
+    },
+    {
+      "name": "agency-os-e2e-local-macos",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "AGENCY_OS_LOCAL_MODE=1",
+        ".venv/bin/python",
+        "-m",
+        "streamlit",
+        "run",
+        "app.py",
+        "--server.headless",
+        "true",
+        "--server.port",
+        "8503"
+      ],
+      "port": 8503,
+      "autoPort": false
+    },
+    {
+      "name": "agency-os-e2e-bridged-macos",
+      "runtimeExecutable": "zsh",
+      "runtimeArgs": [
+        "-c",
+        "export AGENCY_OS_LOCAL_MODE=1 SUPABASE_URL=http://127.0.0.1:3002 CLAUDE_PROVIDER_URL=http://127.0.0.1:3111; export CLAUDE_PROVIDER_SECRET=\"$(docker inspect ppc-manager --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^CLAUDE_PROVIDER_SECRET=//p')\" SUPABASE_KEY=\"$(docker inspect ppc-manager --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^SUPABASE_KEY=//p')\"; exec .venv/bin/python -m streamlit run app.py --server.headless true --server.port 8504"
+      ],
+      "port": 8504,
+      "autoPort": false
     }
   ]
 }

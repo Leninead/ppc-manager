@@ -27,7 +27,19 @@ pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Para correr smoke tests M27:
+En macOS (zsh), con [uv](https://docs.astral.sh/uv/) para tener Python 3.12 sin Homebrew ni sudo:
+
+```bash
+cd ~/ruta/a/ppc-manager
+uv python install 3.12
+uv venv --seed --python 3.12 .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m streamlit run app.py
+```
+
+Para correr smoke tests M27 (solo Windows por ahora: `scripts/smoke_b6a_e2e_pipeline.py` tiene
+las rutas `C:\proyectos\ppc-manager` fijas):
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -41,8 +53,16 @@ Para correr la suite completa:
 python -m pytest -q
 ```
 
+En macOS: `source .venv/bin/activate` y el mismo `python -m pytest -q`.
+
 **Baseline de esta máquina (2026-09-15): `2529 passed, 24 skipped, 0 failed,
 0 errors` sobre 2553 colectados.**
+
+**Baseline en macOS (2026-09-21, Python 3.12.14 vía uv): `3785 passed, 26 skipped, 0 failed`.**
+Ojo: 2 tests de `tests/test_datadive_agent.py` fallan con `KeyError: 'tools'` si el AI provider
+de Docker corre en `127.0.0.1:3111` sin `DATADIVE_API_KEY` en su `.env`: le consultan `/health`
+al provider real, que entonces informa `datadive: false`. Con la key cargada, o con el provider
+apagado, pasan.
 
 **La suite queda verde, sin rojos esperados.** Ya no hay tabla de excepciones que
 consultar: un rojo es siempre una señal real.
@@ -2412,4 +2432,27 @@ Detalle completo en `notes/daily/2026-07-09.md` + `notes/state/STATE-agencia.md`
 - **Evidence over claims.** Any statement about behavior is backed by results you actually
   observed (real test output, a reproduction before/after, data you inspected) — never
   "should work", unproven probabilities, or confidence you didn't measure.
+- **Confirm before outward or irreversible actions.** Anything that leaves the workspace or is
+  hard to undo — creating or completing an Asana task (it notifies people), sending a message,
+  pushing, opening a PR, deleting — needs the user's explicit go on a **final preview shown
+  right before acting, with any outgoing text verbatim**. A go-ahead is judged by **intent, not
+  matching words**: any instruction to proceed, in any language and however terse ("hacelo",
+  "dale", "creá", "do it", "go", "ship it"…), is the cue to show that preview, not to skip it. If
+  anything changed since the last preview, show it again. An extra preview is free; an unwanted
+  outward action reaches a real person.
+- **The interface never invents data, and is built mobile-first.** Show a value only if it's
+  measured, returned by the backend, or entered by the user — **no fabricated ETAs** ("tiempo
+  aproximado: 2 minutos"), no fake progress bars or percentages, no invented metrics, no mock
+  data left on screen. Unknown duration → an indeterminate spinner labeled with what's
+  happening; known steps → "Paso 2 de 4". Every screen is built at **375px first** and then
+  allowed to grow (no body horizontal scroll, touch targets ≥ 44px, nothing hover-only), reuses
+  the product's existing components and spacing rather than opening a second visual language,
+  and ships its real **loading, empty, error and success** states.
+- **Names explain, comments are the exception.** Files, functions and variables get names a
+  reader understands without opening them — never generic (`data`, `result`, `handle()`,
+  `utils.py`), never a sentence: 1-4 precise words in the repo's own vocabulary, one concept per
+  file and one responsibility per function (high cohesion, low coupling). Comments default to
+  **none**: write one only for a *why* the code can't say (a non-obvious rule, a gotcha, a
+  workaround), and then one short line in **English** — no blocks, no banners, nothing that
+  restates the code. Wanting a long comment means the code needs a better name or a split.
 <!-- capybaras-dev:rules END -->
