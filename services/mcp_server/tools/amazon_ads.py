@@ -418,7 +418,7 @@ def idle_targets(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: 
 
 
 def _campaign_profile(rest, profile_id: str, *, search_terms_hint: bool = False) -> ProfileOption:
-    """La cuenta como la ve la sincronización de campañas: su ventana es la de su última corrida completa."""
+    """La cuenta como la ve la sincronización de campañas: los días que guarda, hasta su última corrida completa."""
     for profile in ReportProvider(rest).profiles():
         if profile.profile_id == profile_id:
             view = campaign_sync_view(

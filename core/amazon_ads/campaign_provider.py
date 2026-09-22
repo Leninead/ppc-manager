@@ -11,7 +11,7 @@ import dataclasses
 import io
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import requests
@@ -27,6 +27,7 @@ from core.amazon_ads.report_provider import (
     _portfolio_label,
     _single_currency,
 )
+from core.amazon_ads.sync_planner import CAMPAIGN_HISTORY_DAYS
 from core.integrations.store import _error_message, _Rest
 
 log = logging.getLogger(__name__)
@@ -94,15 +95,17 @@ class CampaignSource:
 
 
 def campaign_sync_view(option: ProfileOption, completed) -> ProfileOption:
-    """The profile as the campaign sync sees it: window, day and hour from its last completed request.
+    """The profile as the campaign sync sees it: the days it keeps, and the day and hour of its last completed request.
 
     `ads_profile_sync` carries the search-term sync, which says nothing about campaigns; `completed`
-    is the last `sp_campaigns` SyncJob that finished well, or None.
+    is the last `sp_campaigns` SyncJob that finished well, or None. A nightly request asks only the
+    last week, but the history loaded first keeps the days before it.
     """
     if completed is None:
         return dataclasses.replace(option, data_from=None, data_through=None, refreshed_on=None,
                                    last_success_at=None)
-    return dataclasses.replace(option, data_from=completed.window_start, data_through=completed.window_end,
+    history_start = completed.window_end - timedelta(days=CAMPAIGN_HISTORY_DAYS - 1)
+    return dataclasses.replace(option, data_from=history_start, data_through=completed.window_end,
                                refreshed_on=completed.local_day, last_success_at=completed.finished_at)
 
 

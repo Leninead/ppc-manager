@@ -15,9 +15,9 @@ PROFILE = {
     "data_from": "2026-08-01", "data_through": "2026-09-16", "refreshed_on": "2026-09-17",
     "last_success_at": "2026-09-17T11:05:00+00:00", "last_error": "",
 }
-# The campaign sync the window comes from: the series reads the campaign reports.
+# The campaign sync the window ends at: a nightly request of the last week, over the 65 days its history keeps.
 CAMPAIGN_JOB = {"id": 441, "integration_slug": "amazon_ads", "job_kind": "sp_campaigns", "trigger": "scheduled_daily",
-                "external_account_id": "1111222233334444", "status": "completed", "window_start": "2026-08-01",
+                "external_account_id": "1111222233334444", "status": "completed", "window_start": "2026-09-10",
                 "window_end": "2026-09-16", "local_day": "2026-09-17", "finished_at": "2026-09-17T11:05:00+00:00",
                 "created_at": "2026-09-17T10:43:00+00:00"}
 PRODUCT_HEADER = ["ad_product", "campaign_id", "name", "state", "start_date", "budget_amount", "budget_type",
@@ -136,10 +136,19 @@ def test_the_window_ends_on_the_last_synced_day_and_defaults_to_two_weeks():
     assert len(payload["rows"]) == 14
 
 
-def test_the_window_is_capped_and_clipped_to_what_the_account_has_synced():
+def test_the_campaign_window_is_capped_at_sixty_days_even_after_a_nightly_week():
     rest = _FakeRest()
 
     payload = amazon_ads.daily_metrics(rest, profile_id="1111222233334444", days=365)
+
+    assert payload["window"]["days"] == 60
+    assert "window_note" in payload
+
+
+def test_the_search_term_window_is_clipped_to_what_the_account_has_synced():
+    rest = _FakeRest()
+
+    payload = amazon_ads.daily_metrics(rest, profile_id="1111222233334444", days=365, source="search_terms")
 
     assert payload["window"]["days"] == 47           # data_from 01/08 → 16/09, under the 60-day cap
     assert "window_note" in payload

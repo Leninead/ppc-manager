@@ -27,6 +27,7 @@ from core.amazon_ads.sync_planner import (
     backfill_dedupe_key,
     chunk_days_for,
     is_backfill,
+    is_campaign_history,
     is_product_history,
     plan_jobs,
     profile_local_now,
@@ -43,6 +44,7 @@ def _state(**overrides) -> ProfileState:
         profile_id="p-100", account_id=7, connection_id=3, cliente="cliente-demo", account_name="Demo Seller",
         account_type="seller", region="NA", country_code="US", currency_code="USD",
         timezone="America/Los_Angeles", status="active", backfill_done_at=BACKFILL_DONE, refreshed_on=None,
+        campaign_history_done=True,
     )
     return replace(state, **overrides)
 
@@ -297,14 +299,58 @@ def _campaign_job(planned):
     return matches[0]
 
 
-def test_the_campaign_window_is_sixty_five_days_ending_yesterday():
+def test_a_profile_without_campaign_history_loads_sixty_five_days_once_with_a_day_to_finish():
     now = _utc(2026, 9, 14, 17)  # Monday 10:00 PDT
 
-    job = _campaign_job(plan_jobs(_state(), now))
+    history = _campaign_job(plan_jobs(_state(campaign_history_done=False), now))
 
-    assert (job.window_start, job.window_end) == (date(2026, 7, 11), date(2026, 9, 13))
-    assert job.local_day == date(2026, 9, 14)
-    assert job.dedupe_key == "amazon_ads:p-100:campaigns:2026-09-14"
+    assert history.trigger == "backfill"
+    assert (history.window_start, history.window_end) == (date(2026, 7, 11), date(2026, 9, 13))
+    assert (history.window_end - history.window_start).days + 1 == 65
+    assert history.local_day == date(2026, 9, 14)
+    assert history.deadline_at == now + timedelta(hours=24)
+    assert history.dedupe_key == "amazon_ads:p-100:campaigns-history:2026-09-14"
+
+
+def test_once_the_campaign_history_is_in_each_weeknight_asks_the_last_seven_days():
+    now = _utc(2026, 9, 14, 17)  # Monday 10:00 PDT
+
+    daily = _campaign_job(plan_jobs(_state(), now))
+
+    assert daily.trigger == "scheduled_daily"
+    assert (daily.window_start, daily.window_end) == (date(2026, 9, 7), date(2026, 9, 13))
+    assert daily.local_day == date(2026, 9, 14)
+    assert daily.deadline_at == _utc(2026, 9, 15, 6)  # 23:00 PDT
+    assert daily.dedupe_key == "amazon_ads:p-100:campaigns:2026-09-14"
+
+
+def test_on_sunday_the_campaign_job_rewrites_the_sixty_days_the_picker_can_show():
+    now = _utc(2026, 9, 13, 16)  # Sunday 09:00 PDT
+
+    deep = _campaign_job(plan_jobs(_state(), now))
+
+    assert deep.trigger == "scheduled_deep"
+    assert (deep.window_start, deep.window_end) == (date(2026, 7, 15), date(2026, 9, 12))
+    assert (deep.window_end - deep.window_start).days + 1 == 60
+    assert deep.dedupe_key == "amazon_ads:p-100:campaigns:2026-09-13"
+
+
+def test_a_campaign_history_still_open_from_another_day_is_not_asked_again():
+    now = _utc(2026, 9, 14, 17)
+
+    planned = plan_jobs(_state(campaign_history_done=False, has_open_campaign_job=True), now)
+
+    assert CAMPAIGNS_KIND not in [job.job_kind for job in planned]
+
+
+@pytest.mark.parametrize("window_start, window_end, expected", [
+    (date(2026, 7, 11), date(2026, 9, 13), True),   # the history
+    (date(2026, 7, 15), date(2026, 9, 12), True),   # a Sunday pass
+    (date(2026, 9, 7), date(2026, 9, 13), False),   # a weeknight
+    (None, date(2026, 9, 13), False),
+])
+def test_the_campaign_history_counts_as_in_with_any_window_of_sixty_days_or_more(window_start, window_end, expected):
+    assert is_campaign_history(window_start, window_end) is expected
 
 
 def test_the_campaign_grain_does_not_wait_for_the_search_term_backfill():

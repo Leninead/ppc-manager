@@ -403,7 +403,8 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
   (`FRAME_COLUMNS` en `core/amazon_ads/campaign_provider.py`); de ahí para abajo M6 no sabe de dónde vino.
 - **Con cuentas sincronizadas** lo lee `CampaignProvider(rest).campaigns(option, desde, hasta)` sobre `campaigns_between`
   (migración 013): arranca en `ads_campaign` (la foto de `/sp/campaigns/list`) y suma `ads_campaign_daily` (reporte
-  `spCampaigns` por día, 65 días) por left join, así que una campaña sin actividad es una fila en cero. Las archivadas
+  `spCampaigns` por día: 65 días en la carga inicial, después la última semana cada noche y 60 días los domingos) por
+  left join, así que una campaña sin actividad es una fila en cero. Las archivadas
   quedan afuera. Sin cuentas, sin base o con "Subir archivo manualmente": el uploader de siempre (Bulk o Campaign CSV).
 - **Frescura**: sale de las solicitudes `sp_campaigns` (la última y la última completada), nunca de `ads_profile_sync`,
   que es del STR. El pill reusa `freshness_pill` del STR (día y hora); el encabezado se refresca cada 30 s mientras hay
@@ -1719,8 +1720,12 @@ ad group → ASINs y `core/amazon_ads/advertised_asins.attribute_asins` aplica l
 (la regex del nombre de campaña que usa M9) vive ahí también.
 
 **Grano de campaña (2026-09-17).** Dos solicitudes diarias más por perfil, desde las 03:00: `campaign_entities`
-(foto de `/sp/campaigns/list` en `ads_campaign`) y `sp_campaigns` (reporte `spCampaigns` de 65 días en 3 tramos,
-reemplazado día por día en `ads_campaign_daily`). Tope compartido por todos los perfiles: 3 reportes en vuelo, 3
+(foto de `/sp/campaigns/list` en `ads_campaign`) y `sp_campaigns` (reporte `spCampaigns` reemplazado día por día en
+`ads_campaign_daily`: carga inicial de 65 días en 3 tramos, después 7 días cada noche en 1 tramo y 60 días los domingos
+en 2). Pedir 65 días todas las noches dejó de entrar en el día con 52 perfiles (22/09): Norteamérica terminaba a la
+noche. El historial cuenta como cargado si una solicitud de 60 días o más terminó en los últimos 15 días; si no, se
+vuelve a cargar. `campaign_sync_view` toma los 65 días hacia atrás desde el último día, no la ventana de la última
+solicitud, así el período del picker no se achica a una semana. Tope compartido por todos los perfiles: 3 reportes en vuelo, 3
 pedidos y 3 guardados por tick, y los search terms van primero en cada paso. Selector: `render_campaign_source(key_prefix)`
 (`modules/pages/campaign_source.py`); sin UI: `CampaignProvider(rest).campaigns(option, desde, hasta)`. M8 lo lee con
 `render_campaigns_for`, atado a la cuenta y el período de su picker del STR.
