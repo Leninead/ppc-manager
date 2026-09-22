@@ -196,6 +196,11 @@ class TestCampaignView:
         assert view.refreshed_on == date(2026, 9, 17)
         assert view.last_success_at == datetime(2026, 9, 18, 0, 51, tzinfo=timezone.utc)
 
+    def test_a_nightly_request_of_the_last_week_still_offers_the_days_the_history_keeps(self):
+        view = campaign_picker.campaign_sync_view(_option(), _job(window_start="2026-09-10"))
+
+        assert (view.data_from, view.data_through) == (date(2026, 7, 14), date(2026, 9, 16))
+
     def test_the_search_term_freshness_of_the_profile_never_leaks_into_the_campaign_view(self):
         option = _option(data_through="2026-09-16", last_success_at="2026-09-17T12:24:00+00:00")
 

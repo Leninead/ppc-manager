@@ -650,7 +650,7 @@ def test_first_tick_backfills_five_chunks_then_saves_them_and_closes_the_job(tmp
 
     assert first.errors == []
     assert (first.profiles_active, first.jobs_planned, first.reports_created, first.jobs_completed) == (1, 4, 8, 2)
-    backfill = _only(rest.rows(JOBS, trigger="backfill"))
+    backfill = _only(rest.rows(JOBS, trigger="backfill", job_kind="sp_search_terms"))
     assert (backfill["status"], backfill["phase"]) == ("running", "waiting")
     windows = [(row["window_start"], row["window_end"]) for row in _search_term_requests(rest)]
     assert windows[0] == ("2026-08-31", YESTERDAY) and windows[-1] == ("2026-07-11", "2026-07-19")
@@ -663,7 +663,7 @@ def test_first_tick_backfills_five_chunks_then_saves_them_and_closes_the_job(tmp
     # Search terms keep their own cap of 4 saves a tick; the campaign grain saves its 3 alongside.
     assert (second.reports_saved, third.reports_saved) == (4 + 3, 1)
     assert (third.jobs_completed, second.errors, third.errors) == (1, [], [])
-    backfill = _only(rest.rows(JOBS, trigger="backfill"))
+    backfill = _only(rest.rows(JOBS, trigger="backfill", job_kind="sp_search_terms"))
     assert (backfill["status"], backfill["rows_written"], backfill["dedupe_key"]) == ("completed", 130, None)
     assert len(rest.tables[DAILY_ROWS]) == 65 * 2
     assert rest.replaced_days[:14] == sorted(rest.replaced_days[:14]) and rest.replaced_days[13] == YESTERDAY
@@ -741,7 +741,7 @@ def test_chunks_failing_in_the_same_tick_spend_one_attempt_and_all_retry_togethe
     _tick(ingestion, rest, NOW)
     summary = _tick(ingestion, rest, failed_at)
 
-    backfill = _only(rest.rows(JOBS, trigger="backfill"))
+    backfill = _only(rest.rows(JOBS, trigger="backfill", job_kind="sp_search_terms"))
     assert (backfill["status"], backfill["attempts"]) == ("retrying", 1)
     assert [row["status"] for row in _search_term_requests(rest)] == ["failed", "failed", "saved", "saved", "saved"]
     assert len(summary.errors) == 2
@@ -810,11 +810,12 @@ def test_needs_reauth_fails_jobs_for_good_and_flags_the_profile(tmp_path):
     assert summary.jobs_failed == 2 + 2
     assert {job["job_kind"]: (job["status"], job["attempts"], job["error_class"]) for job in rest.rows(JOBS)} == {
         "sp_search_terms": ("failed", 1, "NeedsReauth"),
+        # A first load is claimed before the scheduled jobs, so the campaign history meets the dead token itself.
+        "sp_campaigns": ("failed", 1, "NeedsReauth"),
         "portfolio_names": ("failed", 1, "NeedsReauth"),
-        # Started after the portfolio job hit the dead token: the profile guard fails them before
-        # they spend an Amazon call.
+        # Started after the portfolio job hit the dead token: the profile guard fails it before
+        # it spends an Amazon call.
         "campaign_entities": ("failed", 1, "ConnectionUnavailable"),
-        "sp_campaigns": ("failed", 1, "ConnectionUnavailable"),
     }
     assert _only(_search_term_requests(rest))["status"] == "failed"
     profile = _only(rest.rows(PROFILES))
@@ -917,7 +918,8 @@ def test_reauthorized_profile_releases_its_failed_backfill_and_plans_a_new_one(t
 
     assert _only(rest.rows(PROFILES))["status"] == "active"
     assert _only(rest.rows(JOBS, id=failed["id"]))["dedupe_key"] is None
-    fresh = _only([job for job in rest.rows(JOBS, trigger="backfill") if job["id"] != failed["id"]])
+    fresh = _only([job for job in rest.rows(JOBS, trigger="backfill", job_kind="sp_search_terms")
+                   if job["id"] != failed["id"]])
     assert fresh["dedupe_key"] == "amazon_ads:1001:backfill:2026-09-14" and fresh["window_end"] == YESTERDAY
     assert summary.jobs_planned == 4
 
@@ -990,7 +992,7 @@ def test_saving_a_chunk_renews_the_job_lease_so_nobody_claims_the_job_meanwhile(
 
     # The campaign grain saves its own three chunks in the same tick.
     assert summary.reports_saved == 1 + 3
-    backfill = _only(rest.rows(JOBS, trigger="backfill"))
+    backfill = _only(rest.rows(JOBS, trigger="backfill", job_kind="sp_search_terms"))
     assert backfill["status"] == "running"
     assert backfill["lease_expires_at"] == (saved_at + timedelta(seconds=900)).isoformat()
     assert _claim_as_another_worker(rest, NOW + timedelta(minutes=16)) == []
@@ -1169,16 +1171,17 @@ def test_a_cancelled_backfill_is_planned_again_the_next_local_day_but_not_the_sa
     amazon.status_scripts = [["PROCESSING"]] * 5
     ingestion = _ingestion(rest, amazon, tmp_path)
     _tick(ingestion, rest, NOW)
-    first = _only(rest.rows(JOBS, trigger="backfill"))
+    first = _only(rest.rows(JOBS, trigger="backfill", job_kind="sp_search_terms"))
     rest.update(JOBS, {"id": f"eq.{first['id']}"},
                 {"status": "cancelled", "lease_holder": "", "lease_expires_at": None})
 
     same_day = _tick(ingestion, rest, NOW + timedelta(hours=2))
-    assert (same_day.jobs_planned, len(rest.rows(JOBS, trigger="backfill"))) == (0, 1)
+    assert (same_day.jobs_planned, len(rest.rows(JOBS, trigger="backfill", job_kind="sp_search_terms"))) == (0, 1)
 
     _tick(ingestion, rest, NOW + timedelta(days=1))
 
-    fresh = _only([job for job in rest.rows(JOBS, trigger="backfill") if job["id"] != first["id"]])
+    fresh = _only([job for job in rest.rows(JOBS, trigger="backfill", job_kind="sp_search_terms")
+                   if job["id"] != first["id"]])
     assert (fresh["dedupe_key"], fresh["window_end"]) == ("amazon_ads:1001:backfill:2026-09-15", "2026-09-14")
 
 
@@ -1365,6 +1368,69 @@ def test_the_campaign_grain_writes_its_own_table_and_never_moves_the_search_term
     profile = _only(rest.rows(PROFILES))
     assert {column: profile[column] for column in freshness} == freshness
     assert profile["refreshed_on"] == "2026-09-14"
+
+
+def _seed_campaign_job(rest: _FakePostgrest, *, window_start: str, window_end: str, local_day: str) -> dict:
+    return rest.seed(JOBS, integration_slug="amazon_ads", job_kind=CAMPAIGNS_KIND, trigger="scheduled_daily",
+                     external_account_id="1001", status="completed", window_start=window_start,
+                     window_end=window_end, local_day=local_day, deadline_at=(NOW - timedelta(hours=12)).isoformat(),
+                     dedupe_key=f"amazon_ads:1001:campaigns:{local_day}")
+
+
+def test_a_profile_whose_nights_asked_sixty_five_days_keeps_its_history_and_asks_the_last_week(tmp_path):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled(refreshed_on="2026-09-14"))
+    _seed_campaign_job(rest, window_start="2026-07-10", window_end="2026-09-12", local_day="2026-09-13")
+
+    _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    today = _only(rest.rows(JOBS, job_kind=CAMPAIGNS_KIND, local_day="2026-09-14"))
+    assert (today["trigger"], today["window_start"], today["window_end"]) == ("scheduled_daily", "2026-09-07",
+                                                                              YESTERDAY)
+
+
+def test_the_campaign_history_loads_once_and_the_next_day_asks_only_the_last_week(tmp_path):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon(campaign_rows_per_day=1)
+    _connect_profile(rest, profile_row=_backfilled(refreshed_on="2026-09-14"))
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    _tick(ingestion, rest, NOW)
+    _tick(ingestion, rest, NOW + timedelta(seconds=61))
+    same_day = _tick(ingestion, rest, NOW + timedelta(hours=2))
+
+    history = _only(rest.rows(JOBS, job_kind=CAMPAIGNS_KIND))
+    assert (history["trigger"], history["status"], history["window_start"]) == ("backfill", "completed", "2026-07-11")
+    # Its dedupe key is released on completion; it still counts as today's job.
+    assert same_day.jobs_planned == 0
+
+    _tick(ingestion, rest, NOW + timedelta(days=1))
+
+    next_day = _only(rest.rows(JOBS, job_kind=CAMPAIGNS_KIND, local_day="2026-09-15"))
+    assert (next_day["trigger"], next_day["window_start"], next_day["window_end"]) == (
+        "scheduled_daily", "2026-09-08", "2026-09-14")
+
+
+def test_a_profile_without_a_history_or_a_sunday_pass_in_two_weeks_loads_the_history_again(tmp_path):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled(refreshed_on="2026-09-14"))
+    _seed_campaign_job(rest, window_start="2026-06-20", window_end="2026-08-23", local_day="2026-08-24")
+
+    _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    today = _only(rest.rows(JOBS, job_kind=CAMPAIGNS_KIND, local_day="2026-09-14"))
+    assert (today["trigger"], today["window_start"], today["window_end"]) == ("backfill", "2026-07-11", YESTERDAY)
+
+
+def test_a_campaign_history_open_since_yesterday_blocks_another_one():
+    row = {"profile_id": "1001", "timezone": "America/Los_Angeles", "region": "NA", "status": "active"}
+    jobs = [{"id": 1, "job_kind": CAMPAIGNS_KIND, "trigger": "backfill", "status": "running",
+             "local_day": "2026-09-13", "dedupe_key": "amazon_ads:1001:campaigns-history:2026-09-13"}]
+
+    state = _profile_state(row, jobs, NOW)
+
+    assert (state.has_open_campaign_job, state.has_campaign_job_today, state.campaign_history_done) == (
+        True, False, False)
+    assert CAMPAIGNS_KIND not in [job.job_kind for job in ingestion_module.plan_jobs(state, NOW)]
 
 
 def test_campaign_entities_are_saved_as_the_profile_campaign_universe(tmp_path):

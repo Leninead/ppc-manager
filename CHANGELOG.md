@@ -6,6 +6,21 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Las campañas SP piden la última semana cada noche y 60 días los domingos (2026-09-22)
+
+**Por qué.** Cada noche se volvían a pedir los 65 días de campañas SP de cada cuenta: 3 reportes por cuenta, 156 con
+las 52 cuentas desde las 22 nuevas del 21/09, por un cupo de 3 reportes en vuelo compartido por todas las regiones. El
+22/09 Amazon tardó de 16 a 26 minutos por reporte y a las 13:53 de Argentina quedaban 54 reportes de 18 cuentas de
+Norteamérica: Bulk Campañas y el Funnel mostraban sus campañas hasta el 20/09 mientras el STR ya llegaba al 21/09.
+
+**Ahora.** La primera vez se cargan los 65 días; después cada noche pide los últimos 7 días (1 reporte) y el domingo,
+cuando nadie trabaja, los 60 días que el picker puede mostrar (2 reportes). Son 52 reportes por noche de lunes a
+sábado en vez de 156, y 104 los domingos.
+Una cuenta tiene su historial si una solicitud de 60 días o más terminó en los últimos 15 días: las cuentas que ya
+estaban no lo vuelven a cargar, y una que pasó dos semanas sin domingo lo carga de nuevo. El período de Bulk
+Campañas, el Funnel, el análisis IA y el MCP sale de los 65 días hacia atrás desde el último día sincronizado, no de
+la ventana de la última solicitud, así que no se achica a una semana.
+
 ### Added — Análisis de Funnel con datos de Amazon Ads, y el chat recuerda lo que el AM miró en cada módulo (2026-09-21)
 
 **Funnel sin archivos.** El Search Term Report y las campañas llegan de Amazon Ads con una sola elección de cuenta,

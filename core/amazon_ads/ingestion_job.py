@@ -29,7 +29,9 @@ from core.amazon_ads.raw_reports import (
 )
 from core.amazon_ads.report_fetcher import RETENTION_DAYS, ReportFailed, ReportFetcher, ReportStatus
 from core.amazon_ads.sync_planner import (
+    CAMPAIGN_DEEP_WINDOW_DAYS,
     CAMPAIGN_ENTITIES_KIND,
+    CAMPAIGN_HISTORY_LOOKBACK_DAYS,
     CAMPAIGNS_KIND,
     CHUNK_DAYS,
     DAILY_WINDOW_DAYS,
@@ -48,6 +50,7 @@ from core.amazon_ads.sync_planner import (
     backfill_dedupe_prefix,
     chunk_days_for,
     is_backfill,
+    is_campaign_history,
     is_product_history,
     plan_jobs,
     profile_timezone,
@@ -313,6 +316,7 @@ class IngestionJob:
         tick.summary.profiles_active = sum(1 for row in tick.profiles.values() if row.get("status") == PROFILE_ACTIVE)
         jobs_by_profile = self._recent_jobs_by_profile(tick.now)
         histories = self._product_histories()
+        campaign_histories = self._campaign_histories(tick.now)
         legacy_sb = self._profiles_with_legacy_sb(tick.now)
         for profile_id, row in tick.profiles.items():
             if row.get("status") != PROFILE_ACTIVE:
@@ -320,7 +324,8 @@ class IngestionJob:
             try:
                 state = _profile_state(row, jobs_by_profile.get(profile_id, ()), tick.now,
                                        histories.get(profile_id, frozenset()),
-                                       has_legacy_sb=profile_id in legacy_sb)
+                                       has_legacy_sb=profile_id in legacy_sb,
+                                       campaign_history_done=profile_id in campaign_histories)
                 for new_job in plan_jobs(state, tick.now):
                     if self._jobs.enqueue(new_job):
                         tick.summary.jobs_planned += 1
@@ -365,6 +370,20 @@ class IngestionJob:
                                   parse_date(row.get("window_end"))):
                 histories.setdefault(str(row.get("external_account_id") or ""), set()).add(row["job_kind"])
         return {profile_id: frozenset(kinds) for profile_id, kinds in histories.items()}
+
+    def _campaign_histories(self, now: datetime) -> frozenset[str]:
+        """Profiles whose campaign history is in: a job over at least Sunday's window completed lately."""
+        rows = self._rest.select(JOBS_TABLE, {
+            "select": "external_account_id,window_start,window_end",
+            "integration_slug": f"eq.{SLUG}",
+            "job_kind": f"eq.{CAMPAIGNS_KIND}",
+            "status": "eq.completed",
+            "local_day": f"gte.{(now.date() - timedelta(days=CAMPAIGN_HISTORY_LOOKBACK_DAYS)).isoformat()}",
+            # Only a window that long starts this early, so the nightly weeks are never read.
+            "window_start": f"lte.{(now.date() - timedelta(days=CAMPAIGN_DEEP_WINDOW_DAYS - 1)).isoformat()}",
+        })
+        return frozenset(str(row.get("external_account_id") or "") for row in rows
+                         if is_campaign_history(parse_date(row.get("window_start")), parse_date(row.get("window_end"))))
 
     def _start_jobs(self, tick: _Tick) -> None:
         for job in self._jobs.claim_due(self._holder, JOB_CLAIM_LIMIT, LEASE_SECONDS):
@@ -1031,10 +1050,11 @@ def _profile_changed(existing: dict | None, discovered: dict) -> bool:
 
 
 def _profile_state(row: dict, job_rows: Iterable[dict], now: datetime,
-                   product_histories: frozenset[str] = frozenset(), *, has_legacy_sb: bool = False) -> ProfileState:
+                   product_histories: frozenset[str] = frozenset(), *, has_legacy_sb: bool = False,
+                   campaign_history_done: bool = False) -> ProfileState:
     local_today = now.astimezone(profile_timezone(row.get("timezone") or "", row.get("region") or "")).date()
     has_open_backfill = has_day_job_today = has_portfolio_job_today = False
-    has_campaign_job_today = has_campaign_entities_job_today = False
+    has_campaign_job_today = has_open_campaign_job = has_campaign_entities_job_today = False
     product_today: set[str] = set()
     product_open: set[str] = set()
     entity_rows_today: dict[str, int] = {}
@@ -1057,7 +1077,10 @@ def _profile_state(row: dict, job_rows: Iterable[dict], now: datetime,
         if job.get("job_kind") == PORTFOLIOS_KIND:
             has_portfolio_job_today = has_portfolio_job_today or blocks_today
         elif job.get("job_kind") == CAMPAIGNS_KIND:
-            has_campaign_job_today = has_campaign_job_today or blocks_today
+            # A completed history releases its dedupe key: it still counts, or the same day would ask the last week.
+            completed_today = is_today and job.get("status") == "completed"
+            has_campaign_job_today = has_campaign_job_today or blocks_today or completed_today
+            has_open_campaign_job = has_open_campaign_job or is_open
         elif job.get("job_kind") == CAMPAIGN_ENTITIES_KIND:
             has_campaign_entities_job_today = has_campaign_entities_job_today or blocks_today
         elif job.get("job_kind") != SEARCH_TERMS_KIND:
@@ -1070,6 +1093,8 @@ def _profile_state(row: dict, job_rows: Iterable[dict], now: datetime,
                                  has_portfolio_job_today=has_portfolio_job_today,
                                  has_campaign_job_today=has_campaign_job_today,
                                  has_campaign_entities_job_today=has_campaign_entities_job_today,
+                                 campaign_history_done=campaign_history_done,
+                                 has_open_campaign_job=has_open_campaign_job,
                                  product_kinds_today=frozenset(product_today),
                                  product_kinds_open=frozenset(product_open),
                                  product_histories_done=product_histories,

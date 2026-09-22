@@ -27,8 +27,12 @@ SEARCH_TERMS_KIND = "sp_search_terms"
 PORTFOLIOS_KIND = "portfolio_names"
 CAMPAIGNS_KIND = "sp_campaigns"
 CAMPAIGN_ENTITIES_KIND = "campaign_entities"
-# Campaign reports are small enough to rewrite the whole window nightly: no backfill state to keep.
-CAMPAIGN_WINDOW_DAYS = 65
+# 65 days a night stopped fitting in a day: the history once, then the last week, and 60 days on quiet Sundays.
+CAMPAIGN_HISTORY_DAYS = 65
+CAMPAIGN_DAILY_WINDOW_DAYS = 7
+CAMPAIGN_DEEP_WINDOW_DAYS = 60
+# A Sunday pass keeps the history current; a profile without one or the history this long loads it again.
+CAMPAIGN_HISTORY_LOOKBACK_DAYS = 15
 CAMPAIGN_CHUNK_DAYS = 31
 CAMPAIGN_MAX_ATTEMPTS = 6
 
@@ -111,6 +115,9 @@ class ProfileState:
     has_portfolio_job_today: bool = False
     has_campaign_job_today: bool = False
     has_campaign_entities_job_today: bool = False
+    campaign_history_done: bool = False
+    # A history outlives the local day that planned it: another one must wait for it to close.
+    has_open_campaign_job: bool = False
     # The new kinds, by job kind: planned today (open, or closed still holding today's dedupe key),
     # open on any day, history already loaded, and rows of each entity list completed today.
     product_kinds_today: frozenset[str] = frozenset()
@@ -123,7 +130,8 @@ class ProfileState:
     @classmethod
     def from_row(cls, row: dict, *, has_open_backfill: bool = False, has_open_day_job_today: bool = False,
                  has_portfolio_job_today: bool = False, has_campaign_job_today: bool = False,
-                 has_campaign_entities_job_today: bool = False, product_kinds_today: frozenset[str] = frozenset(),
+                 has_campaign_entities_job_today: bool = False, campaign_history_done: bool = False,
+                 has_open_campaign_job: bool = False, product_kinds_today: frozenset[str] = frozenset(),
                  product_kinds_open: frozenset[str] = frozenset(),
                  product_histories_done: frozenset[str] = frozenset(),
                  entity_rows_today: dict | None = None, has_legacy_sb: bool = False) -> ProfileState:
@@ -147,6 +155,8 @@ class ProfileState:
             has_portfolio_job_today=has_portfolio_job_today,
             has_campaign_job_today=has_campaign_job_today,
             has_campaign_entities_job_today=has_campaign_entities_job_today,
+            campaign_history_done=campaign_history_done,
+            has_open_campaign_job=has_open_campaign_job,
             product_kinds_today=product_kinds_today,
             product_kinds_open=product_kinds_open,
             product_histories_done=product_histories_done,
@@ -203,8 +213,9 @@ def plan_jobs(state: ProfileState, now_utc: datetime) -> list[NewSyncJob]:
     if after_start and before_cutoff:
         if not state.has_campaign_entities_job_today:
             planned.append(_campaign_entities_job(state, local_now))
-        if not state.has_campaign_job_today:
-            planned.append(_campaign_job(state, local_now))
+        if not (state.has_campaign_job_today or state.has_open_campaign_job):
+            planned.append(_campaign_job(state, local_now) if state.campaign_history_done
+                           else _campaign_history_job(state, local_now, now_utc))
         planned.extend(_product_jobs(state, local_now, now_utc))
     return planned
 
@@ -237,6 +248,13 @@ def is_product_history(job_kind: str, window_start: date | None, window_end: dat
     if history_days is None or window_start is None or window_end is None:
         return False
     return (window_end - window_start).days + 1 >= history_days
+
+
+def is_campaign_history(window_start: date | None, window_end: date | None) -> bool:
+    """Whether a campaign job covered at least Sunday's window: the history, a Sunday pass, or an old 65-day night."""
+    if window_start is None or window_end is None:
+        return False
+    return (window_end - window_start).days + 1 >= CAMPAIGN_DEEP_WINDOW_DAYS
 
 
 def backfill_job(state: ProfileState, now_utc: datetime) -> NewSyncJob:
@@ -325,17 +343,36 @@ def _portfolio_job(state: ProfileState, local_now: datetime) -> NewSyncJob:
 
 def _campaign_job(state: ProfileState, local_now: datetime) -> NewSyncJob:
     local_today = local_now.date()
+    is_deep = local_today.isoweekday() == DEEP_REFRESH_ISOWEEKDAY
+    window_days = CAMPAIGN_DEEP_WINDOW_DAYS if is_deep else CAMPAIGN_DAILY_WINDOW_DAYS
     yesterday = local_today - timedelta(days=1)
     return _new_job(
         state,
         job_kind=CAMPAIGNS_KIND,
-        trigger="scheduled_daily",
-        window_start=yesterday - timedelta(days=CAMPAIGN_WINDOW_DAYS - 1),
+        trigger="scheduled_deep" if is_deep else "scheduled_daily",
+        window_start=yesterday - timedelta(days=window_days - 1),
         window_end=yesterday,
         local_day=local_today,
         deadline_at=_local_cutoff_utc(local_now),
         max_attempts=CAMPAIGN_MAX_ATTEMPTS,
         dedupe_key=f"{SLUG}:{state.profile_id}:campaigns:{local_today.isoformat()}",
+    )
+
+
+def _campaign_history_job(state: ProfileState, local_now: datetime, now_utc: datetime) -> NewSyncJob:
+    local_today = local_now.date()
+    yesterday = local_today - timedelta(days=1)
+    return _new_job(
+        state,
+        job_kind=CAMPAIGNS_KIND,
+        trigger="backfill",
+        window_start=yesterday - timedelta(days=CAMPAIGN_HISTORY_DAYS - 1),
+        window_end=yesterday,
+        local_day=local_today,
+        # Every profile's first load shares 3 reports in flight: the local cutoff could come first.
+        deadline_at=now_utc.astimezone(timezone.utc) + BACKFILL_DEADLINE,
+        max_attempts=CAMPAIGN_MAX_ATTEMPTS,
+        dedupe_key=f"{SLUG}:{state.profile_id}:campaigns-history:{local_today.isoformat()}",
     )
 
 

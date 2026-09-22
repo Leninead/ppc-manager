@@ -606,6 +606,8 @@ Es el que mantiene al día el Search Term Report de cada perfil de Amazon Ads. A
 - Planifica por perfil, en su hora local: diaria de 14 días a las 03:00 (lunes a sábado), 42 días los
   domingos, carga inicial de 65 días apenas aparece un perfil (incluidos los que ya estaban conectados
   al primer deploy), nombres de portfolio una vez por día.
+- Campañas SP (`sp_campaigns`), también desde las 03:00 del perfil: carga inicial de 65 días, después
+  7 días cada noche y 60 los domingos.
 - Pide los reportes a Amazon en tramos (14 días, 7 para perfiles muy grandes), los consulta, los
   descarga, guarda el crudo en `ads_raw` y reemplaza cada día en una sola transacción.
 - Reintenta con espera creciente hasta las 23:00 del perfil y deja todo en `integration_sync_jobs`,
