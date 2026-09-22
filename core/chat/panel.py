@@ -61,7 +61,10 @@ _L = {
                      "accounts": "Cuentas", "competitors": "Competidores", "keywords": "Keywords",
                      "rank_radar": "Rank Radar", "niches": "Niches", "analyses": "Análisis",
                      "search_terms": "Search terms", "daily": "Serie diaria",
-                     "breakdown": "Desglose"}},
+                     "breakdown": "Desglose", "funnel": "Funnel", "candidates": "Candidatos",
+                     "bids": "Bids", "asins": "Salud por ASIN",
+                     "campaign_health": "Diagnóstico de campañas",
+                     "idle_targets": "Targets sin impresiones"}},
     "en": {"title": "Capybaras Copilot",
            "empty": "Ask about an analysis in the app, an Amazon Ads "
                     "account or a DataDive niche.",
@@ -80,7 +83,10 @@ _L = {
                      "accounts": "Accounts", "competitors": "Competitors", "keywords": "Keywords",
                      "rank_radar": "Rank Radar", "niches": "Niches", "analyses": "Analyses",
                      "search_terms": "Search terms", "daily": "Daily series",
-                     "breakdown": "Breakdown"}},
+                     "breakdown": "Breakdown", "funnel": "Funnel", "candidates": "Candidates",
+                     "bids": "Bids", "asins": "ASIN health",
+                     "campaign_health": "Campaign diagnosis",
+                     "idle_targets": "Targets without impressions"}},
 }
 
 
@@ -112,8 +118,10 @@ _TOOL_SOURCES = (
      (("quota", None), ("competitor", "competitors"), ("keyword", "keywords"),
       ("rank_radar", "rank_radar"), ("niche", "niches"))),
     ("mcp__ppc_manager__", "src_ppc_manager",
-     (("analys", "analyses"), ("search_term", "search_terms"), ("daily", "daily"), ("breakdown", "breakdown"),
-      ("account", "accounts"))),
+     # "candidate" before "search_term": search_term_candidates reads the module's candidates, not raw terms.
+     (("analys", "analyses"), ("candidate", "candidates"), ("search_term", "search_terms"), ("daily", "daily"),
+      ("breakdown", "breakdown"), ("account", "accounts"), ("funnel", "funnel"), ("bid", "bids"),
+      ("asin", "asins"), ("campaign_health", "campaign_health"), ("idle_target", "idle_targets"))),
 )
 
 

@@ -7,9 +7,15 @@ import numpy as np
 import streamlit as st
 import pandas as pd
 
+from core.chat import app_chat
+from core.chat.screen_selection import FROM_HAND_UPLOAD, HAND_UPLOAD_NOTE, ScreenSelection
 from core.datadive import client as dd_api
 from core.helpers import read_sqp, kpi_card
 from modules.parsers import datadive as _dd
+
+MODULE_LABEL = "DataDive Analyzer"
+FROM_DATADIVE = "la API de DataDive"
+DATADIVE_TOOLS_NOTE = "Sus cifras salen de las herramientas de DataDive con el niche_id y el radar_id de la selección."
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -294,6 +300,30 @@ def _color_score(val, green_thresh, yellow_thresh):
 # ═══════════════════════════════════════════════════════════════════════
 # Render
 # ═══════════════════════════════════════════════════════════════════════
+
+def screen_selection(*, niche_id: str, niche_label: str, marketplace: str, file_name: str, my_asin: str,
+                     min_sv, min_relevance, radar: tuple | None) -> ScreenSelection | None:
+    """What the chat reads about this screen: the niche or file of tab 1, its filters and the rank radar on screen.
+
+    None while nothing is loaded. DataDive's own tools take the ids, so the ids travel as values.
+    """
+    if not (niche_label or file_name):
+        return None
+    values = []
+    if niche_id:
+        values.append(("niche_id", niche_id))
+    if my_asin:
+        values.append(("tu ASIN", my_asin))
+    values += [("SV mínimo", str(min_sv)), ("relevancia mínima", str(min_relevance))]
+    if radar:
+        values.append(("rank radar", f"radar_id {radar[0]}, del {radar[1]} al {radar[2]}"))
+    if niche_label:
+        account = f"el niche {niche_label} · {marketplace}" if marketplace else f"el niche {niche_label}"
+        return ScreenSelection(module=MODULE_LABEL, account=account, source=FROM_DATADIVE, values=tuple(values),
+                               notes=(DATADIVE_TOOLS_NOTE,))
+    return ScreenSelection(module=MODULE_LABEL, account=file_name, source=FROM_HAND_UPLOAD, values=tuple(values),
+                           notes=(HAND_UPLOAD_NOTE,))
+
 
 def render():
     st.markdown(
@@ -1402,5 +1432,15 @@ def render():
                 )
 
     if ai_analysis is None:
-        from core.chat import app_chat
         app_chat.withdraw_analysis("datadive")
+    niche_id = (st.session_state.get("dd_mkl_api_niche") or "") if mkl_label else ""
+    file_name = "" if mkl_label else getattr(st.session_state.get("dd_mkl"), "name", "")
+    selection = screen_selection(
+        niche_id=niche_id, niche_label=mkl_label, marketplace=mkl_marketplace, file_name=file_name,
+        my_asin=str(st.session_state.get("dd_mkl_asin") or "").strip().upper(),
+        min_sv=st.session_state.get("dd_mkl_sv", 100), min_relevance=st.session_state.get("dd_mkl_rel", 1.0),
+        radar=st.session_state.get("dd_rr_api_sel"))
+    if selection is None:
+        app_chat.withdraw_selection()
+    else:
+        app_chat.share_selection(selection)

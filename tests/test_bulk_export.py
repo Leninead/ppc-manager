@@ -33,16 +33,15 @@ from core.bulk.export import (
     _BULK_COLS,
     _BULK_SHEET_NAME,
     _METADATA_SHEET_NAME,
-    NEGATIVE_KEYWORD_TEXT_LIMITS,
     _coerce_str,
     aggregate_str_with_top_campaign,
     build_adgroup_negative,
     build_bid_update,
     build_campaign_negative,
     build_keyword_create,
-    negative_keyword_text_problem,
     write_bulk_excel,
 )
+from core.bulk.keyword_text import NEGATIVE_KEYWORD_TEXT_LIMITS, negative_keyword_text_problem
 from core.bulk.parser import validate_bulk
 
 

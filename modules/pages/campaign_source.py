@@ -23,6 +23,7 @@ from core.amazon_ads.sync_planner import CAMPAIGNS_KIND, PRODUCT_CAMPAIGN_KINDS,
 from core.date_labels import date_range_label
 from core.integrations.store import _error_message
 from core.integrations.sync_jobs import SyncJob, SyncJobStore
+from core.search_term.frame import SOURCE_API, SearchTermSource
 from core.ui import palette
 from modules.pages import search_term_source
 from modules.pages.search_term_source import (
@@ -64,6 +65,15 @@ FIRST_LOAD_FAILED_MESSAGE = (
 NO_CAMPAIGNS_MESSAGE = "Esta cuenta no tiene campañas de Sponsored Products habilitadas ni pausadas."
 NO_DATABASE_MESSAGE = "No hay base de datos configurada para leer las campañas de Amazon Ads."
 UNREADABLE_FILE_MESSAGE = "No se pudo leer el archivo. Subí el Campaign CSV o el Bulk tal como los exporta Amazon."
+LINKED_BLOCK_TITLE = "Campañas de la cuenta"
+LINKED_BLOCK_TAG = "Misma cuenta y período del Search Term Report"
+SEARCH_TERMS_FROM_FILE_HINT = (
+    "El Search Term Report se subió a mano, así que las campañas también: subí el Campaign CSV de la misma cuenta."
+)
+ACCOUNT_NOT_LISTED_HINT = (
+    "No se pudo leer la lista de cuentas de Amazon Ads para traer sus campañas. Mientras tanto podés subir el "
+    "Campaign CSV de la misma cuenta."
+)
 
 
 @dataclass(frozen=True)
@@ -88,6 +98,23 @@ def render_campaign_source(key_prefix: str) -> CampaignInput | None:
     if st.session_state.get(picker_key(key_prefix, "manual")):
         return _render_manual_mode(key_prefix)
     return _render_amazon_ads(key_prefix, profiles)
+
+
+def render_campaigns_for(key_prefix: str, search_terms: SearchTermSource) -> CampaignInput | None:
+    """The campaigns of the account and period the Search Term picker chose; a hand upload when there are none.
+
+    One choice for both reports: the AM never picks the account twice, so the two can never disagree.
+    """
+    search_term_source._keep_choices(key_prefix)
+    if search_terms.source != SOURCE_API or not search_terms.profile_id or search_terms.window_start is None:
+        return _render_file_input(key_prefix, hint=SEARCH_TERMS_FROM_FILE_HINT)
+    if st.session_state.get(picker_key(key_prefix, "manual")):
+        return _render_manual_mode(key_prefix)
+    option = next((profile for profile in search_term_source._available_profiles()
+                   if profile.profile_id == search_terms.profile_id), None)
+    if option is None:
+        return _render_file_input(key_prefix, hint=ACCOUNT_NOT_LISTED_HINT)
+    return _render_linked_campaigns(key_prefix, option, search_terms.window_start, search_terms.window_end)
 
 
 def campaign_pill(view: ProfileOption, latest_job: SyncJob | None, now: datetime) -> tuple[str, str]:
@@ -176,6 +203,42 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption]) -> Campai
                          products=products, idle_targets=idle_targets)
 
 
+def _render_linked_campaigns(key_prefix: str, option: ProfileOption, start: date,
+                             end: date) -> CampaignInput | None:
+    now = datetime.now(timezone.utc)
+    sync_error = None
+    latest_job, completed = None, None
+    try:
+        latest_job, completed = _load_campaign_sync(option.profile_id)
+    except ReportReadError as exc:
+        sync_error = exc
+    view = campaign_sync_view(option, completed)
+
+    with st.container(border=True, key=picker_key(key_prefix, "card")):
+        polling = latest_job is not None and latest_job.is_open
+        st.fragment(run_every=STATUS_POLL_INTERVAL if polling else None)(_render_header)(
+            option, sync_error is not None, polling, title=LINKED_BLOCK_TITLE, tag=LINKED_BLOCK_TAG)
+        if sync_error is not None:
+            st.error(f"{sync_error} {ASK_AN_ADMIN}")
+            _render_upload_action(key_prefix)
+            return None
+        if view.data_through is None:
+            _render_without_data(view, latest_job, now)
+            _render_upload_action(key_prefix)
+            return None
+        try:
+            source = _load_campaigns(option, start, end, view.last_success_at)
+        except ReportReadError as exc:
+            st.error(f"{exc} {ASK_AN_ADMIN}")
+            _render_upload_action(key_prefix)
+            return None
+        _render_info_row(key_prefix, source, view, now)
+        if source.frame.empty:
+            st.info(NO_CAMPAIGNS_MESSAGE)
+            return None
+    return CampaignInput(frame=source.frame, currency_code=source.currency_code, source=source)
+
+
 def _load_extras(profile_id: str, start: date, end: date) -> tuple[ProductCampaigns | None, IdleTargets | None]:
     """SB / SD campaigns and idle targets; a failure here leaves the Sponsored Products page intact."""
     try:
@@ -186,7 +249,8 @@ def _load_extras(profile_id: str, start: date, end: date) -> tuple[ProductCampai
         return None, None
 
 
-def _render_header(option: ProfileOption, sync_unreadable: bool, polling: bool) -> None:
+def _render_header(option: ProfileOption, sync_unreadable: bool, polling: bool, *, title: str = BLOCK_TITLE,
+                   tag: str = BLOCK_TAG) -> None:
     kind, label = "err", "No se pudo leer"
     if not sync_unreadable:
         try:
@@ -199,7 +263,7 @@ def _render_header(option: ProfileOption, sync_unreadable: bool, polling: bool) 
                 # The polled job closed: the body below still shows what it said before, so redraw it all.
                 st.rerun()
             kind, label = campaign_pill(campaign_sync_view(option, completed), latest_job, datetime.now(timezone.utc))
-    st.markdown(palette.band_header_html(title=BLOCK_TITLE, tag=BLOCK_TAG,
+    st.markdown(palette.band_header_html(title=title, tag=tag,
                                          right=palette.status_pill_html(kind, html.escape(label))),
                 unsafe_allow_html=True)
     if option.status == PROFILE_NEEDS_REAUTH:

@@ -12,6 +12,7 @@ from streamlit.testing.v1 import AppTest
 import ai.client as ai_client
 from ai import runtime
 from core.chat import app_chat
+from core.chat.screen_selection import FROM_AMAZON_ADS, FROM_HAND_UPLOAD, ScreenSelection
 
 
 @pytest.fixture
@@ -271,6 +272,35 @@ class TestRecordTurn:
         app_chat.record_turn("🔍 Search Query Performance", "am.test", "¿cómo va?", _reply(), "Bien")
 
         assert [(turn.ads_profile_id, turn.ads_account) for turn in recorded] == [(None, None), (None, None)]
+
+    def test_a_page_without_an_analysis_keeps_the_account_it_has_selected(self, session, recorded):
+        session["selected_page"] = "🧠 Bid Optimizer"
+        app_chat.share_selection(ScreenSelection(module="Bid Optimizer", account="Luna Kids · US",
+                                                 source=FROM_AMAZON_ADS, profile_id="111"))
+
+        app_chat.record_turn("🧠 Bid Optimizer", "am.test", "¿qué bid?", _reply(), "B0CYLMJJJC a $1.37")
+        app_chat.record_turn("🏠 Inicio", "am.test", "¿cómo va?", _reply(), "Bien")
+
+        assert [(turn.ads_profile_id, turn.ads_account) for turn in recorded] == [("111", "Luna Kids · US"),
+                                                                                   (None, None)]
+
+    def test_the_analysis_of_the_page_wins_over_its_selection(self, session, recorded):
+        session["selected_page"] = "📊 Search Term Report"
+        app_chat.share_selection(ScreenSelection(module="Search Term Report", account="Luna Kids · US",
+                                                 source=FROM_AMAZON_ADS, profile_id="111"))
+        app_chat.share_analysis(_analysis("str", "str:1", subject="Dermaglós · US", profile_id="279177258676903"))
+
+        app_chat.record_turn("📊 Search Term Report", "am.test", "¿qué negativizo?", _reply(), "Frenar N01")
+
+        assert (recorded[0].ads_profile_id, recorded[0].ads_account) == ("279177258676903", "Dermaglós · US")
+
+    def test_a_hand_upload_on_screen_has_no_account(self, session, recorded):
+        session["selected_page"] = "🧠 Bid Optimizer"
+        app_chat.share_selection(ScreenSelection(module="Bid Optimizer", account="str.csv", source=FROM_HAND_UPLOAD))
+
+        app_chat.record_turn("🧠 Bid Optimizer", "am.test", "¿qué bid?", _reply(), "Sin cuenta")
+
+        assert (recorded[0].ads_profile_id, recorded[0].ads_account) == (None, None)
 
     def test_a_page_whose_analysis_came_from_a_file_has_no_account(self, session, recorded):
         session["selected_page"] = "📊 Search Term Report"

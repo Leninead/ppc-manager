@@ -28,12 +28,10 @@ from core.amazon_ads.report_provider import ProfileOption
 from core.search_term.analysis import (
     ANALYSIS_MODULE,
     CANONICAL_LANG,
-    StrAnalysisParams,
-    add_metric_columns,
     build_analysis_input,
     canonical_analysis_window,
-    detect_columns,
 )
+from core.search_term.candidates import StrAnalysisParams, add_metric_columns, detect_columns
 
 JOB_KIND = analysis_job_kind(ANALYSIS_MODULE)
 DATA_CHANGED_ERROR = ("Los datos de la cuenta cambiaron desde que se pidió el análisis. Cargá los datos nuevos en "

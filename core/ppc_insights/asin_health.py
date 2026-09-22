@@ -1,15 +1,18 @@
-"""PPC Insights rules: which ASIN each search term belongs to, its metrics and its health score.
+"""PPC Insights rules: which ASIN each search term belongs to, its metrics, its health score and the AM's parameters.
 
-No Streamlit and no AI: the page and the analysis worker build the same numbers from here, or the
-analysis the worker stores would never match what the page shows.
+No Streamlit and no AI: the page, the analysis worker and the MCP server build the same numbers from here, or
+the analysis the worker stores would never match what the page shows.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 
 import pandas as pd
 
 from core.amazon_ads.advertised_asins import WITHOUT_ASIN, attribute_asins, grouped_asin_counts
+from core.search_term.candidates import uses_dollar_price
 
 # Where the report's ASINs came from: its own column, Amazon's product ads and campaign names, or nowhere.
 FROM_FILE = "file"
@@ -25,6 +28,8 @@ NEUTRAL_POINTS = {"cvr": 12.0, "buybox": 10.0, "acos": 12.0, "funnel": 7, "imp_s
 # A term that spent more than this with no order is a bleeder; wasted spend adds up the top ones.
 BLEEDER_MIN_SPEND = 5
 BLEEDERS_KEPT = 10
+DEFAULT_TARGET_ACOS = 25
+DEFAULT_DOLLAR_PRICE = 15.0
 
 
 @dataclass(frozen=True)
@@ -361,3 +366,43 @@ def analyze_asins(str_df, sqp_df, br_df, camp_df, target_acos, asin_column=None)
         }
 
     return asin_data
+
+
+@dataclass(frozen=True)
+class InsightsAnalysisParams:
+    """What the AM sets on the page that changes the analysis."""
+
+    target_acos: int
+    price: float | None
+
+    @classmethod
+    def defaults(cls, currency_code: str) -> InsightsAnalysisParams:
+        # A price of 15 means nothing in pesos or yen, so only dollar accounts start with one.
+        return cls(DEFAULT_TARGET_ACOS, DEFAULT_DOLLAR_PRICE if uses_dollar_price(currency_code) else None)
+
+    @classmethod
+    def from_dict(cls, values: dict, currency_code: str) -> InsightsAnalysisParams:
+        base = cls.defaults(currency_code)
+        try:
+            target_acos = int(values.get("target_acos", base.target_acos))
+        except (TypeError, ValueError):
+            target_acos = base.target_acos
+        return cls(target_acos, _price(values.get("price", base.price)))
+
+    def as_dict(self) -> dict:
+        return {"target_acos": self.target_acos, "price": self.price}
+
+    @property
+    def digest(self) -> str:
+        blob = json.dumps(self.as_dict(), sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _price(value) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    return price if price > 0 else None

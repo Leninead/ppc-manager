@@ -10,10 +10,10 @@ from core.ai_analysis.bid_analysis_job import JOB_KIND, BidAnalysisSpec
 from core.bid_optimizer.analysis import (
     ANALYSIS_MODULE,
     CANONICAL_WINDOW_DAYS,
-    BidAnalysisParams,
     build_analysis_input,
     canonical_analysis_window,
 )
+from core.bid_optimizer.bids import BidAnalysisParams
 from core.search_term.frame import console_columns
 
 ATTRIBUTION_DAYS = 7

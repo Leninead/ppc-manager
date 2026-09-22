@@ -95,12 +95,41 @@ módulos ya no montan chats propios.
 - **Registro de turnos (2026-09-18, migración 016).** `floating_chat(on_turn_finished=)` avisa
   cada turno terminado y `app_chat.record_turn` deja una fila en `chat_turns`: el usuario (el
   que resuelve `app.py`, nunca de `session_state`), la página, la cuenta de Amazon Ads del
-  análisis que comparte esa página (no la que consultó el modelo: esa la elige el modelo en
-  cada llamada y la app no la ve), la pregunta, la respuesta como la leyó el AM o el error si
+  análisis que comparte esa página o, si no comparte ninguno, la de su selección
+  (`ScreenSelection.profile_id`; una página muestra la cuenta antes o sin un análisis de ella)
+  (no la que consultó el modelo: esa la elige el modelo en cada llamada y la app no la ve), la pregunta, la respuesta como la leyó el AM o el error si
   el turno falló, las herramientas, el modelo pedido, el costo que informa el provider y un
   `conversation_id` por sesión del navegador. `web_user` sólo inserta; el smoke de la base
   verifica en cada deploy que no pueda leer. Si la base rechaza la fila queda un warning en el
   log, sin la pregunta ni la respuesta, y el chat sigue.
+
+- **Memoria de navegación (2026-09-21, `core/chat/screen_selection.py`).** Cada página publica lo que tiene
+  seleccionado con `app_chat.share_selection(ScreenSelection(...))`: cuenta, fechas, fuente, valores en pantalla y las
+  llamadas (`ToolCall`) al MCP que traen sus cifras; `withdraw_selection()` cuando no muestra nada. Se guarda la última
+  de cada página, en orden de visita (`REMEMBERED_SELECTIONS`), y la nota de cada turno lleva la de la pantalla abierta
+  y las anteriores. **No entra en la clave de sesión**: cambiar cuenta o período no reinicia la conversación. Las notas
+  comunes (`HAND_UPLOAD_NOTE`, `OLDER_DATA_NOTE`) y `account_window` viven ahí. Publican: Funnel, STR, Bid Optimizer,
+  PPC Insights, Bulk Campañas, SQP (sólo archivo) y DataDive (ids para sus propias herramientas).
+- **Herramientas de módulos (MCP, `services/mcp_server/tools/module_results.py`):** `funnel_coverage`,
+  `search_term_candidates`, `bid_suggestions`, `asin_health`. Corren las funciones de cada página (nunca una copia) y
+  arrancan de los parámetros guardados de la cuenta; los argumentos reemplazan los que se pasan. Todas aceptan
+  `date_from`/`date_to` (`requested_window`: recorta a lo sincronizado y lo dice). Para que la imagen del MCP las lea
+  sin agentes ni openpyxl, las reglas viven aparte de los payloads IA: `core/search_term/candidates.py`,
+  `core/bid_optimizer/bids.py`, `core/ppc_insights/asin_health.py` (con sus parámetros), `core/bulk/keyword_text.py`.
+  `tests/test_analysis_digest_stability.py` fija la huella de los payloads de STR, Bid Optimizer y PPC Insights.
+- **Lo que el modelo no tiene que deducir (suite de 30 preguntas, 2026-09-21).** Las filas de search terms traen el
+  estado de su campaña (`campaign_state` en `search_term_candidates`, `Campaign Status` en `top_search_terms`, de
+  `_campaign_status` del reporte): el nombre es el último que tuvo en el período y el modelo lo leía como estado.
+  `search_term_candidates` suma su sección en `totals` y `funnel_coverage` trae el total de órdenes y ventas de los
+  search terms, para que el chat no sume filas. `campaign_health` devuelve `parameters.rules`
+  (`diagnosis_rules`, con los umbrales de `CampaignAnalyzerParams`) y el chat cita la regla en vez de reconstruirla.
+  `list_accounts` da `today` en la zona de cada cuenta y `up_to_date`: el reloj del provider está en UTC. `origin`
+  dice «valores por defecto … la cuenta no guardó parámetros» cuando no hay nada guardado. Cada negativo trae el
+  veredicto del bulk de M2 (`in_bulk`, `bulk_exclusion` de `select_for_bulk`, con las guardas sobre el frame sin
+  filtrar por portfolio, como la página) y `totals_in_bulk`: lo que libera negativizar es sólo eso. `get_analysis`
+  suma a las filas guardadas del STR el estado actual de su campaña (`campaign_states`, una lectura de search terms
+  de la ventana del análisis; si falla, `campaign_state_note`), y `finished_at` va en la hora de la cuenta. Las
+  reglas de lectura están en `<cifras>` y `<fechas_y_parametros>` del prompt del orquestador.
 
 **Anti-patterns.**
 - ❌ NO leer `chat_turns` desde la app ni darle SELECT a `web_user`: guarda datos de clientes y
@@ -467,25 +496,65 @@ Visualizador raw. Punto de entrada del Parent-Child map (data/business_report/).
 ---
 
 ## M8 — Análisis de Funnel
-**Archivo:** modules/pages/analisis_funnel.py
+**Archivo:** modules/pages/analisis_funnel.py. Reglas en `core/funnel/coverage.py` (las lee también el MCP), payload IA
+en `core/funnel/analysis.py`, agente en `ai/agents/funnel/`.
 **Sección sidebar:** PPC
-**Session state prefix:** funnel_
+**Session state prefix:** `funnel_src_*` (picker del STR), `funnel_campaigns_src_*` (campañas), `funnel_ai_*` (IA);
+widgets `match_type_sug`, `min_harvest`, `funnel_dl_*`
 
 ### Propósito
-Detectar brechas en el funnel Auto → Broad → Phrase → Exact por producto.
+Cruzar los search terms con las campañas: qué términos vienen de campañas activas, cuáles de campañas pausadas o que ya
+no existen (con la campaña a crear para cada uno), qué campañas activas no tuvieron ni un search term con clicks, y qué
+términos cosechar.
 
-### Arquitectura
-Inputs STR + Bulk → mapeo funnel → campañas sugeridas con naming convention
+### Fuente de datos (2026-09-21)
+- **Una sola elección de cuenta, país y período:** `render_source_picker("funnel")` elige, y
+  `render_campaigns_for("funnel_campaigns", search_terms)` (`modules/pages/campaign_source.py`) lee las campañas de ese
+  mismo perfil y ventana, con su propia frescura. Nunca se eligen dos veces: no pueden no coincidir.
+- STR subido a mano → Campaign CSV subido a mano. Campañas sin sincronizar (primera carga, falla, sin base) → uploader.
+- **Cruce por Campaign ID** cuando los dos lados vienen de la API (`_campaign_id` del STR y `Campaign ID` de las
+  campañas): el reporte guarda el último nombre visto en el período, así que por nombre una campaña renombrada se
+  partía. Con archivos, por nombre (minúsculas, sin espacios de más).
+- **Sólo Sponsored Products**, también con Campaign CSV: el STR no trae términos de SB ni SD; antes aparecían como
+  activas sin tráfico. La pantalla dice cuántas quedaron afuera.
+- Columnas con `core.search_term.candidates.detect_columns` sobre las columnas visibles: tolera la atribución de 14
+  días (vendors), el `(ACOS)` del export viejo y el CSV 2026. Detectar sobre las ocultas tomaba `_campaign_id` como
+  campaña cuando faltaba «Campaign Name».
 
-### Reglas de negocio
-- Harvest a Phrase: 2+ órdenes AND ACoS ≤ target × 1.2
-- Harvest a Exact: 3+ órdenes AND ACoS ≤ target
+### Reglas de negocio (sin cambios)
+- Harvest: órdenes ≥ mínimo (3 por defecto); Exact si órdenes ≥ 3 × mínimo u (órdenes ≥ mínimo y ACoS ≤ 25%), Phrase
+  en el resto. ACoS y CVR se recalculan de los totales del término (el CVR antes sumaba porcentajes). «En campaña
+  activa» dice si alguna de sus filas vino de una campaña habilitada: `harvest_candidates(search_terms, coverage, …)`.
+- Campaña sugerida: `Producto - ASIN - SP - KW - MatchType - Término` con producto y ASIN del nombre de la campaña de
+  origen, o `[Producto] - [ASIN]`. Ordenadas por gasto, con clicks, gasto, órdenes y ventas del término.
+- La doc previa decía "Harvest a Phrase: 2+ órdenes AND ACoS ≤ target × 1.2 / Exact: 3+ AND ACoS ≤ target": el código
+  nunca tuvo target ACoS. Queda anotado.
 
-### Inputs
-- STR (.xlsx, .csv) + Bulk (.csv)
+### Capa IA
+Agente `funnel`, en memoria (`ai_tab.resolve_analysis`, `auto_fire=False`): filas `F01…` en una sola numeración
+(harvest, términos de campañas inactivas, campañas activas sin tráfico; topes 40/40/30). Veredicto ACTUAR / ESPERAR /
+INVESTIGAR, nunca cambia lo que calculó el módulo. Se comparte con `publish_analysis_to_chat(..., profile_id=)`.
+Parámetros lleva las órdenes y ventas de los search terms de campañas activas y de las pausadas o inexistentes
+(`orders_and_sales`), y cada candidato a harvest su `en_campana_activa`: sin eso, en la prueba local la IA dijo que casi
+todo lo vendido salía de campañas apagadas cuando lo había vendido una activa renombrada.
+
+### Chat y MCP
+- La página publica su selección (`screen_selection`): cuenta, fechas, mínimo de órdenes, match type y la llamada
+  `funnel_coverage(...)` que trae sus cifras. Avisa si las campañas se subieron a mano o si la pantalla quedó con datos
+  anteriores a la última sincronización (`search_term_source.shows_older_data`).
+- MCP `funnel_coverage`: las mismas funciones de `core/funnel/coverage.py`; `section` = `idle_campaigns`, `gap_terms`
+  o `harvest` (con `in_active_campaign`); `counts` suma el reparto de órdenes y ventas entre campañas activas y el
+  resto.
+
+### Tests
+`tests/test_funnel_coverage.py`, `tests/test_funnel_agent.py`, `tests/test_funnel_page.py` (AppTest con PostgREST en
+memoria), `tests/test_mcp_module_results.py`.
 
 ### Anti-patterns
-- Sin Bulk file → no puede detectar qué match types ya existen
+- ❌ NO montar dos pickers con cuenta y período propios: el cruce da basura si no coinciden.
+- ❌ NO cruzar por nombre cuando los dos lados traen Campaign ID.
+- ❌ NO sumar SB/SD al cruce: el STR es sólo SP.
+- ❌ NO copiar las reglas en el MCP: se importan de `core/funnel/coverage.py`.
 
 ---
 
@@ -1653,8 +1722,8 @@ ad group → ASINs y `core/amazon_ads/advertised_asins.attribute_asins` aplica l
 (foto de `/sp/campaigns/list` en `ads_campaign`) y `sp_campaigns` (reporte `spCampaigns` de 65 días en 3 tramos,
 reemplazado día por día en `ads_campaign_daily`). Tope compartido por todos los perfiles: 3 reportes en vuelo, 3
 pedidos y 3 guardados por tick, y los search terms van primero en cada paso. Selector: `render_campaign_source(key_prefix)`
-(`modules/pages/campaign_source.py`); sin UI: `CampaignProvider(rest).campaigns(option, desde, hasta)`. M8 puede
-leerlo igual que M6.
+(`modules/pages/campaign_source.py`); sin UI: `CampaignProvider(rest).campaigns(option, desde, hasta)`. M8 lo lee con
+`render_campaigns_for`, atado a la cuenta y el período de su picker del STR.
 
 **Operación.** Horarios: diaria de 14 días a las 03:00 del perfil (lunes a sábado), 42 días los domingos, carga
 inicial de 65 días (la retención de `spSearchTerm`) apenas aparece una cuenta, reintentos hasta las 23:00 del perfil.

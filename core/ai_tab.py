@@ -287,7 +287,7 @@ def records_for_render(slug: str, analysis, payload, records, keep: int = 8):
 
 
 def publish_analysis_to_chat(slug: str, analysis, payload, *, module_label: str, subject: str,
-                             reading, annotate=None, country_code: str = "") -> None:
+                             reading, annotate=None, country_code: str = "", profile_id: str = "") -> None:
     """Keeps the app chat in step with what this tab shows. Call it on every render of the tab.
 
     Once the analysis is done the chat gets the documents the agent read and
@@ -296,9 +296,9 @@ def publish_analysis_to_chat(slug: str, analysis, payload, *, module_label: str,
     A stale analysis stays readable but flagged. One still running shares its
     state and how to build its documents, so the chat reads it when it finishes
     even if the AM left the page; a failed one shares its state only. The
-    documents are built once per analysis."""
+    documents are built once per analysis. `profile_id` names the Amazon Ads account of data read from the API."""
     build = partial(_chat_analysis, slug=slug, payload=payload, module_label=module_label, subject=subject,
-                    reading=reading, annotate=annotate, country_code=country_code)
+                    reading=reading, annotate=annotate, country_code=country_code, profile_id=profile_id)
     if analysis is None:
         app_chat.withdraw_analysis(slug)
     elif analysis.running:
@@ -316,13 +316,14 @@ def _chat_key(slug: str, analysis) -> str:
 
 
 def _chat_analysis(analysis, *, slug: str, payload, module_label: str, subject: str, reading, annotate,
-                   country_code: str) -> app_chat.ChatAnalysis:
+                   country_code: str, profile_id: str) -> app_chat.ChatAnalysis:
     prefix = f"{module_label} · {subject}"
     documents = [{"title": f"{prefix} · {document['title']}", "content": document["content"]}
                  for document in agent_call.build_agent_call(slug, payload).call["context"]]
     documents.append({"title": f"{prefix} · Lectura de la IA", "content": reading(analysis)})
     return app_chat.ChatAnalysis(module=slug, key=_chat_key(slug, analysis), subject=subject,
-                                 documents=tuple(documents), annotate=annotate, country_code=country_code)
+                                 documents=tuple(documents), annotate=annotate, country_code=country_code,
+                                 profile_id=profile_id)
 
 
 def ai_notice_html(title: str, body: str) -> str:

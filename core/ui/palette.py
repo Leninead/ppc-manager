@@ -85,21 +85,22 @@ def provider_band(prefix: str) -> str:
 
 def band_header_html(*, title: str, tag: str, right: str,
                      dimmed: bool = False) -> str:
-    """Header row of a band: title + kind tag on the left, status on the right.
+    """Header row of a band: title + kind tag on the left, status on the right,
+    wrapping onto more lines on a phone instead of overlapping.
 
     Emitted as one inline-styled div so the flex context is owned here and
     not by Streamlit's wrapper markup.
     """
     title_color = FG_MUTED if dimmed else FG
     return (
-        f"<div style='display:flex;width:100%;align-items:center;"
+        f"<div style='display:flex;flex-wrap:wrap;width:100%;align-items:center;"
         f"justify-content:space-between;min-height:36px;padding-bottom:10px;"
-        f"border-bottom:1px solid {LINE};margin-bottom:6px;gap:12px;'>"
-        f"<span style='display:flex;align-items:center;gap:10px;min-width:0;'>"
+        f"border-bottom:1px solid {LINE};margin-bottom:6px;gap:6px 12px;'>"
+        f"<span style='display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;min-width:0;'>"
         f"<span style='font-size:15px;font-weight:600;letter-spacing:-0.005em;"
         f"color:{title_color};'>{title}</span>"
         f"<span style='font-size:11px;font-weight:600;letter-spacing:0.08em;"
-        f"color:{FG_SUBTLE};text-transform:uppercase;white-space:nowrap;'>{tag}</span>"
+        f"color:{FG_SUBTLE};text-transform:uppercase;'>{tag}</span>"
         f"</span>"
         f"<span style='white-space:nowrap;'>{right}</span>"
         f"</div>"

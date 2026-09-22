@@ -38,6 +38,8 @@ from typing import Any
 
 import pandas as pd
 
+from core.bulk.keyword_text import negative_keyword_text_problem
+
 
 # ============================================================================
 # Constantes publicas
@@ -556,9 +558,6 @@ def validate_bulk(df: pd.DataFrame) -> list[ErrorBulk]:
 
     No muta el df recibido (INV-8).
     """
-    # core.bulk.export imports this module at load time, so the shared keyword-text limits are imported here.
-    from core.bulk.export import negative_keyword_text_problem
-
     errores: list[ErrorBulk] = []
 
     if df is None or len(df) == 0:
