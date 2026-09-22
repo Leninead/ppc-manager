@@ -2854,6 +2854,96 @@ def auto_detect_seasonality(rows: list[dict]) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Riesgo de estacionalidad distorsionada (Opción 3 — solo aviso, 2026-09-22)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# `auto_detect_seasonality` promedia cada mes-del-año sobre todos los años SIN quitar
+# la tendencia. Con crecimiento YoY fuerte, un mes que todavía no tiene dato del año
+# en curso solo promedia años viejos (más bajos): su índice queda artificialmente
+# bajo y el forecast de ese mes sale subestimado. Ej. negocio plano, 20 meses, +120%
+# YoY → índice de septiembre 0.714 en vez de 1.00.
+#
+# El cálculo NO se toca acá (fix de fondo pendiente de datos reales y enfoque): esto
+# solo detecta la condición para avisar en la UI.
+
+# Crecimiento YoY a partir del cual se avisa. Con 20 meses de historia la distorsión
+# del índice de un mes sin dato del año es ~3/(3+g): +50% → índice 0.857 (proyección
+# ~14% baja), que ya supera el ruido normal del MoM. Por debajo, el sesgo es chico.
+_SEASON_RISK_YOY_MIN = 0.50
+# Cuántos de los últimos meses con dato (y con su par del año anterior) miden el YoY.
+_SEASON_RISK_VENTANA = 3
+
+
+def _detectar_riesgo_estacionalidad(historical: list[dict],
+                                    forecast: list[dict]) -> Optional[dict]:
+    """¿El forecast aplicó índices de estacionalidad sesgados por crecimiento?
+
+    Condición (las tres a la vez):
+      1. YoY fuerte: los últimos `_SEASON_RISK_VENTANA` meses con dato que tienen su
+         mismo mes del año anterior crecen más de `_SEASON_RISK_YOY_MIN` (sumados).
+      2. Hay meses del forecast sin NINGUNA observación en el año en curso (el año del
+         último dato del historial).
+      3. En esos meses el forecast aplicó un factor de estacionalidad (!= 1.0). Así no
+         avisa sobre un forecast generado sin estacionalidad.
+
+    Returns:
+        None si no hay riesgo; si no, {"anio", "meses": [nombres], "yoy": float}.
+    """
+    revenue_por_mes: dict[tuple[int, int], float] = {}
+    for r in historical:
+        try:
+            d = date.fromisoformat(str(r["date"])[:10])
+        except (ValueError, KeyError, TypeError):
+            continue
+        revenue_por_mes[(d.year, d.month - 1)] = _js_number(r.get("revenue"))
+    if not revenue_por_mes or not forecast:
+        return None
+
+    # (1) YoY de los últimos meses con dato que tienen par del año anterior.
+    pares = [
+        (rev, revenue_por_mes[(y - 1, m)])
+        for (y, m), rev in sorted(revenue_por_mes.items(), reverse=True)
+        if revenue_por_mes.get((y - 1, m), 0) > 0
+    ][:_SEASON_RISK_VENTANA]
+    if not pares:
+        return None
+    yoy = sum(a for a, _ in pares) / sum(b for _, b in pares) - 1.0
+    if not yoy > _SEASON_RISK_YOY_MIN:
+        return None
+
+    # (2) + (3) Meses del forecast sin dato del año en curso, con índice aplicado.
+    anio = max(y for y, _ in revenue_por_mes)
+    meses_con_dato = {m for y, m in revenue_por_mes if y == anio}
+    meses: list[int] = []
+    for f in forecast:
+        try:
+            m = int(f.get("month"))
+        except (TypeError, ValueError):
+            continue
+        aplicado = abs(_js_number(f.get("seasonality")) - 1.0) > 1e-9
+        if m not in meses_con_dato and aplicado and m not in meses:
+            meses.append(m)
+    if not meses:
+        return None
+
+    return {"anio": anio, "meses": [_MONTHS_FULL[m] for m in meses], "yoy": yoy}
+
+
+def _mensaje_riesgo_estacionalidad(riesgo: dict) -> str:
+    """Texto del st.warning para un riesgo detectado."""
+    meses = riesgo["meses"]
+    lista = meses[0] if len(meses) == 1 else f"{', '.join(meses[:-1])} y {meses[-1]}"
+    verbo = "no tiene" if len(meses) == 1 else "no tienen"
+    return (
+        "⚠️ La estacionalidad puede estar distorsionando esta proyección porque "
+        f"{lista} {verbo} datos de {riesgo['anio']} (la cuenta crece "
+        f"+{riesgo['yoy'] * 100:.0f}% interanual en los últimos meses, y esos meses "
+        "solo se comparan contra años más bajos). Si el número no te cierra, probá "
+        "destildar estacionalidad o revisar el override manual."
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Wrapper Streamlit → motor puro (F3)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -5410,6 +5500,12 @@ def _render_forecast_section(cur: dict) -> None:
             st.rerun()
         else:
             st.warning("No se generó el forecast (sin historial o sin cliente activo).")
+
+    # Aviso de estacionalidad sesgada por crecimiento (solo aviso; el cálculo no cambia).
+    riesgo = _detectar_riesgo_estacionalidad(cur.get("historical", []),
+                                             cur.get("forecast", []))
+    if riesgo is not None:
+        st.warning(_mensaje_riesgo_estacionalidad(riesgo))
 
     st.markdown("")
     _render_forecast_table(cur)
