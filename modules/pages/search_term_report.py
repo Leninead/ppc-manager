@@ -26,24 +26,21 @@ from core.integrations.sync_jobs import SyncJobStore
 from core.currency_format import currency_symbol, money
 from core.excel_text import force_text_cells
 from core.ui.kpi_grid import Kpi, render_kpi_grid
-from core.search_term.analysis import (
-    ANALYSIS_MODULE,
-    CANONICAL_LANG,
-    CANONICAL_WINDOW_DAYS,
+from core.search_term.analysis import ANALYSIS_MODULE, CANONICAL_LANG, CANONICAL_WINDOW_DAYS, build_analysis_input
+from core.search_term.candidates import (
     DEFAULT_HARVEST_MIN_CLICKS,
     DEFAULT_PRODUCT_PRICE,
     DEFAULT_TARGET_ACOS,
     StrAnalysisParams,
-    build_analysis_input,
     normalized_brand_terms,
     rule_two_cvr,
     sorted_harvest,
 )
-from core.search_term.analysis import detect_columns as _detect_cols
-from core.search_term.analysis import harvest_candidate_rows as _harvest_candidate_rows
-from core.search_term.analysis import negative_candidate_rows as _negative_candidate_rows
-from core.search_term.analysis import numeric_column as _to_num
-from core.search_term.analysis import uses_dollar_price as _uses_dollar_price
+from core.search_term.candidates import detect_columns as _detect_cols
+from core.search_term.candidates import harvest_candidate_rows as _harvest_candidate_rows
+from core.search_term.candidates import negative_candidate_rows as _negative_candidate_rows
+from core.search_term.candidates import numeric_column as _to_num
+from core.search_term.candidates import uses_dollar_price as _uses_dollar_price
 from core.search_term.frame import SOURCE_FILE
 from core.search_term.negatives import (
     ACTION_NEGATIVE,
@@ -54,8 +51,17 @@ from core.search_term.negatives import (
     negative_key,
     select_for_bulk,
 )
+from core.chat.screen_selection import (
+    FROM_AMAZON_ADS,
+    FROM_HAND_UPLOAD,
+    HAND_UPLOAD_NOTE,
+    OLDER_DATA_NOTE,
+    ScreenSelection,
+    ToolCall,
+    account_window,
+)
 from modules.pages import search_term_source
-from modules.pages.search_term_source import DISPLAY_TIMEZONE, date_range_label, render_source_picker
+from modules.pages.search_term_source import DISPLAY_TIMEZONE, date_range_label, render_source_picker, shows_older_data
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +83,7 @@ _INPUT_KEYS = (
 _PRICE_KEY_PREFIXES = ("neg_precio", "harv_precio")
 _PARKED_INPUTS_KEY = "str_parked_inputs"
 _PORTFOLIO_OPTIONS_KEY = "str_portfolio_filter_options"
+MODULE_LABEL = "Search Term Report"
 
 
 def _price_key(base_key, currency_code):
@@ -820,6 +827,34 @@ def _analysis_chat_context(source, stored):
     return docs, key
 
 
+def screen_selection(source, *, target_acos, price, harvest_price, harvest_target_acos, harvest_min_clicks,
+                     portfolios=(), older_data=False) -> ScreenSelection:
+    """What the chat reads about this screen: the account, the days, the values and the calls behind its figures."""
+    currency_code = source.currency_code
+    values = [("target ACoS de negativos", f"{target_acos}%"),
+              ("precio del producto", money(price, currency_code) if price else "sin precio"),
+              ("target ACoS de harvest", f"{harvest_target_acos}%"),
+              ("precio de harvest", money(harvest_price, currency_code) if harvest_price else "sin precio"),
+              ("clicks mínimos para CVR alto", str(harvest_min_clicks))]
+    if portfolios:
+        values.append(("portfolios filtrados", ", ".join(portfolios)))
+    if source.source == SOURCE_FILE:
+        return ScreenSelection(module=MODULE_LABEL, account=source.label, source=FROM_HAND_UPLOAD, values=tuple(values),
+                               notes=(HAND_UPLOAD_NOTE,))
+    window = account_window(source.profile_id, source.window_start, source.window_end)
+    only_portfolios = (("portfolios", list(portfolios)),) if portfolios else ()
+    negatives = ToolCall("search_term_candidates", window + (("section", "negatives"),)
+                         + ((("price", price),) if price else ()) + only_portfolios)
+    harvest = ToolCall("search_term_candidates", window + (("section", "harvest"),)
+                       + ((("harvest_price", harvest_price),) if harvest_price else ())
+                       + (("harvest_target_acos", harvest_target_acos), ("harvest_min_clicks", harvest_min_clicks))
+                       + only_portfolios)
+    return ScreenSelection(module=MODULE_LABEL, account=source.label, source=FROM_AMAZON_ADS,
+                           profile_id=source.profile_id,
+                           window_start=source.window_start, window_end=source.window_end, values=tuple(values),
+                           calls=(negatives, harvest), notes=(OLDER_DATA_NOTE,) if older_data else ())
+
+
 def _share_stored_analysis(source, stored, state) -> None:
     """The app chat reads the account's analysis on screen and its earlier ones, and whether there is one."""
     from ai.config import AI_ENABLED
@@ -928,6 +963,7 @@ def render():
         _park_inputs(_all_input_keys())
         from core.chat import app_chat
         app_chat.withdraw_analysis("str")
+        app_chat.withdraw_selection()
         return
 
     df_raw = source.frame
@@ -1812,3 +1848,10 @@ def render():
         _share_stored_analysis(source, stored_analysis, stored_state or app_chat.AnalysisState.MISSING)
     elif analysis is None:
         app_chat.withdraw_analysis("str")
+    filtered_portfolios = (tuple(selected_ports)
+                           if portfolios and selected_ports and len(selected_ports) < len(portfolios) else ())
+    app_chat.share_selection(screen_selection(
+        source, target_acos=int(target_acos), price=precio_producto, harvest_price=harv_precio,
+        harvest_target_acos=int(harv_target_acos), harvest_min_clicks=int(harv_min_clicks),
+        portfolios=filtered_portfolios,
+        older_data=source.source != SOURCE_FILE and shows_older_data("str", source.profile_id)))

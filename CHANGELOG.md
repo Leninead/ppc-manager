@@ -6,6 +6,56 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Análisis de Funnel con datos de Amazon Ads, y el chat recuerda lo que el AM miró en cada módulo (2026-09-21)
+
+**Funnel sin archivos.** El Search Term Report y las campañas llegan de Amazon Ads con una sola elección de cuenta,
+país y período: el picker del STR elige y `render_campaigns_for` lee las campañas de esa misma cuenta y ventana, con
+su propia frescura. El STR y el Campaign CSV subidos a mano quedan como respaldo. Con datos de la API el cruce va por
+Campaign ID (una campaña renombrada en el período ya no se parte en «activa sin tráfico» y «no encontrada») y cubre
+sólo Sponsored Products, también con archivo: el reporte de search terms no trae términos de SB ni de SD, que antes
+salían como campañas activas sin tráfico. Las columnas se detectan como en M2, así que Harvesting ya no se corta en
+cuentas vendor (atribución de 14 días) y el archivo acepta el CSV nuevo de la consola. La página pasa a cuatro tabs
+(Cobertura, Campañas sugeridas, Harvesting, Análisis IA); las campañas sugeridas traen clicks, gasto, órdenes y ventas
+y van por gasto; en Harvesting el CVR se recalcula del total del término, en vez de sumar los porcentajes de sus filas,
+y la columna «En campaña activa» dice si el término todavía corre en alguna campaña habilitada.
+
+**Análisis IA del Funnel.** Agente nuevo `ai/agents/funnel` (filas `F01…` en una sola numeración para harvest,
+términos de campañas inactivas y campañas activas sin tráfico): corre en memoria, a pedido, y se comparte con el chat
+con la cuenta y el país. Sus Parámetros traen las órdenes y ventas de los search terms de campañas activas y de las
+pausadas o inexistentes: en la prueba local, sin ese reparto, la IA afirmó que casi todo lo vendido salía de campañas
+apagadas cuando la mayor parte venía de una activa.
+
+**Picker en el teléfono.** El encabezado de los bloques (`band_header_html`) y la fila de acciones del picker bajan
+de línea a 375px en vez de pisarse o empujar «Subir archivo manualmente» fuera de la pantalla; cuando entran en una
+línea se ven como antes. Afecta a todas las páginas con el picker, a Cuentas conectadas y al Registro de solicitudes.
+
+**El chat recuerda la navegación.** Cada módulo publica lo que tiene seleccionado —cuenta, fechas, fuente, valores y
+la llamada al MCP que trae sus cifras— y la nota de cada pregunta lleva la de la pantalla abierta y las de los últimos
+módulos visitados (`core/chat/screen_selection.py`). No entra en la clave de sesión: cambiar de cuenta o de período no
+reinicia la conversación. Publican su selección el Funnel, el Search Term Report, el Bid Optimizer, PPC Insights,
+Bulk Campañas, SQP y DataDive. El Registro de solicitudes toma la cuenta de esa selección cuando la página no comparte
+un análisis: antes, una pregunta en PPC Insights, en Bulk Campañas o en el Bid Optimizer con otro target quedaba sin
+cuenta. Los chips de `campaign_health` e `idle_targets` dicen qué leyeron («Diagnóstico de campañas», «Targets sin
+impresiones») y un test exige etiqueta para toda herramienta nueva del MCP.
+
+**El MCP expone lo que calcula cada módulo, con sus mismas reglas.** Herramientas nuevas: `funnel_coverage`,
+`search_term_candidates`, `bid_suggestions` y `asin_health`; `campaign_health` e `idle_targets` aceptan
+`date_from`/`date_to`, y `campaign_health` los umbrales de la pantalla. Con fechas, los días provisorios siguen
+siendo los últimos sincronizados de la cuenta: una ventana que termina antes no tiene ninguno. Una suite de 30
+preguntas al chat mostró lo que el modelo deducía mal y ahora le llega como dato: el estado de la campaña de cada
+search term (lo sacaba del nombre, que puede ser viejo), los totales de cada lista (los sumaba), la regla con sus
+umbrales de cada diagnóstico de Bulk Campañas (la reconstruía al revés), el día de hoy en la zona de cada cuenta (usaba
+el UTC del servidor y decía que faltaban días) y si los parámetros son los guardados o los valores por defecto. Cada
+negativo de `search_term_candidates` dice además si entra al bulk del Search Term Report y, si no, la razón del
+módulo, con `totals_in_bulk` para lo que suma el bulk: el chat prometía liberar el gasto de negativos que la página
+nunca sube (de una campaña pausada, de la keyword propia del ad group o de una keyword Exact). Las filas del STR de
+`get_analysis` traen el estado que su campaña tiene hoy, y `finished_at` sale en la hora de la cuenta. El
+prompt del chat suma reglas para no armar cocientes ni juicios sin referencia. Para que la imagen del MCP pueda leer esas
+reglas sin agentes ni openpyxl, se separaron del armado de los payloads IA sin cambiar ningún resultado
+(`core/search_term/candidates.py`, `core/bid_optimizer/bids.py`, los parámetros de PPC Insights en `asin_health.py`,
+el límite de texto de negativos en `core/bulk/keyword_text.py`); un test fija la huella de los payloads de STR, Bid
+Optimizer y PPC Insights para que los análisis guardados se sigan encontrando.
+
 ### Added — PPC Insights con datos de Amazon Ads: picker, ASIN por producto anunciado, análisis IA y chat (2026-09-21)
 
 PPC Insights deja de pedir el Search Term Report a mano: lo toma del picker de Amazon Ads (cuenta, país y período),

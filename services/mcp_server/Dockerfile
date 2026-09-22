@@ -24,6 +24,12 @@ COPY --chown=mcp:mcp core/amazon_ads/ core/amazon_ads/
 COPY --chown=mcp:mcp core/ai_analysis/ core/ai_analysis/
 COPY --chown=mcp:mcp core/date_labels.py core/
 COPY --chown=mcp:mcp core/search_term/__init__.py core/search_term/frame.py core/search_term/analysis.py core/search_term/
+# The rules the module tools run: the same files the pages import, never a copy of their logic.
+COPY --chown=mcp:mcp core/search_term/candidates.py core/search_term/negatives.py core/search_term/
+COPY --chown=mcp:mcp core/bulk/__init__.py core/bulk/keyword_text.py core/bulk/
+COPY --chown=mcp:mcp core/funnel/__init__.py core/funnel/coverage.py core/funnel/
+COPY --chown=mcp:mcp core/bid_optimizer/__init__.py core/bid_optimizer/bids.py core/bid_optimizer/
+COPY --chown=mcp:mcp core/ppc_insights/__init__.py core/ppc_insights/asin_health.py core/ppc_insights/
 COPY --chown=mcp:mcp services/mcp_server/ services/mcp_server/
 # Sólo el nombre de las filas (N03 -> su término), no los agentes: row_annotation es Python puro.
 COPY --chown=mcp:mcp ai/__init__.py ai/

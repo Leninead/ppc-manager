@@ -30,7 +30,7 @@ import threading
 from functools import partial
 
 from core.integrations.store import _Rest
-from services.mcp_server.tools import amazon_ads, analyses
+from services.mcp_server.tools import amazon_ads, analyses, module_results
 
 log = logging.getLogger(__name__)
 
@@ -87,8 +87,9 @@ def build_tools(rest) -> list:
     # ve el modelo; un lambda se la comería y las herramientas llegarían sin tipos.
     return [
         _tool("list_accounts",
-              "Las cuentas de Amazon Ads sincronizadas, con país, moneda y hasta qué día tienen datos. "
-              "Empezá por acá para saber qué profile_id usar en las demás herramientas.",
+              "Las cuentas de Amazon Ads sincronizadas, con país, moneda, hasta qué día tienen datos, qué día es "
+              "hoy en cada una (today, en su zona horaria) y si sus datos están al día (up_to_date). Empezá "
+              "por acá para saber qué profile_id usar en las demás herramientas.",
               partial(amazon_ads.list_accounts, rest)),
         _tool("accounts_overview",
               "Los totales de TODAS las cuentas de Amazon Ads en una llamada: gasto, ventas, órdenes, clicks, "
@@ -99,16 +100,20 @@ def build_tools(rest) -> list:
               partial(amazon_ads.accounts_overview, rest)),
         _tool("list_analyses",
               "Índice de análisis de IA guardados: qué cuentas y qué módulos tienen uno, de qué período, "
-              "con qué target de ACoS y su situación en pocas líneas. Alcanza para comparar lo que dicen "
-              "los análisis de varias cuentas en una llamada. Pasá profile_id para una sola cuenta.",
+              "con qué target de ACoS, su situación en pocas líneas y cuándo terminó, en la hora de la cuenta "
+              "(finished_at). Alcanza para comparar lo que dicen los análisis de varias cuentas en una llamada. "
+              "Pasá profile_id para una sola cuenta.",
               partial(analyses.list_analyses, rest)),
         _tool("get_analysis",
-              "El último análisis guardado de una cuenta y un módulo: su síntesis y las filas que citó. "
-              "Módulos posibles: " + ", ".join(analyses.MODULES) + ".",
+              "El último análisis guardado de una cuenta y un módulo: su síntesis y las filas que citó. Las del "
+              "Search Term Report traen el estado que su campaña tiene hoy (campaign_state), no si un negativo "
+              "entra al bulk: eso lo da search_term_candidates. Módulos posibles: " + ", ".join(analyses.MODULES)
+              + ".",
               partial(analyses.get_analysis, rest)),
         _tool("top_search_terms",
-              "Los search terms de mayor gasto de una cuenta de Amazon Ads en los últimos días. "
-              "Devuelve una página; si hay más, lo dice y da el offset siguiente.",
+              "Los search terms de mayor gasto de una cuenta de Amazon Ads en los últimos días, cada uno con el "
+              "estado actual de su campaña (Campaign Status). Devuelve una página; si hay más, lo dice y da el "
+              "offset siguiente.",
               partial(amazon_ads.top_search_terms, rest)),
         _tool("daily_metrics",
               "La serie diaria de una cuenta de Amazon Ads: gasto, ventas, órdenes, clicks, ACoS y CVR por día, "
@@ -138,15 +143,49 @@ def build_tools(rest) -> list:
               "de puja, su presupuesto y sus métricas. Sale de la foto de campañas, así que cuenta también las que no "
               "tuvieron actividad, que breakdown no ve. Es lo que hace falta para contestar qué campañas pausar, "
               "escalar o revisar, cuáles no entregan o cuáles se quedan sin presupuesto. product acota todo a SP, SB "
-              "o SD; diagnosis y signal filtran filas; counts y totals cubren todas las habilitadas del alcance.",
+              "o SD; diagnosis y signal filtran filas; counts y totals cubren todas las habilitadas del alcance; "
+              "parameters.rules dice la regla y los umbrales de cada diagnóstico. "
+              "date_from y date_to (AAAA-MM-DD) piden el período exacto que el AM tiene en pantalla, y target_acos, "
+              "spend_to_pause y min_orders_to_scale, sus umbrales.",
               partial(amazon_ads.campaign_health, rest)),
         _tool("idle_targets",
               "Target Graduation de una cuenta de Amazon Ads: los keywords y targets habilitados, de campañas "
               "habilitadas de Sponsored Products, Brands y Display, que no tuvieron una impresión en los últimos "
               "días, con su campaña, tipo, match type y bid. counts dice por producto cuántos se miraron y cuántos "
               "no tuvieron impresiones. Es lo que hace falta para contestar qué targets pausar o a cuáles subirles "
-              "la puja. product acota a SP, SB o SD.",
+              "la puja. product acota a SP, SB o SD; date_from y date_to (AAAA-MM-DD), el período exacto.",
               partial(amazon_ads.idle_targets, rest)),
+        _tool("funnel_coverage",
+              "Análisis de Funnel de una cuenta de Amazon Ads, con las mismas reglas del módulo: las campañas "
+              "activas de Sponsored Products que no tuvieron ni un search term con clicks (section=idle_campaigns), "
+              "los search terms que vinieron de campañas pausadas o que ya no existen, con la campaña sugerida para "
+              "cada uno (gap_terms), y los términos para cosechar como keyword, con su match type sugerido y si "
+              "corren en alguna campaña activa (harvest). counts trae las tres listas y las órdenes y ventas de los "
+              "search terms de campañas activas, de las pausadas o inexistentes y de todos. Para lo que el AM ve en "
+              "pantalla, usá su date_from, date_to, min_orders y match_type.",
+              partial(module_results.funnel_coverage, rest)),
+        _tool("search_term_candidates",
+              "Los candidatos del Search Term Report de una cuenta de Amazon Ads, con las mismas reglas del módulo: "
+              "a negativizar, con su regla, su acción y su prioridad (section=negatives), o a harvest, con su regla, "
+              "su prioridad y el bid sugerido (section=harvest), cada uno con el estado actual de su campaña y la "
+              "sección sumada en totals. Cada negativo dice si entra al bulk del módulo (in_bulk) y, si no, por qué "
+              "(bulk_exclusion); totals_in_bulk suma sólo los que entran. Arranca de los parámetros guardados de la "
+              "cuenta, o de los valores por "
+              "defecto del módulo si no guardó ninguno; price, harvest_price, harvest_target_acos, "
+              "harvest_min_clicks y portfolios los reemplazan. Para lo que el AM ve en pantalla, usá sus fechas y "
+              "sus valores.",
+              partial(module_results.search_term_candidates, rest)),
+        _tool("bid_suggestions",
+              "El Bid Optimizer de una cuenta de Amazon Ads, con las mismas reglas del módulo: el bid sugerido de "
+              "cada ASIN (CVR × precio × target ACoS) y su semáforo por CVR, con el precio promedio de venta del "
+              "período, de mayor a menor gasto. target_acos reemplaza el guardado de la cuenta.",
+              partial(module_results.bid_suggestions, rest)),
+        _tool("asin_health",
+              "PPC Insights de una cuenta de Amazon Ads, con las mismas reglas del módulo: el health score (0-100) de "
+              "cada ASIN con sus partes, su gasto, ACoS, CVR y el gasto de sus términos que no vendieron, de mayor a "
+              "menor gasto. Sin el SQP, el Business Report ni el Campaign CSV, que se suben a mano en el módulo: "
+              "esas partes del score valen su punto neutro. target_acos reemplaza el guardado de la cuenta.",
+              partial(module_results.asin_health, rest)),
     ]
 
 

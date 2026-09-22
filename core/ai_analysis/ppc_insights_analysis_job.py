@@ -11,13 +11,8 @@ from core.ai_analysis.analysis_runner import AnalysisRunner, PreparedAnalysis
 from core.ai_analysis.store import AnalysisSettings, analysis_job_kind
 from core.amazon_ads.report_provider import ProfileOption
 from core.date_labels import date_range_label
-from core.ppc_insights.analysis import (
-    ANALYSIS_MODULE,
-    CANONICAL_LANG,
-    InsightsAnalysisParams,
-    build_analysis_input,
-    canonical_analysis_window,
-)
+from core.ppc_insights.analysis import ANALYSIS_MODULE, CANONICAL_LANG, build_analysis_input, canonical_analysis_window
+from core.ppc_insights.asin_health import InsightsAnalysisParams
 
 JOB_KIND = analysis_job_kind(ANALYSIS_MODULE)
 DATA_CHANGED_ERROR = ("Los datos de la cuenta cambiaron desde que se pidió el análisis. Cargá los datos nuevos en "

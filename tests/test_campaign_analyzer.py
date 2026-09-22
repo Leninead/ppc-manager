@@ -113,6 +113,18 @@ class TestTrafficLight:
 
         assert list(campaigns["Diagnóstico"]) == [PAUSE, REVIEW]
 
+    def test_the_rules_say_the_thresholds_the_light_applies(self):
+        strict = CampaignAnalyzerParams(target_acos=20.0, spend_to_pause=10.0, min_orders_to_scale=5)
+        # 10.6% is over half of a 20% target: enough orders, and still OK, as its rule says.
+        campaigns = _diagnosed([_campaign("1", cost=10.6, purchases=14, sales=100.0)], strict)
+
+        rules = analyzer.diagnosis_rules(strict, has_impressions=True)
+
+        assert list(campaigns["Diagnóstico"]) == [OK]
+        assert list(rules) == ["FANTASMA", "PAUSAR", "REVISAR", "ESCALAR", "OK"]
+        assert rules["ESCALAR"] == "con 5 órdenes o más y un ACoS de 10% o menos (la mitad del target)"
+        assert analyzer.diagnosis_rules(strict, has_impressions=False)["FANTASMA"].endswith("sin clicks en el período")
+
 
 class TestSignals:
     def test_a_campaign_within_target_that_hit_its_budget_three_days_is_held_back_by_it(self):

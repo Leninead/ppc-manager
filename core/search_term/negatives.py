@@ -20,7 +20,7 @@ from core.amazon_ads.report_provider import (
     ORIGIN_PHRASE,
     ORIGIN_PRODUCT_TARGETING,
 )
-from core.bulk.export import negative_keyword_text_problem
+from core.bulk.keyword_text import negative_keyword_text_problem
 from core.search_term.frame import ANY_WINDOW_PURCHASES, PORTFOLIO_NAME_MISSING, SEARCH_TERM, orders_column
 
 ACTION_NEGATIVE = "Negativo"

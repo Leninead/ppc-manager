@@ -11,7 +11,8 @@ from streamlit.testing.v1 import AppTest
 from core.ai_analysis.store import StoredAnalysis
 from core.amazon_ads.advertised_asins import FROM_AD_GROUP, SEVERAL_ASINS, WITHOUT_ASIN
 from core.helpers import kpi_card
-from core.ppc_insights.analysis import InsightsAnalysisParams, build_analysis_input
+from core.ppc_insights.analysis import build_analysis_input
+from core.ppc_insights.asin_health import InsightsAnalysisParams
 from core.ppc_insights.asin_health import ATTRIBUTED, FROM_FILE, NO_ASINS
 from core.search_term.file import SearchTermFileError
 from core.search_term.frame import SOURCE_FILE, console_columns
@@ -186,7 +187,7 @@ import streamlit as st
 from datetime import date
 from types import SimpleNamespace
 from core.ai_analysis import stored_tab
-from core.ppc_insights.analysis import InsightsAnalysisParams
+from core.ppc_insights.asin_health import InsightsAnalysisParams
 st.cache_data.clear()
 fake = st.session_state["fake_rest"]
 params = InsightsAnalysisParams(25, 15.0)

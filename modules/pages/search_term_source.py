@@ -293,6 +293,13 @@ def has_newer_data(pinned: ProfileOption, current: ProfileOption) -> bool:
     return pinned.last_success_at is None or current.last_success_at > pinned.last_success_at
 
 
+def shows_older_data(key_prefix: str, profile_id: str) -> bool:
+    """Whether what this picker keeps on screen for the profile is older than the profile's latest sync."""
+    pinned = st.session_state.get(picker_key(key_prefix, "pinned"), {}).get(profile_id)
+    current = next((option for option in _available_profiles() if option.profile_id == profile_id), None)
+    return pinned is not None and current is not None and has_newer_data(pinned, current)
+
+
 def should_repin(pinned: ProfileOption | None) -> bool:
     """Nothing was loaded yet, so there is nothing to protect from a silent swap."""
     return pinned is None or pinned.data_through is None
@@ -458,11 +465,14 @@ def _actions_css(actions_key: str) -> str:
     """Las dos acciones, en fila y pegadas al borde derecho, cada una del ancho de su texto.
 
     Streamlit apila los botones de un contenedor y sólo sabe estirarlos a todo el ancho: en un
-    panel angosto eso les parte la etiqueta en varias líneas y quedan de distinto alto.
+    panel angosto eso les parte la etiqueta en varias líneas y quedan de distinto alto. En un
+    teléfono, donde Streamlit apila las columnas, si no entran las dos la segunda baja de línea en
+    vez de empujar la primera fuera de la pantalla.
     """
     # La clase st-key- la lleva el propio stVerticalBlock, no un contenedor padre.
     return (f"<style>.st-key-{actions_key}"
             f"{{flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;}}"
+            f"@media (max-width:640px){{.st-key-{actions_key}{{flex-wrap:wrap;}}}}"
             f".st-key-{actions_key} [data-testid='stElementContainer']{{width:auto;}}"
             f".st-key-{actions_key} button{{white-space:nowrap;}}</style>")
 

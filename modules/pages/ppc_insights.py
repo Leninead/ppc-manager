@@ -21,19 +21,22 @@ from core.amazon_ads.report_provider import ReportProvider, ReportReadError
 from core.currency_format import ZERO_DECIMAL, currency_symbol, money
 from core.helpers import kpi_card
 from core.integrations.store import StoreError
-from core.ppc_insights.analysis import (
-    ANALYSIS_MODULE,
-    CANONICAL_LANG,
-    InsightsAnalysisParams,
-    build_analysis_input,
-    insights_row_labels,
-)
-from core.ppc_insights.asin_health import FROM_FILE, NO_ASINS, analyze_asins, resolve_asins
-from core.search_term.analysis import uses_dollar_price
+from core.ppc_insights.analysis import ANALYSIS_MODULE, CANONICAL_LANG, build_analysis_input, insights_row_labels
+from core.ppc_insights.asin_health import FROM_FILE, NO_ASINS, InsightsAnalysisParams, analyze_asins, resolve_asins
+from core.search_term.candidates import uses_dollar_price
 from core.search_term.file import SearchTermFileError
+from core.chat.screen_selection import (
+    FROM_AMAZON_ADS,
+    FROM_HAND_UPLOAD,
+    HAND_UPLOAD_NOTE,
+    OLDER_DATA_NOTE,
+    ScreenSelection,
+    ToolCall,
+    account_window,
+)
 from core.search_term.frame import SOURCE_FILE
 from modules.pages import search_term_source
-from modules.pages.search_term_source import date_range_label, render_source_picker
+from modules.pages.search_term_source import date_range_label, render_source_picker, shows_older_data
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +50,8 @@ _DGRAY = "2D3748"; _MGRAY = "CBD5E0"
 _WHITE = "FFFFFF"
 
 _TARGET_KEY = "insights_target_acos"
+MODULE_LABEL = "PPC Insights"
+_OPTIONAL_FILE_LABELS = {"sqp": "SQP", "br": "Business Report", "camp": "Campaign CSV"}
 _PRICE_KEY = "insights_precio"
 _GENERATED_FOR_KEY = "insights_generated_for"
 _RESULT_KEY = "insights_result"
@@ -518,6 +523,30 @@ def _fmt_opt(val, fmt=".1f", suffix="", none_str="—"):
         return str(val)
 
 
+def screen_selection(source, *, target_acos: int, price, uploaded_files: tuple[str, ...],
+                     older_data: bool) -> ScreenSelection:
+    """What the chat reads about this screen: the account, the days, the values and the call behind its scores."""
+    values = [("target ACoS", f"{target_acos}%"),
+              ("precio promedio", money(price, source.currency_code) if price else "sin precio")]
+    if uploaded_files:
+        values.append(("archivos opcionales", ", ".join(uploaded_files)))
+    if source.source == SOURCE_FILE:
+        return ScreenSelection(module=MODULE_LABEL, account=source.label, source=FROM_HAND_UPLOAD,
+                               values=tuple(values), notes=(HAND_UPLOAD_NOTE,))
+    call = ToolCall("asin_health", account_window(source.profile_id, source.window_start, source.window_end)
+                    + (("target_acos", target_acos),))
+    notes = []
+    if uploaded_files:
+        notes.append(f"{', '.join(uploaded_files)} se subieron a mano y las herramientas no los ven: asin_health "
+                     "calcula el score sin ellos, así que puede diferir del de la pantalla.")
+    if older_data:
+        notes.append(OLDER_DATA_NOTE)
+    return ScreenSelection(module=MODULE_LABEL, account=source.label, source=FROM_AMAZON_ADS,
+                           profile_id=source.profile_id,
+                           window_start=source.window_start, window_end=source.window_end, values=tuple(values),
+                           calls=(call,), notes=tuple(notes))
+
+
 def _period_label(source):
     if source.window_start and source.window_end:
         return date_range_label(source.window_start, source.window_end)
@@ -858,6 +887,7 @@ def render():
     if source is None:
         _empty_state()
         app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        app_chat.withdraw_selection()
         return
 
     uploads = {"sqp": f_sqp, "br": f_br, "camp": f_camp}
@@ -866,6 +896,7 @@ def render():
         st.session_state[_GENERATED_FOR_KEY] = signature
     if st.session_state.get(_GENERATED_FOR_KEY) != signature:
         app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        app_chat.withdraw_selection()
         return
 
     try:
@@ -873,6 +904,7 @@ def render():
     except Exception as e:  # a malformed optional file must end in a message, not a traceback
         log.exception("ppc insights could not be computed")
         st.error(f"Error durante el análisis: {e}")
+        app_chat.withdraw_selection()
         return
     asin_data = insights.asin_data
     for warning in insights.file_warnings:
@@ -880,6 +912,7 @@ def render():
 
     if not asin_data:
         st.warning("No se encontraron ASINs en el STR.")
+        app_chat.withdraw_selection()
         return
 
     if insights.asin_source == NO_ASINS:
@@ -893,6 +926,10 @@ def render():
     show_money = partial(money, currency_code=currency_code)
     money_column = st.column_config.NumberColumn(format=f"{currency_symbol(currency_code)}%.2f")
     params = InsightsAnalysisParams(int(target_acos), precio_promedio)
+    app_chat.share_selection(screen_selection(
+        source, target_acos=int(target_acos), price=precio_promedio,
+        uploaded_files=tuple(label for key, label in _OPTIONAL_FILE_LABELS.items() if uploads[key] is not None),
+        older_data=source.source != SOURCE_FILE and shows_older_data("insights", source.profile_id)))
 
     tab_asins, tab_ai = st.tabs(["Insights por ASIN", "Análisis IA"])
 

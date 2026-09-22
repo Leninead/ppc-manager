@@ -1,36 +1,58 @@
 """The analyses tools: what the chat reads about accounts that are not on screen, now that nothing is pasted."""
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
+import pandas as pd
 import pytest
 
 from core.ai_analysis.store import StoredAnalysis
-from core.amazon_ads.report_provider import ProfileOption
+from core.amazon_ads.report_provider import ProfileOption, ReportReadError
+from core.search_term import frame as canonical
 from services.mcp_server.tools import analyses
 
 
-def _profile(profile_id: str, cliente: str, country: str = "US") -> ProfileOption:
+def _profile(profile_id: str, cliente: str, country: str = "US", zone: str = "UTC") -> ProfileOption:
     return ProfileOption(profile_id=profile_id, account_id=1, cliente=cliente, account_name=cliente,
-                         country_code=country, currency_code="USD", account_type="seller", timezone="UTC",
+                         country_code=country, currency_code="USD", account_type="seller", timezone=zone,
                          status="active", data_from=date(2026, 7, 1), data_through=date(2026, 9, 16),
                          refreshed_on=None, last_success_at=None, last_error="")
 
 
 def _stored(profile_id: str, module: str = "str", *, situation: str = "", params=None, negatives=(),
-            harvest=(), records=(), synthesis=None) -> StoredAnalysis:
+            harvest=(), records=(), synthesis=None,
+            finished_at=datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)) -> StoredAnalysis:
     return StoredAnalysis(
         id=1, module=module, subject_id=profile_id, window_start=date(2026, 8, 18), window_end=date(2026, 9, 16),
         lang="es", params=params or {}, params_digest="", input_digest="", agent_version="", status="done",
         trigger="scheduled", requested_by="", job_id=None, source_last_success_at=None,
         result={"synthesis": synthesis or {"situation": situation}}, model="", duration_ms=None, created_at=None,
-        finished_at=datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc),
+        finished_at=finished_at,
         negative_records=list(negatives), harvest_records=list(harvest), records=list(records))
 
 
+def _report_row(term: str, campaign: str, state: str) -> dict:
+    return {canonical.SEARCH_TERM: term, canonical.CAMPAIGN_NAME: campaign, canonical.AD_GROUP_NAME: "AG",
+            "_campaign_status": state}
+
+
+@dataclass
+class FakeProvider:
+    """The accounts, and the search term report it answers with; `reads` keeps each window it was asked for."""
+    profiles: list = field(default_factory=lambda: [_profile("1", "wamery"), _profile("2", "harrick")])
+    search_terms: list = field(default_factory=list)
+    reads: list = field(default_factory=list)
+    error: Exception | None = None
+
+
 @pytest.fixture
-def data(monkeypatch):
-    profiles = [_profile("1", "wamery"), _profile("2", "harrick")]
+def provider():
+    return FakeProvider()
+
+
+@pytest.fixture
+def data(monkeypatch, provider):
     stored = {module: {} for module in analyses.MODULES}
 
     class _Provider:
@@ -38,7 +60,16 @@ def data(monkeypatch):
             pass
 
         def profiles(self):
-            return profiles
+            return provider.profiles
+
+        def search_terms(self, option, start, end):
+            provider.reads.append((option.profile_id, start, end))
+            if provider.error:
+                raise provider.error
+            frame = pd.DataFrame(provider.search_terms, columns=list(_report_row("", "", "")))
+            return canonical.SearchTermSource(frame=frame, source=canonical.SOURCE_API, currency_code="USD",
+                                              label=option.label, signature="test", attribution_days=7,
+                                              bulk_ready=True)
 
     class _Store:
         def __init__(self, rest):
@@ -96,7 +127,7 @@ def test_every_row_of_an_analysis_carries_its_row_id(data):
     rows = analyses.get_analysis(object(), profile_id="1", module="str")["rows"]
 
     assert [row["row_id"] for row in rows["negativos"]["rows"]] == ["N01", "N02"]
-    assert rows["harvest"]["rows"][0] == {"row_id": "H01", "Search Term": "serrated"}
+    assert rows["harvest"]["rows"][0] == {"row_id": "H01", "Search Term": "serrated", "campaign_state": ""}
 
 
 def test_the_synthesis_names_the_term_behind_each_row_id_it_cites(data):
@@ -148,4 +179,51 @@ def test_an_analysis_without_risks_says_so_with_an_empty_list(data):
     data["str"]["1"] = _stored("1", situation="s")
 
     assert analyses.list_analyses(object())["rows"][0]["risks"] == []
+
+
+class TestSearchTermRowsSayTheStateOfTheirCampaignToday:
+    """The saved rows only name the campaign («Viejo», «Pausada»): the chat promised spend a paused one never frees."""
+
+    def test_each_row_carries_the_state_its_campaign_has_now(self, data, provider):
+        provider.search_terms = [_report_row("sleep sack", "Luna - BROAD - Pausada", "PAUSED"),
+                                 _report_row("luna pajamas", "Luna - EXACT - Viejo", "ENABLED")]
+        data["str"]["1"] = _stored(
+            "1", negatives=[{"Search Term": "sleep sack", "Campaign": "Luna - BROAD - Pausada", "Ad Group": "AG"}],
+            harvest=[{"Search Term": "luna pajamas", "Campaign": "Luna - EXACT - Viejo", "Ad Group": "AG"}])
+
+        payload = analyses.get_analysis(object(), profile_id="1", module="str")
+
+        assert payload["rows"]["negativos"]["rows"][0]["campaign_state"] == "PAUSED"
+        assert payload["rows"]["harvest"]["rows"][0]["campaign_state"] == "ENABLED"
+        assert provider.reads == [("1", date(2026, 8, 18), date(2026, 9, 16))]
+
+    def test_when_the_report_cannot_be_read_the_rows_go_without_state_and_the_answer_says_so(self, data, provider):
+        provider.error = ReportReadError("timeout")
+        data["str"]["1"] = _stored("1", negatives=[{"Search Term": "sleep sack", "Campaign": "C", "Ad Group": "AG"}])
+
+        payload = analyses.get_analysis(object(), profile_id="1", module="str")
+
+        assert "campaign_state" not in payload["rows"]["negativos"]["rows"][0]
+        assert payload["campaign_state_note"] == analyses.CAMPAIGN_STATE_UNREAD_NOTE
+
+    def test_modules_without_search_term_rows_read_no_report(self, data, provider):
+        data["bid_optimizer"]["1"] = _stored("1", "bid_optimizer", records=[{"asin": "B0CYLMJJJC"}])
+
+        analyses.get_analysis(object(), profile_id="1", module="bid_optimizer")
+
+        assert provider.reads == []
+
+
+def test_finished_at_is_on_each_accounts_clock_and_the_index_orders_by_the_instant(data, provider):
+    """02:08 UTC on the 22nd is still the 21st in Los Angeles: the chat said the analysis ended a day ahead."""
+    provider.profiles = [_profile("1", "wamery", zone="America/Los_Angeles"),
+                         _profile("2", "harrick", country="JP", zone="Asia/Tokyo")]
+    data["str"]["1"] = _stored("1", finished_at=datetime(2026, 9, 22, 2, 8, tzinfo=timezone.utc))
+    data["str"]["2"] = _stored("2", finished_at=datetime(2026, 9, 21, 20, 0, tzinfo=timezone.utc))
+
+    rows = analyses.list_analyses(object())["rows"]
+
+    assert [(row["profile_id"], row["finished_at"]) for row in rows] == [("1", "2026-09-21T19:08:00-07:00"),
+                                                                         ("2", "2026-09-22T05:00:00+09:00")]
+    assert analyses.get_analysis(object(), profile_id="1", module="str")["finished_at"] == "2026-09-21T19:08:00-07:00"
 

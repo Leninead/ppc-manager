@@ -90,6 +90,16 @@ class CampaignAnalyzerParams:
                 "min_orders_to_scale": int(self.min_orders_to_scale)}
 
     @property
+    def review_acos_above(self) -> float:
+        """A campaign with orders over this ACoS goes to REVISAR: twice the target."""
+        return self.target_acos * 2
+
+    @property
+    def scale_acos_at_most(self) -> float:
+        """A campaign with enough orders at or under this ACoS goes to ESCALAR: half the target."""
+        return self.target_acos * 0.5
+
+    @property
     def digest(self) -> str:
         blob = json.dumps(self.as_dict(), sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -145,11 +155,25 @@ def diagnose(row, params: CampaignAnalyzerParams, *, has_impressions: bool) -> s
         return GHOST
     if orders == 0 and spend >= params.spend_to_pause:
         return PAUSE
-    if orders > 0 and acos > params.target_acos * 2:
+    if orders > 0 and acos > params.review_acos_above:
         return REVIEW
-    if orders >= params.min_orders_to_scale and acos <= params.target_acos * 0.5:
+    if orders >= params.min_orders_to_scale and acos <= params.scale_acos_at_most:
         return SCALE
     return OK
+
+
+def diagnosis_rules(params: CampaignAnalyzerParams, *, has_impressions: bool) -> dict[str, str]:
+    """Each diagnosis with the rule and the thresholds `diagnose` applies, in the order it checks them."""
+    activity = "sin impresiones" if has_impressions else "sin clicks"
+    return {
+        diagnosis_name(GHOST): f"habilitada, sin gasto y {activity} en el período",
+        diagnosis_name(PAUSE): f"sin órdenes y con un gasto de {params.spend_to_pause:g} o más",
+        diagnosis_name(REVIEW): (f"con órdenes y un ACoS de más de {params.review_acos_above:g}% "
+                                 "(el doble del target)"),
+        diagnosis_name(SCALE): (f"con {params.min_orders_to_scale} órdenes o más y un ACoS de "
+                                f"{params.scale_acos_at_most:g}% o menos (la mitad del target)"),
+        diagnosis_name(OK): "las que no cumplen ninguna de las reglas anteriores",
+    }
 
 
 def with_diagnosis(analyzer: AnalyzerFrame, params: CampaignAnalyzerParams) -> pd.DataFrame:

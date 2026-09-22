@@ -11,22 +11,35 @@ from types import SimpleNamespace
 import pandas as pd
 import streamlit as st
 
-from core.bid_optimizer.analysis import (
+from core.bid_optimizer.analysis import bid_ai_records, bid_row_labels
+from core.bid_optimizer.bids import (
     _PLACEMENT_RULES,
     NO_ASIN_WARNING,
     _limpiar_num,
-    bid_ai_records,
-    bid_row_labels,
     bids_by_asin,
     budget_midpoint,
     campaign_placements,
     detect_columns,
     resolve_asin_column,
 )
+from core.chat import app_chat
+from core.chat.screen_selection import (
+    FROM_AMAZON_ADS,
+    FROM_HAND_UPLOAD,
+    HAND_UPLOAD_NOTE,
+    OLDER_DATA_NOTE,
+    ScreenSelection,
+    ToolCall,
+    account_window,
+)
 from core.currency_format import currency_symbol, money
 from core.search_term.frame import SOURCE_FILE
 from core.ui.kpi_grid import Kpi, render_kpi_grid
-from modules.pages.search_term_source import date_range_label, render_source_picker
+from modules.pages.search_term_source import date_range_label, render_source_picker, shows_older_data
+
+MODULE_LABEL = "Bid Optimizer"
+INVENTORY_NOTE = ("El Inventory Report se subió a mano y las herramientas no lo ven: bid_suggestions toma como precio "
+                  "el ticket promedio del período, así que sus bids pueden diferir de los de la pantalla.")
 
 # ══════════════════════════════════════════════════════════════════════
 # AI analysis (capa core/ai_tab sobre el agente ai/agents/bid_optimizer)
@@ -134,6 +147,24 @@ def _empty_state(text):
         unsafe_allow_html=True)
 
 
+def screen_selection(source, *, target_acos: int, inventory_uploaded: bool, older_data: bool) -> ScreenSelection:
+    """What the chat reads about this screen: the account, the days, the target and the call behind its bids."""
+    values = (("target ACoS", f"{target_acos}%"),
+              ("precio", "Inventory Report (precio de lista)" if inventory_uploaded
+               else "ticket promedio del Search Term Report"))
+    if source.source == SOURCE_FILE:
+        return ScreenSelection(module=MODULE_LABEL, account=source.label, source=FROM_HAND_UPLOAD, values=values,
+                               notes=(HAND_UPLOAD_NOTE,))
+    call = ToolCall("bid_suggestions", account_window(source.profile_id, source.window_start, source.window_end)
+                    + (("target_acos", target_acos),))
+    notes = tuple(note for note, applies in ((INVENTORY_NOTE, inventory_uploaded), (OLDER_DATA_NOTE, older_data))
+                  if applies)
+    return ScreenSelection(module=MODULE_LABEL, account=source.label, source=FROM_AMAZON_ADS,
+                           profile_id=source.profile_id,
+                           window_start=source.window_start, window_end=source.window_end, values=values,
+                           calls=(call,), notes=notes)
+
+
 def _period_label(source):
     if source.window_start and source.window_end:
         return date_range_label(source.window_start, source.window_end)
@@ -178,6 +209,7 @@ def render():
              "precio promedio de venta del STR.")
 
     if source is None:
+        app_chat.withdraw_selection()
         return
 
     df = source.frame
@@ -192,9 +224,11 @@ def render():
                if cols[key] is None]
     if missing:
         st.error(f"Faltan columnas en el Search Term Report: {', '.join(missing)}.")
+        app_chat.withdraw_selection()
         return
     if col_asin is None:
         st.warning(NO_ASIN_WARNING)
+        app_chat.withdraw_selection()
         return
 
     precio_map = {}
@@ -214,6 +248,9 @@ def render():
                        "de venta del STR.")
 
     df_asin = bids_by_asin(df, cols, col_asin, target_acos, precio_map)
+    app_chat.share_selection(screen_selection(
+        source, target_acos=int(target_acos), inventory_uploaded=bool(precio_map),
+        older_data=source.source != SOURCE_FILE and shows_older_data("bid_opt", source.profile_id)))
     precio_fuente = "Inventory Report (precio de lista)" if precio_map else "STR (precio promedio de venta)"
 
     money_format = f"{symbol}%.2f"
@@ -431,9 +468,9 @@ def _render_bid_stored_analysis(source, frame, target_acos, currency_code, bid_l
     from ai.agent_call import build_agent_call
     from ai.agents.bid_optimizer import chat_document as bid_chat_document
     from core import ai_tab
-    from core.chat import app_chat
     from core.ai_analysis import stored_tab
-    from core.bid_optimizer.analysis import ANALYSIS_MODULE, BidAnalysisParams, build_analysis_input
+    from core.bid_optimizer.analysis import ANALYSIS_MODULE, build_analysis_input
+    from core.bid_optimizer.bids import BidAnalysisParams
     from modules.pages import search_term_source
 
     params = BidAnalysisParams(int(target_acos))

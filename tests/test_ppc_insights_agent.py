@@ -6,12 +6,11 @@ from ai.agents.ppc_insights import chat_document
 from ai.agents.ppc_insights.context import MAX_ASINS, build_context
 from core.ppc_insights.analysis import (
     ANALYSIS_MODULE,
-    InsightsAnalysisParams,
     build_analysis_input,
     canonical_analysis_window,
     insights_row_labels,
 )
-from core.ppc_insights.asin_health import MAX_POINTS, NEUTRAL_POINTS
+from core.ppc_insights.asin_health import MAX_POINTS, NEUTRAL_POINTS, InsightsAnalysisParams
 from core.search_term.frame import console_columns
 
 ATTRIBUTION_DAYS = 7

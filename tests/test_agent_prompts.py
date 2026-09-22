@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 _AGENTS = Path("ai/agents")
-_SLUGS = ["str", "sqp", "datadive", "bulk_campaigns", "ppc_insights"]
+_SLUGS = ["str", "sqp", "datadive", "bulk_campaigns", "ppc_insights", "funnel"]
 
 
 def _block(slug: str) -> str:

@@ -22,6 +22,7 @@ from core.amazon_ads.campaign_analyzer import (
 )
 from core.amazon_ads.campaign_provider import CAMPAIGN_ID, CAMPAIGN_NAME, TYPE
 from core.amazon_ads.product_provider import (
+    PRODUCT_CODES,
     PRODUCT_TYPES,
     TARGET_BID,
     TARGET_KIND,
@@ -29,6 +30,15 @@ from core.amazon_ads.product_provider import (
     TARGET_PRODUCT,
     TARGET_TEXT,
     all_campaigns,
+)
+from core.chat import app_chat
+from core.chat.screen_selection import (
+    FROM_AMAZON_ADS,
+    FROM_HAND_UPLOAD,
+    HAND_UPLOAD_NOTE,
+    ScreenSelection,
+    ToolCall,
+    account_window,
 )
 from core.currency_format import currency_symbol, money
 from core.integrations.store import StoreError
@@ -70,6 +80,8 @@ _CAUSE_LABELS = {
     "POCA_MUESTRA": "Poca muestra",
 }
 _ALL_PRODUCTS = "Todos"
+MODULE_LABEL = "Bulk Campañas"
+HAND_UPLOAD_ACCOUNT = "el Campaign CSV subido a mano"
 _PRODUCT_HELP = ("Sponsored Brands y Display cuentan una compra después de un click o de una vista, a 14 días, como "
                  "Campaign Manager; Sponsored Products sólo después de un click. Las columnas «(clicks)» muestran "
                  "lo comparable entre productos.")
@@ -393,6 +405,34 @@ def render():
         # ══════════════════════════════════════════════════════════════════
         with bulk_tab3:
             _render_ai_tab(source, analysis_params, campaign_input.products)
+        app_chat.share_selection(screen_selection(source, product_choice=product_choice, params=analysis_params))
+    else:
+        app_chat.withdraw_selection()
+
+
+def screen_selection(source, *, product_choice: str, params) -> ScreenSelection:
+    """What the chat reads about this screen: the account, the days, the thresholds and the calls behind them.
+
+    `params` is None when the campaigns carry no metrics, and then there is no diagnosis to reproduce.
+    """
+    values = [("producto", product_choice)]
+    if params is not None:
+        values += [("target ACoS", f"{params.target_acos:g}%"),
+                   ("gasto mínimo para PAUSAR", f"{params.spend_to_pause:g}"),
+                   ("órdenes mínimas para ESCALAR", str(params.min_orders_to_scale))]
+    if source is None:
+        return ScreenSelection(module=MODULE_LABEL, account=HAND_UPLOAD_ACCOUNT, source=FROM_HAND_UPLOAD,
+                               values=tuple(values), notes=(HAND_UPLOAD_NOTE,))
+    window = account_window(source.profile_id, source.window_start, source.window_end)
+    product = (("product", PRODUCT_CODES[product_choice]),) if product_choice in PRODUCT_CODES else ()
+    thresholds = (() if params is None else
+                  (("target_acos", params.target_acos), ("spend_to_pause", params.spend_to_pause),
+                   ("min_orders_to_scale", params.min_orders_to_scale)))
+    return ScreenSelection(module=MODULE_LABEL, account=source.label, source=FROM_AMAZON_ADS,
+                           profile_id=source.profile_id,
+                           window_start=source.window_start, window_end=source.window_end, values=tuple(values),
+                           calls=(ToolCall("campaign_health", window + product + thresholds),
+                                  ToolCall("idle_targets", window + product)))
 
 
 def _campaigns_to_show(campaign_input) -> tuple[pd.DataFrame, str]:

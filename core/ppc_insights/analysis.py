@@ -5,8 +5,6 @@ must give the same digest wherever it runs, or the analysis the worker stored is
 """
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -16,48 +14,16 @@ from core.ppc_insights.asin_health import (
     BLEEDERS_KEPT,
     MAX_POINTS,
     NEUTRAL_POINTS,
+    InsightsAnalysisParams,
     analyze_asins,
     resolve_asins,
 )
-from core.search_term.analysis import uses_dollar_price
 
 ANALYSIS_MODULE = "ppc_insights"
 CANONICAL_LANG = "es"
 # The window the picker opens on: an analysis asked for from the page covers what the AM sees.
 CANONICAL_WINDOW_DAYS = 7
 MAX_WINDOW_DAYS = 60
-DEFAULT_TARGET_ACOS = 25
-DEFAULT_DOLLAR_PRICE = 15.0
-
-
-@dataclass(frozen=True)
-class InsightsAnalysisParams:
-    """What the AM sets on the page that changes the analysis."""
-
-    target_acos: int
-    price: float | None
-
-    @classmethod
-    def defaults(cls, currency_code: str) -> InsightsAnalysisParams:
-        # A price of 15 means nothing in pesos or yen, so only dollar accounts start with one.
-        return cls(DEFAULT_TARGET_ACOS, DEFAULT_DOLLAR_PRICE if uses_dollar_price(currency_code) else None)
-
-    @classmethod
-    def from_dict(cls, values: dict, currency_code: str) -> InsightsAnalysisParams:
-        base = cls.defaults(currency_code)
-        try:
-            target_acos = int(values.get("target_acos", base.target_acos))
-        except (TypeError, ValueError):
-            target_acos = base.target_acos
-        return cls(target_acos, _price(values.get("price", base.price)))
-
-    def as_dict(self) -> dict:
-        return {"target_acos": self.target_acos, "price": self.price}
-
-    @property
-    def digest(self) -> str:
-        blob = json.dumps(self.as_dict(), sort_keys=True, ensure_ascii=False)
-        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -165,16 +131,6 @@ def _br_cvr(metrics: dict):
 
 def _rounded(value, digits: int = 1):
     return None if value is None else round(float(value), digits)
-
-
-def _price(value) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        price = float(value)
-    except (TypeError, ValueError):
-        return None
-    return price if price > 0 else None
 
 
 def _copy(frame):

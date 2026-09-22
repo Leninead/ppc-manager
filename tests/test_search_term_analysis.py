@@ -5,12 +5,10 @@ import pandas as pd
 import pytest
 
 from ai.agent_call import build_agent_call
-from core.search_term.analysis import (
-    BLOCKED_NO_CANDIDATES,
+from core.search_term.analysis import BLOCKED_NO_CANDIDATES, build_analysis_input, canonical_analysis_window
+from core.search_term.candidates import (
     StrAnalysisParams,
     add_metric_columns,
-    build_analysis_input,
-    canonical_analysis_window,
     detect_columns,
     harvest_candidate_rows,
     normalized_brand_terms,

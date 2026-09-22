@@ -27,10 +27,25 @@ EN = panel._L["en"]
     ("mcp__ppc_manager__list_accounts", "Cuentas · Agency OS"),
     ("mcp__ppc_manager__daily_metrics", "Serie diaria · Agency OS"),
     ("mcp__ppc_manager__breakdown", "Desglose · Agency OS"),
+    ("mcp__ppc_manager__funnel_coverage", "Funnel · Agency OS"),
+    ("mcp__ppc_manager__search_term_candidates", "Candidatos · Agency OS"),
+    ("mcp__ppc_manager__bid_suggestions", "Bids · Agency OS"),
+    ("mcp__ppc_manager__asin_health", "Salud por ASIN · Agency OS"),
+    ("mcp__ppc_manager__campaign_health", "Diagnóstico de campañas · Agency OS"),
+    ("mcp__ppc_manager__idle_targets", "Targets sin impresiones · Agency OS"),
     ("mcp__ppc_manager__something_new", "Agency OS"),
 ])
 def test_a_tool_is_named_by_what_it_reads(name, label):
     assert panel._tool_label(name, ES) == label
+
+
+def test_every_app_tool_names_what_it_reads():
+    from services.mcp_server.server import build_tools
+
+    names = [tool["name"] for tool in build_tools(rest=None)]
+    unnamed = [name for name in names if panel._tool_label(f"mcp__ppc_manager__{name}", ES) == ES["src_ppc_manager"]]
+
+    assert names and unnamed == []
 
 
 @pytest.mark.parametrize("name", ["Skill", "Read", "StructuredOutput", "mcp__datadive__get_quota",

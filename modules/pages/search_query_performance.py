@@ -7,7 +7,11 @@ import numpy as np
 import streamlit as st
 import pandas as pd
 
+from core.chat import app_chat
+from core.chat.screen_selection import FROM_HAND_UPLOAD, HAND_UPLOAD_NOTE, ScreenSelection
 from core.helpers import read_sqp, extract_sqp_brand
+
+MODULE_LABEL = "Search Query Performance"
 
 
 def _find_col(df, must_contain, must_not_contain=None):
@@ -623,6 +627,23 @@ def _render_sqp_ai_result(result, analysis, signal_records, labels):
         labels["table_title"], labels, _BADGE_COLORS), unsafe_allow_html=True)
 
 
+def report_week(df) -> str:
+    """The week the SQP export covers, as its "Reporting Date" column states it."""
+    week_col = _find_col(df, ["reporting date"])
+    if week_col is None or not df[week_col].notna().any():
+        return "no declarada"
+    return str(df[week_col].dropna().iloc[0])
+
+
+def screen_selection(file_name: str, brand: str | None, week: str, brand_terms: list[str]) -> ScreenSelection:
+    """What the chat reads about this screen: a hand-uploaded export, so the file, the brand and the week."""
+    values = [("archivo", file_name), ("semana", week)]
+    if brand_terms:
+        values.append(("brand terms", ", ".join(brand_terms)))
+    return ScreenSelection(module=MODULE_LABEL, account=f"la marca {brand}" if brand else file_name,
+                           source=FROM_HAND_UPLOAD, values=tuple(values), notes=(HAND_UPLOAD_NOTE,))
+
+
 def render():
     st.header("🔍 Search Query Performance")
     st.caption("Datos de rendimiento de búsqueda orgánica exportados desde Amazon Brand Analytics.")
@@ -650,8 +671,8 @@ def render():
 
     file_sqp = st.file_uploader("Sube tu SQP (.xlsx o .csv)", type=["xlsx", "csv"], key="sqp")
     if not file_sqp:
-        from core.chat import app_chat
         app_chat.withdraw_analysis("sqp")
+        app_chat.withdraw_selection()
         return
 
     df = read_sqp(file_sqp)
@@ -812,15 +833,10 @@ def render():
                 rollup = _compute_account_rollup(signals, thresholds)
                 signal_records = signals.head(_TOP_ROWS).to_dict("records")
 
-                week_col = _find_col(df, ["reporting date"])
-                report_week = (str(df[week_col].dropna().iloc[0])
-                               if week_col is not None and df[week_col].notna().any()
-                               else "no declarada")
-
                 ai_data = SqpData(
                     brand=brand or "no detectada",
                     brand_terms=ai_brand_terms,
-                    week=report_week,
+                    week=report_week(df),
                     rollup=rollup,
                     signal_rows=signal_records,
                     language=ai_lang,
@@ -845,12 +861,14 @@ def render():
                                            render_result=_render_result)
                     ai_tab.publish_analysis_to_chat(
                         "sqp", analysis, ai_data, module_label="Search Query Performance",
-                        subject=f"marca {brand or 'no detectada'} · semana {report_week}",
+                        subject=f"marca {brand or 'no detectada'} · semana {report_week(df)}",
                         reading=lambda analysis, _rec=render_records: sqp_chat_document.reading_text(
                             analysis.result, _rec),
                         annotate=partial(_sqp_chat_annotation, field_names=sqp_labels["field_names"],
                                          row_labels=_sqp_row_labels(render_records)))
 
     if analysis is None:
-        from core.chat import app_chat
         app_chat.withdraw_analysis("sqp")
+    typed_terms = str(st.session_state.get("sqp_ai_brand_terms", brand or ""))
+    app_chat.share_selection(screen_selection(file_sqp.name, brand, report_week(df),
+                                              [term.strip() for term in typed_terms.split(",") if term.strip()]))

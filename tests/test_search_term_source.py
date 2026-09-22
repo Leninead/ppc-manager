@@ -23,13 +23,8 @@ from ai.agents.str.context import StrData, build_context
 from core.chat import ads_scope
 from ai.agent_call import build_agent_call
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider
-from core.search_term.analysis import (
-    StrAnalysisParams,
-    add_metric_columns,
-    build_analysis_input,
-    canonical_analysis_window,
-    detect_columns,
-)
+from core.search_term.analysis import build_analysis_input, canonical_analysis_window
+from core.search_term.candidates import StrAnalysisParams, add_metric_columns, detect_columns
 from core.integrations.sync_jobs import SyncJob
 from core.search_term.file import FORMAT_CONSOLE_2026, FORMAT_CONSOLE_LEGACY, FORMAT_UNKNOWN, FileAccount
 from core.search_term.negatives import AD_GROUP_STATE_UNVERIFIED_NOTE, BulkExclusion, NegativeCandidate, negative_key

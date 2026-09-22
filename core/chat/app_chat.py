@@ -21,6 +21,7 @@ from ai import runtime as ai_runtime
 from core import navigation
 from core.chat import ads_scope, turns
 from core.chat.panel import ChatTurn, floating_chat
+from core.chat.screen_selection import ScreenSelection, selections_note
 from core.ui import i18n
 
 log = logging.getLogger(__name__)
@@ -28,6 +29,9 @@ log = logging.getLogger(__name__)
 CHAT_ID = "app"
 AGENT = "orchestrator"
 _STATE_KEY = "app_chat_modules"
+_SELECTIONS_KEY = "app_chat_selections"
+# The open page plus the pages the AM looked at before: enough to go back to them, bounded for every turn's note.
+REMEMBERED_SELECTIONS = 6
 _REGION_KEY = "app_chat_session_country"
 _CONVERSATION_KEY = "app_chat_conversation_id"
 
@@ -100,6 +104,21 @@ def withdraw_analysis(module: str) -> None:
     _entries().pop(module, None)
 
 
+def share_selection(selection: ScreenSelection) -> None:
+    """What the open page shows; remembered for the session, so a later question can go back to it."""
+    selections = _selections()
+    page = _current_page()
+    selections.pop(page, None)
+    selections[page] = selection
+    while len(selections) > REMEMBERED_SELECTIONS:
+        selections.pop(next(iter(selections)))
+
+
+def withdraw_selection() -> None:
+    """The open page shows nothing to ask about, so what it showed before must not be read as on screen."""
+    _selections().pop(_current_page(), None)
+
+
 def shared_analyses(entries: dict) -> list[ChatAnalysis]:
     return [entry.analysis for entry in entries.values() if entry.analysis is not None]
 
@@ -117,9 +136,10 @@ def session_documents(analyses: list[ChatAnalysis]) -> list[dict]:
     return [document for analysis in analyses for document in analysis.documents]
 
 
-def turn_note(page: str, entries: dict) -> str:
+def turn_note(page: str, entries: dict, selections: dict[str, ScreenSelection] | None = None) -> str:
     """App state the model reads ahead of every question; the AM never sees it."""
     lines = [f"el AM tiene abierta la pantalla «{navigation.visible_label(page)}»."]
+    lines += selections_note(page, selections or {}, REMEMBERED_SELECTIONS - 1)
     if not entries:
         lines.append("No hay análisis abiertos en esta sesión.")
     for entry in entries.values():
@@ -139,10 +159,9 @@ def mount_app_chat(page: str, username: str) -> None:
 def record_turn(page: str, username: str, question: str, reply: ai_runtime.ChatReply | None,
                 shown: str) -> None:
     """Keeps a finished turn in the database; one that failed keeps the error the AM read."""
-    analysis = _ads_analysis_on_page(page, _entries())
+    ads_profile_id, ads_account = _ads_account_on_page(page, _entries(), _selections())
     context = dict(conversation_id=_conversation_id(), username=username, page=page, question=question,
-                   ads_profile_id=analysis.profile_id if analysis else None,
-                   ads_account=analysis.subject if analysis else None)
+                   ads_profile_id=ads_profile_id, ads_account=ads_account)
     if reply is None:
         turn = turns.ChatTurnRecord(**context, answer=None, error=shown)
     else:
@@ -164,7 +183,7 @@ def chat_turn(page: str) -> ChatTurn:
     analyses = shared_analyses(entries)
     return ChatTurn(
         documents=session_documents(analyses),
-        note=turn_note(page, entries),
+        note=turn_note(page, entries, dict(_selections())),
         ads_scope=ads_scope.request_scope(
             _session_country_hint(session_key(analyses), page, entries)),
         annotate=_annotator(analyses),
@@ -173,6 +192,11 @@ def chat_turn(page: str) -> ChatTurn:
 
 def _entries() -> dict[str, _ModuleEntry]:
     return st.session_state.setdefault(_STATE_KEY, {})
+
+
+def _selections() -> dict[str, ScreenSelection]:
+    """page -> the last thing the AM had selected there, in visit order."""
+    return st.session_state.setdefault(_SELECTIONS_KEY, {})
 
 
 def _current_page() -> str:
@@ -184,10 +208,18 @@ def _conversation_id() -> str:
     return st.session_state.setdefault(_CONVERSATION_KEY, str(uuid.uuid4()))
 
 
-def _ads_analysis_on_page(page: str, entries: dict) -> ChatAnalysis | None:
-    """The analysis of an Amazon Ads account that the page the AM asked from has loaded."""
-    return next((entry.analysis for entry in entries.values()
-                 if entry.page == page and entry.analysis is not None and entry.analysis.profile_id), None)
+def _ads_account_on_page(page: str, entries: dict,
+                         selections: dict[str, ScreenSelection]) -> tuple[str | None, str | None]:
+    """(profile id, account) of the Amazon Ads account on the page the AM asked from: its analysis, or else what
+    the page has selected, since a page shows an account before or without an analysis of it."""
+    analysis = next((entry.analysis for entry in entries.values()
+                     if entry.page == page and entry.analysis is not None and entry.analysis.profile_id), None)
+    if analysis is not None:
+        return analysis.profile_id, analysis.subject
+    selection = selections.get(page)
+    if selection is not None and selection.profile_id:
+        return selection.profile_id, selection.account
+    return None, None
 
 
 def _finish_running_analyses() -> None:

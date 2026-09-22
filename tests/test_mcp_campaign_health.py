@@ -151,7 +151,7 @@ def test_it_classifies_with_the_account_parameters_and_says_where_they_came_from
     default = _health()
     strict = _health(FakeRest(settings={"target_acos": 35, "spend_to_pause": 30, "min_orders_to_scale": 2}))
 
-    assert default["parameters"]["origin"] == "los de siempre de Bulk Campañas"
+    assert default["parameters"]["origin"] == "valores por defecto de Bulk Campañas: la cuenta no guardó parámetros"
     assert strict["parameters"]["origin"] == "guardados de la cuenta en Bulk Campañas"
     # 25 of spend without orders is under a 30 threshold: no longer a pause.
     assert {row["campaign"]: row["diagnosis"] for row in strict["rows"]}["Bleeder"] == "OK"
@@ -163,6 +163,46 @@ def test_rows_go_by_spend_and_the_whole_payload_is_plain_json():
     assert [row["campaign"] for row in payload["rows"]] == ["Bleeder", "Winner", "Ghost"]
     json.dumps(payload)
     assert payload["rows"][2]["acos"] is None
+
+
+def test_the_days_on_screen_are_read_exactly():
+    rest = FakeRest()
+
+    payload = _health(rest, date_from="2026-09-12", date_to="2026-09-16")
+
+    assert payload["window"] == {"from": "2026-09-12", "to": "2026-09-16", "days": 5}
+    assert rest.reads == [("2026-09-12", "2026-09-16")]
+    assert "window_note" not in payload
+
+
+def test_only_the_last_synced_days_are_provisional_whatever_window_is_asked():
+    # The campaign sync ends on the 16th: the 15th and the 16th can still gain attributed sales.
+    assert _health(date_from="2026-09-11", date_to="2026-09-13")["provisional_days"] == []
+    assert _health(date_from="2026-09-12", date_to="2026-09-15")["provisional_days"] == ["2026-09-15"]
+
+
+def test_the_rule_of_each_diagnosis_travels_with_the_thresholds_it_used():
+    rules = _health(target_acos=20, spend_to_pause=10, min_orders_to_scale=5)["parameters"]["rules"]
+
+    assert rules["ESCALAR"] == "con 5 órdenes o más y un ACoS de 10% o menos (la mitad del target)"
+    assert rules["REVISAR"] == "con órdenes y un ACoS de más de 40% (el doble del target)"
+    assert rules["PAUSAR"] == "sin órdenes y con un gasto de 10 o más"
+
+
+def test_the_thresholds_on_screen_replace_the_saved_ones_and_the_answer_says_so():
+    payload = _health(spend_to_pause=30)
+
+    # Bleeder spent 25 without an order: under a 30 minimum it is no longer one to pause.
+    assert {row["campaign"]: row["diagnosis"] for row in payload["rows"]}["Bleeder"] == "OK"
+    assert payload["parameters"]["spend_to_pause"] == 30.0
+    assert payload["parameters"]["origin"].startswith("los pedidos en la llamada")
+
+
+def test_idle_targets_read_the_days_on_screen_too():
+    rest = FakeRest(targets=[_target("91", "demo idle kw")])
+
+    assert _idle(rest, date_from="2026-09-14", date_to="2026-09-16")["window"] == {
+        "from": "2026-09-14", "to": "2026-09-16", "days": 3}
 
 
 def test_an_account_the_campaign_sync_never_completed_says_so():

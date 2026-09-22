@@ -13,11 +13,11 @@ from core.amazon_ads.report_provider import ProfileOption, ReportReadError
 from core.bid_optimizer.analysis import (
     ANALYSIS_MODULE,
     CANONICAL_LANG,
-    BidAnalysisParams,
     build_analysis_input,
     canonical_analysis_window,
     previous_window,
 )
+from core.bid_optimizer.bids import BidAnalysisParams
 from core.date_labels import date_range_label
 
 JOB_KIND = analysis_job_kind(ANALYSIS_MODULE)

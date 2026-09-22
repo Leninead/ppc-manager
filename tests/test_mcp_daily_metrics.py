@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -270,3 +270,16 @@ def test_the_window_helper_is_shared_with_top_search_terms():
 
     assert amazon_ads.window_for(profile, 7) == (date(2026, 9, 10), date(2026, 9, 16))
     assert amazon_ads.window_for(profile, 0) == (date(2026, 9, 16), date(2026, 9, 16))
+
+
+@pytest.mark.parametrize("now, today, up_to_date", [
+    # 02:00 UTC on the 18th is still the 17th in Los Angeles: data through the 16th is up to date.
+    (datetime(2026, 9, 18, 2, 0, tzinfo=timezone.utc), "2026-09-17", True),
+    (datetime(2026, 9, 18, 12, 0, tzinfo=timezone.utc), "2026-09-18", False),
+])
+def test_each_account_says_its_own_today_and_whether_its_data_is_up_to_date(monkeypatch, now, today, up_to_date):
+    monkeypatch.setattr(amazon_ads, "_now", lambda: now)
+
+    (row,) = amazon_ads.list_accounts(_FakeRest())["rows"]
+
+    assert (row["today"], row["up_to_date"]) == (today, up_to_date)

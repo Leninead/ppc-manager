@@ -8,7 +8,8 @@ from core.ai_analysis.ppc_insights_analysis_job import JOB_KIND, PpcInsightsAnal
 from core.ai_analysis.store import AiAnalysisStore
 from core.ai_analysis.worker import build_jobs
 from core.integrations.sync_jobs import SyncJob, SyncJobStore
-from core.ppc_insights.analysis import ANALYSIS_MODULE, InsightsAnalysisParams, build_analysis_input
+from core.ppc_insights.analysis import ANALYSIS_MODULE, build_analysis_input
+from core.ppc_insights.asin_health import InsightsAnalysisParams
 from core.search_term.frame import SOURCE_API, SearchTermSource, console_columns
 from tests.test_str_analysis_job import NOW, FakeRest, _profile
 

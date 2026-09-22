@@ -5,11 +5,18 @@ en el prompt, el modelo ve QUÉ hay y baja sólo el que necesita.
 """
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
+
 from ai.agents import make_ids
 from ai.agents.row_annotation import annotate_row_ids, replace_row_ids, row_labels
-from core.ai_analysis.store import AiAnalysisStore
-from core.amazon_ads.report_provider import ReportProvider, account_labels
+from core.ai_analysis.store import AiAnalysisStore, StoredAnalysis
+from core.amazon_ads.report_provider import ProfileOption, ReportProvider, ReportReadError, account_labels
+from core.amazon_ads.sync_planner import profile_timezone
+from core.search_term.candidates import campaign_states, detect_columns
 from services.mcp_server.limits import page
+
+log = logging.getLogger(__name__)
 
 # Los módulos con análisis guardado. Espejo de ai_analysis_module_allowed (migraciones 011 y 014): si
 # se suma uno a la base y no acá, el índice lo ignora en silencio.
@@ -25,6 +32,10 @@ ROW_IDS = {
     "ppc_insights": (("filas", "P", "asin"),),
 }
 _RECORDS = {"negativos": "negative_records", "harvest": "harvest_records", "filas": "records"}
+# The fields naming a Search Term Report row's term, as the module stores its rows.
+STR_ROW_KEY = ("Search Term", "Campaign", "Ad Group")
+CAMPAIGN_STATE_UNREAD_NOTE = ("No se pudo leer el estado actual de las campañas: las filas van sin él, así que no "
+                              "digas si una campaña está activa.")
 # La situación de cada análisis viaja en el índice para comparar cuentas en una llamada; el resto
 # de la síntesis, con get_analysis.
 HEADLINE_MAX_CHARS = 600
@@ -43,28 +54,28 @@ def list_analyses(rest, *, profile_id: str = "", offset: int = 0, limit: int = 6
         raise ValueError(f"No hay ninguna cuenta sincronizada con profile_id {profile_id}.")
 
     store = AiAnalysisStore(rest)
-    rows = []
+    found = []
     for module in MODULES:
         newest = store.latest_by_subject(module, [p.profile_id for p in wanted])
         by_subject = {analysis.subject_id: analysis for analysis in newest}
-        for profile in wanted:
-            analysis = by_subject.get(profile.profile_id)
-            if analysis is None:
-                continue
-            rows.append({
-                "account": labels[profile.profile_id],
-                "profile_id": profile.profile_id,
-                "module": module,
-                "module_label": MODULE_LABELS.get(module, module),
-                "window": {"from": analysis.window_start.isoformat() if analysis.window_start else None,
-                           "to": analysis.window_end.isoformat() if analysis.window_end else None},
-                "finished_at": analysis.finished_at.isoformat() if analysis.finished_at else None,
-                "lang": analysis.lang,
-                "target_acos": (analysis.params or {}).get("target_acos"),
-                "situation": _headline(analysis),
-                "risks": _risk_levels(analysis),
-            })
-    rows.sort(key=lambda row: (row["finished_at"] or "", row["account"]), reverse=True)
+        found.extend((module, profile, by_subject[profile.profile_id])
+                     for profile in wanted if profile.profile_id in by_subject)
+    # By the instant, not the text: each account writes its time in its own zone.
+    found.sort(key=lambda item: (item[2].finished_at or datetime.min.replace(tzinfo=timezone.utc),
+                                 labels[item[1].profile_id]), reverse=True)
+    rows = [{
+        "account": labels[profile.profile_id],
+        "profile_id": profile.profile_id,
+        "module": module,
+        "module_label": MODULE_LABELS.get(module, module),
+        "window": {"from": analysis.window_start.isoformat() if analysis.window_start else None,
+                   "to": analysis.window_end.isoformat() if analysis.window_end else None},
+        "finished_at": _account_time(analysis.finished_at, profile),
+        "lang": analysis.lang,
+        "target_acos": (analysis.params or {}).get("target_acos"),
+        "situation": _headline(analysis),
+        "risks": _risk_levels(analysis),
+    } for module, profile, analysis in found]
     payload = page(rows, offset=offset, limit=limit).as_payload(what="análisis guardados")
     payload["modules"] = list(MODULES)
     if not rows:
@@ -88,18 +99,42 @@ def get_analysis(rest, *, profile_id: str, module: str) -> dict:
                 "note": (f"{MODULE_LABELS.get(module, module)} no tiene análisis guardado para esta "
                          "cuenta. Se genera solo cuando llegan datos nuevos, o a pedido desde la app.")}
     analysis = found[0]
-    return {
+    payload = {
         "account": account_labels(profiles)[profile_id],
         "profile_id": profile_id,
         "module": module,
         "module_label": MODULE_LABELS.get(module, module),
         "window": {"from": analysis.window_start.isoformat() if analysis.window_start else None,
                    "to": analysis.window_end.isoformat() if analysis.window_end else None},
-        "finished_at": analysis.finished_at.isoformat() if analysis.finished_at else None,
+        "finished_at": _account_time(analysis.finished_at, profile),
         "currency": profile.currency_code,
         "synthesis": _annotated((analysis.result or {}).get("synthesis") or {}, _labels(analysis)),
         "rows": _rows(analysis),
     }
+    if module == "str" and payload["rows"] and analysis.window_start and analysis.window_end:
+        try:
+            _add_campaign_states(payload["rows"], rest, profile, analysis)
+        except ReportReadError as exc:
+            log.warning("campaign states of the str analysis %s of profile %s could not be read: %s",
+                        analysis.id, profile_id, exc)
+            payload["campaign_state_note"] = CAMPAIGN_STATE_UNREAD_NOTE
+    return payload
+
+
+def _account_time(moment: datetime | None, profile: ProfileOption) -> str | None:
+    """The moment on the account's own clock: the day it names is the account's day, as `today` in list_accounts."""
+    if moment is None:
+        return None
+    return moment.astimezone(profile_timezone(profile.timezone, "")).isoformat()
+
+
+def _add_campaign_states(rows: dict, rest, profile: ProfileOption, analysis: StoredAnalysis) -> None:
+    """Each saved Search Term Report row gets the state its campaign has today: the analysis never had it."""
+    source = ReportProvider(rest).search_terms(profile, analysis.window_start, analysis.window_end)
+    states = campaign_states(source.frame, detect_columns(source.frame))
+    for group in rows.values():
+        for row in group["rows"]:
+            row["campaign_state"] = states.get(tuple(str(row.get(field) or "").strip() for field in STR_ROW_KEY), "")
 
 
 def _groups(analysis):

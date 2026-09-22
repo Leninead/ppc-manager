@@ -6,7 +6,7 @@ en que un modelo la consulta.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 from core.search_term import frame as canonical
@@ -21,6 +21,7 @@ from core.amazon_ads.campaign_analyzer import (
     CampaignAnalyzerParams,
     analyze,
     diagnosis_name,
+    diagnosis_rules,
     provisional_days,
 )
 from core.amazon_ads.campaign_provider import (
@@ -55,7 +56,7 @@ from core.amazon_ads.report_provider import (
     _attribution_days,
     account_labels,
 )
-from core.amazon_ads.sync_planner import CAMPAIGNS_KIND
+from core.amazon_ads.sync_planner import CAMPAIGNS_KIND, profile_timezone
 from core.integrations.sync_jobs import SyncJobStore
 from services.mcp_server.limits import page
 
@@ -115,12 +116,16 @@ CAMPAIGNS_SOURCE = ("Sponsored Products, Brands y Display, de la foto de campañ
 TARGETS_SOURCE = ("Los targets habilitados de campañas habilitadas de SP, SB y SD, de las listas de keywords y targets, "
                   "con las impresiones de sus reportes de targeting. No incluye las campañas SB del formato "
                   "anterior: sus targets no tienen reporte.")
+# The report keeps the last name each campaign had in the period: its state says whether it runs, never its name.
+CAMPAIGN_STATUS = "Campaign Status"
 
 
 def list_accounts(rest) -> dict:
-    """Las cuentas de Amazon Ads sincronizadas, con su país, moneda y hasta qué día tienen datos."""
+    """Las cuentas de Amazon Ads sincronizadas, con su país, moneda, hasta qué día tienen datos, qué día es hoy en
+    cada una y si sus datos están al día."""
     profiles = ReportProvider(rest).profiles()
     labels = account_labels(profiles)
+    now = _now()
     rows = [{
         "account": labels[profile.profile_id],
         "profile_id": profile.profile_id,
@@ -129,6 +134,7 @@ def list_accounts(rest) -> dict:
         "status": profile.status,
         "data_from": profile.data_from.isoformat() if profile.data_from else None,
         "data_through": profile.data_through.isoformat() if profile.data_through else None,
+        **_freshness(profile, now),
     } for profile in profiles]
     rows.sort(key=lambda row: row["account"])
     return page(rows, limit=len(rows) or 1).as_payload(what="cuentas")
@@ -153,8 +159,8 @@ def top_search_terms(rest, *, profile_id: str, days: int = DEFAULT_DAYS, offset:
 
     spend = _column(frame, "spend")
     ordered = frame.sort_values(spend, ascending=False) if spend else frame
-    rows = [{str(name): _plain(value) for name, value in row.items() if not str(name).startswith("_")}
-            for _, row in ordered.iterrows()]
+    rows = [{**{str(name): _plain(value) for name, value in row.items() if not str(name).startswith("_")},
+             CAMPAIGN_STATUS: row.get("_campaign_status") or ""} for _, row in ordered.iterrows()]
     payload = page(rows, offset=offset, limit=limit).as_payload(what="search terms")
     payload["window"] = _window(start, end)
     payload["currency"] = source.currency_code
@@ -311,37 +317,49 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
     return payload
 
 
-def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, diagnosis: Diagnosis = "",
-                    signal: Signal = "", product: Product = "", sort_by: RankingMetric = "spend", offset: int = 0,
-                    limit: int = 50) -> dict:
-    """Las campañas habilitadas de una cuenta (SP, SB y SD) en sus últimos `days` días, con el diagnóstico de Bulk
-    Campañas y sus señales.
+def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
+                    diagnosis: Diagnosis = "", signal: Signal = "", product: Product = "",
+                    target_acos: float = 0, spend_to_pause: float = 0, min_orders_to_scale: int = 0,
+                    sort_by: RankingMetric = "spend", offset: int = 0, limit: int = 50) -> dict:
+    """Las campañas habilitadas de una cuenta (SP, SB y SD) en sus últimos `days` días, o de `date_from` a `date_to`,
+    con el diagnóstico de Bulk Campañas y sus señales.
 
     Parte de la foto de campañas, así que trae también las que no tuvieron actividad (las FANTASMA), que
     `breakdown` por campaña no ve. Clasifica con los parámetros guardados de la cuenta en Bulk Campañas, o
-    con los de siempre, y dice cuáles usó. `product` acota todo a SP, SB o SD; `diagnosis` y `signal` sólo
+    con los de siempre, y dice cuáles usó; `target_acos`, `spend_to_pause` y `min_orders_to_scale` reemplazan
+    los que se pasen (0 = no cambia). `product` acota todo a SP, SB o SD; `diagnosis` y `signal` sólo
     filtran filas: `counts` y `totals` cubren todas las habilitadas del alcance, no sólo la página.
     """
     if sort_by not in RANKING_METRICS:
         raise ValueError(f"sort_by tiene que ser uno de: {', '.join(RANKING_METRICS)}")
     _check_product(product)
     profile = _campaign_profile(rest, profile_id)
-    start, end = window_for(profile, days)
+    start, end, window_note = requested_window(profile, days, date_from, date_to)
     source = CampaignProvider(rest).campaigns(profile, start, end)
     products = ProductProvider(rest).campaigns(profile_id, start, end)
     frame = campaigns_to_analyze(source.frame, products)
     if product and TYPE in frame.columns:
         frame = frame[frame[TYPE] == PRODUCT_TYPES[product]]
     settings = AiAnalysisStore(rest).settings(CAMPAIGNS_MODULE, profile_id)
-    params = CampaignAnalyzerParams.from_dict(settings.params) if settings else CampaignAnalyzerParams.defaults()
+    saved = CampaignAnalyzerParams.from_dict(settings.params) if settings else CampaignAnalyzerParams.defaults()
+    params = CampaignAnalyzerParams(target_acos or saved.target_acos, spend_to_pause or saved.spend_to_pause,
+                                    min_orders_to_scale or saved.min_orders_to_scale)
+    origin = ("guardados de la cuenta en Bulk Campañas" if settings
+              else "valores por defecto de Bulk Campañas: la cuenta no guardó parámetros")
+    if params != saved:
+        origin = f"los pedidos en la llamada; los demás, {origin}"
     analyzer, campaigns = analyze(frame, source.signal_inputs, params, window_start=start, window_end=end)
     context = {
         "window": _window(start, end), "currency": source.currency_code, "attribution_days": source.attribution_days,
         "source": CAMPAIGNS_SOURCE,
-        "parameters": {**params.as_dict(), "origin": ("guardados de la cuenta en Bulk Campañas" if settings
-                                                       else "los de siempre de Bulk Campañas")},
-        "provisional_days": [day.isoformat() for day in provisional_days(start, end)],
+        "parameters": {**params.as_dict(), "origin": origin,
+                       "rules": diagnosis_rules(params, has_impressions=analyzer.has_impressions)},
+        # The last synced days are the provisional ones: a window ending earlier has none.
+        "provisional_days": [day.isoformat() for day in provisional_days(None, profile.data_through)
+                             if start <= day <= end],
     }
+    if window_note:
+        context["window_note"] = window_note
     _add_old_format_note(context, rest, profile_id, start, end, product, products=products)
     if campaigns.empty:
         return {"rows": [], "total": 0, "showing": 0, "offset": 0, "counts": {}, "totals": None, **context,
@@ -359,22 +377,24 @@ def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, diagnosi
     payload = page(rows, offset=offset, limit=limit).as_payload(what="campañas")
     payload.update(context, counts={str(name): int(count) for name, count in counts.items()}, totals=totals,
                    pause_spend=round(float(campaigns.loc[campaigns[DIAGNOSIS_COLUMN] == PAUSE, "_spend"].sum()), 2))
-    _add_window_note(payload, int(days), start, end)
     return payload
 
 
-def idle_targets(rest, *, profile_id: str, days: int = DEFAULT_DAYS, product: Product = "", offset: int = 0,
-                 limit: int = 50) -> dict:
-    """Target Graduation: los targets habilitados, de campañas habilitadas, sin una impresión en los últimos `days` días.
+def idle_targets(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
+                 product: Product = "", offset: int = 0, limit: int = 50) -> dict:
+    """Target Graduation: los targets habilitados, de campañas habilitadas, sin una impresión en los últimos `days`
+    días o de `date_from` a `date_to`.
 
     `counts` dice, por producto, cuántos se miraron y cuántos no tuvieron impresiones, también los que no
     entran en la página. `product` acota a SP, SB o SD.
     """
     _check_product(product)
     profile = _campaign_profile(rest, profile_id)
-    start, end = window_for(profile, days)
+    start, end, window_note = requested_window(profile, days, date_from, date_to)
     targets = ProductProvider(rest).idle_targets(profile_id, start, end)
     context = {"window": _window(start, end), "source": TARGETS_SOURCE}
+    if window_note:
+        context["window_note"] = window_note
     if targets is None or not targets.considered:
         return {"rows": [], "total": 0, "showing": 0, "offset": 0, "counts": {}, **context,
                 "note": "Los targets de esta cuenta todavía no se sincronizaron."}
@@ -394,7 +414,6 @@ def idle_targets(rest, *, profile_id: str, days: int = DEFAULT_DAYS, product: Pr
     payload.update(context, counts=counts)
     if product and not considered.get(product):
         payload["note"] = f"Todavía no hay targets de {PRODUCT_TYPES[product]} para evaluar en este período."
-    _add_window_note(payload, int(days), start, end)
     return payload
 
 
@@ -553,15 +572,49 @@ def window_for(profile: ProfileOption, days: int) -> tuple[date, date]:
     return max(profile.data_from or end, end - timedelta(days=window_days - 1)), end
 
 
+def requested_window(profile: ProfileOption, days: int, date_from: str = "",
+                     date_to: str = "") -> tuple[date, date, str]:
+    """(start, end, note): the exact dates asked for, clipped to what the account has synced, or its last `days`.
+
+    The dates are the ones the AM has on screen, so the chat can read what the page shows and not only the last days.
+    """
+    if not (date_from or date_to):
+        start, end = window_for(profile, days)
+        return start, end, _days_note(int(days), start, end)
+    try:
+        start, end = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    except ValueError as exc:
+        raise ValueError("date_from y date_to van juntos y en formato AAAA-MM-DD.") from exc
+    if end < start:
+        raise ValueError(f"date_to ({end.isoformat()}) es anterior a date_from ({start.isoformat()}).")
+    if (end - start).days + 1 > MAX_DAYS:
+        raise ValueError(f"El período puede tener hasta {MAX_DAYS} días; del {start.isoformat()} al "
+                         f"{end.isoformat()} hay {(end - start).days + 1}.")
+    earliest = profile.data_from or profile.data_through - timedelta(days=MAX_DAYS - 1)
+    clipped_start, clipped_end = max(start, earliest), min(end, profile.data_through)
+    if clipped_start > clipped_end:
+        raise ValueError(f"La cuenta tiene datos sincronizados del {earliest.isoformat()} al "
+                         f"{profile.data_through.isoformat()}: el período pedido queda afuera.")
+    if (clipped_start, clipped_end) == (start, end):
+        return start, end, ""
+    return clipped_start, clipped_end, (
+        f"Se pidió del {start.isoformat()} al {end.isoformat()} y la cuenta tiene datos sincronizados del "
+        f"{earliest.isoformat()} al {profile.data_through.isoformat()}: la ventana se recortó a esos días.")
+
+
 def _add_window_note(payload: dict, requested: int, start: date, end: date) -> None:
+    note = _days_note(requested, start, end)
+    if note:
+        payload["window_note"] = note
+
+
+def _days_note(requested: int, start: date, end: date) -> str:
     returned = (end - start).days + 1
     if returned >= requested:
-        return
+        return ""
     if requested > MAX_DAYS and returned == MAX_DAYS:
-        payload["window_note"] = f"Se pidieron {requested} días y el máximo es {MAX_DAYS}: la ventana trae esos."
-    else:
-        payload["window_note"] = (f"Se pidieron {requested} días y la cuenta tiene {returned} sincronizados: "
-                                  "la ventana se recortó a esos.")
+        return f"Se pidieron {requested} días y el máximo es {MAX_DAYS}: la ventana trae esos."
+    return f"Se pidieron {requested} días y la cuenta tiene {returned} sincronizados: la ventana se recortó a esos."
 
 
 def _metrics(spend, sales, orders, clicks, impressions) -> dict:
@@ -583,6 +636,17 @@ def _profile(rest, profile_id: str) -> ProfileOption:
 
 def _window(start: date, end: date) -> dict:
     return {"from": start.isoformat(), "to": end.isoformat(), "days": (end - start).days + 1}
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _freshness(profile: ProfileOption, now: datetime) -> dict:
+    """Today in the account's own zone, and whether its data reaches its yesterday, the last day a report can close."""
+    today = now.astimezone(profile_timezone(profile.timezone, "")).date()
+    return {"today": today.isoformat(),
+            "up_to_date": profile.data_through is not None and profile.data_through >= today - timedelta(days=1)}
 
 
 def _column(frame, keyword: str):
