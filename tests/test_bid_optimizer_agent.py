@@ -79,7 +79,7 @@ def test_a_complete_list_says_so_instead_of_reporting_a_truncation():
 def test_the_agent_call_resolves_the_prompt_and_both_fingerprints():
     call = agent_call.build_agent_call("bid_optimizer", _data())
 
-    assert call.model == "claude-opus-5"
+    assert call.model == "claude-opus-5-5"
     assert "analista senior de Amazon PPC" in call.call["system"]
     assert call.input_digest and call.agent_version
 

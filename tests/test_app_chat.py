@@ -331,7 +331,7 @@ class TestRecordTurn:
 
 def test_the_orchestrator_is_an_agent_with_the_three_tool_profiles():
     assert runtime.agent_tools("orchestrator") == ["amazon_ads", "datadive", "ppc_manager"]
-    assert runtime._agent("orchestrator")["meta"]["model"] == "claude-opus-5"
+    assert runtime._agent("orchestrator")["meta"]["model"] == "claude-opus-5-5"
     assert runtime._agent("orchestrator")["meta"]["effort"] == "high"
     assert runtime._agent("orchestrator")["meta"]["timeout_s"] == "3600"
     system = runtime._agent("orchestrator")["system"]
@@ -469,7 +469,7 @@ def test_the_chat_reports_each_finished_turn_once_with_what_the_am_read(monkeypa
     [(question, reply, shown)] = app.session_state["finished"]
     assert (question, shown) == ("¿qué negativizo?", "Frenar N01 (toy box)")
     assert (reply.tool_calls, reply.model, reply.cost_usd) == (
-        ("mcp__ppc_manager__breakdown",), "claude-opus-5", 0.05)
+        ("mcp__ppc_manager__breakdown",), "claude-opus-5-5", 0.05)
 
 
 def test_a_turn_the_provider_could_not_answer_is_reported_with_the_error_the_am_read(monkeypatch):
