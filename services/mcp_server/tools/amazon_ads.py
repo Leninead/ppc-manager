@@ -1,8 +1,9 @@
-"""Las cuentas de Amazon Ads sincronizadas, sus search terms, su serie diaria, sus campañas y sus targets.
+"""Las cuentas de Amazon Ads sincronizadas, sus search terms, su serie diaria, sus campañas, sus targets y la
+estructura de sus campañas de Sponsored Products.
 
-Se apoya en core/amazon_ads/ (report_provider, campaign_provider, product_provider, campaign_totals y
-campaign_analyzer), que ya leen y clasifican sin Streamlit: acá no hay lógica de negocio nueva, sólo la forma
-en que un modelo la consulta.
+Se apoya en core/amazon_ads/ (report_provider, campaign_provider, product_provider, structure_provider,
+campaign_totals y campaign_analyzer), que ya leen y clasifican sin Streamlit: acá no hay lógica de negocio nueva,
+sólo la forma en que un modelo la consulta.
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ from core.amazon_ads.campaign_analyzer import (
 )
 from core.amazon_ads.campaign_provider import (
     BID_STRATEGY,
+    BID_STRATEGY_LABELS,
     BUDGET_AMOUNT,
     CAMPAIGN_ID,
     CAMPAIGN_NAME,
@@ -42,6 +44,7 @@ from core.amazon_ads.product_provider import (
     TARGET_BID,
     TARGET_ID,
     TARGET_KIND,
+    TARGET_KIND_LABELS,
     TARGET_MATCH,
     TARGET_PRODUCT,
     TARGET_TEXT,
@@ -54,11 +57,33 @@ from core.amazon_ads.report_provider import (
     ProfileOption,
     ReportProvider,
     _attribution_days,
+    _portfolio_label,
     account_labels,
 )
-from core.amazon_ads.sync_planner import CAMPAIGNS_KIND, profile_timezone
+from core.amazon_ads.structure_provider import (
+    _ATTRIBUTION_FIELDS,
+    AD_GROUP,
+    BIDDING_ADJUSTMENT,
+    CAMPAIGN,
+    CAMPAIGN_NEGATIVE_KEYWORD,
+    CAMPAIGN_NEGATIVE_PRODUCT_TARGETING,
+    KEYWORD,
+    NEGATIVE_ENTITIES,
+    PRODUCT_AD,
+    PRODUCT_TARGETING,
+    StructureProvider,
+)
+from core.amazon_ads.sync_planner import (
+    CAMPAIGN_ENTITIES_KIND,
+    CAMPAIGNS_KIND,
+    SP_AD_GROUPS_KIND,
+    SP_PRODUCT_ADS_KIND,
+    SP_TARGETS_KIND,
+    profile_timezone,
+)
 from core.integrations.sync_jobs import SyncJobStore
 from services.mcp_server.limits import page
+from services.mcp_server.tools.analyses import _account_time
 
 # Un modelo que pide "los search terms de la cuenta" no quiere 177.000 filas: quiere los que mueven
 # la aguja. El orden por gasto convierte una consulta vaga en una respuesta útil.
@@ -114,8 +139,47 @@ Source = Literal["", "campaigns", "search_terms"]
 CAMPAIGNS_SOURCE = ("Sponsored Products, Brands y Display, de la foto de campañas y sus reportes: trae también las "
                     "campañas habilitadas sin actividad. Las señales sólo existen para SP. " + ATTRIBUTION_NOTE)
 TARGETS_SOURCE = ("Los targets habilitados de campañas habilitadas de SP, SB y SD, de las listas de keywords y targets, "
-                  "con las impresiones de sus reportes de targeting. No incluye las campañas SB del formato "
-                  "anterior: sus targets no tienen reporte.")
+                  "con las impresiones de sus reportes de targeting. El bid es el efectivo: el propio del target o, si "
+                  "no tiene, el default de su ad group. Los de ad groups de SP listados como pausados quedan afuera. No "
+                  "incluye las campañas SB del formato anterior: sus targets no tienen reporte.")
+# What the chat asks for, and the families of the SP structure each one reads.
+STRUCTURE_ENTITIES = {
+    "campaigns": (CAMPAIGN,),
+    "placements": (BIDDING_ADJUSTMENT,),
+    "ad_groups": (AD_GROUP,),
+    "keywords": (KEYWORD,),
+    "product_targets": (PRODUCT_TARGETING,),
+    "product_ads": (PRODUCT_AD,),
+    "negatives": NEGATIVE_ENTITIES,
+}
+StructureEntity = Literal["campaigns", "placements", "ad_groups", "keywords", "product_targets", "product_ads",
+                          "negatives"]
+# A campaign's row carries its placement adjustments, which the database keeps as rows of their own family.
+_STRUCTURE_READS = {**STRUCTURE_ENTITIES, "campaigns": (CAMPAIGN, BIDDING_ADJUSTMENT)}
+# Past this, negatives are read one campaign at a time: a big account's, read whole, are hundreds of MB for one page.
+MAX_ACCOUNT_NEGATIVES = 5000
+STRUCTURE_STATES = ("enabled", "paused", "archived")
+StructureState = Literal["", "enabled", "paused", "archived"]
+STRUCTURE_SOURCE = ("Sólo Sponsored Products. La estructura es la foto diaria de las listas de entidades de Amazon Ads "
+                    "(campañas, ad groups, keywords, targets, anuncios y negativos): es la de la hora de listed_at, "
+                    "no la de este momento. Las métricas de la ventana, sólo de campañas, keywords y product targets, "
+                    "salen de los reportes. El bid de un keyword o target es el efectivo: el propio o, si no tiene, el "
+                    "default de su ad group (bid_source dice cuál). Un ajuste por placement en 0 es sin ajuste; vacío "
+                    "es que no se sabe.")
+_STRUCTURE_WHAT = {"campaigns": "campañas", "placements": "ajustes por placement", "ad_groups": "ad groups",
+                   "keywords": "keywords", "product_targets": "product targets", "product_ads": "product ads",
+                   "negatives": "negativos"}
+_ENTITY_OF_FAMILY = {family: entity for entity, families in STRUCTURE_ENTITIES.items() for family in families}
+# A listing whose job completed counts even with no rows; the negatives count by their snapshot, in the counts.
+_LISTING_KINDS = {"campaigns": CAMPAIGN_ENTITIES_KIND, "ad_groups": SP_AD_GROUPS_KIND, "keywords": SP_TARGETS_KIND,
+                  "product_targets": SP_TARGETS_KIND, "product_ads": SP_PRODUCT_ADS_KIND}
+_CAMPAIGN_NEGATIVES = (CAMPAIGN_NEGATIVE_KEYWORD, CAMPAIGN_NEGATIVE_PRODUCT_TARGETING)
+_MEASURED_ENTITIES = ("campaigns", "keywords", "product_targets")
+# Campaign Manager's names for the placements, and the key each adjustment takes in a campaign's row.
+_PLACEMENT_LABELS = {"PLACEMENT_TOP": "Top of search", "PLACEMENT_PRODUCT_PAGE": "Product pages",
+                     "PLACEMENT_REST_OF_SEARCH": "Rest of search", "SITE_AMAZON_BUSINESS": "Amazon Business"}
+_PLACEMENT_KEYS = {"PLACEMENT_TOP": "top_of_search_pct", "PLACEMENT_PRODUCT_PAGE": "product_pages_pct",
+                   "PLACEMENT_REST_OF_SEARCH": "rest_of_search_pct", "SITE_AMAZON_BUSINESS": "amazon_business_pct"}
 # The report keeps the last name each campaign had in the period: its state says whether it runs, never its name.
 CAMPAIGN_STATUS = "Campaign Status"
 
@@ -383,7 +447,7 @@ def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_fro
 def idle_targets(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
                  product: Product = "", offset: int = 0, limit: int = 50) -> dict:
     """Target Graduation: los targets habilitados, de campañas habilitadas, sin una impresión en los últimos `days`
-    días o de `date_from` a `date_to`.
+    días o de `date_from` a `date_to`, con su bid efectivo. Los de ad groups de SP listados como pausados no se miran.
 
     `counts` dice, por producto, cuántos se miraron y cuántos no tuvieron impresiones, también los que no
     entran en la página. `product` acota a SP, SB o SD.
@@ -415,6 +479,218 @@ def idle_targets(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: 
     if product and not considered.get(product):
         payload["note"] = f"Todavía no hay targets de {PRODUCT_TYPES[product]} para evaluar en este período."
     return payload
+
+
+def campaign_structure(rest, *, profile_id: str, entity: StructureEntity = "campaigns", campaign: str = "",
+                       state: StructureState = "", days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
+                       offset: int = 0, limit: int = 50) -> dict:
+    """La estructura de Sponsored Products de una cuenta, como Amazon Ads la listó por última vez: sus campañas con
+    presupuesto, estrategia y ajustes por placement (`entity`=campaigns), o sus placements, ad_groups, keywords,
+    product_targets, product_ads o negatives.
+
+    `campaign` deja la estructura de las campañas con eso en el nombre, o de la campaña con ese id; `state`, las filas
+    en ese estado. `counts` dice cuántas hay de cada tipo en la cuenta o en esas campañas, en cualquier estado, y
+    `listed_at` cuándo se listó cada tipo. Campañas, keywords y product targets traen sus métricas de los últimos
+    `days` días, o de `date_from` a `date_to`, cuando hay reportes de esa ventana. Más de `MAX_ACCOUNT_NEGATIVES`
+    negativos se leen de a una campaña: sin `campaign`, o con uno que abarca varias campañas, vuelven sólo contados.
+    """
+    families = STRUCTURE_ENTITIES.get(entity)
+    if families is None:
+        raise ValueError(f"entity tiene que ser uno de: {', '.join(STRUCTURE_ENTITIES)}")
+    if state and state not in STRUCTURE_STATES:
+        raise ValueError(f"state tiene que ser uno de: {', '.join(STRUCTURE_STATES)}, o vacío para todos")
+    profile = _campaign_profile(rest, profile_id)
+    start, end, window_note = requested_window(profile, days, date_from, date_to)
+    context = {"window": _window(start, end), "currency": profile.currency_code,
+               "attribution_days": _attribution_days(profile.account_type), "source": STRUCTURE_SOURCE}
+    if window_note:
+        context["window_note"] = window_note
+    provider = StructureProvider(rest)
+    fragment = campaign.strip()
+    named = None
+    if fragment:
+        campaigns = provider.sp_structure(profile, start, end, entities=(CAMPAIGN,))
+        if campaigns is None:
+            return _structure_not_synced(context)
+        named = _named_campaigns(campaigns.rows, fragment)
+        if named.empty:
+            if "campaigns" not in _listed_entities(rest, profile_id, campaigns.listed_at):
+                return _no_structure_rows(context, f"Todavía no se sincronizaron {_STRUCTURE_WHAT['campaigns']} "
+                                                   "de esta cuenta.")
+            # No counts: an empty one would read as nothing synced, and there are no campaigns to count in.
+            return _no_structure_rows(
+                {**context, "listed_at": _structure_listing_times(campaigns.listed_at, profile)},
+                f"Ninguna campaña de Sponsored Products de la cuenta tiene «{fragment}» en el nombre ni ese id.")
+    campaign_ids = tuple(named["campaign_id"]) if named is not None else ()
+
+    counted = provider.sp_structure_counts(profile, start, end, campaign_ids=campaign_ids)
+    listed = _listed_entities(rest, profile_id, counted.rows) if counted is not None else set()
+    if not listed:
+        return _structure_not_synced(context)
+    if "campaigns" in listed and _placements_known(counted.rows):
+        listed.add("placements")
+    counts = {name: sum(counted.rows.get(family, 0) for family in STRUCTURE_ENTITIES[name])
+              for name in STRUCTURE_ENTITIES if name in listed}
+    context.update(counts=counts, listed_at=_structure_listing_times(counted.listed_at, profile))
+    if named is not None:
+        names = list(dict.fromkeys(named["campaign_name"]))
+        context["campaigns"] = names[:MAX_CAMPAIGNS_LISTED]
+        if len(names) > MAX_CAMPAIGNS_LISTED:
+            context["campaigns_total"] = len(names)
+
+    what = _STRUCTURE_WHAT[entity]
+    if entity not in listed:
+        where = f"de las campañas con «{fragment}»" if fragment else "de esta cuenta"
+        return _no_structure_rows(context, f"Todavía no se sincronizaron {what} {where}.")
+    if not counts[entity]:
+        none = (f"Las campañas con «{fragment}» no tienen {what}" if fragment
+                else f"La cuenta no tiene {what} de Sponsored Products")
+        return _no_structure_rows(context, f"{none} en el último listado.")
+    if entity == "negatives" and counts[entity] > MAX_ACCOUNT_NEGATIVES and len(campaign_ids) != 1:
+        return {"rows": [], **context, "note": _too_many_negatives(counts[entity], fragment, len(campaign_ids))}
+
+    structure = provider.sp_structure(profile, start, end, entities=_STRUCTURE_READS[entity],
+                                      campaign_ids=campaign_ids)
+    scope = structure.rows
+    wanted = scope[scope["entity"].isin(families)]
+    if state:
+        wanted = wanted[wanted["state"].str.upper() == state.upper()]
+    placements = _campaign_placements(scope) if entity == "campaigns" else {}
+    sales_field, orders_field = _ATTRIBUTION_FIELDS[structure.attribution_days]
+    rows = []
+    for record in wanted.to_dict("records"):
+        row = _STRUCTURE_ROWS[entity](record)
+        if entity == "campaigns":
+            row.update(placements.get(record["campaign_id"], dict.fromkeys(_PLACEMENT_KEYS.values())))
+        if record["metrics_known"]:
+            row.update(_metrics(record["cost"], record[sales_field], record[orders_field], record["clicks"],
+                                record["impressions"]))
+        rows.append(row)
+    payload = page(rows, offset=offset, limit=limit).as_payload(what=what)
+    payload.update(context)
+    if entity in _MEASURED_ENTITIES and not wanted["metrics_known"].all():
+        payload["metrics_note"] = ("Todavía no hay reportes de esta ventana para estas filas: van sin métricas, que no "
+                                   "se conocen (no son cero).")
+    return payload
+
+
+def _too_many_negatives(total: int, fragment: str, campaigns: int) -> str:
+    """Why negatives wider than one campaign come back only counted, and how to ask for fewer."""
+    if not fragment:
+        return (f"La cuenta tiene {total} negativos: son demasiados para traerlos todos. Pedí los de una campaña con "
+                "campaign (parte de su nombre o su id).")
+    return (f"Las {campaigns} campañas con «{fragment}» tienen {total} negativos: son demasiados para traerlos todos. "
+            "Pedí los de una sola campaña con campaign (más de su nombre, o su id).")
+
+
+def _structure_not_synced(context: dict) -> dict:
+    return _no_structure_rows({**context, "counts": {}, "listed_at": {}},
+                              "La estructura de las campañas de esta cuenta todavía no se sincronizó.")
+
+
+def _no_structure_rows(context: dict, note: str) -> dict:
+    return {"rows": [], "total": 0, "showing": 0, "offset": 0, **context, "note": note}
+
+
+def _named_campaigns(campaigns, fragment: str):
+    """The campaign rows `fragment` names: by part of their name, whatever the case, or by their id."""
+    named = campaigns["campaign_id"].eq(fragment) | campaigns["campaign_name"].str.casefold().str.contains(
+        fragment.casefold(), regex=False)
+    return campaigns[named]
+
+
+def _listed_entities(rest, profile_id: str, families) -> set[str]:
+    """The entities Amazon Ads listed for the account: those whose families were counted, and those whose listing
+    job completed empty."""
+    listed = {_ENTITY_OF_FAMILY[family] for family in families} - {"placements"}
+    store = SyncJobStore(rest)
+    for kind in dict.fromkeys(kind for entity, kind in _LISTING_KINDS.items() if entity not in listed):
+        job = store.latest_completed_for_profile(profile_id, kind)
+        # A listing Amazon refused also completes, with no rows and the refusal as its warning.
+        if job is not None and not job.warning:
+            listed.update(entity for entity, listing in _LISTING_KINDS.items() if listing == kind)
+    return listed
+
+
+def _placements_known(families) -> bool:
+    """Whether the campaigns in scope carry their placement adjustments: one listed without them has them unknown."""
+    return BIDDING_ADJUSTMENT in families or CAMPAIGN not in families
+
+
+def _structure_listing_times(listed_at: dict, profile: ProfileOption) -> dict:
+    """When each entity the chat asks for was last listed, on the account's clock."""
+    latest = {}
+    for family, moment in listed_at.items():
+        entity = _ENTITY_OF_FAMILY[family]
+        latest[entity] = max(moment, latest.get(entity, moment))
+    return {entity: _account_time(latest[entity], profile) for entity in STRUCTURE_ENTITIES if entity in latest}
+
+
+def _campaign_placements(scope) -> dict:
+    """Campaign id -> its four placement percentages; a campaign without them has them unknown."""
+    placements = {}
+    for record in scope[scope["entity"].eq(BIDDING_ADJUSTMENT)].to_dict("records"):
+        adjustments = placements.setdefault(record["campaign_id"], dict.fromkeys(_PLACEMENT_KEYS.values()))
+        adjustments[_PLACEMENT_KEYS[record["placement"]]] = _plain_number(record["percentage"])
+    return placements
+
+
+def _structure_campaign_row(record: dict) -> dict:
+    return {"campaign": record["campaign_name"], "campaign_id": record["campaign_id"],
+            "portfolio": _portfolio_label(record["portfolio_id"], record["portfolio_name"]),
+            "state": record["state"], "targeting_type": record["targeting_type"],
+            "budget": _plain_number(record["budget_amount"]), "budget_type": record["budget_type"],
+            "bid_strategy": BID_STRATEGY_LABELS.get(record["bidding_strategy"], record["bidding_strategy"])}
+
+
+def _structure_placement_row(record: dict) -> dict:
+    return {"campaign": record["campaign_name"], "campaign_id": record["campaign_id"], "state": record["state"],
+            "bid_strategy": BID_STRATEGY_LABELS.get(record["bidding_strategy"], record["bidding_strategy"]),
+            "placement": _PLACEMENT_LABELS.get(record["placement"], record["placement"]),
+            "percentage": _plain_number(record["percentage"])}
+
+
+def _structure_ad_group_row(record: dict) -> dict:
+    return {"campaign": record["campaign_name"], "campaign_id": record["campaign_id"],
+            "ad_group": record["ad_group_name"], "ad_group_id": record["ad_group_id"], "state": record["state"],
+            "default_bid": _plain_number(record["default_bid"])}
+
+
+def _structure_target_row(record: dict) -> dict:
+    own_bid, default_bid = _plain_number(record["own_bid"]), _plain_number(record["default_bid"])
+    return {"campaign": record["campaign_name"], "campaign_id": record["campaign_id"],
+            "ad_group": record["ad_group_name"], "ad_group_id": record["ad_group_id"],
+            "target": record["target_text"], "target_id": record["entity_id"],
+            "kind": TARGET_KIND_LABELS.get(record["target_kind"], record["target_kind"]),
+            "match_type": record["match_type"], "state": record["state"], "bid": _plain_number(record["bid"]),
+            "own_bid": own_bid, "default_bid": default_bid,
+            "bid_source": "own" if own_bid is not None else "ad_group_default" if default_bid is not None else ""}
+
+
+def _structure_product_ad_row(record: dict) -> dict:
+    return {"campaign": record["campaign_name"], "campaign_id": record["campaign_id"],
+            "ad_group": record["ad_group_name"], "ad_group_id": record["ad_group_id"], "asin": record["asin"],
+            "sku": record["sku"], "state": record["state"], "ad_id": record["entity_id"]}
+
+
+def _structure_negative_row(record: dict) -> dict:
+    return {"campaign": record["campaign_name"], "campaign_id": record["campaign_id"],
+            "ad_group": record["ad_group_name"], "ad_group_id": record["ad_group_id"],
+            "level": "campaign" if record["entity"] in _CAMPAIGN_NEGATIVES else "ad_group",
+            "kind": TARGET_KIND_LABELS.get(record["target_kind"], record["target_kind"]),
+            "negative": record["target_text"], "match_type": record["match_type"], "state": record["state"],
+            "negative_id": record["entity_id"]}
+
+
+_STRUCTURE_ROWS = {
+    "campaigns": _structure_campaign_row,
+    "placements": _structure_placement_row,
+    "ad_groups": _structure_ad_group_row,
+    "keywords": _structure_target_row,
+    "product_targets": _structure_target_row,
+    "product_ads": _structure_product_ad_row,
+    "negatives": _structure_negative_row,
+}
 
 
 def _campaign_profile(rest, profile_id: str, *, search_terms_hint: bool = False) -> ProfileOption:

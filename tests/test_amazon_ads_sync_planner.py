@@ -7,12 +7,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from core.amazon_ads import report_kinds
 from core.amazon_ads.sync_planner import (
     CAMPAIGN_ENTITIES_KIND,
     CAMPAIGNS_KIND,
     PORTFOLIOS_KIND,
     PRODUCT_ENTITY_KINDS,
     PRODUCT_KINDS,
+    PRODUCT_REPORT_KINDS,
     SB_CAMPAIGNS_KIND,
     SB_ENTITIES_KIND,
     SB_LEGACY_KIND,
@@ -21,6 +23,8 @@ from core.amazon_ads.sync_planner import (
     SD_ENTITIES_KIND,
     SD_TARGETING_KIND,
     SEARCH_TERMS_KIND,
+    SP_AD_GROUPS_KIND,
+    SP_NEGATIVES_KIND,
     SP_TARGETING_KIND,
     SP_TARGETS_KIND,
     ProfileState,
@@ -404,6 +408,28 @@ def test_each_product_entity_list_is_planned_once_a_day_without_a_window():
     for kind in PRODUCT_ENTITY_KINDS:
         assert (jobs[kind].trigger, jobs[kind].window_start, jobs[kind].window_end) == ("scheduled_daily", None, None)
         assert jobs[kind].dedupe_key == f"amazon_ads:p-100:{kind}:2026-09-14"
+
+
+def test_sp_ad_groups_and_negatives_are_listed_once_a_day_like_the_other_entity_lists():
+    now = _utc(2026, 9, 14, 17)
+
+    jobs = _product_jobs(plan_jobs(_state(), now))
+    planned_again = _product_jobs(plan_jobs(
+        _state(product_kinds_today=frozenset({SP_AD_GROUPS_KIND}), product_kinds_open=frozenset({SP_NEGATIVES_KIND})),
+        now))
+
+    for kind in (SP_AD_GROUPS_KIND, SP_NEGATIVES_KIND):
+        assert (jobs[kind].trigger, jobs[kind].window_start, jobs[kind].window_end) == ("scheduled_daily", None, None)
+        assert jobs[kind].dedupe_key == f"amazon_ads:p-100:{kind}:2026-09-14"
+        assert jobs[kind].deadline_at == _utc(2026, 9, 15, 6)  # 23:00 PDT
+        assert kind not in planned_again
+
+
+def test_no_entity_list_is_a_report_or_an_analysis_kind():
+    for kind in PRODUCT_ENTITY_KINDS:
+        assert report_kinds.by_job_kind(kind) is None and kind not in PRODUCT_REPORT_KINDS, kind
+        # claim_ai_jobs takes every 'ai_%' kind and the ingestion worker's claim skips them.
+        assert not kind.startswith("ai_"), kind
 
 
 def test_sp_targeting_loads_its_history_first_with_a_day_to_finish():

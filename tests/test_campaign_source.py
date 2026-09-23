@@ -85,7 +85,7 @@ class _FakeRest:
     analyses and account settings the AI tab looks up (none unless a test gives them)."""
 
     def __init__(self, profile_rows, campaign_rows=(), jobs=(), jobs_down=False, settings=(), product_csv=b"",
-                 targets_csv=b""):
+                 targets_csv=b"", ad_groups=()):
         self.profile_rows = list(profile_rows)
         self.campaign_rows = list(campaign_rows)
         self.jobs = list(jobs)
@@ -95,6 +95,8 @@ class _FakeRest:
         # test gives them.
         self.product_csv = product_csv
         self.targets_csv = targets_csv
+        # Stored ad groups (migration 018), whose known states decide the paused-ad-group note.
+        self.ad_groups = list(ad_groups)
         self.campaign_reads: list[dict] = []
 
     def select(self, table, params):
@@ -104,6 +106,9 @@ class _FakeRest:
             return [dict(row) for row in self.settings]
         if table == "ai_analyses":
             return []
+        if table == "ads_ad_group":
+            return [{"ad_group_id": row["ad_group_id"]} for row in self.ad_groups
+                    if params["ad_product"] == f"eq.{row['ad_product']}"][:int(params["limit"])]
         if table == "integration_sync_jobs":
             if self.jobs_down:
                 raise requests.ConnectionError("pool timeout")
@@ -452,6 +457,17 @@ def _busy_targets(count, *, ad_product="SP") -> list[dict]:
             for index in range(count)]
 
 
+PAUSED_AD_GROUPS_NOTE = "Se excluyeron los keywords de ad groups pausados."
+
+
+def _ad_group(ad_product: str = "SP") -> dict:
+    return {"ad_product": ad_product, "ad_group_id": "501"}
+
+
+def _caption_with(app: AppTest, text: str) -> str:
+    return next(str(caption.value) for caption in app.caption if text in str(caption.value))
+
+
 class TestBulkCampanasOtherProducts:
     SP = [_campaign("2", "Bleeder", impressions=900, clicks=30, cost=30.0),
           _campaign("3", "Winner", impressions=2000, clicks=40, cost=10.0, purchases=4, sales=100.0)]
@@ -459,10 +475,10 @@ class TestBulkCampanasOtherProducts:
                                                                                  multi="f"),
                 _product_campaign("SD", "801", "Display Views")]
 
-    def _run(self, monkeypatch, *, products=None, targets=None):
+    def _run(self, monkeypatch, *, products=None, targets=None, ad_groups=(_ad_group(),)):
         fake = _FakeRest([_profile_row()], self.SP, jobs=[_job_row()],
                          product_csv=_rows_csv(_PRODUCT_HEADER, self.PRODUCTS if products is None else products),
-                         targets_csv=_rows_csv(_TARGET_HEADER, targets or []))
+                         targets_csv=_rows_csv(_TARGET_HEADER, targets or []), ad_groups=ad_groups)
         app = _app(monkeypatch, fake, script=_M6_SCRIPT)
         app.run()
         assert not app.exception
@@ -509,6 +525,7 @@ class TestBulkCampanasOtherProducts:
 
         assert any("#### Target Graduation" in str(markdown.value) for markdown in app.markdown)
         assert "2 de 25 targets" in " ".join(str(caption.value) for caption in app.caption)
+        assert _caption_with(app, "2 de 25 targets").endswith(PAUSED_AD_GROUPS_NOTE)
         table = next(frame.value for frame in app.dataframe if "Targeting" in frame.value.columns)
         assert list(table["Targeting"]) == ["demo idle kw", "other idle"]
 
@@ -521,6 +538,8 @@ class TestBulkCampanasOtherProducts:
         control.set_value("Sponsored Display").run()
 
         assert "1 de 3 targets" in " ".join(str(caption.value) for caption in app.caption)
+        # Only SP ad groups are listed: nothing of Sponsored Display was left out for a paused ad group.
+        assert PAUSED_AD_GROUPS_NOTE not in _caption_with(app, "1 de 3 targets")
         table = next(frame.value for frame in app.dataframe if "Targeting" in frame.value.columns)
         assert list(table["Targeting"]) == ["sd idle"]
 
@@ -530,8 +549,9 @@ class TestBulkCampanasOtherProducts:
         control = next(control for control in app.button_group if control.label == "Producto")
         control.set_value("Sponsored Brands").run()
 
-        assert "Todavía no hay targets de Sponsored Brands para evaluar en el período." in " ".join(
-            str(caption.value) for caption in app.caption)
+        captions = " ".join(str(caption.value) for caption in app.caption)
+        assert "Todavía no hay targets de Sponsored Brands para evaluar en el período." in captions
+        assert PAUSED_AD_GROUPS_NOTE not in captions
 
     def test_targets_that_all_had_impressions_are_not_read_as_unsynced(self, monkeypatch):
         app = self._run(monkeypatch, targets=_busy_targets(3))
@@ -539,12 +559,31 @@ class TestBulkCampanasOtherProducts:
         captions = " ".join(str(caption.value) for caption in app.caption)
         assert "Todos los targets habilitados (3), en campañas habilitadas, tuvieron impresiones" in captions
         assert "todavía no se sincronizaron" not in captions
+        assert _caption_with(app, "Todos los targets habilitados (3)").endswith(PAUSED_AD_GROUPS_NOTE)
+
+    def test_before_the_first_sp_ad_group_listing_no_paused_ad_group_was_left_out(self, monkeypatch):
+        app = self._run(monkeypatch, targets=_busy_targets(3), ad_groups=())
+
+        assert _caption_with(app, "Todos los targets habilitados (3)").endswith("tuvieron impresiones en el período.")
+
+    def test_ad_groups_of_another_product_leave_no_sp_target_out(self, monkeypatch):
+        targets = [_target("91", "demo idle kw"), *_busy_targets(2)]
+
+        app = self._run(monkeypatch, targets=targets, ad_groups=(_ad_group("SD"),))
+
+        assert PAUSED_AD_GROUPS_NOTE not in _caption_with(app, "1 de 3 targets")
+
+    def test_without_sp_targets_no_paused_ad_group_was_left_out(self, monkeypatch):
+        app = self._run(monkeypatch, targets=_busy_targets(2, ad_product="SD"))
+
+        assert PAUSED_AD_GROUPS_NOTE not in _caption_with(app, "Todos los targets habilitados (2)")
 
     def test_without_synced_targets_target_graduation_says_it_is_waiting(self, monkeypatch):
         app = self._run(monkeypatch)
 
-        assert "Los targets de esta cuenta todavía no se sincronizaron" in " ".join(
-            str(caption.value) for caption in app.caption)
+        captions = " ".join(str(caption.value) for caption in app.caption)
+        assert "Los targets de esta cuenta todavía no se sincronizaron" in captions
+        assert PAUSED_AD_GROUPS_NOTE not in captions
 
     def test_an_account_with_only_sp_shows_no_product_filter(self, monkeypatch):
         app = self._run(monkeypatch, products=[])

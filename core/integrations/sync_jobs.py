@@ -73,6 +73,7 @@ class SyncJob:
     finished_at: datetime | None
     updated_at: datetime | None
     params: dict = field(default_factory=dict)
+    progress: dict | None = None
 
     @property
     def is_open(self) -> bool:
@@ -116,6 +117,7 @@ class SyncJob:
             finished_at=parse_timestamp(row.get("finished_at")),
             updated_at=parse_timestamp(row.get("updated_at")),
             params=dict(row.get("params") or {}),
+            progress=row.get("progress"),
         )
 
 
@@ -228,6 +230,7 @@ class SyncJobStore:
             lease_holder="",
             lease_expires_at=None,
             updated_at=now,
+            progress=None,
         )
         changes = {
             "status": updated.status,
@@ -243,12 +246,17 @@ class SyncJobStore:
         }
         if will_retry:
             changes["next_attempt_at"] = next_attempt_at.isoformat()
+        if job.progress is not None:
+            # A listing's paging token may not outlive the retry delay, so a failed run starts over.
+            changes["progress"] = None
         self._rest.update(JOBS_TABLE, _still_open(job.id), changes)
         log.warning("sync job %s attempt %d/%d failed (%s): %s -> %s", job.id, attempts,
                     job.max_attempts, error_class, message, updated.status)
         return updated
 
-    def complete(self, job: SyncJob, *, rows_written: int, warning: str = "", now: datetime) -> None:
+    def complete(self, job: SyncJob, *, rows_written: int, warning: str = "", now: datetime,
+                 started_at: datetime | None = None) -> None:
+        """`started_at` replaces the claim time when the caller timed the work itself."""
         changes = {
             "status": "completed",
             "phase": "",
@@ -261,11 +269,59 @@ class SyncJobStore:
             "lease_expires_at": None,
             "updated_at": now.isoformat(),
         }
+        if started_at is not None:
+            changes["started_at"] = started_at.isoformat()
+        if job.progress is not None:
+            # Only a paused listing has progress: every other job keeps closing on a database without migration 018.
+            changes["progress"] = None
         if job.trigger in _RELEASES_DEDUPE_ON_COMPLETE:
             changes["dedupe_key"] = None
         self._rest.update(JOBS_TABLE, _still_open(job.id), changes)
         log.info("sync job %s completed: %d rows%s", job.id, rows_written,
                  f" ({warning})" if warning else "")
+
+    def pause_listing(self, job: SyncJob, *, progress: dict, now: datetime, keep_place: bool,
+                      started_at: datetime | None = None) -> SyncJob:
+        """A listing read in parts stops where its tick's budget ran out; the next tick claims it again.
+
+        With `keep_place` the job keeps its `next_attempt_at`, so the claim order puts it ahead of every job queued
+        after it; without it, it waits behind them. `progress["rows"]` goes to `rows_written` too, so the request
+        log shows how far it got. `started_at`, given by a run's first part, replaces the claim time.
+        """
+        next_attempt_at = job.next_attempt_at if keep_place else now
+        updated = replace(job, status="pending", phase="", next_attempt_at=next_attempt_at, lease_holder="",
+                          lease_expires_at=None, rows_written=progress["rows"], progress=progress, updated_at=now,
+                          started_at=started_at or job.started_at)
+        changes = {
+            "status": "pending",
+            "phase": "",
+            "lease_holder": "",
+            "lease_expires_at": None,
+            "rows_written": progress["rows"],
+            "progress": progress,
+            "updated_at": now.isoformat(),
+        }
+        if started_at is not None:
+            changes["started_at"] = started_at.isoformat()
+        if not keep_place:
+            changes["next_attempt_at"] = now.isoformat()
+        self._rest.update(JOBS_TABLE, _still_open(job.id), changes)
+        log.info("sync job %s paused: %d rows so far", job.id, progress["rows"])
+        return updated
+
+    def another_run_under_way(self, job: SyncJob) -> bool:
+        """Whether another open job of this kind and account is partway through a listing done in parts."""
+        rows = self._rest.select(JOBS_TABLE, {
+            "select": "id",
+            "integration_slug": f"eq.{job.integration_slug}",
+            "job_kind": f"eq.{job.job_kind}",
+            "external_account_id": f"eq.{job.external_account_id}",
+            "status": _in_filter(OPEN_STATUSES),
+            "progress": "not.is.null",
+            "id": f"neq.{job.id}",
+            "limit": "1",
+        })
+        return bool(rows)
 
     def fail_expired(self, now: datetime) -> int:
         """Jobs that can no longer finish in time become failures.

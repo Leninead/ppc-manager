@@ -16,7 +16,7 @@ from typing import BinaryIO
 import requests
 
 from core.amazon_ads import ad_entities, report_kinds
-from core.amazon_ads.api_client import AdsAccessDenied, AdsApiClient, AdsThrottled
+from core.amazon_ads.api_client import AdsAccessDenied, AdsApiClient, AdsApiError, AdsThrottled
 from core.amazon_ads.campaign_entities import fetch_campaigns, save_campaigns
 from core.amazon_ads.portfolios import fetch_portfolios, save_portfolios
 from core.amazon_ads.raw_reports import (
@@ -44,6 +44,8 @@ from core.amazon_ads.sync_planner import (
     SB_ENTITIES_KIND,
     SD_ENTITIES_KIND,
     SEARCH_TERMS_KIND,
+    SP_AD_GROUPS_KIND,
+    SP_NEGATIVES_KIND,
     SP_PRODUCT_ADS_KIND,
     SP_TARGETS_KIND,
     ProfileState,
@@ -86,6 +88,8 @@ PRUNE_INTERVAL = timedelta(hours=1)
 REPLACE_DAY_TIMEOUT_SECONDS = 120
 # Saves are the slow part of a tick; capping them keeps a tick inside the 5-minute silent-worker alert.
 MAX_SAVES_PER_TICK = 4
+# Amazon answered a negatives page in 0.95 s on average, so this keeps a tick's share under a minute.
+NEGATIVE_PAGES_PER_TICK = 40
 # A save that was cut off this many times (an out-of-memory kill, most likely) is not tried again.
 MAX_SAVE_ATTEMPTS = 2
 MAX_HEARTBEAT_ERRORS = 20
@@ -96,6 +100,9 @@ NO_PORTFOLIO_ACCESS_WARNING = "sin permiso para leer portfolios"
 NO_CAMPAIGN_ACCESS_WARNING = "sin permiso para leer campañas"
 NO_TARGETS_ACCESS_WARNING = "sin permiso para leer keywords y targets"
 NO_PRODUCT_ADS_ACCESS_WARNING = "sin permiso para leer los productos anunciados"
+NO_AD_GROUPS_ACCESS_WARNING = "sin permiso para leer los ad groups"
+NO_NEGATIVES_ACCESS_WARNING = "sin permiso para leer los negativos"
+NEGATIVES_RUN_UNDER_WAY_WARNING = "otra solicitud ya estaba listando los negativos de la cuenta"
 NO_SB_ACCESS_WARNING = "sin acceso a Sponsored Brands"
 NO_SD_ACCESS_WARNING = "sin acceso a Sponsored Display"
 # How recently the SB list must have shown a campaign of the old format for v2 to be asked for it.
@@ -144,6 +151,14 @@ class SaveCrashed(RuntimeError):
     """Saving this report chunk was cut off `MAX_SAVE_ATTEMPTS` times, so trying again would only repeat it."""
 
 
+@dataclass(frozen=True)
+class _Listed:
+    """How an entity listing closes its job: the rows it saved, and why none when Amazon refused it."""
+
+    rows_written: int
+    warning: str = ""
+
+
 @dataclass
 class TickSummary:
     profiles_active: int = 0
@@ -177,6 +192,8 @@ class _Tick:
     # A 429 speaks for the whole app: once a step is throttled, no report kind continues it this tick.
     create_throttled: bool = False
     poll_throttled: bool = False
+    # One budget for every negatives job of the tick: it bounds the tick however many accounts are listing.
+    listing_pages_left: int = NEGATIVE_PAGES_PER_TICK
 
 
 def _utc_now() -> datetime:
@@ -212,8 +229,10 @@ class IngestionJob:
         self._last_prune_at: datetime | None = None
 
     def run_tick(self, now_utc: datetime, stop_requested: Callable[[], bool] = _never_stop) -> TickSummary:
-        """`stop_requested` is checked between jobs, creates and saves; once true the tick only writes its heartbeat."""
-        tick = _Tick(now=now_utc, summary=TickSummary(), stop_requested=stop_requested)
+        """`stop_requested` is checked between jobs, creates, saves and negatives pages; once true the tick only
+        writes its heartbeat."""
+        tick = _Tick(now=now_utc, summary=TickSummary(), stop_requested=stop_requested,
+                     listing_pages_left=NEGATIVE_PAGES_PER_TICK)
         try:
             tick.profiles = self._read_profiles()
         except Exception as exc:
@@ -406,66 +425,132 @@ class IngestionJob:
             raise ConnectionUnavailable(
                 f"profile {job.external_account_id} is {profile_status or 'not synced'}, not active"
             )
-        if job.job_kind == PORTFOLIOS_KIND:
-            self._refresh_portfolios(tick, job)
-        elif job.job_kind == CAMPAIGN_ENTITIES_KIND:
-            self._refresh_campaign_entities(tick, job)
-        elif job.job_kind == SP_TARGETS_KIND:
-            self._refresh_sp_targets(tick, job)
-        elif job.job_kind == SP_PRODUCT_ADS_KIND:
-            self._refresh_sp_product_ads(tick, job)
-        elif job.job_kind in (SB_ENTITIES_KIND, SD_ENTITIES_KIND):
-            self._refresh_product_entities(tick, job)
+        if job.job_kind == SP_NEGATIVES_KIND:
+            self._continue_sp_negatives(tick, job)
+        elif (listing := self._listing_of(job.job_kind)) is not None:
+            self._run_listing(tick, job, listing)
         elif (kind := report_kinds.by_job_kind(job.job_kind)) is not None:
             self._prepare_report_requests(tick, job, kind)
         else:
             raise InvalidSyncJob(f"job {job.id} has an unknown kind {job.job_kind!r}")
 
-    def _refresh_portfolios(self, tick: _Tick, job: SyncJob) -> None:
+    def _listing_of(self, job_kind: str) -> Callable[[_Tick, SyncJob], _Listed] | None:
+        """The synchronous kinds: Amazon answers them while the worker waits, with no report to poll."""
+        return {
+            PORTFOLIOS_KIND: self._refresh_portfolios,
+            CAMPAIGN_ENTITIES_KIND: self._refresh_campaign_entities,
+            SP_TARGETS_KIND: self._refresh_sp_targets,
+            SP_PRODUCT_ADS_KIND: self._refresh_sp_product_ads,
+            SP_AD_GROUPS_KIND: self._refresh_sp_ad_groups,
+            SB_ENTITIES_KIND: self._refresh_product_entities,
+            SD_ENTITIES_KIND: self._refresh_product_entities,
+        }.get(job_kind)
+
+    def _run_listing(self, tick: _Tick, job: SyncJob, listing: Callable[[_Tick, SyncJob], _Listed]) -> None:
+        # The claim stamps a whole batch at once, so only the worker's own clock can time one listing.
+        dispatched_at = self._clock()
+        listed = listing(tick, job)
+        self._complete(tick, job, rows_written=listed.rows_written, warning=listed.warning, now=self._clock(),
+                       started_at=dispatched_at)
+
+    def _refresh_portfolios(self, tick: _Tick, job: SyncJob) -> _Listed:
         api, _ = self._amazon(job)
         try:
             portfolios = fetch_portfolios(api, job.external_account_id)
         except AdsAccessDenied:
             log.info("amazon_ads: profile %s may not list portfolios", job.external_account_id)
-            self._complete(tick, job, rows_written=0, warning=NO_PORTFOLIO_ACCESS_WARNING)
-            return
-        saved_count = save_portfolios(self._rest, job.external_account_id, portfolios, tick.now)
-        self._complete(tick, job, rows_written=saved_count)
+            return _Listed(0, NO_PORTFOLIO_ACCESS_WARNING)
+        return _Listed(save_portfolios(self._rest, job.external_account_id, portfolios, tick.now))
 
-    def _refresh_campaign_entities(self, tick: _Tick, job: SyncJob) -> None:
+    def _refresh_campaign_entities(self, tick: _Tick, job: SyncJob) -> _Listed:
         api, _ = self._amazon(job)
         try:
             campaigns = fetch_campaigns(api, job.external_account_id)
         except AdsAccessDenied:
             log.info("amazon_ads: profile %s may not list campaigns", job.external_account_id)
-            self._complete(tick, job, rows_written=0, warning=NO_CAMPAIGN_ACCESS_WARNING)
-            return
-        saved_count = save_campaigns(self._rest, job.external_account_id, campaigns, tick.now)
-        self._complete(tick, job, rows_written=saved_count)
+            return _Listed(0, NO_CAMPAIGN_ACCESS_WARNING)
+        return _Listed(save_campaigns(self._rest, job.external_account_id, campaigns, tick.now))
 
-    def _refresh_sp_targets(self, tick: _Tick, job: SyncJob) -> None:
+    def _refresh_sp_targets(self, tick: _Tick, job: SyncJob) -> _Listed:
         api, _ = self._amazon(job)
         try:
             targets = ad_entities.fetch_sp_targets(api, job.external_account_id)
         except AdsAccessDenied:
             log.info("amazon_ads: profile %s may not list keywords and targets", job.external_account_id)
-            self._complete(tick, job, rows_written=0, warning=NO_TARGETS_ACCESS_WARNING)
-            return
-        saved_count = ad_entities.save_targets(self._rest, job.external_account_id, "SP", targets, tick.now)
-        self._complete(tick, job, rows_written=saved_count)
+            return _Listed(0, NO_TARGETS_ACCESS_WARNING)
+        return _Listed(ad_entities.save_targets(self._rest, job.external_account_id, "SP", targets, tick.now))
 
-    def _refresh_sp_product_ads(self, tick: _Tick, job: SyncJob) -> None:
+    def _refresh_sp_product_ads(self, tick: _Tick, job: SyncJob) -> _Listed:
         api, _ = self._amazon(job)
         try:
             product_ads = ad_entities.fetch_sp_product_ads(api, job.external_account_id)
         except AdsAccessDenied:
             log.info("amazon_ads: profile %s may not list its product ads", job.external_account_id)
-            self._complete(tick, job, rows_written=0, warning=NO_PRODUCT_ADS_ACCESS_WARNING)
-            return
-        saved_count = ad_entities.save_product_ads(self._rest, job.external_account_id, product_ads, tick.now)
-        self._complete(tick, job, rows_written=saved_count)
+            return _Listed(0, NO_PRODUCT_ADS_ACCESS_WARNING)
+        return _Listed(ad_entities.save_product_ads(self._rest, job.external_account_id, product_ads, tick.now))
 
-    def _refresh_product_entities(self, tick: _Tick, job: SyncJob) -> None:
+    def _refresh_sp_ad_groups(self, tick: _Tick, job: SyncJob) -> _Listed:
+        api, _ = self._amazon(job)
+        try:
+            ad_groups = ad_entities.fetch_sp_ad_groups(api, job.external_account_id)
+        except AdsAccessDenied:
+            log.info("amazon_ads: profile %s may not list its ad groups", job.external_account_id)
+            return _Listed(0, NO_AD_GROUPS_ACCESS_WARNING)
+        return _Listed(ad_entities.save_ad_groups(self._rest, job.external_account_id, "SP", ad_groups, tick.now))
+
+    def _continue_sp_negatives(self, tick: _Tick, job: SyncJob) -> None:
+        """The four negative listings, read in parts that share the tick's page budget.
+
+        Each page is saved as it arrives and the job keeps where it stopped, so an account with hundreds of
+        thousands of negatives holds neither a whole tick nor the worker's memory. Once the fourth listing ends,
+        the snapshot names this run's `seen_at`: only then do the negatives it did not see stop counting.
+
+        One run per account at a time: a job that would start one while another job's run is under way (a retry
+        next to the day's job) closes without listing, because two runs re-stamp each other's rows.
+        """
+        # The claim stamps a whole batch at once, so a new run times itself from its own dispatch.
+        run_started_at = self._clock() if job.progress is None else None
+        if job.progress is None and self._jobs.another_run_under_way(job):
+            log.info("amazon_ads: profile %s is already listing its negatives, job %s closes",
+                     job.external_account_id, job.id)
+            self._complete(tick, job, rows_written=0, warning=NEGATIVES_RUN_UNDER_WAY_WARNING, now=self._clock(),
+                           started_at=run_started_at)
+            return
+        run = job.progress or {"listing": 0, "next_token": "", "seen_at": tick.now.isoformat(), "rows": 0,
+                               "pages": 0}
+        seen_at = parse_timestamp(run["seen_at"])
+        api, _ = self._amazon(job)
+        while run["listing"] < len(ad_entities.SP_NEGATIVE_LISTINGS):
+            if tick.listing_pages_left <= 0 or tick.stop_requested():
+                # A run that already read a page may hold a paging token, which must not wait behind new jobs.
+                tick.jobs[job.id] = self._jobs.pause_listing(job, progress=run, now=tick.now,
+                                                             keep_place=_has_read_a_page(run),
+                                                             started_at=run_started_at)
+                return
+            if run["pages"] >= ad_entities.MAX_NEGATIVE_LISTING_PAGES:
+                raise AdsApiError(f"negative listing {run['listing']} for profile {job.external_account_id} "
+                                  f"exceeded {ad_entities.MAX_NEGATIVE_LISTING_PAGES} pages")
+            tick.listing_pages_left -= 1
+            try:
+                page = ad_entities.fetch_negative_page(api, job.external_account_id, run["listing"],
+                                                       run["next_token"])
+            except AdsAccessDenied:
+                # Only the run's first page tells an account without the permission; a later refusal fails the run.
+                if _has_read_a_page(run):
+                    raise
+                log.info("amazon_ads: profile %s may not list its negatives", job.external_account_id)
+                self._complete(tick, job, rows_written=0, warning=NO_NEGATIVES_ACCESS_WARNING, now=self._clock(),
+                               started_at=run_started_at)
+                return
+            saved = ad_entities.save_negatives(self._rest, job.external_account_id, "SP", page.rows, seen_at)
+            run = _after_negative_page(run, page, saved)
+        finished_at = self._clock()
+        ad_entities.save_listing_snapshot(self._rest, job.external_account_id, SP_NEGATIVES_KIND, seen_at=seen_at,
+                                          rows=run["rows"], completed_at=finished_at)
+        # A run done in several parts keeps the start its first pause wrote.
+        self._complete(tick, job, rows_written=run["rows"], warning="", now=finished_at, started_at=run_started_at)
+
+    def _refresh_product_entities(self, tick: _Tick, job: SyncJob) -> _Listed:
         """Sponsored Brands or Display: campaigns first, then their targets.
 
         The rows written are the campaigns: the planner asks this product's reports only when there are some,
@@ -483,12 +568,10 @@ class IngestionJob:
                 targets = ad_entities.fetch_sd_targets(api, job.external_account_id) if campaigns else []
         except AdsAccessDenied:
             log.info("amazon_ads: profile %s has no %s access", job.external_account_id, ad_product)
-            self._complete(tick, job, rows_written=0,
-                           warning=NO_SB_ACCESS_WARNING if is_brands else NO_SD_ACCESS_WARNING)
-            return
+            return _Listed(0, NO_SB_ACCESS_WARNING if is_brands else NO_SD_ACCESS_WARNING)
         saved_count = ad_entities.save_product_campaigns(self._rest, job.external_account_id, campaigns, tick.now)
         ad_entities.save_targets(self._rest, job.external_account_id, ad_product, targets, tick.now)
-        self._complete(tick, job, rows_written=saved_count)
+        return _Listed(saved_count)
 
     def _prepare_report_requests(self, tick: _Tick, job: SyncJob, kind: report_kinds.ReportKind) -> None:
         """Idempotent, so a job claimed again after its worker died resumes from the chunks it already has."""
@@ -814,7 +897,7 @@ class IngestionJob:
             self._update_profile(tick, job.external_account_id, self._success_changes(tick, job, chunks))
         empty_days = sorted({str(day) for chunk in chunks for day in chunk.get("skipped_days") or ()})
         rows_written = sum(int(chunk.get("row_count") or 0) for chunk in chunks)
-        self._complete(tick, job, rows_written=rows_written, warning=_empty_days_warning(empty_days))
+        self._complete(tick, job, rows_written=rows_written, warning=_empty_days_warning(empty_days), now=tick.now)
 
     def _success_changes(self, tick: _Tick, job: SyncJob, chunks: list[dict]) -> dict:
         profile = tick.profiles.get(job.external_account_id) or {}
@@ -968,8 +1051,9 @@ class IngestionJob:
         except Exception as exc:
             self._record_error(tick, f"job {job.id} lease", exc)
 
-    def _complete(self, tick: _Tick, job: SyncJob, *, rows_written: int, warning: str = "") -> None:
-        self._jobs.complete(job, rows_written=rows_written, warning=warning, now=tick.now)
+    def _complete(self, tick: _Tick, job: SyncJob, *, rows_written: int, warning: str, now: datetime,
+                  started_at: datetime | None = None) -> None:
+        self._jobs.complete(job, rows_written=rows_written, warning=warning, now=now, started_at=started_at)
         tick.jobs[job.id] = replace(job, status="completed", phase="")
         tick.summary.jobs_completed += 1
 
@@ -1125,6 +1209,19 @@ def _classify(exc: Exception) -> tuple[str, bool]:
     if isinstance(exc, SaveCrashed):
         return "SaveCrashed", False
     return type(exc).__name__, True
+
+
+def _has_read_a_page(run: dict) -> bool:
+    """After its first page a run is past its first listing or holds the token of the next page."""
+    return bool(run["listing"] or run["next_token"])
+
+
+def _after_negative_page(run: dict, page: ad_entities.NegativePage, saved: int) -> dict:
+    """The run once a page is saved: on to its listing's next page, or to the next listing's first."""
+    rows = run["rows"] + saved
+    if page.next_token:
+        return {**run, "next_token": page.next_token, "rows": rows, "pages": run["pages"] + 1}
+    return {**run, "listing": run["listing"] + 1, "next_token": "", "rows": rows, "pages": 0}
 
 
 def _empty_days_warning(empty_days: list[str]) -> str:

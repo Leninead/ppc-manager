@@ -48,6 +48,7 @@ _CLOSED_WITHOUT_DATA = ("failed", "cancelled")
 _KIND_LABELS = {"sp_search_terms": "términos de búsqueda", "portfolio_names": "nombres de portfolios",
                 "sp_campaigns": "métricas de campañas", "campaign_entities": "campañas",
                 "sp_targets": "keywords y targets SP", "sp_product_ads": "productos anunciados SP",
+                "sp_ad_groups": "ad groups SP", "sp_negatives": "negativos SP",
                 "sb_entities": "campañas y targets SB",
                 "sd_entities": "campañas y targets SD", "sp_targeting": "métricas de targeting SP",
                 "sb_campaigns": "métricas de campañas SB", "sb_targeting": "métricas de targeting SB",

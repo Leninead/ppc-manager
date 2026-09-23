@@ -11,11 +11,14 @@ saberlo, responde como si fueran todas.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 # Un turno de chat suele encadenar varias llamadas: el techo es por respuesta, no por conversación.
 MAX_ROWS = 200
 MAX_TEXT_CHARS = 20_000
+# The AI provider cuts a tool result at 20000 characters; what rows leave is for the page's context.
+MAX_ROWS_CHARS = 14_000
 
 
 @dataclass(frozen=True)
@@ -31,22 +34,38 @@ class Page:
         return self.offset + len(self.rows) < self.total
 
     def as_payload(self, *, what: str) -> dict:
-        payload = {"rows": self.rows, "total": self.total, "showing": len(self.rows),
-                   "offset": self.offset}
+        payload = {"total": self.total, "showing": len(self.rows), "offset": self.offset}
         if self.truncated:
             payload["note"] = (
                 f"Hay {self.total} {what} y esta respuesta trae {len(self.rows)}, desde la posición "
                 f"{self.offset}. Pedí la página siguiente con offset={self.offset + len(self.rows)}, "
                 "o acotá la consulta. No respondas como si estas fueran todas.")
+        payload["rows"] = self.rows
         return payload
 
 
 def page(rows: list, *, offset: int = 0, limit: int = MAX_ROWS) -> Page:
-    """Un tramo seguro de `rows`. El límite pedido nunca supera el techo del servidor."""
+    """Un tramo seguro de `rows`. El límite pedido nunca supera el techo del servidor, y las filas
+    nunca pasan de MAX_ROWS_CHARS caracteres: si una sola los pasa, va sola."""
     total = len(rows)
     start = max(0, int(offset))
     size = max(1, min(int(limit), MAX_ROWS))
-    return Page(rows=rows[start:start + size], total=total, offset=start)
+    return Page(rows=_within_budget(rows[start:start + size]), total=total, offset=start)
+
+
+def _within_budget(rows: list) -> list:
+    kept, used = [], 0
+    for row in rows:
+        used += _serialized_size(row)
+        if kept and used > MAX_ROWS_CHARS:
+            break
+        kept.append(row)
+    return kept
+
+
+def _serialized_size(row) -> int:
+    # Nested and indented the way the MCP SDK writes a tool result, so the count matches what the provider cuts.
+    return len(json.dumps({"rows": [row]}, ensure_ascii=False, indent=2, default=str))
 
 
 def clip_text(text: str, *, what: str = "texto") -> str:

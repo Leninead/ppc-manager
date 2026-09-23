@@ -1,24 +1,36 @@
-"""SP/SB/SD targets and SB/SD campaigns: the verified listing contracts, paging, row mapping and batched saves."""
+"""SP/SB/SD targets, SB/SD campaigns and SP product ads, ad groups and negatives: the verified listing contracts,
+paging, row mapping and batched saves."""
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
 from datetime import datetime, timezone
+from functools import partial
 from typing import NamedTuple
 
 import pytest
 
 from core.amazon_ads import ad_entities
 from core.amazon_ads.ad_entities import (
+    AD_GROUPS_TABLE,
+    LISTING_SNAPSHOTS_TABLE,
+    NEGATIVES_TABLE,
     PRODUCT_ADS_TABLE,
     PRODUCT_CAMPAIGNS_TABLE,
+    SP_NEGATIVE_LISTINGS,
     TARGETS_TABLE,
+    NegativePage,
+    fetch_negative_page,
     fetch_sb_campaigns,
     fetch_sb_targets,
     fetch_sd_campaigns,
     fetch_sd_targets,
+    fetch_sp_ad_groups,
     fetch_sp_product_ads,
     fetch_sp_targets,
+    save_ad_groups,
+    save_listing_snapshot,
+    save_negatives,
     save_product_ads,
     save_product_campaigns,
     save_targets,
@@ -29,11 +41,21 @@ HOST = "https://advertising-api.amazon.com"
 SEEN_AT = datetime(2026, 9, 18, 10, 0, tzinfo=timezone.utc)
 TARGET_COLUMNS = {"ad_product", "target_id", "campaign_id", "ad_group_id", "target_kind", "target_text",
                   "match_type", "state", "bid"}
+NEGATIVE_COLUMNS = {"negative_id", "level", "negative_kind", "campaign_id", "ad_group_id", "negative_text",
+                    "match_type", "state"}
+# The four SP negative listings, in the order of SP_NEGATIVE_LISTINGS.
+NEGATIVE_PATHS = ["/sp/negativeKeywords/list", "/sp/campaignNegativeKeywords/list", "/sp/negativeTargets/list",
+                  "/sp/campaignNegativeTargets/list"]
 # What each listing answers for a profile with nothing in it.
 EMPTY_PAGES = {
     "/sp/keywords/list": {"keywords": []},
     "/sp/targets/list": {"targetingClauses": []},
     "/sp/productAds/list": {"productAds": []},
+    "/sp/adGroups/list": {"adGroups": []},
+    "/sp/negativeKeywords/list": {"negativeKeywords": []},
+    "/sp/campaignNegativeKeywords/list": {"campaignNegativeKeywords": []},
+    "/sp/negativeTargets/list": {"negativeTargetingClauses": []},
+    "/sp/campaignNegativeTargets/list": {"campaignNegativeTargetingClauses": []},
     "/sb/v4/campaigns/list": {"campaigns": []},
     "/sb/keywords": [],
     "/sb/targets/list": {"targets": []},
@@ -104,12 +126,41 @@ def _api(pages_by_path=None):
 
 
 def _ids(rows):
-    return [row.get("target_id") or row.get("ad_id") or row.get("campaign_id") for row in rows]
+    return [row.get("target_id") or row.get("ad_id") or row.get("negative_id") or row.get("ad_group_id")
+            or row.get("campaign_id") for row in rows]
 
 
 def _sp_product_ad(ad_id=17, **overrides):
     return {"adId": str(ad_id), "adGroupId": "21", "campaignId": "31", "asin": "b0demo0004", "sku": " DEMO-SKU ",
             "state": "ENABLED", **overrides}
+
+
+def _sp_ad_group(ad_group_id=21, **overrides):
+    return {"adGroupId": str(ad_group_id), "campaignId": "31", "name": "Demo - Exact", "state": "ENABLED",
+            "defaultBid": 0.75, **overrides}
+
+
+def _sp_negative_keyword(keyword_id=81, **overrides):
+    return {"keywordId": str(keyword_id), "adGroupId": "21", "campaignId": "31", "keywordText": "free demo",
+            "matchType": "NEGATIVE_EXACT", "state": "ENABLED", **overrides}
+
+
+def _sp_campaign_negative_keyword(keyword_id=82, **overrides):
+    # Campaign-level negatives belong to no ad group: Amazon sends no adGroupId for them.
+    return {"keywordId": str(keyword_id), "campaignId": "31", "keywordText": "cheap demo",
+            "matchType": "NEGATIVE_PHRASE", "state": "ENABLED", **overrides}
+
+
+def _sp_negative_target(target_id=83, predicates=None, **overrides):
+    predicates = predicates if predicates is not None else [{"type": "ASIN_SAME_AS", "value": "B0RIVAL001"}]
+    return {"targetId": str(target_id), "adGroupId": "21", "campaignId": "31", "expression": predicates,
+            "resolvedExpression": predicates, "state": "ENABLED", **overrides}
+
+
+def _sp_campaign_negative_target(target_id=84, predicates=None, **overrides):
+    predicates = predicates if predicates is not None else [{"type": "ASIN_BRAND_SAME_AS", "value": "Rival Brand"}]
+    return {"targetId": str(target_id), "campaignId": "31", "expression": predicates,
+            "resolvedExpression": predicates, "state": "ENABLED", **overrides}
 
 
 def _sp_keyword(keyword_id=11, **overrides):
@@ -171,6 +222,7 @@ TOKEN_LISTINGS = [
     _Listing(fetch_sp_product_ads, "/sp/productAds/list", "productAds", _sp_product_ad),
     _Listing(fetch_sp_targets, "/sp/keywords/list", "keywords", _sp_keyword),
     _Listing(fetch_sp_targets, "/sp/targets/list", "targetingClauses", _sp_clause),
+    _Listing(fetch_sp_ad_groups, "/sp/adGroups/list", "adGroups", _sp_ad_group),
     _Listing(fetch_sb_campaigns, "/sb/v4/campaigns/list", "campaigns", _sb_campaign),
     _Listing(fetch_sb_targets, "/sb/targets/list", "targets", _sb_target),
     _Listing(fetch_sb_targets, "/sb/themes/list", "themes", _sb_theme),
@@ -193,6 +245,8 @@ def _by_path(listing):
                  {"stateFilter": {"include": ["ENABLED", "PAUSED"]}, "maxResults": 1000}, id="sp-keywords"),
     pytest.param(fetch_sp_targets, "/sp/targets/list", "application/vnd.spTargetingClause.v3+json",
                  {"stateFilter": {"include": ["ENABLED", "PAUSED"]}, "maxResults": 1000}, id="sp-targets"),
+    pytest.param(fetch_sp_ad_groups, "/sp/adGroups/list", "application/vnd.spAdGroup.v3+json",
+                 {"stateFilter": {"include": ["ENABLED", "PAUSED"]}, "maxResults": 1000}, id="sp-ad-groups"),
     pytest.param(fetch_sb_campaigns, "/sb/v4/campaigns/list", "application/vnd.sbcampaignresource.v4+json",
                  {"stateFilter": {"include": ["ENABLED", "PAUSED"]}, "maxResults": 100}, id="sb-campaigns"),
     # Plain JSON, and no state filter: this endpoint answers 422 to one.
@@ -665,7 +719,9 @@ def test_listed_items_without_an_id_are_skipped():
 
 
 @pytest.mark.parametrize("fetcher", [
-    fetch_sp_targets, fetch_sb_campaigns, fetch_sb_targets, fetch_sd_campaigns, fetch_sd_targets,
+    fetch_sp_targets, fetch_sp_ad_groups, fetch_sb_campaigns, fetch_sb_targets, fetch_sd_campaigns,
+    fetch_sd_targets,
+    pytest.param(partial(fetch_negative_page, listing_index=0, next_token=""), id="fetch_negative_page"),
 ])
 def test_access_denied_propagates_to_the_caller(fetcher):
     # Every listing refuses, so whichever one the fetcher reads first raises.
@@ -796,6 +852,8 @@ def test_saving_nothing_writes_nothing():
     assert save_targets(rest, "555", "SP", [], SEEN_AT) == 0
     assert save_targets(rest, "555", "SP", [_saved_target("", "SP")], SEEN_AT) == 0
     assert save_product_campaigns(rest, "555", [], SEEN_AT) == 0
+    assert save_ad_groups(rest, "555", "SP", [], SEEN_AT) == 0
+    assert save_negatives(rest, "555", "SP", [_saved_negative("")], SEEN_AT) == 0
     assert rest.upserts == []
 
 
@@ -821,3 +879,210 @@ def test_save_product_ads_keeps_one_row_per_ad_with_the_profile_and_timestamp():
     [(table, rows, on_conflict)] = rest.upserts
     assert (written, table, on_conflict) == (1, PRODUCT_ADS_TABLE, "profile_id,ad_id")
     assert rows == [{**ad, "state": "PAUSED", "profile_id": "555", "seen_at": SEEN_AT.isoformat()}]
+
+
+def test_sp_ad_groups_map_to_ad_group_rows_with_their_default_bid():
+    without_bid = _sp_ad_group(22, state="paused")
+    del without_bid["defaultBid"]
+    api, _ = _api({"/sp/adGroups/list": [{"adGroups": [
+        _sp_ad_group(21), without_bid, _sp_ad_group(23, defaultBid=""), {"adGroupId": ""}]}]})
+
+    rows = fetch_sp_ad_groups(api, "555")
+
+    assert rows == [
+        {"ad_group_id": "21", "campaign_id": "31", "name": "Demo - Exact", "state": "ENABLED", "default_bid": 0.75},
+        # A missing or empty default bid stays unknown, never zero: zero would read as a real bid.
+        {"ad_group_id": "22", "campaign_id": "31", "name": "Demo - Exact", "state": "PAUSED", "default_bid": None},
+        {"ad_group_id": "23", "campaign_id": "31", "name": "Demo - Exact", "state": "ENABLED", "default_bid": None},
+    ]
+
+
+def test_ad_group_ids_come_out_as_exact_text_even_at_eighteen_digits():
+    api, _ = _api({"/sp/adGroups/list": [{"adGroups": [
+        _sp_ad_group(adGroupId=144000000000000004, campaignId=144000000000000003)]}]})
+
+    [row] = fetch_sp_ad_groups(api, "555")
+
+    assert (row["ad_group_id"], row["campaign_id"]) == ("144000000000000004", "144000000000000003")
+
+
+@pytest.mark.parametrize("listing_index, path, media_type", [
+    pytest.param(0, "/sp/negativeKeywords/list", "application/vnd.spNegativeKeyword.v3+json",
+                 id="sp-negative-keywords"),
+    pytest.param(1, "/sp/campaignNegativeKeywords/list", "application/vnd.spCampaignNegativeKeyword.v3+json",
+                 id="sp-campaign-negative-keywords"),
+    pytest.param(2, "/sp/negativeTargets/list", "application/vnd.spNegativeTargetingClause.v3+json",
+                 id="sp-negative-targets"),
+    pytest.param(3, "/sp/campaignNegativeTargets/list", "application/vnd.spCampaignNegativeTargetingClause.v3+json",
+                 id="sp-campaign-negative-targets"),
+])
+def test_a_negative_page_sends_the_verified_request(listing_index, path, media_type):
+    api, session = _api()
+
+    fetch_negative_page(api, "555", listing_index, "")
+    fetch_negative_page(api, "555", listing_index, "page-2")
+
+    first, later = session.calls_to(path)
+    first_body = {"stateFilter": {"include": ["ENABLED", "PAUSED"]}, "maxResults": 1000}
+    assert (first["method"], first["url"], first["json"]) == ("POST", HOST + path, first_body)
+    # A later page repeats the filters and page size; only the token is added.
+    assert later["json"] == {**first_body, "nextToken": "page-2"}
+    for call in (first, later):
+        assert call["headers"].get("Content-Type") == media_type
+        assert call["headers"].get("Accept") == media_type
+        assert call["headers"]["Amazon-Advertising-API-Scope"] == "555"
+    assert [listing.path for listing in SP_NEGATIVE_LISTINGS] == NEGATIVE_PATHS
+
+
+def test_a_negative_page_carries_its_rows_and_the_token_of_the_next_page():
+    api, _ = _api({"/sp/campaignNegativeKeywords/list": [
+        {"campaignNegativeKeywords": [_sp_campaign_negative_keyword(82)], "nextToken": "page-2"},
+        {"campaignNegativeKeywords": [_sp_campaign_negative_keyword(83)]},
+    ]})
+
+    first = fetch_negative_page(api, "555", 1, "")
+    last = fetch_negative_page(api, "555", 1, first.next_token)
+
+    assert isinstance(first, NegativePage)
+    assert (_ids(first.rows), first.next_token) == (["82"], "page-2")
+    # The last page of a listing has no token: the caller moves on to the next listing.
+    assert (_ids(last.rows), last.next_token) == (["83"], "")
+
+
+def test_a_negative_page_that_hands_back_the_token_it_was_sent_is_an_error():
+    api, _ = _api({"/sp/negativeKeywords/list": [
+        {"negativeKeywords": [_sp_negative_keyword(81)], "nextToken": "page-2"},
+        {"negativeKeywords": [_sp_negative_keyword(81)], "nextToken": "page-2"},
+    ]})
+
+    first = fetch_negative_page(api, "555", 0, "")
+
+    # A run in parts only keeps its last token: answered again, the same page would come back every tick.
+    with pytest.raises(AdsApiError, match="page token it was sent"):
+        fetch_negative_page(api, "555", 0, first.next_token)
+
+
+def _first_negative_pages(api):
+    """The rows of the first page of each negative listing, in their order."""
+    return [row for index in range(len(SP_NEGATIVE_LISTINGS))
+            for row in fetch_negative_page(api, "555", index, "").rows]
+
+
+def test_sp_negatives_of_the_four_listings_share_one_row_shape():
+    campaign_brand = _sp_campaign_negative_target(
+        84, expression=[{"type": "ASIN_BRAND_SAME_AS", "value": "8412345"}],
+        resolvedExpression=[{"type": "ASIN_BRAND_SAME_AS", "value": "Rival Brand"}])
+    api, session = _api({
+        "/sp/negativeKeywords/list": [{"negativeKeywords": [_sp_negative_keyword(81)]}],
+        "/sp/campaignNegativeKeywords/list": [{"campaignNegativeKeywords": [
+            _sp_campaign_negative_keyword(82, matchType="negative_phrase", state="paused")]}],
+        "/sp/negativeTargets/list": [{"negativeTargetingClauses": [_sp_negative_target(83)]}],
+        "/sp/campaignNegativeTargets/list": [{"campaignNegativeTargetingClauses": [campaign_brand]}],
+    })
+
+    rows = _first_negative_pages(api)
+
+    assert rows == [
+        {"negative_id": "81", "level": "ad_group", "negative_kind": "keyword", "campaign_id": "31",
+         "ad_group_id": "21", "negative_text": "free demo", "match_type": "NEGATIVE_EXACT", "state": "ENABLED"},
+        {"negative_id": "82", "level": "campaign", "negative_kind": "keyword", "campaign_id": "31",
+         "ad_group_id": "", "negative_text": "cheap demo", "match_type": "NEGATIVE_PHRASE", "state": "PAUSED"},
+        {"negative_id": "83", "level": "ad_group", "negative_kind": "product", "campaign_id": "31",
+         "ad_group_id": "21", "negative_text": 'asin="B0RIVAL001"', "match_type": "", "state": "ENABLED"},
+        # The resolved expression names the brand where the raw one carries its id.
+        {"negative_id": "84", "level": "campaign", "negative_kind": "product", "campaign_id": "31",
+         "ad_group_id": "", "negative_text": 'brand="Rival Brand"', "match_type": "", "state": "ENABLED"},
+    ]
+    assert all(set(row) == NEGATIVE_COLUMNS for row in rows)
+    assert [_path(call["url"]) for call in session.calls] == NEGATIVE_PATHS
+
+
+def test_negative_items_without_their_id_are_skipped():
+    api, _ = _api({
+        "/sp/negativeKeywords/list": [{"negativeKeywords": [
+            _sp_negative_keyword(81), _sp_negative_keyword(keywordId="")]}],
+        "/sp/campaignNegativeTargets/list": [{"campaignNegativeTargetingClauses": [
+            _sp_campaign_negative_target(targetId=None), "not-an-item"]}],
+    })
+
+    rows = _first_negative_pages(api)
+
+    assert _ids(rows) == ["81"]
+
+
+def _saved_ad_group(ad_group_id, **overrides):
+    return {"ad_group_id": ad_group_id, "campaign_id": "31", "name": "Demo - Exact", "state": "ENABLED",
+            "default_bid": 0.75, **overrides}
+
+
+def _saved_negative(negative_id, **overrides):
+    return {"negative_id": negative_id, "level": "ad_group", "negative_kind": "keyword", "campaign_id": "31",
+            "ad_group_id": "21", "negative_text": "free demo", "match_type": "NEGATIVE_EXACT", "state": "ENABLED",
+            **overrides}
+
+
+def test_save_ad_groups_keeps_one_row_per_ad_group_with_the_product_profile_and_timestamp():
+    rest = _FakeRest()
+
+    written = save_ad_groups(rest, "555", "SP", [
+        _saved_ad_group("21"), _saved_ad_group("21", default_bid=0.9), _saved_ad_group("22"), _saved_ad_group(""),
+    ], SEEN_AT)
+
+    [(table, rows, on_conflict)] = rest.upserts
+    assert (written, table, on_conflict) == (2, AD_GROUPS_TABLE, "profile_id,ad_product,ad_group_id")
+    assert AD_GROUPS_TABLE == "ads_ad_group"
+    stamp = {"ad_product": "SP", "profile_id": "555", "seen_at": SEEN_AT.isoformat()}
+    assert rows == [{**_saved_ad_group("21", default_bid=0.9), **stamp}, {**_saved_ad_group("22"), **stamp}]
+
+
+def test_save_ad_groups_sends_a_large_account_in_batches_of_a_thousand():
+    rest = _FakeRest()
+
+    written = save_ad_groups(rest, "555", "SP", [_saved_ad_group(str(number)) for number in range(2500)], SEEN_AT)
+
+    assert written == 2500
+    assert [len(rows) for _, rows, _ in rest.upserts] == [1000, 1000, 500]
+
+
+def test_save_negatives_keys_each_negative_by_its_level_kind_and_id():
+    rest = _FakeRest()
+
+    written = save_negatives(rest, "555", "SP", [
+        _saved_negative("81"),
+        # The same id in another listing is another negative: the four listings are separate id spaces.
+        _saved_negative("81", level="campaign", ad_group_id=""),
+        _saved_negative("81", negative_kind="product", negative_text='asin="B0RIVAL001"', match_type=""),
+        _saved_negative("81", negative_text="free demo shorts"),
+    ], SEEN_AT)
+
+    [(table, rows, on_conflict)] = rest.upserts
+    assert (written, table) == (3, NEGATIVES_TABLE)
+    assert on_conflict == "profile_id,ad_product,level,negative_kind,negative_id"
+    assert NEGATIVES_TABLE == "ads_negative"
+    assert [(row["level"], row["negative_kind"], row["negative_text"]) for row in rows] == [
+        ("ad_group", "keyword", "free demo shorts"), ("campaign", "keyword", "free demo"),
+        ("ad_group", "product", 'asin="B0RIVAL001"')]
+    assert all((row["ad_product"], row["profile_id"], row["seen_at"]) == ("SP", "555", SEEN_AT.isoformat())
+               for row in rows)
+
+
+def test_save_negatives_sends_batches_of_a_thousand():
+    rest = _FakeRest()
+
+    written = save_negatives(rest, "555", "SP", [_saved_negative(str(number)) for number in range(2001)], SEEN_AT)
+
+    assert written == 2001
+    assert [len(rows) for _, rows, _ in rest.upserts] == [1000, 1000, 1]
+
+
+def test_save_listing_snapshot_keeps_one_row_per_profile_and_listing():
+    rest = _FakeRest()
+    completed_at = datetime(2026, 9, 18, 10, 9, tzinfo=timezone.utc)
+
+    save_listing_snapshot(rest, "555", "sp_negatives", seen_at=SEEN_AT, rows=371407, completed_at=completed_at)
+
+    [(table, row, on_conflict)] = rest.upserts
+    assert (table, on_conflict) == (LISTING_SNAPSHOTS_TABLE, "profile_id,listing")
+    assert LISTING_SNAPSHOTS_TABLE == "ads_listing_snapshot"
+    assert row == {"profile_id": "555", "listing": "sp_negatives", "seen_at": SEEN_AT.isoformat(), "rows": 371407,
+                   "completed_at": completed_at.isoformat()}

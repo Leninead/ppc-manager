@@ -17,8 +17,8 @@ def test_the_server_exposes_the_read_tools_and_nothing_that_writes():
     names = set(_tools())
 
     assert names == {"list_accounts", "list_analyses", "get_analysis", "top_search_terms", "daily_metrics",
-                     "breakdown", "accounts_overview", "campaign_health", "idle_targets", "funnel_coverage",
-                     "search_term_candidates", "bid_suggestions", "asin_health"}
+                     "breakdown", "accounts_overview", "campaign_health", "idle_targets", "campaign_structure",
+                     "funnel_coverage", "search_term_candidates", "bid_suggestions", "asin_health"}
     assert not any(word in name for name in names
                    for word in ("create", "update", "delete", "request", "save", "write"))
 

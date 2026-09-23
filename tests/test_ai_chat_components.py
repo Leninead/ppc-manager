@@ -33,6 +33,7 @@ EN = panel._L["en"]
     ("mcp__ppc_manager__asin_health", "Salud por ASIN · Agency OS"),
     ("mcp__ppc_manager__campaign_health", "Diagnóstico de campañas · Agency OS"),
     ("mcp__ppc_manager__idle_targets", "Targets sin impresiones · Agency OS"),
+    ("mcp__ppc_manager__campaign_structure", "Estructura de campañas · Agency OS"),
     ("mcp__ppc_manager__something_new", "Agency OS"),
 ])
 def test_a_tool_is_named_by_what_it_reads(name, label):

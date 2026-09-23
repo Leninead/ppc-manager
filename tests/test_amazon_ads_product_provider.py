@@ -32,10 +32,21 @@ TARGET_HEADER = ["ad_product", "target_id", "campaign_id", "campaign_name", "ad_
 
 
 class _FakeRest:
-    def __init__(self, answers=None, *, fail_with=None):
+    def __init__(self, answers=None, *, fail_with=None, ad_groups=(), ad_groups_error=None):
         self._answers = answers or {}
         self._fail_with = fail_with
+        # Stored ad groups (migration 018); none unless a test gives them.
+        self._ad_groups = list(ad_groups)
+        self._ad_groups_error = ad_groups_error
         self.calls = []
+
+    def select(self, table, params):
+        assert table == "ads_ad_group"
+        if self._ad_groups_error:
+            raise self._ad_groups_error
+        return [{"ad_group_id": row["ad_group_id"]} for row in self._ad_groups
+                if params["profile_id"] == f"eq.{row['profile_id']}"
+                and params["ad_product"] == f"eq.{row['ad_product']}"][:int(params["limit"])]
 
     def rpc_csv(self, name, args, *, timeout_s=8):
         self.calls.append((name, args, timeout_s))
@@ -186,6 +197,39 @@ def test_targets_that_all_had_impressions_are_counted_with_none_idle():
     idle = ProductProvider(rest).idle_targets("p-1", START, END)
 
     assert idle.frame.empty and idle.considered == {"SP": 1}
+
+
+def _ad_group(profile_id="p-1", ad_product="SP"):
+    return {"profile_id": profile_id, "ad_product": ad_product, "ad_group_id": "501"}
+
+
+def test_idle_targets_know_whether_graduation_has_an_sp_ad_group_state_to_read():
+    answers = {GRADUATION_TARGETS_RPC: _csv(TARGET_HEADER, _target())}
+
+    def known(ad_groups):
+        return ProductProvider(_FakeRest(answers, ad_groups=ad_groups)).idle_targets("p-1", START, END).sp_ad_groups_known
+
+    assert known([_ad_group()]) is True
+    assert known([]) is False
+    assert known([_ad_group(profile_id="p-2"), _ad_group(ad_product="SD")]) is False
+
+
+def test_before_migration_018_no_ad_group_state_is_known():
+    response = requests.Response()
+    response.status_code = 404
+    response._content = b'{"code":"42P01","message":"relation \\"public.ads_ad_group\\" does not exist"}'
+    rest = _FakeRest({GRADUATION_TARGETS_RPC: _csv(TARGET_HEADER, _target())},
+                     ad_groups_error=requests.HTTPError(response=response))
+
+    assert ProductProvider(rest).idle_targets("p-1", START, END).sp_ad_groups_known is False
+
+
+def test_a_failed_ad_group_read_is_a_read_error():
+    rest = _FakeRest({GRADUATION_TARGETS_RPC: _csv(TARGET_HEADER, _target())},
+                     ad_groups_error=requests.ConnectionError("rest-gateway down"))
+
+    with pytest.raises(ReportReadError):
+        ProductProvider(rest).idle_targets("p-1", START, END)
 
 
 def test_no_target_to_look_at_is_an_empty_frame_with_nothing_considered():

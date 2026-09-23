@@ -20,6 +20,8 @@ from core.amazon_ads.sync_planner import (
     PORTFOLIOS_KIND,
     SB_ENTITIES_KIND,
     SD_ENTITIES_KIND,
+    SP_AD_GROUPS_KIND,
+    SP_NEGATIVES_KIND,
     SP_PRODUCT_ADS_KIND,
     SP_TARGETS_KIND,
 )
@@ -46,6 +48,8 @@ _SNAPSHOT_COUNT_KEYS = {PORTFOLIOS_KIND: "request_log.sub.portfolios",
                         CAMPAIGN_ENTITIES_KIND: "request_log.sub.campaigns",
                         SP_TARGETS_KIND: "request_log.sub.targets",
                         SP_PRODUCT_ADS_KIND: "request_log.sub.product_ads",
+                        SP_AD_GROUPS_KIND: "request_log.sub.ad_groups",
+                        SP_NEGATIVES_KIND: "request_log.sub.negatives",
                         # SB and SD lists close with their campaign count; their targets go along.
                         SB_ENTITIES_KIND: "request_log.sub.campaigns",
                         SD_ENTITIES_KIND: "request_log.sub.campaigns"}

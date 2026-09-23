@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
 import requests
 
 from core.integrations.store import Connection
@@ -80,6 +81,13 @@ def test_failed_job_in_last_24_hours_is_an_error_with_job_id():
     assert alert.job_id == 33
     assert alert.subject == "cliente-demo" and alert.marketplaces == "MX"
     assert "3 intentos" in alert.detail
+
+
+@pytest.mark.parametrize("job_kind, label", [("sp_ad_groups", "ad groups SP"), ("sp_negatives", "negativos SP")])
+def test_a_failed_sp_structure_listing_names_what_it_lists(job_kind, label):
+    [alert] = _alerts(failed_jobs=[_job(job_kind=job_kind)])
+
+    assert alert.detail == f"Falló la actualización de {label} después de 3 intentos."
 
 
 def test_failure_older_than_24_hours_is_ignored():

@@ -54,6 +54,12 @@ TABLES = [
     ("ads_target_daily", "profile_id"),
     # Amazon Ads SP product ads (PPC Insights, chat) — 017_ppc_insights.sql.
     ("ads_product_ad", "profile_id"),
+    # Amazon Ads SP structure (ad groups, negatives, placement adjustments) — 018_sp_structure.sql.
+    ("ads_ad_group", "profile_id"),
+    ("ads_negative", "profile_id"),
+    ("ads_campaign", "placement_top_pct"),   # the column proves 018 reached a table older than it
+    ("ads_listing_snapshot", "profile_id"),
+    ("integration_sync_jobs", "progress"),   # idem, for the negatives listed in parts
     # Meli API bridge (M36) — 003_meli_api.sql + 004_meli_ads_unique.sql.
     ("meli_auth_identities", "id"),         # refresh_token_sealed idem
     ("meli_ingestion_runs", "id"),

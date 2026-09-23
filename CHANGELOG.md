@@ -6,6 +6,83 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — La estructura de las campañas SP sale de los listados de Amazon Ads (ad groups, placements y negativos), para cualquier módulo y el chat (2026-09-22)
+
+**Por qué.** Un reporte sólo trae lo que tuvo actividad, y la estructura de una cuenta es también lo que no corre.
+Medido en producción el 22/09: el 85,2% de los keywords y targets SP habilitados de la lista no tiene ninguna fila de
+`spTargeting` en 60 días (el 98,9% de los pausados), y de las campañas SP no aparecen en `spCampaigns` el 0,4% de las
+habilitadas y el 93,5% de las pausadas. Ese mismo día, en la última lista de cada cuenta, 15.339 de 146.004 targets SP
+habilitados o pausados (el 10,5%) se listaban sin bid propio: usan el de su ad group, que no se guardaba. Atom11, PPC Audit y Análisis Cruzado necesitan
+la estructura entera.
+
+**Ahora.** La estructura sale de los listados de Amazon Ads, una foto por día, y las métricas siguen saliendo de los
+reportes. Dos solicitudes nuevas por cuenta y por día, desde las 03:00 como las otras listas (migración 018, aditiva):
+`sp_ad_groups` guarda cada ad group con su estado y su bid por defecto, y `sp_negatives` los negativos de keyword y de
+producto, de campaña y de ad group (cuatro listados). La foto de campañas que ya se bajaba guarda además los ajustes
+por placement (top of search, páginas de producto, resto de la búsqueda y Amazon Business): 0 es sin ajuste, vacío es
+que no se sabe. El bid efectivo —el propio del keyword o target o, si no tiene, el default de su ad group— se calcula
+en un solo lugar, la vista `ads_target_bid`. Target Graduation, en Bulk Campañas y en `idle_targets` del chat, usa ese
+bid y deja afuera los targets de ad groups SP listados como pausados; un ad group que nunca se listó cuenta como
+habilitado, y la leyenda de la página lo dice sólo cuando la cuenta ya tiene ad groups SP guardados. Cualquier módulo
+lee la estructura con `StructureProvider(rest).sp_structure(...)`: `rows` con los nombres de la base, `frame` con los
+headers del Bulk File (Placement queda con el código de la API: no hay una descarga real con que compararlo) y
+`listed_at` con la hora del último listado de cada tipo; `campaign_ids` la acota a esas campañas (`p_campaign_ids`
+en la RPC), y `sp_structure_counts(...)` cuenta cada tipo sin traer las filas. El chat la consulta con
+`campaign_structure`: campañas con presupuesto, estrategia y placements, ad groups, keywords y product targets con su
+bid efectivo (también los que no tuvieron tráfico), product ads y negativos, con la hora del último listado; los
+conteos salen de la base, un tipo que se listó sin filas cuenta 0 en vez de leerse como sin sincronizar, y con una
+campaña se lee sólo lo de esa campaña. Los listados registran su duración real en el Registro de solicitudes: antes
+figuraban con ~0 s.
+
+**Negativos por partes.** Una cuenta grande no entra en un tick: medido el 22/09 contra la API real, Shapermint US tiene
+371.407 negativos SP en 374 páginas de 1000 (311 de negativos de keyword de ad group, 49 de campaña, 11 de producto de
+ad group y 3 de campaña), a 0,95 s por página: unos 6 minutos de una vez, con la alerta de worker callado a los 5,
+~285 MB en un worker de 768 MB, y el listado de una vez se corta a las 200 páginas. Dermaglós US tiene 1.181 en 4
+pedidos. `sp_negatives` los lista entonces por partes: 40 páginas por tick entre todas las cuentas, cada página guardada
+apenas llega y el job anotando dónde quedó (`integration_sync_jobs.progress`), con lo guardado hasta ahí a la vista en
+el Registro de solicitudes; Shapermint US necesita al menos 10 partes. Una corrida a medias conserva su lugar en la
+cola y retoma en el tick siguiente antes que lo planificado después. Cuando termina el cuarto listado,
+`ads_listing_snapshot` guarda la corrida, y recién ahí lo que no vio deja de contar: mientras corre se sigue viendo la
+anterior, con su hora, y antes de la primera la cuenta figura sin negativos sincronizados. Un 429 la deja en su última
+parte guardada; cualquier otro fallo, o una página que devuelve el token que se le mandó, la hace empezar de nuevo en el
+reintento. Una sola corrida por cuenta a la vez: un reintento mientras otra está a medias cierra sin listar. El chat no
+lee enteros los negativos de una cuenta grande: pasados 5000 en el alcance los pide de a una campaña, y la respuesta
+trae el conteo y cómo acotar. Con esa respuesta el chat ya no le pregunta al AM por dónde cortar: elige lo activo que
+más pesa en el período (la campaña habilitada con más gasto), dice qué criterio usó y cuánto quedó afuera. Es una regla
+nueva de las compartidas del chat (`ai/agents/_shared/chat.md`), así que vale en todos los agentes para cualquier
+herramienta que vuelva sin filas, sólo con el conteo y un pedido de acotar; entre las del PPC Manager, hoy la única que
+lo hace es la de negativos. Una respuesta paginada, que sí trae filas, sigue la regla de los listados: el chat muestra
+lo que llegó y dice dónde cortó.
+
+**Páginas que entran en el chat.** El provider de IA corta cada respuesta de las herramientas del PPC Manager a los
+20.000 caracteres (`PPC_TOOL_RESULT_MAX_CHARS`, sin override también en producción), y las filas iban primero. Medido el
+23/09: la página por defecto de `campaign_structure` pasaba ese corte en campañas, keywords, product targets y negativos
+(de 22.000 a 34.000 caracteres), y `campaign_health`, que ya estaba en producción, en 32.679. El chat veía entre el 60% y
+el 95% de las filas y perdía el total, la nota de paginación y el contexto: de una página de 50 negativos listaba 47, sin
+saber cuántos había ni desde dónde seguir. Ahora cada página (`services/mcp_server/limits.py`) lleva sólo las filas que
+entran en 14.000 caracteres, medidas como las escribe el SDK, con `showing` y el offset siguiente exactos, y el total y
+la nota van antes de las filas. Vale para todas las herramientas: después del cambio la página más grande medida fue de
+15.327 caracteres, y el chat pagina los negativos de a 30 sin saltearse ninguno.
+
+**Costo, estimado el 22/09 (no medido).** `sp_ad_groups`: ≈ 52-66 POST por día entre las 52 cuentas (1 página cada
+1000 ad groups en las 27 con ad groups SP, y 1 pedido vacío en las otras 25). `sp_negatives`: 208 POST por día como
+mínimo, 4 listados por cuenta, y sólo Shapermint US suma 374 (medido). Los placements no suman pedidos y no hay
+reportes nuevos: el cupo de 3 en vuelo no se toca. Medido el 22-23/09 en local contra la API real (sólo lectura): la
+corrida de negativos de Shapermint US fueron 10 partes y 342 s, con 371.482 negativos y 45 MB de memoria como máximo, y
+`sp_structure_counts` tarda 0,45 s en esa cuenta. La duración en producción se ve en el Registro de solicitudes después
+de la primera noche.
+
+**Qué queda afuera.** SB y SD; los ad groups, targets, anuncios y negativos archivados, que no se listan (las campañas
+archivadas sí); y los consumidores: Atom11, PPC Audit y Análisis Cruzado todavía no la leen, son IT-42, IT-44 e IT-51.
+
+**Deploy.** La foto de campañas ya escribe las columnas de placement y los listados nuevos sus tablas. Jenkins levanta
+la imagen antes de «DB migrate», en el mismo pipeline: lo que corra en esa ventana sin la 018 falla y se reintenta a los
+5 minutos. Es aditiva y la imagen anterior funciona sobre ella. Si hay que volver a la imagen anterior con la 018 ya
+aplicada, cancelar antes los jobs de `sp_ad_groups` y `sp_negatives` en cola: la imagen anterior no conoce esos tipos, los
+marca fallidos y cada cuenta queda con una alerta por 24 h. Los reportes y los análisis IA no dependen de la
+columna nueva de los jobs: sólo un listado pausado la escribe al cerrar. El smoke de la base prueba `ads_ad_group`,
+`ads_negative`, `ads_listing_snapshot`, `ads_campaign.placement_top_pct` e `integration_sync_jobs.progress`.
+
 ### Changed — Las campañas SP piden la última semana cada noche y 60 días los domingos (2026-09-22)
 
 **Por qué.** Cada noche se volvían a pedir los 65 días de campañas SP de cada cuenta: 3 reportes por cuenta, 156 con

@@ -1,7 +1,8 @@
-"""Campaign entities: paginated v3 listing, the Accept header it needs, and upsert-only persistence."""
+"""Campaign entities: paginated v3 listing, the Accept header it needs, placements, and upsert-only persistence."""
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 
 import pytest
@@ -10,9 +11,13 @@ from core.amazon_ads.api_client import AdsApiClient, AdsApiError
 from core.amazon_ads.campaign_entities import (
     CAMPAIGN_CONTENT_TYPE,
     CAMPAIGNS_TABLE,
+    PLACEMENT_COLUMNS,
     fetch_campaigns,
     save_campaigns,
 )
+
+PLACEMENT_KEYS = ("placement_top_pct", "placement_product_page_pct", "placement_rest_of_search_pct",
+                  "amazon_business_pct")
 
 
 class _FakeResponse:
@@ -135,6 +140,97 @@ def test_a_missing_budget_object_leaves_the_amount_empty_instead_of_zero():
 
     assert campaign["budget_amount"] is None
     assert campaign["budget_type"] == ""
+
+
+def _placements(campaign: dict) -> tuple:
+    return tuple(campaign[key] for key in PLACEMENT_KEYS)
+
+
+def _bidding(*adjustments) -> dict:
+    return {"strategy": "AUTO_FOR_SALES",
+            "placementBidding": [{"placement": placement, "percentage": percentage}
+                                 for placement, percentage in adjustments]}
+
+
+def test_the_four_placements_map_to_their_own_columns():
+    assert set(PLACEMENT_COLUMNS.values()) == set(PLACEMENT_KEYS)
+    bidding = _bidding(("PLACEMENT_TOP", 50), ("PLACEMENT_PRODUCT_PAGE", 25), ("PLACEMENT_REST_OF_SEARCH", 10),
+                       ("SITE_AMAZON_BUSINESS", 900))
+    api, _ = _api([_FakeResponse(200, {"campaigns": [_campaign("101", dynamicBidding=bidding)]})])
+
+    assert _placements(fetch_campaigns(api, "555")[0]) == (50, 25, 10, 900)
+
+
+def test_a_placement_without_an_adjustment_is_zero_not_unknown():
+    top_only = _campaign("101", dynamicBidding=_bidding(("PLACEMENT_TOP", 35)))
+    api, _ = _api([_FakeResponse(200, {"campaigns": [top_only]})])
+
+    assert _placements(fetch_campaigns(api, "555")[0]) == (35, 0, 0, 0)
+
+
+@pytest.mark.parametrize("bidding", [
+    pytest.param({"strategy": "MANUAL", "placementBidding": []}, id="empty-list"),
+    pytest.param({"strategy": "MANUAL"}, id="missing-key"),
+])
+def test_a_listed_campaign_without_adjustments_has_every_placement_at_zero(bidding):
+    # Whether Amazon omits placementBidding or sends [] is not verified yet; both mean no adjustment.
+    api, _ = _api([_FakeResponse(200, {"campaigns": [_campaign("101", dynamicBidding=bidding)]})])
+
+    assert _placements(fetch_campaigns(api, "555")[0]) == (0, 0, 0, 0)
+
+
+@pytest.mark.parametrize("bidding", [pytest.param(None, id="null"), pytest.param("MANUAL", id="not-an-object")])
+def test_without_dynamic_bidding_every_placement_is_unknown(bidding):
+    raw = _campaign("101", dynamicBidding=bidding)
+    missing = _campaign("102")
+    missing.pop("dynamicBidding")
+    api, _ = _api([_FakeResponse(200, {"campaigns": [raw, missing]})])
+
+    campaigns = fetch_campaigns(api, "555")
+
+    assert [_placements(campaign) for campaign in campaigns] == [(None, None, None, None)] * 2
+    assert [campaign["bidding_strategy"] for campaign in campaigns] == ["", ""]
+
+
+@pytest.mark.parametrize("percentage", [12.5, "half", None])
+def test_a_percentage_that_is_not_a_whole_number_is_stored_empty_with_a_warning(percentage, caplog):
+    bidding = _bidding(("PLACEMENT_TOP", percentage), ("PLACEMENT_PRODUCT_PAGE", 40.0))
+    api, _ = _api([_FakeResponse(200, {"campaigns": [_campaign("101", dynamicBidding=bidding)]})])
+
+    with caplog.at_level(logging.WARNING, logger="core.amazon_ads.campaign_entities"):
+        campaign = fetch_campaigns(api, "555")[0]
+
+    assert _placements(campaign) == (None, 40, 0, 0)
+    assert any("placement percentage" in record.getMessage() for record in caplog.records)
+
+
+def test_an_unknown_placement_is_logged_once_per_listing_and_never_stored(caplog):
+    unknown = _bidding(("PLACEMENT_TOP", 20), ("PLACEMENT_HOME_PAGE", 30))
+    api, _ = _api([
+        _FakeResponse(200, {"campaigns": [_campaign("101", dynamicBidding=unknown)], "nextToken": "page-2"}),
+        _FakeResponse(200, {"campaigns": [_campaign("102", dynamicBidding=unknown),
+                                          _campaign("103", dynamicBidding=_bidding(("PLACEMENT_OFF_SITE", 5)))]}),
+    ])
+
+    with caplog.at_level(logging.WARNING, logger="core.amazon_ads.campaign_entities"):
+        campaigns = fetch_campaigns(api, "555")
+
+    [warning] = [record.getMessage() for record in caplog.records]
+    assert "PLACEMENT_HOME_PAGE, PLACEMENT_OFF_SITE" in warning and "555" in warning
+    assert [_placements(campaign) for campaign in campaigns] == [(20, 0, 0, 0), (20, 0, 0, 0), (0, 0, 0, 0)]
+    assert all("PLACEMENT_HOME_PAGE" not in str(campaign) for campaign in campaigns)
+
+
+def test_every_campaign_row_carries_the_four_placement_columns():
+    # PostgREST takes a bulk upsert only when every object in it has the same keys.
+    bare = {"campaignId": "103"}
+    api, _ = _api([_FakeResponse(200, {"campaigns": [
+        _campaign("101", dynamicBidding=_bidding(("PLACEMENT_TOP", 50))), _campaign("102"), bare]})])
+
+    campaigns = fetch_campaigns(api, "555")
+
+    assert len({frozenset(campaign) for campaign in campaigns}) == 1
+    assert set(PLACEMENT_KEYS) <= set(campaigns[0])
 
 
 def test_an_unparseable_start_date_is_stored_empty_rather_than_guessed():

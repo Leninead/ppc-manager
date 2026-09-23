@@ -306,6 +306,29 @@ def test_the_campaign_grain_reads_like_its_siblings_in_the_log():
     assert page.request_subline(entities, None, NOW) == "276 campañas"
 
 
+@pytest.mark.parametrize("job_kind, title, one, many", [
+    ("sp_ad_groups", "Ad groups SP", "1 ad group", "48 ad groups"),
+    ("sp_negatives", "Negativos SP", "1 negativo", "48 negativos"),
+])
+def test_the_sp_structure_listings_read_like_their_siblings_in_the_log(job_kind, title, one, many):
+    def listed(rows_written: int) -> SyncJob:
+        return _job(job_kind=job_kind, status="completed", rows_written=rows_written, window_start=None,
+                    window_end=None)
+
+    assert page.request_title(_job(job_kind=job_kind)) == title
+    assert page.request_subline(listed(1), None, NOW) == one
+    assert page.request_subline(listed(48), None, NOW) == many
+
+
+def test_the_sp_structure_listings_read_in_english_too(monkeypatch):
+    monkeypatch.setattr(i18n, "current_lang", lambda: "en")
+    negatives = _job(job_kind="sp_negatives", status="completed", rows_written=1, window_start=None,
+                     window_end=None)
+
+    assert page.request_title(_job(job_kind="sp_ad_groups")) == "SP ad groups"
+    assert page.request_subline(negatives, None, NOW) == "1 negative"
+
+
 def test_rows_of_an_open_job_come_from_its_saved_reports():
     running = _job(status="running", phase="waiting")
     assert page.rows_text(running, page.ReportProgress(2, 5, 24310)) == "24.310"

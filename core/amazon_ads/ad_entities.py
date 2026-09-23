@@ -1,10 +1,12 @@
-"""Targets, SB/SD campaigns and SP product ads per profile, mapped to `ads_target`, `ads_sb_sd_campaign`
-and `ads_product_ad`.
+"""Targets, SB/SD campaigns, SP product ads, SP ad groups and SP negatives per profile, mapped to
+`ads_target`, `ads_sb_sd_campaign`, `ads_product_ad`, `ads_ad_group` and `ads_negative`.
 
 The entity universe `campaign_entities` keeps for SP campaigns, extended to SP keywords and
 targeting clauses, SB campaigns, keywords, product targets and themes, SD campaigns and targets,
-and the ASIN and SKU each SP ad group advertises. The reports only return what had activity in the
-range asked for; these listings return every enabled or paused entity, with the state and bid it has now.
+the ASIN and SKU each SP ad group advertises, the SP ad groups with their default bid, and the SP
+negative keywords and product targets at campaign and ad group level. The reports only return what had
+activity in the range asked for; these listings return every enabled or paused entity, with the state
+and bid it has now.
 """
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ import logging
 import re
 from collections.abc import Callable
 from datetime import date, datetime
+from typing import NamedTuple
 
 from core.amazon_ads.api_client import AdsApiClient, AdsApiError
 from core.integrations.store import _Rest
@@ -21,6 +24,9 @@ log = logging.getLogger(__name__)
 TARGETS_TABLE = "ads_target"
 PRODUCT_CAMPAIGNS_TABLE = "ads_sb_sd_campaign"
 PRODUCT_ADS_TABLE = "ads_product_ad"
+AD_GROUPS_TABLE = "ads_ad_group"
+NEGATIVES_TABLE = "ads_negative"
+LISTING_SNAPSHOTS_TABLE = "ads_listing_snapshot"
 
 SP_PRODUCT_ADS_PATH = "/sp/productAds/list"
 SP_PRODUCT_AD_MEDIA_TYPE = "application/vnd.spProductAd.v3+json"
@@ -28,6 +34,16 @@ SP_KEYWORDS_PATH = "/sp/keywords/list"
 SP_KEYWORD_MEDIA_TYPE = "application/vnd.spKeyword.v3+json"
 SP_TARGETS_PATH = "/sp/targets/list"
 SP_TARGET_MEDIA_TYPE = "application/vnd.spTargetingClause.v3+json"
+SP_AD_GROUPS_PATH = "/sp/adGroups/list"
+SP_AD_GROUP_MEDIA_TYPE = "application/vnd.spAdGroup.v3+json"
+SP_NEGATIVE_KEYWORDS_PATH = "/sp/negativeKeywords/list"
+SP_NEGATIVE_KEYWORD_MEDIA_TYPE = "application/vnd.spNegativeKeyword.v3+json"
+SP_CAMPAIGN_NEGATIVE_KEYWORDS_PATH = "/sp/campaignNegativeKeywords/list"
+SP_CAMPAIGN_NEGATIVE_KEYWORD_MEDIA_TYPE = "application/vnd.spCampaignNegativeKeyword.v3+json"
+SP_NEGATIVE_TARGETS_PATH = "/sp/negativeTargets/list"
+SP_NEGATIVE_TARGET_MEDIA_TYPE = "application/vnd.spNegativeTargetingClause.v3+json"
+SP_CAMPAIGN_NEGATIVE_TARGETS_PATH = "/sp/campaignNegativeTargets/list"
+SP_CAMPAIGN_NEGATIVE_TARGET_MEDIA_TYPE = "application/vnd.spCampaignNegativeTargetingClause.v3+json"
 SB_CAMPAIGNS_PATH = "/sb/v4/campaigns/list"
 SB_CAMPAIGN_MEDIA_TYPE = "application/vnd.sbcampaignresource.v4+json"
 SB_KEYWORDS_PATH = "/sb/keywords"
@@ -49,6 +65,8 @@ SB_THEMES_PAGE_SIZE = 100
 OFFSET_PAGE_SIZE = 5000
 # A profile with more pages than this means the paging is looping, not real entities.
 MAX_PAGES = 200
+# A negatives listing longer than this is a loop of paging tokens: the largest measured had 311 (2026-09-22).
+MAX_NEGATIVE_LISTING_PAGES = 2000
 # An account can hold ~45k SP targets; one upsert per thousand keeps each request and statement small.
 SAVE_BATCH_ROWS = 1000
 
@@ -84,6 +102,33 @@ _AUDIENCE_TYPES = {"views", "purchases", "audience"}
 _WORD_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
+class _NegativeListing(NamedTuple):
+    path: str
+    media_type: str
+    items_key: str
+    id_key: str
+    level: str
+    kind: str
+
+
+class NegativePage(NamedTuple):
+    rows: list[dict]
+    next_token: str
+
+
+# Four listings with separate id spaces, so a negative is keyed by its level and kind as well.
+SP_NEGATIVE_LISTINGS = (
+    _NegativeListing(SP_NEGATIVE_KEYWORDS_PATH, SP_NEGATIVE_KEYWORD_MEDIA_TYPE, "negativeKeywords",
+                     "keywordId", "ad_group", "keyword"),
+    _NegativeListing(SP_CAMPAIGN_NEGATIVE_KEYWORDS_PATH, SP_CAMPAIGN_NEGATIVE_KEYWORD_MEDIA_TYPE,
+                     "campaignNegativeKeywords", "keywordId", "campaign", "keyword"),
+    _NegativeListing(SP_NEGATIVE_TARGETS_PATH, SP_NEGATIVE_TARGET_MEDIA_TYPE, "negativeTargetingClauses",
+                     "targetId", "ad_group", "product"),
+    _NegativeListing(SP_CAMPAIGN_NEGATIVE_TARGETS_PATH, SP_CAMPAIGN_NEGATIVE_TARGET_MEDIA_TYPE,
+                     "campaignNegativeTargetingClauses", "targetId", "campaign", "product"),
+)
+
+
 def fetch_sp_targets(api: AdsApiClient, profile_id: str) -> list[dict]:
     """Keywords and targeting clauses together: the two kinds of SP target."""
     keywords = _list_by_token(api, profile_id, SP_KEYWORDS_PATH, "keywords",
@@ -99,6 +144,31 @@ def fetch_sp_product_ads(api: AdsApiClient, profile_id: str) -> list[dict]:
     product_ads = _list_by_token(api, profile_id, SP_PRODUCT_ADS_PATH, "productAds",
                                  _state_filtered(SP_PAGE_SIZE), SP_PRODUCT_AD_MEDIA_TYPE)
     return [_product_ad_row(raw) for raw in product_ads if _has(raw, "adId")]
+
+
+def fetch_sp_ad_groups(api: AdsApiClient, profile_id: str) -> list[dict]:
+    """Every enabled or paused SP ad group, with the default bid its keywords and targets without a bid inherit."""
+    ad_groups = _list_by_token(api, profile_id, SP_AD_GROUPS_PATH, "adGroups",
+                               _state_filtered(SP_PAGE_SIZE), SP_AD_GROUP_MEDIA_TYPE)
+    return [_ad_group_row(raw) for raw in ad_groups if _has(raw, "adGroupId")]
+
+
+def fetch_negative_page(api: AdsApiClient, profile_id: str, listing_index: int, next_token: str) -> NegativePage:
+    """One page of one of the four `SP_NEGATIVE_LISTINGS`, and the token of its next page, empty after the last.
+
+    An empty `next_token` asks for the listing's first page. An account can hold hundreds of thousands of
+    negatives, so the caller lists them a page at a time. A page that hands back the token it was sent raises
+    AdsApiError.
+    """
+    listing = SP_NEGATIVE_LISTINGS[listing_index]
+    body = _state_filtered(SP_PAGE_SIZE)
+    if next_token:
+        body = {**body, "nextToken": next_token}
+    items, page_token = _page_by_token(api, profile_id, listing.path, listing.items_key, body, listing.media_type)
+    if next_token and page_token == next_token:
+        # Paged forever, the run would spend every tick's budget; ended here, its snapshot would drop what is left.
+        raise AdsApiError(f"{listing.path} for profile {profile_id} answered the page token it was sent")
+    return NegativePage([_negative_row(listing, raw) for raw in items if _has(raw, listing.id_key)], page_token)
 
 
 def fetch_sb_campaigns(api: AdsApiClient, profile_id: str) -> list[dict]:
@@ -171,6 +241,43 @@ def save_product_ads(rest: _Rest, profile_id: str, product_ads: list[dict], seen
     return _upsert_in_batches(rest, PRODUCT_ADS_TABLE, list(rows_by_id.values()), on_conflict="profile_id,ad_id")
 
 
+def save_ad_groups(rest: _Rest, profile_id: str, ad_product: str, ad_groups: list[dict], seen_at: datetime) -> int:
+    """Upsert only: an archived ad group drops out of the listing, and its targets still need its name."""
+    rows_by_id = {
+        ad_group["ad_group_id"]: {**ad_group, "ad_product": ad_product, "profile_id": profile_id,
+                                  "seen_at": seen_at.isoformat()}
+        for ad_group in ad_groups
+        if ad_group.get("ad_group_id")
+    }
+    return _upsert_in_batches(rest, AD_GROUPS_TABLE, list(rows_by_id.values()),
+                              on_conflict="profile_id,ad_product,ad_group_id")
+
+
+def save_negatives(rest: _Rest, profile_id: str, ad_product: str, negatives: list[dict], seen_at: datetime) -> int:
+    """Upsert only, like the targets they block."""
+    rows_by_key = {
+        (negative["level"], negative["negative_kind"], negative["negative_id"]): {
+            **negative, "ad_product": ad_product, "profile_id": profile_id, "seen_at": seen_at.isoformat(),
+        }
+        for negative in negatives
+        if negative.get("negative_id")
+    }
+    return _upsert_in_batches(rest, NEGATIVES_TABLE, list(rows_by_key.values()),
+                              on_conflict="profile_id,ad_product,level,negative_kind,negative_id")
+
+
+def save_listing_snapshot(rest: _Rest, profile_id: str, listing: str, *, seen_at: datetime, rows: int,
+                          completed_at: datetime) -> None:
+    """The last complete run of a listing read in parts: its rows are the ones seen at or after `seen_at`."""
+    rest.upsert(LISTING_SNAPSHOTS_TABLE, {
+        "profile_id": profile_id,
+        "listing": listing,
+        "seen_at": seen_at.isoformat(),
+        "rows": rows,
+        "completed_at": completed_at.isoformat(),
+    }, on_conflict="profile_id,listing")
+
+
 def _upsert_in_batches(rest: _Rest, table: str, rows: list[dict], on_conflict: str) -> int:
     # Each batch is one bulk upsert, which PostgREST fails if it repeats a key: hence the callers' dicts.
     for start in range(0, len(rows), SAVE_BATCH_ROWS):
@@ -188,21 +295,8 @@ def _list_by_token(api: AdsApiClient, profile_id: str, path: str, items_key: str
     seen_tokens: set[str] = set()
     request_body = body
     for _ in range(MAX_PAGES):
-        response = api.request(
-            "POST",
-            path,
-            profile_id=profile_id,
-            json_body=request_body,
-            content_type=media_type,
-            # A typed listing gets its type as Accept too: SP v3 answers 415 to the session's default `*/*`.
-            accept=media_type,
-        )
-        page = _read_page(response, path, profile_id)
-        if not isinstance(page, dict):
-            raise AdsApiError(f"unexpected {path} page for profile {profile_id}", status=response.status_code)
-        items.extend(raw for raw in page.get(items_key) or [] if isinstance(raw, dict))
-
-        next_token = str(page.get("nextToken") or "")
+        page_items, next_token = _page_by_token(api, profile_id, path, items_key, request_body, media_type)
+        items.extend(page_items)
         if not next_token:
             return items
         if next_token in seen_tokens:
@@ -212,6 +306,25 @@ def _list_by_token(api: AdsApiClient, profile_id: str, path: str, items_key: str
         # Every page repeats the filters and page size; only the token changes.
         request_body = {**body, "nextToken": next_token}
     raise AdsApiError(f"{path} for profile {profile_id} exceeded {MAX_PAGES} pages")
+
+
+def _page_by_token(api: AdsApiClient, profile_id: str, path: str, items_key: str, body: dict,
+                   media_type: str | None = None) -> tuple[list[dict], str]:
+    """The items of one page and the token of the next, empty on the last."""
+    response = api.request(
+        "POST",
+        path,
+        profile_id=profile_id,
+        json_body=body,
+        content_type=media_type,
+        # A typed listing gets its type as Accept too: SP v3 answers 415 to the session's default `*/*`.
+        accept=media_type,
+    )
+    page = _read_page(response, path, profile_id)
+    if not isinstance(page, dict):
+        raise AdsApiError(f"unexpected {path} page for profile {profile_id}", status=response.status_code)
+    items = [raw for raw in page.get(items_key) or [] if isinstance(raw, dict)]
+    return items, str(page.get("nextToken") or "")
 
 
 def _list_by_offset(api: AdsApiClient, profile_id: str, path: str) -> list[dict]:
@@ -282,6 +395,31 @@ def _product_ad_row(raw: dict) -> dict:
         "ad_group_id": _id_text(raw.get("adGroupId")),
         "asin": _upper(raw.get("asin")),
         "sku": str(raw.get("sku") or "").strip(),
+        "state": _upper(raw.get("state")),
+    }
+
+
+def _ad_group_row(raw: dict) -> dict:
+    return {
+        "ad_group_id": _id_text(raw["adGroupId"]),
+        "campaign_id": _id_text(raw.get("campaignId")),
+        "name": str(raw.get("name") or ""),
+        "state": _upper(raw.get("state")),
+        "default_bid": _amount(raw.get("defaultBid")),
+    }
+
+
+def _negative_row(listing: _NegativeListing, raw: dict) -> dict:
+    is_keyword = listing.kind == "keyword"
+    return {
+        "negative_id": _id_text(raw[listing.id_key]),
+        "level": listing.level,
+        "negative_kind": listing.kind,
+        "campaign_id": _id_text(raw.get("campaignId")),
+        "ad_group_id": _id_text(raw.get("adGroupId")),
+        "negative_text": (str(raw.get("keywordText") or "") if is_keyword
+                          else _expression_text(_predicates(raw.get("resolvedExpression"), raw.get("expression")))),
+        "match_type": _upper(raw.get("matchType")) if is_keyword else "",
         "state": _upper(raw.get("state")),
     }
 

@@ -20,7 +20,10 @@ import requests
 from core.amazon_ads import ingestion_job as ingestion_module
 from core.amazon_ads.api_client import CLIENT_ID_HEADER, AdsApiClient
 from core.amazon_ads.ingestion_job import (
+    NEGATIVES_RUN_UNDER_WAY_WARNING,
+    NO_AD_GROUPS_ACCESS_WARNING,
     NO_CAMPAIGN_ACCESS_WARNING,
+    NO_NEGATIVES_ACCESS_WARNING,
     NO_PORTFOLIO_ACCESS_WARNING,
     NO_SB_ACCESS_WARNING,
     PROFILE_INACTIVE_REASON,
@@ -41,6 +44,8 @@ from core.amazon_ads.sync_planner import (
     SB_TARGETING_KIND,
     SD_CAMPAIGNS_KIND,
     SD_ENTITIES_KIND,
+    SP_AD_GROUPS_KIND,
+    SP_NEGATIVES_KIND,
     SP_PRODUCT_ADS_KIND,
     SP_TARGETING_KIND,
     SP_TARGETS_KIND,
@@ -60,6 +65,16 @@ TARGETS = "ads_target"
 TARGET_DAILY = "ads_target_daily"
 PRODUCT_CAMPAIGNS = "ads_sb_sd_campaign"
 PRODUCT_CAMPAIGN_DAILY = "ads_sb_sd_campaign_daily"
+AD_GROUPS = "ads_ad_group"
+NEGATIVES = "ads_negative"
+LISTING_SNAPSHOTS = "ads_listing_snapshot"
+# Each SP negative listing and the key its items come under.
+SP_NEGATIVE_ITEMS = {
+    "/sp/negativeKeywords/list": "negativeKeywords",
+    "/sp/campaignNegativeKeywords/list": "campaignNegativeKeywords",
+    "/sp/negativeTargets/list": "negativeTargetingClauses",
+    "/sp/campaignNegativeTargets/list": "campaignNegativeTargetingClauses",
+}
 HEARTBEATS = "integration_worker_heartbeats"
 NEW_TABLES = {JOBS, REQUESTS, PROFILES, DAILY_ROWS, "ads_portfolios", HEARTBEATS}
 
@@ -88,7 +103,7 @@ def _defaults(table: str, stamp: str) -> dict:
             "status": "pending", "phase": "", "attempts": 0, "max_attempts": 8, "next_attempt_at": stamp,
             "lease_holder": "", "lease_expires_at": None, "rows_written": None, "warning": "", "error_class": "",
             "error_message": "", "attempt_log": [], "requested_by": "scheduler", "retry_of": None, "dedupe_key": None,
-            "created_at": stamp, "started_at": None, "finished_at": None, "updated_at": stamp,
+            "created_at": stamp, "started_at": None, "finished_at": None, "updated_at": stamp, "progress": None,
         }
     if table == REQUESTS:
         return {
@@ -128,6 +143,10 @@ def _matches(row: dict, params: dict) -> bool:
         value = row.get(column)
         if operator == "eq":
             matched = value is not None and str(value) == operand
+        elif operator == "neq":
+            matched = value is not None and str(value) != operand
+        elif operator == "not":
+            matched = not _matches({column: value}, {column: operand})
         elif operator == "in":
             matched = value is not None and str(value) in operand.strip("()").split(",")
         elif operator == "like":
@@ -413,6 +432,14 @@ class _FakeAmazon:
         self.sp_keywords: list[dict] = []
         self.sp_targets: list[dict] = []
         self.sp_product_ads: list[dict] = []
+        self.sp_ad_groups: list[dict] = []
+        # By listing path, as each of the four SP negative listings answers on its own, in pages of this size.
+        self.sp_negatives: dict[str, list[dict]] = {}
+        self.negatives_page_size = 1000
+        # (profile, listing path, token sent) of every negatives page asked for.
+        self.negative_requests: list[tuple[str, str, str]] = []
+        self.sp_ad_groups_outcome: _FakeResponse | None = None
+        self.sp_negatives_outcome: _FakeResponse | None = None
         self.sb_campaigns: list[dict] = []
         self.sd_campaigns: list[dict] = []
         self.sd_ad_groups: list[dict] = []
@@ -451,6 +478,10 @@ class _FakeAmazon:
             return _FakeResponse(200, {"targetingClauses": self.sp_targets, "totalResults": len(self.sp_targets)})
         if (method, path) == ("POST", "/sp/productAds/list"):
             return _FakeResponse(200, {"productAds": self.sp_product_ads, "totalResults": len(self.sp_product_ads)})
+        if (method, path) == ("POST", "/sp/adGroups/list"):
+            return self.sp_ad_groups_outcome or _FakeResponse(200, {"adGroups": self.sp_ad_groups})
+        if method == "POST" and path in SP_NEGATIVE_ITEMS:
+            return self._negative_page(kwargs["headers"], path, kwargs["json"])
         if (method, path) == ("POST", "/sb/v4/campaigns/list"):
             return self.sb_outcome or _FakeResponse(200, {"campaigns": self.sb_campaigns})
         if method == "GET" and path.startswith(("/sb/keywords", "/sd/targets")):
@@ -466,6 +497,19 @@ class _FakeAmazon:
         if method == "GET" and path.startswith("/v2/reports/"):
             return self._v2_status_or_file(path.removeprefix("/v2/reports/"), kwargs)
         raise AssertionError(f"unexpected Amazon call {method} {path}")
+
+    def _negative_page(self, headers: dict, path: str, body: dict) -> _FakeResponse:
+        token = body.get("nextToken", "")
+        self.negative_requests.append((headers["Amazon-Advertising-API-Scope"], path, token))
+        if self.sp_negatives_outcome is not None:
+            return self.sp_negatives_outcome
+        start = int(token.removeprefix("page-") or 0)
+        end = start + self.negatives_page_size
+        items = self.sp_negatives.get(path, [])
+        page = {SP_NEGATIVE_ITEMS[path]: items[start:end]}
+        if end < len(items):
+            page["nextToken"] = f"page-{end}"
+        return _FakeResponse(200, page)
 
     def _create_v2(self, headers: dict, body: dict) -> _FakeResponse:
         profile_id = headers["Amazon-Advertising-API-Scope"]
@@ -1510,6 +1554,418 @@ def test_the_sp_product_ads_list_saves_the_asin_each_ad_group_advertises(tmp_pat
                                                                             ("8001", "B0DEMO0002")}
     job = _only(rest.rows(JOBS, job_kind=SP_PRODUCT_ADS_KIND))
     assert (job["status"], job["rows_written"]) == ("completed", 2) and summary.errors == []
+
+
+def test_the_sp_ad_group_list_saves_each_ad_group_with_its_default_bid_once_a_day(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sp_ad_groups = [{"adGroupId": "8001", "campaignId": "909", "name": "Demo - Exact", "state": "ENABLED",
+                            "defaultBid": 0.65},
+                           {"adGroupId": "8002", "campaignId": "909", "name": "Demo - Broad", "state": "PAUSED"}]
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    summary = _tick(ingestion, rest, NOW)
+    _tick(ingestion, rest, NOW + timedelta(hours=1))
+
+    saved = {row["ad_group_id"]: row for row in rest.rows(AD_GROUPS)}
+    assert {ad_group_id: (row["ad_product"], row["profile_id"], row["state"], row["default_bid"])
+            for ad_group_id, row in saved.items()} == {"8001": ("SP", "1001", "ENABLED", 0.65),
+                                                      "8002": ("SP", "1001", "PAUSED", None)}
+    assert {row["seen_at"] for row in saved.values()} == {NOW.isoformat()}
+    job = _only(rest.rows(JOBS, job_kind=SP_AD_GROUPS_KIND))
+    assert (job["status"], job["rows_written"]) == ("completed", 2) and summary.errors == []
+
+
+def test_the_sp_negatives_list_saves_both_levels_of_keywords_and_products(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sp_negatives = {
+        "/sp/negativeKeywords/list": [{"keywordId": "5001", "campaignId": "909", "adGroupId": "8001",
+                                       "keywordText": "free demo", "matchType": "NEGATIVE_EXACT", "state": "ENABLED"}],
+        "/sp/campaignNegativeKeywords/list": [{"keywordId": "5002", "campaignId": "909", "keywordText": "cheap demo",
+                                               "matchType": "NEGATIVE_PHRASE", "state": "ENABLED"}],
+        "/sp/negativeTargets/list": [{"targetId": "5003", "campaignId": "909", "adGroupId": "8001", "state": "ENABLED",
+                                      "expression": [{"type": "ASIN_SAME_AS", "value": "B0RIVAL001"}]}],
+        "/sp/campaignNegativeTargets/list": [{"targetId": "5004", "campaignId": "909", "state": "ENABLED",
+                                              "expression": [{"type": "ASIN_BRAND_SAME_AS", "value": "Rival"}]}],
+    }
+
+    summary = _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    saved = sorted((row["negative_id"], row["level"], row["negative_kind"], row["ad_group_id"], row["negative_text"])
+                   for row in rest.rows(NEGATIVES, profile_id="1001", ad_product="SP"))
+    assert saved == [("5001", "ad_group", "keyword", "8001", "free demo"),
+                     ("5002", "campaign", "keyword", "", "cheap demo"),
+                     ("5003", "ad_group", "product", "8001", 'asin="B0RIVAL001"'),
+                     ("5004", "campaign", "product", "", 'brand="Rival"')]
+    job = _only(rest.rows(JOBS, job_kind=SP_NEGATIVES_KIND))
+    assert (job["status"], job["rows_written"], job["progress"]) == ("completed", 4, None) and summary.errors == []
+    # A small account finishes in its first part, and its run becomes the one readers trust.
+    assert _only(rest.rows(LISTING_SNAPSHOTS)) == {"profile_id": "1001", "listing": SP_NEGATIVES_KIND,
+                                                   "seen_at": NOW.isoformat(), "rows": 4,
+                                                   "completed_at": NOW.isoformat()}
+
+
+@pytest.mark.parametrize("refused, job_kind, table, warning", [
+    ("sp_ad_groups_outcome", SP_AD_GROUPS_KIND, AD_GROUPS, NO_AD_GROUPS_ACCESS_WARNING),
+    ("sp_negatives_outcome", SP_NEGATIVES_KIND, NEGATIVES, NO_NEGATIVES_ACCESS_WARNING),
+])
+def test_a_structure_listing_amazon_refuses_closes_with_a_warning_not_a_failure(tmp_path, with_products, refused,
+                                                                                job_kind, table, warning):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    setattr(amazon, refused, _FakeResponse(403, {"code": "403", "details": "Forbidden"}))
+
+    summary = _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    job = _only(rest.rows(JOBS, job_kind=job_kind))
+    assert (job["status"], job["rows_written"], job["warning"]) == ("completed", 0, warning)
+    assert rest.rows(table) == [] and summary.errors == []
+
+
+def test_negatives_amazon_refuses_leave_no_complete_run_for_readers(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sp_negatives_outcome = _FakeResponse(403, {"code": "403", "details": "Forbidden"})
+
+    _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    assert _only(rest.rows(JOBS, job_kind=SP_NEGATIVES_KIND))["warning"] == NO_NEGATIVES_ACCESS_WARNING
+    # Without a snapshot the readers say "not synced yet" instead of showing an account without negatives.
+    assert rest.rows(LISTING_SNAPSHOTS) == []
+    assert len(amazon.negative_requests) == 1
+
+
+def _negative_keyword(keyword_id: str) -> dict:
+    return {"keywordId": keyword_id, "campaignId": "909", "adGroupId": "8001", "keywordText": f"free {keyword_id}",
+            "matchType": "NEGATIVE_EXACT", "state": "ENABLED"}
+
+
+def _negatives_job(rest: _FakePostgrest, profile_id: str = "1001") -> dict:
+    return _only(rest.rows(JOBS, job_kind=SP_NEGATIVES_KIND, external_account_id=profile_id))
+
+
+def _negatives_run(listing: int, next_token: str, seen_at: datetime, rows: int, pages: int) -> dict:
+    """Where a run stopped: `pages` counts the pages read in its current listing."""
+    return {"listing": listing, "next_token": next_token, "seen_at": seen_at.isoformat(), "rows": rows,
+            "pages": pages}
+
+
+def test_a_large_account_lists_its_negatives_in_parts_across_ticks(tmp_path, with_products, monkeypatch):
+    monkeypatch.setattr(ingestion_module, "NEGATIVE_PAGES_PER_TICK", 2)
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.negatives_page_size = 1
+    amazon.sp_negatives = {
+        "/sp/negativeKeywords/list": [_negative_keyword("5001"), _negative_keyword("5002"),
+                                      _negative_keyword("5003")],
+        "/sp/campaignNegativeKeywords/list": [{"keywordId": "5004", "campaignId": "909", "keywordText": "cheap",
+                                               "matchType": "NEGATIVE_PHRASE", "state": "ENABLED"}],
+        "/sp/campaignNegativeTargets/list": [{"targetId": "5005", "campaignId": "909", "state": "ENABLED",
+                                              "expression": [{"type": "ASIN_SAME_AS", "value": "B0RIVAL001"}]}],
+    }
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    _tick(ingestion, rest, NOW)
+
+    job = _negatives_job(rest)
+    assert (job["status"], job["rows_written"], job["next_attempt_at"]) == ("pending", 2, NOW.isoformat())
+    assert job["progress"] == _negatives_run(0, "page-2", NOW, 2, 2)
+    assert rest.rows(LISTING_SNAPSHOTS) == []
+
+    _tick(ingestion, rest, NOW + timedelta(seconds=61))
+
+    assert _negatives_job(rest)["progress"] == _negatives_run(2, "", NOW, 4, 0)
+
+    last_part = NOW + timedelta(seconds=122)
+    summary = _tick(ingestion, rest, last_part)
+
+    job = _negatives_job(rest)
+    assert (job["status"], job["rows_written"], job["progress"]) == ("completed", 5, None)
+    # A run in parts is timed from its first claim.
+    assert (job["started_at"], job["finished_at"]) == (NOW.isoformat(), last_part.isoformat())
+    assert [(path, token) for _, path, token in amazon.negative_requests] == [
+        ("/sp/negativeKeywords/list", ""), ("/sp/negativeKeywords/list", "page-1"),
+        ("/sp/negativeKeywords/list", "page-2"), ("/sp/campaignNegativeKeywords/list", ""),
+        ("/sp/negativeTargets/list", ""), ("/sp/campaignNegativeTargets/list", ""),
+    ]
+    # Pages listed on later ticks still carry the run's time, which the snapshot names once, at the end.
+    assert sorted(row["negative_id"] for row in rest.rows(NEGATIVES)) == ["5001", "5002", "5003", "5004", "5005"]
+    assert {row["seen_at"] for row in rest.rows(NEGATIVES)} == {NOW.isoformat()}
+    assert _only(rest.rows(LISTING_SNAPSHOTS)) == {"profile_id": "1001", "listing": SP_NEGATIVES_KIND,
+                                                   "seen_at": NOW.isoformat(), "rows": 5,
+                                                   "completed_at": last_part.isoformat()}
+    assert summary.errors == []
+
+
+def test_two_accounts_listing_negatives_share_one_page_budget_per_tick(tmp_path, with_products, monkeypatch):
+    monkeypatch.setattr(ingestion_module, "NEGATIVE_PAGES_PER_TICK", 3)
+    # Two profiles plan more jobs than one claim takes; both negatives jobs must be claimed in the same tick.
+    monkeypatch.setattr(ingestion_module, "JOB_CLAIM_LIMIT", 40)
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, "1001", connection_id=5, profile_row=_backfilled())
+    _connect_profile(rest, "1002", connection_id=6, profile_row=_backfilled())
+    amazon.negatives_page_size = 1
+    amazon.sp_negatives = {"/sp/negativeKeywords/list": [_negative_keyword("5001"), _negative_keyword("5002")]}
+
+    _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    [listed_profile] = {profile_id for profile_id, _, _ in amazon.negative_requests}
+    waiting_profile = ({"1001", "1002"} - {listed_profile}).pop()
+    assert len(amazon.negative_requests) == 3
+    assert _negatives_job(rest, listed_profile)["progress"] == _negatives_run(2, "", NOW, 2, 0)
+    # Claimed once the budget was spent, the other account waits for the next tick without asking Amazon.
+    waiting = _negatives_job(rest, waiting_profile)
+    assert (waiting["status"], waiting["rows_written"], waiting["progress"]) == (
+        "pending", 0, _negatives_run(0, "", NOW, 0, 0))
+
+
+def test_a_run_paused_before_its_first_page_keeps_the_time_it_was_claimed(tmp_path, with_products, monkeypatch):
+    monkeypatch.setattr(ingestion_module, "NEGATIVE_PAGES_PER_TICK", 0)
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sp_negatives = {"/sp/negativeKeywords/list": [_negative_keyword("5001")]}
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    _tick(ingestion, rest, NOW)
+
+    assert amazon.negative_requests == []
+    assert _negatives_job(rest)["status"] == "pending"
+    monkeypatch.setattr(ingestion_module, "NEGATIVE_PAGES_PER_TICK", 40)
+
+    _tick(ingestion, rest, NOW + timedelta(seconds=61))
+
+    assert (_negatives_job(rest)["status"], _negatives_job(rest)["rows_written"]) == ("completed", 1)
+    assert _only(rest.rows(NEGATIVES))["seen_at"] == NOW.isoformat()
+    assert _only(rest.rows(LISTING_SNAPSHOTS))["seen_at"] == NOW.isoformat()
+
+
+def test_a_stop_request_pauses_a_negatives_run_at_the_page_it_reached(tmp_path, with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.negatives_page_size = 1
+    amazon.sp_negatives = {"/sp/negativeKeywords/list": [_negative_keyword("5001"), _negative_keyword("5002")]}
+
+    _ingestion(rest, amazon, tmp_path).run_tick(NOW, stop_requested=lambda: bool(amazon.negative_requests))
+
+    # Paused rather than left running, the next worker claims it at once instead of after its lease.
+    job = _negatives_job(rest)
+    assert (job["status"], job["lease_holder"], job["progress"]) == ("pending", "", _negatives_run(0, "page-1", NOW, 1, 1))
+
+
+def _paused_negatives_run(tmp_path, monkeypatch) -> tuple[_FakePostgrest, _FakeAmazon, IngestionJob]:
+    """A run that listed the first of two pages and paused, its budget spent."""
+    monkeypatch.setattr(ingestion_module, "NEGATIVE_PAGES_PER_TICK", 1)
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.negatives_page_size = 1
+    amazon.sp_negatives = {"/sp/negativeKeywords/list": [_negative_keyword("5001"), _negative_keyword("5002")]}
+    ingestion = _ingestion(rest, amazon, tmp_path)
+    _tick(ingestion, rest, NOW)
+    assert _negatives_job(rest)["progress"] == _negatives_run(0, "page-1", NOW, 1, 1)
+    return rest, amazon, ingestion
+
+
+def test_a_negatives_run_that_fails_midway_starts_over_on_its_retry(tmp_path, with_products, monkeypatch):
+    rest, amazon, ingestion = _paused_negatives_run(tmp_path, monkeypatch)
+    amazon.sp_negatives_outcome = _FakeResponse(500, {"code": "INTERNAL_ERROR"})
+
+    _tick(ingestion, rest, NOW + timedelta(seconds=61))
+
+    job = _negatives_job(rest)
+    assert (job["status"], job["attempts"], job["progress"]) == ("retrying", 1, None)
+    amazon.sp_negatives_outcome = None
+    amazon.negative_requests.clear()
+    monkeypatch.setattr(ingestion_module, "NEGATIVE_PAGES_PER_TICK", 40)
+    retried_at = NOW + timedelta(minutes=7)
+
+    _tick(ingestion, rest, retried_at)
+
+    assert amazon.negative_requests[0] == ("1001", "/sp/negativeKeywords/list", "")
+    assert (_negatives_job(rest)["status"], _negatives_job(rest)["rows_written"]) == ("completed", 2)
+    # The new run stamps every row again, the one the failed run had saved included.
+    assert {row["seen_at"] for row in rest.rows(NEGATIVES)} == {retried_at.isoformat()}
+    assert _only(rest.rows(LISTING_SNAPSHOTS))["seen_at"] == retried_at.isoformat()
+
+
+def test_a_negatives_run_refused_after_its_first_page_fails_instead_of_passing_as_no_access(tmp_path, with_products,
+                                                                                            monkeypatch):
+    rest, amazon, ingestion = _paused_negatives_run(tmp_path, monkeypatch)
+    amazon.sp_negatives_outcome = _FakeResponse(403, {"code": "403", "details": "Forbidden"})
+
+    summary = _tick(ingestion, rest, NOW + timedelta(seconds=61))
+
+    job = _negatives_job(rest)
+    assert (job["status"], job["error_class"], job["warning"], job["progress"]) == ("failed", "AccessDenied", "",
+                                                                                    None)
+    assert rest.rows(LISTING_SNAPSHOTS) == [] and summary.errors
+
+
+def test_a_throttled_negatives_run_resumes_where_it_stopped(tmp_path, with_products, monkeypatch):
+    rest, amazon, ingestion = _paused_negatives_run(tmp_path, monkeypatch)
+    amazon.sp_negatives_outcome = _FakeResponse(429, {"code": "429"})
+    throttled_at = NOW + timedelta(seconds=61)
+
+    _tick(ingestion, rest, throttled_at)
+
+    job = _negatives_job(rest)
+    assert (job["status"], job["attempts"], job["next_attempt_at"]) == (
+        "retrying", 0, (throttled_at + timedelta(minutes=5)).isoformat())
+    assert job["progress"] == _negatives_run(0, "page-1", NOW, 1, 1)
+    amazon.sp_negatives_outcome = None
+    amazon.negative_requests.clear()
+    monkeypatch.setattr(ingestion_module, "NEGATIVE_PAGES_PER_TICK", 40)
+
+    _tick(ingestion, rest, NOW + timedelta(minutes=7))
+
+    assert amazon.negative_requests[0] == ("1001", "/sp/negativeKeywords/list", "page-1")
+    assert (_negatives_job(rest)["status"], _negatives_job(rest)["rows_written"]) == ("completed", 2)
+    assert {row["seen_at"] for row in rest.rows(NEGATIVES)} == {NOW.isoformat()}
+    assert _only(rest.rows(LISTING_SNAPSHOTS))["seen_at"] == NOW.isoformat()
+
+
+def test_a_paused_run_resumes_on_the_next_tick_ahead_of_the_jobs_queued_after_it(tmp_path, with_products,
+                                                                                 monkeypatch):
+    monkeypatch.setattr(ingestion_module, "NEGATIVE_PAGES_PER_TICK", 2)
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    # Eight accounts queue far more jobs than one claim takes, as the nightly planning does.
+    for index in range(8):
+        _connect_profile(rest, str(1001 + index), connection_id=5 + index, profile_row=_backfilled())
+    amazon.negatives_page_size = 1
+    amazon.sp_negatives = {"/sp/negativeKeywords/list": [_negative_keyword(str(5000 + n)) for n in range(6)]}
+    ingestion = _ingestion(rest, amazon, tmp_path)
+    moment, holding_a_token = NOW, []
+    while not holding_a_token:
+        assert moment < NOW + timedelta(minutes=10), "no negatives run paused with a token"
+        _tick(ingestion, rest, moment)
+        moment += timedelta(seconds=61)
+        holding_a_token = [job for job in rest.rows(JOBS, job_kind=SP_NEGATIVES_KIND)
+                           if (job["progress"] or {}).get("next_token")]
+    [paused] = holding_a_token
+    profile_id, token = paused["external_account_id"], paused["progress"]["next_token"]
+    assert len(rest.rows(JOBS, status="pending")) > ingestion_module.JOB_CLAIM_LIMIT
+    asked_before = len(amazon.negative_requests)
+
+    _tick(ingestion, rest, moment)
+
+    asked = amazon.negative_requests[asked_before:]
+    assert asked[0] == (profile_id, "/sp/negativeKeywords/list", token)
+    # The tick's pages go on with the run under way instead of opening one for another account.
+    assert {asking for asking, _, _ in asked} == {profile_id}
+
+
+def test_a_retry_while_the_days_run_is_under_way_closes_without_listing(tmp_path, with_products, monkeypatch):
+    rest, amazon, ingestion = _paused_negatives_run(tmp_path, monkeypatch)
+    [day_run] = rest.rows(JOBS, job_kind=SP_NEGATIVES_KIND)
+    failed = rest.seed(JOBS, **{**day_run, "id": 900, "status": "failed", "local_day": "2026-09-13",
+                                "dedupe_key": None, "progress": None})
+    retry_id = SyncJobStore(rest).retry(failed["id"], "admin")
+    monkeypatch.setattr(ingestion_module, "NEGATIVE_PAGES_PER_TICK", 40)
+    amazon.negative_requests.clear()
+
+    _tick(ingestion, rest, NOW + timedelta(seconds=61))
+
+    retry = _only(rest.rows(JOBS, id=retry_id))
+    assert (retry["status"], retry["rows_written"], retry["warning"]) == (
+        "completed", 0, NEGATIVES_RUN_UNDER_WAY_WARNING)
+    # Claimed first as a retry, it still left the account to the run already under way, the only one stamping rows.
+    assert amazon.negative_requests[0] == ("1001", "/sp/negativeKeywords/list", "page-1")
+    assert ("1001", "/sp/negativeKeywords/list", "") not in amazon.negative_requests
+    assert _only(rest.rows(JOBS, id=day_run["id"]))["status"] == "completed"
+    assert {row["seen_at"] for row in rest.rows(NEGATIVES)} == {NOW.isoformat()}
+    assert _only(rest.rows(LISTING_SNAPSHOTS))["seen_at"] == NOW.isoformat()
+
+
+def test_a_negatives_listing_that_hands_back_its_own_token_fails_instead_of_spending_every_tick(tmp_path,
+                                                                                               with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.sp_negatives_outcome = _FakeResponse(200, {"negativeKeywords": [_negative_keyword("5001")],
+                                                      "nextToken": "page-1"})
+
+    summary = _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    assert [token for _, _, token in amazon.negative_requests] == ["", "page-1"]
+    job = _negatives_job(rest)
+    assert (job["status"], job["attempts"], job["progress"]) == ("retrying", 1, None)
+    assert rest.rows(LISTING_SNAPSHOTS) == [] and summary.errors
+
+
+def test_a_negatives_listing_that_never_ends_fails_past_its_page_cap(tmp_path, with_products, monkeypatch):
+    monkeypatch.setattr(ingestion_module.ad_entities, "MAX_NEGATIVE_LISTING_PAGES", 3)
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    _connect_profile(rest, profile_row=_backfilled())
+    amazon.negatives_page_size = 1
+    # Every page hands a new token, so only the cap tells a loop of tokens from a long listing.
+    amazon.sp_negatives = {"/sp/negativeKeywords/list": [_negative_keyword(str(5000 + n)) for n in range(10)]}
+
+    summary = _tick(_ingestion(rest, amazon, tmp_path), rest, NOW)
+
+    assert [token for _, _, token in amazon.negative_requests] == ["", "page-1", "page-2"]
+    job = _negatives_job(rest)
+    assert (job["status"], job["attempts"], job["progress"]) == ("retrying", 1, None)
+    assert rest.rows(LISTING_SNAPSHOTS) == [] and "exceeded 3 pages" in summary.errors[0]
+
+
+class _WorkerClock:
+    def __init__(self, now: datetime):
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+class _SlowAdGroupsAmazon(_FakeAmazon):
+    """Amazon takes 90 seconds, on the worker's clock, to answer the ad group listing."""
+
+    def __init__(self, clock: _WorkerClock):
+        super().__init__()
+        self._clock = clock
+
+    def request(self, method, url, **kwargs):
+        if url.endswith("/sp/adGroups/list"):
+            self._clock.now += timedelta(seconds=90)
+        return super().request(method, url, **kwargs)
+
+
+def test_a_listing_is_timed_on_the_worker_clock_while_a_report_job_keeps_its_claim_time(tmp_path, with_products):
+    rest = _FakePostgrest(NOW)
+    # The database stamps the claim of the whole batch; the worker's clock runs apart from it.
+    clock = _WorkerClock(NOW + timedelta(seconds=5))
+    amazon = _SlowAdGroupsAmazon(clock)
+    amazon.sp_ad_groups = [{"adGroupId": "8001", "campaignId": "909", "name": "Demo - Exact", "state": "ENABLED"}]
+    _connect_profile(rest, profile_row=_backfilled())
+    ingestion = _ingestion(rest, amazon, tmp_path, clock=clock)
+
+    _tick(ingestion, rest, NOW)
+    _tick(ingestion, rest, NOW + timedelta(seconds=61))
+
+    ad_groups = _only(rest.rows(JOBS, job_kind=SP_AD_GROUPS_KIND))
+    assert (ad_groups["started_at"], ad_groups["finished_at"]) == (
+        (NOW + timedelta(seconds=5)).isoformat(), (NOW + timedelta(seconds=95)).isoformat())
+    # The listing still stamps what it saved with the tick's time, like every other save.
+    assert _only(rest.rows(AD_GROUPS))["seen_at"] == NOW.isoformat()
+    report = _only(rest.rows(JOBS, job_kind="sp_search_terms"))
+    assert (report["status"], report["started_at"], report["finished_at"]) == (
+        "completed", NOW.isoformat(), (NOW + timedelta(seconds=61)).isoformat())
+
+
+def test_a_negatives_run_is_timed_from_its_own_dispatch_not_from_the_claim_of_its_batch(tmp_path, with_products):
+    rest = _FakePostgrest(NOW)
+    clock = _WorkerClock(NOW + timedelta(seconds=5))
+    amazon = _SlowAdGroupsAmazon(clock)
+    amazon.sp_ad_groups = [{"adGroupId": "8001", "campaignId": "909", "name": "Demo - Exact", "state": "ENABLED"}]
+    amazon.sp_negatives = {"/sp/negativeKeywords/list": [_negative_keyword("5001")]}
+    _connect_profile(rest, profile_row=_backfilled())
+    ingestion = _ingestion(rest, amazon, tmp_path, clock=clock)
+
+    _tick(ingestion, rest, NOW)
+    _tick(ingestion, rest, NOW + timedelta(seconds=61))
+
+    negatives = _negatives_job(rest)
+    # Listing a few negatives takes no time on the worker's clock; the ad groups claimed with them took 90 s.
+    assert negatives["status"] == "completed"
+    assert negatives["started_at"] == negatives["finished_at"] != NOW.isoformat()
 
 
 def test_sb_and_sd_reports_are_only_planned_once_their_list_found_campaigns(tmp_path, with_products):

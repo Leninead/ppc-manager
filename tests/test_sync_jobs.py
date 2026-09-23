@@ -84,6 +84,14 @@ def test_from_row_parses_dates_timestamps_and_optionals():
     assert _job(status="failed").is_open is False
 
 
+def test_from_row_reads_where_a_listing_in_parts_stopped():
+    progress = {"listing": 1, "next_token": "page-7", "seen_at": "2026-09-14T11:00:00+00:00", "rows": 7000}
+
+    assert _job(progress=progress).progress == progress
+    # A job that never paused, or a row read before migration 018 added the column.
+    assert _job().progress is None
+
+
 def test_from_row_treats_naive_timestamps_as_utc():
     job = _job(created_at="2026-09-14T10:00:00")
     assert job.created_at.tzinfo is timezone.utc
@@ -230,6 +238,102 @@ def test_complete_keeps_dedupe_key_for_scheduled_jobs():
     assert changes["lease_holder"] == "" and changes["lease_expires_at"] is None
 
 
+def test_complete_keeps_the_claim_time_unless_the_caller_timed_the_work():
+    rest = _FakeRest()
+    store = SyncJobStore(rest)
+    dispatched_at = NOW - timedelta(seconds=90)
+
+    store.complete(_job(), rows_written=10, now=NOW)
+    store.complete(_job(), rows_written=10, now=NOW, started_at=dispatched_at)
+
+    claimed, timed = (changes for _, _, changes in rest.updates)
+    assert "started_at" not in claimed
+    assert (timed["started_at"], timed["finished_at"]) == (dispatched_at.isoformat(), NOW.isoformat())
+
+
+def test_pause_listing_hands_the_job_to_the_next_tick_with_where_it_stopped():
+    rest = _FakeRest()
+    progress = {"listing": 0, "next_token": "page-41", "seen_at": "2026-09-14T11:59:00+00:00", "rows": 40000}
+    queued_at = datetime(2026, 9, 14, 10, 0, tzinfo=timezone.utc)
+
+    paused = SyncJobStore(rest).pause_listing(_job(), progress=progress, now=NOW, keep_place=True)
+
+    [(table, params, changes)] = rest.updates
+    assert (table, params) == (JOBS_TABLE, {"id": "eq.41", "status": "in.(pending,running,retrying)"})
+    assert changes == {
+        "status": "pending", "phase": "", "lease_holder": "", "lease_expires_at": None, "rows_written": 40000,
+        "progress": progress, "updated_at": NOW.isoformat(),
+    }
+    # No attempt is spent, and a later part keeps the start its run's first part wrote.
+    assert "attempts" not in changes and "started_at" not in changes and "finished_at" not in changes
+    # Its old next_attempt_at keeps it ahead of every job queued after it, so its paging token does not wait.
+    assert (paused.status, paused.next_attempt_at, paused.lease_holder, paused.rows_written, paused.progress) == (
+        "pending", queued_at, "", 40000, progress)
+    assert paused.is_open
+
+
+def test_the_first_part_of_a_run_writes_when_the_run_started():
+    rest = _FakeRest()
+    progress = {"listing": 0, "next_token": "page-41", "seen_at": NOW.isoformat(), "rows": 40000, "pages": 40}
+    dispatched_at = NOW + timedelta(seconds=90)
+
+    paused = SyncJobStore(rest).pause_listing(_job(), progress=progress, now=NOW, keep_place=True,
+                                              started_at=dispatched_at)
+
+    [(_, _, changes)] = rest.updates
+    assert (changes["started_at"], paused.started_at) == (dispatched_at.isoformat(), dispatched_at)
+
+
+def test_a_listing_paused_before_its_first_page_waits_behind_the_jobs_queued_since():
+    rest = _FakeRest()
+    progress = {"listing": 0, "next_token": "", "seen_at": NOW.isoformat(), "rows": 0}
+
+    paused = SyncJobStore(rest).pause_listing(_job(), progress=progress, now=NOW, keep_place=False)
+
+    [(_, _, changes)] = rest.updates
+    assert (changes["next_attempt_at"], paused.next_attempt_at) == (NOW.isoformat(), NOW)
+
+
+def test_completing_or_failing_a_job_clears_where_a_listing_stopped():
+    rest = _FakeRest()
+    store = SyncJobStore(rest)
+    progress = {"listing": 2, "next_token": "page-3", "seen_at": "2026-09-14T11:00:00+00:00", "rows": 9000}
+
+    store.complete(_job(progress=progress), rows_written=9500, now=NOW)
+    retrying = store.record_attempt_failure(_job(progress=progress), error_class="AdsApiError", message="HTTP 500",
+                                            retryable=True, now=NOW)
+
+    completed, failed = (changes for _, _, changes in rest.updates)
+    assert completed["progress"] is None
+    # A paging token may not survive the retry delay, so the retry starts the run over.
+    assert (failed["progress"], retrying.status, retrying.progress) == (None, "retrying", None)
+
+
+def test_closing_a_job_that_never_paused_does_not_write_the_progress_column():
+    rest = _FakeRest()
+    store = SyncJobStore(rest)
+
+    store.complete(_job(), rows_written=10, now=NOW)
+    store.record_attempt_failure(_job(), error_class="AdsApiError", message="HTTP 500", retryable=True, now=NOW)
+
+    # Report and AI jobs keep closing while the database lacks migration 018, which adds the column.
+    assert all("progress" not in changes for _, _, changes in rest.updates)
+
+
+def test_another_run_under_way_looks_for_an_open_job_of_the_same_listing_partway_through():
+    rest = _FakeRest(select_rows=[[{"id": 57}], []])
+    store = SyncJobStore(rest)
+    job = _job(job_kind="sp_negatives", status="running")
+
+    assert store.another_run_under_way(job) is True
+    assert store.another_run_under_way(job) is False
+    assert rest.selects[0] == (JOBS_TABLE, {
+        "select": "id", "integration_slug": "eq.amazon_ads", "job_kind": "eq.sp_negatives",
+        "external_account_id": "eq.e2e-profile-1", "status": "in.(pending,running,retrying)",
+        "progress": "not.is.null", "id": "neq.41", "limit": "1",
+    })
+
+
 def test_fail_expired_marks_queued_jobs_past_deadline():
     rest = _FakeRest(select_rows=[[{"id": 5}, {"id": 8}]])
 
@@ -337,6 +441,8 @@ def test_worker_writes_never_reopen_a_job_an_admin_already_closed():
 
     store.record_attempt_failure(_job(), error_class="AdsApiError", message="HTTP 500", retryable=True, now=NOW)
     store.complete(_job(), rows_written=10, now=NOW)
+    store.pause_listing(_job(), progress={"listing": 1, "next_token": "", "seen_at": NOW.isoformat(), "rows": 3},
+                        now=NOW, keep_place=True)
     store.record_attempt_failure(_job(id=42), error_class="AdsApiError", message="HTTP 500", retryable=True, now=NOW)
 
     assert rows[0] == {"id": 41, "status": "cancelled", "error_message": "cancelada por admin-demo"}

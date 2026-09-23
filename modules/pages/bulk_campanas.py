@@ -92,6 +92,7 @@ _WITHOUT_METRICS_NOTE_ONE = ("1 campaña de Sponsored Brands del formato anterio
 _TARGETS_WAITING = "Los targets de esta cuenta todavía no se sincronizaron: Target Graduation aparece cuando lleguen."
 _PRODUCT_TARGETS_WAITING = "Todavía no hay targets de {product} para evaluar en el período."
 _NO_IDLE_TARGETS = "Todos los targets habilitados ({n}), en campañas habilitadas, tuvieron impresiones en el período."
+_PAUSED_AD_GROUPS_NOTE = "Se excluyeron los keywords de ad groups pausados."
 
 _SIGNALS_HELP = (
     f"Marcas que no cambian el diagnóstico. Limitada por presupuesto: dentro del target y gastó al menos el 95% "
@@ -466,17 +467,21 @@ def _api_target_graduation(idle_targets, product_choice: str) -> tuple[pd.DataFr
         return None, _TARGETS_WAITING
     frame = idle_targets.frame
     considered = sum(idle_targets.considered.values())
+    sp_evaluated = "SP" in idle_targets.considered
     if product_choice != _ALL_PRODUCTS:
         short = next(key for key, name in PRODUCT_TYPES.items() if name == product_choice)
         frame = frame[frame[TARGET_PRODUCT] == short]
         considered = idle_targets.considered.get(short, 0)
+        sp_evaluated = short == "SP"
         if considered == 0:
             return None, _PRODUCT_TARGETS_WAITING.format(product=product_choice)
+    # Only listed SP ad groups can leave targets out: SB and SD ones, and SP before its first listing, never do.
+    note = f" {_PAUSED_AD_GROUPS_NOTE}" if sp_evaluated and idle_targets.sp_ad_groups_known else ""
     display = frame[[TARGET_PRODUCT, CAMPAIGN_NAME, TARGET_TEXT, TARGET_KIND, TARGET_MATCH, TARGET_BID]]
     if display.empty:
-        return None, _NO_IDLE_TARGETS.format(n=considered)
+        return None, _NO_IDLE_TARGETS.format(n=considered) + note
     caption = (f"**{len(display)} de {considered} targets** habilitados, en campañas habilitadas, "
-               "sin una impresión en el período. Candidatos a pausar o a subir la puja.")
+               f"sin una impresión en el período. Candidatos a pausar o a subir la puja.{note}")
     return display.reset_index(drop=True), caption
 
 

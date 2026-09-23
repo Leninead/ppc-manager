@@ -34,6 +34,7 @@ from core.amazon_ads.campaign_provider import (
     TOTAL_COST,
     TYPE,
 )
+from core.amazon_ads.ad_entities import AD_GROUPS_TABLE
 from core.amazon_ads.report_provider import READ_TIMEOUT_SECONDS, ReportReadError, _numbers, _portfolio_label
 from core.integrations.store import _error_message, _Rest
 
@@ -78,6 +79,8 @@ _TARGET_TEXT = ("ad_product", "target_id", "campaign_id", "campaign_name", "ad_g
                 "target_text", "match_type")
 # PostgREST's "function not found" when the database predates migration 015.
 _MISSING_FUNCTION_CODE = "PGRST202"
+# PostgREST v12's code for a table the database does not have yet (migration 018, before "DB migrate").
+_MISSING_TABLE_CODE = "42P01"
 
 
 @dataclass(frozen=True)
@@ -98,6 +101,8 @@ class IdleTargets:
     # How many targets were looked at per product ("SP", "SB", "SD"), for "N of M". A product with
     # none is absent: its targeting has not synced yet, or it has no enabled target to look at.
     considered: dict[str, int]
+    # Whether any SP ad group state of the profile is stored: only a known paused ad group leaves its targets out.
+    sp_ad_groups_known: bool = False
 
 
 class ProductProvider:
@@ -120,9 +125,22 @@ class ProductProvider:
         if rows is None:
             return None
         try:
-            return idle_targets(_read_targets(rows))
-        except ValueError as exc:
+            targets = _read_targets(rows)
+            ad_groups_known = self._knows_sp_ad_groups(profile_id)
+        except (requests.RequestException, ValueError) as exc:
             raise ReportReadError(_error_message(exc, action)) from exc
+        return idle_targets(targets, sp_ad_groups_known=ad_groups_known)
+
+    def _knows_sp_ad_groups(self, profile_id: str) -> bool:
+        """Whether graduation knows the state of any SP ad group of the profile, the data its exclusion reads."""
+        try:
+            rows = self._rest.select(AD_GROUPS_TABLE, {"select": "ad_group_id", "profile_id": f"eq.{profile_id}",
+                                                       "ad_product": "eq.SP", "limit": "1"})
+        except requests.HTTPError as exc:
+            if _is_missing_table(exc):
+                return False
+            raise
+        return bool(rows)
 
     def _read(self, rpc: str, profile_id: str, start: date, end: date, action: str) -> bytes | None:
         if end < start:
@@ -177,7 +195,7 @@ def product_campaigns(totals: pd.DataFrame) -> ProductCampaigns:
     return ProductCampaigns(frame=frame, without_metrics=frozenset(live.loc[without, "campaign_id"]))
 
 
-def idle_targets(rows: pd.DataFrame) -> IdleTargets:
+def idle_targets(rows: pd.DataFrame, *, sp_ad_groups_known: bool = False) -> IdleTargets:
     """The targets without impressions, out of every target looked at."""
     considered = {product: int(count) for product, count in rows.groupby("ad_product").size().items()}
     idle = rows[rows["impressions"] <= 0]
@@ -191,7 +209,7 @@ def idle_targets(rows: pd.DataFrame) -> IdleTargets:
         CAMPAIGN_ID: idle["campaign_id"],
         TARGET_ID: idle["target_id"],
     }, columns=list(IDLE_TARGET_COLUMNS)).reset_index(drop=True)
-    return IdleTargets(frame=frame, considered=considered)
+    return IdleTargets(frame=frame, considered=considered, sp_ad_groups_known=sp_ad_groups_known)
 
 
 def bid_strategy_label(ad_product: str, code: str) -> str:
@@ -282,10 +300,18 @@ def _optional_numbers(frame: pd.DataFrame, field: str, rpc: str) -> pd.Series:
 
 
 def _is_missing_function(exc: requests.HTTPError) -> bool:
+    return _is_not_found(exc, _MISSING_FUNCTION_CODE)
+
+
+def _is_missing_table(exc: requests.HTTPError) -> bool:
+    return _is_not_found(exc, _MISSING_TABLE_CODE)
+
+
+def _is_not_found(exc: requests.HTTPError, code: str) -> bool:
     response = exc.response
     if response is None or response.status_code != 404:
         return False
     try:
-        return str((response.json() or {}).get("code") or "") == _MISSING_FUNCTION_CODE
+        return str((response.json() or {}).get("code") or "") == code
     except ValueError:
         return False

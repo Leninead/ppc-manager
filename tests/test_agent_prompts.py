@@ -36,6 +36,19 @@ def test_reading_rules_cover_the_known_jargon(slug):
     assert "sin cifras" in block and "Slack" in block
 
 
+def test_every_agent_chat_narrows_an_answer_that_came_only_counted_instead_of_asking_the_am():
+    rules = (_AGENTS / "_shared" / "chat.md").read_text(encoding="utf-8")
+
+    assert "**Si una herramienta te devuelve sólo cuántos son, el recorte lo elegís vos.**" in rules
+    assert "siempre dentro de la cuenta y el período que ya están en juego" in rules
+
+
+def test_a_paged_answer_is_still_listed_not_narrowed():
+    rules = (_AGENTS / "_shared" / "chat.md").read_text(encoding="utf-8")
+
+    assert "Si la respuesta trajo filas, aunque avise que hay más, esta regla no aplica" in rules
+
+
 def test_sqp_situation_spec_no_longer_enumerates_the_rollup():
     text = (_AGENTS / "sqp" / "prompt.md").read_text(encoding="utf-8")
     spec = next(line for line in text.splitlines()

@@ -95,6 +95,8 @@ class FakeRest:
                     and params.get("status", "eq.completed") == f"eq.{job['status']}"][:1]
         if table == "ai_analysis_settings":
             return [dict(row) for row in self.settings]
+        if table == "ads_ad_group":
+            return []
         raise AssertionError(f"unexpected select on {table}")
 
     def rpc_csv(self, name, args, **_):

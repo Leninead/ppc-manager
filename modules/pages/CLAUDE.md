@@ -433,6 +433,14 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
 - Target Graduation con API: `campaign_input.idle_targets` (RPC `graduation_targets_between`): trae todos los
   targets habilitados de campañas habilitadas con sus impresiones, así el "N de M" sale por producto y una cuenta sin
   targets inactivos no se lee como "sin sincronizar". Sólo cuenta productos con métricas de targeting en el período.
+  Desde la migración 018 (IT-50) el bid es el efectivo (el propio o, si no tiene, el default de su ad group, de la
+  vista `ads_target_bid`) y quedan afuera los targets de ad groups SP listados como pausados; un ad group que nunca
+  se listó cuenta como habilitado, y SB/SD no cambian. La RPC mantiene las columnas de la 015; lo mismo lee
+  `idle_targets` del chat, que lo dice en su `source`. La leyenda de la página suma «Se excluyeron los keywords de ad
+  groups pausados.» (al "N de M" y a la de ningún target inactivo) sólo si se miraron targets SP y `ads_ad_group` tiene
+  ad groups SP del perfil (`IdleTargets.sp_ad_groups_known`): es el dato que lee la exclusión, así que sin él no se
+  excluyó nada. No se toma de la última solicitud `sp_ad_groups`: una que vuelve sin filas (sin permiso) deja vigente el
+  último estado conocido, y la exclusión sigue.
 - Análisis IA: un análisis por cuenta con los tres productos (columna `producto`, `sales_clicks`, `orders_clicks`
   sólo cuando hay SB o SD). El worker espera también a los pedidos de campañas SB/SD y replanifica cuando terminan;
   la página cachea SB/SD con la hora del último de esos pedidos en la clave, para que la huella coincida.
@@ -1729,6 +1737,164 @@ solicitud, así el período del picker no se achica a una semana. Tope compartid
 pedidos y 3 guardados por tick, y los search terms van primero en cada paso. Selector: `render_campaign_source(key_prefix)`
 (`modules/pages/campaign_source.py`); sin UI: `CampaignProvider(rest).campaigns(option, desde, hasta)`. M8 lo lee con
 `render_campaigns_for`, atado a la cuenta y el período de su picker del STR.
+
+**Estructura SP: listados, no reportes (IT-50, 2026-09-22).** La estructura de Sponsored Products sale de los listados
+síncronos v3 de Amazon Ads, una foto por día; las métricas siguen saliendo de los reportes de Reporting v3. Un reporte
+sólo trae lo que tuvo actividad: medido en producción el 22/09, el 85,2% de los keywords y targets SP habilitados de la
+lista no tiene ninguna fila de `spTargeting` en 60 días (el 98,9% de los pausados), y de las campañas SP no aparecen en
+`spCampaigns` el 0,4% de las habilitadas y el 93,5% de las pausadas.
+- **Qué guarda cada listado** (migración 018, aditiva; sólo upserts, un `seen_at` por lista, y en los negativos uno por
+  corrida para los cuatro listados): `campaign_entities` suma a `ads_campaign` los ajustes por placement
+  (`placement_top_pct`, `placement_product_page_pct`, `placement_rest_of_search_pct`, `amazon_business_pct`), que
+  vienen en la misma respuesta de `/sp/campaigns/list`;
+  `sp_ad_groups` guarda `/sp/adGroups/list` en `ads_ad_group` (nombre, estado, `default_bid`); `sp_negatives` guarda los
+  cuatro listados de negativos (keyword y producto, de campaña y de ad group) en `ads_negative`, por partes (ver
+  «Negativos por partes»), con `level` y `negative_kind` en la clave porque cada listado tiene sus propios ids. Keywords
+  y targets siguen en `ads_target` (`sp_targets`) y los anuncios en `ads_product_ad` (`sp_product_ads`). Ad groups,
+  targets, anuncios y negativos se piden habilitados y pausados; las campañas, sin filtro de estado.
+- **Solicitudes nuevas.** `sp_ad_groups` y `sp_negatives` son listas de entidades (`PRODUCT_ENTITY_KINDS`), como
+  `sp_targets` y `sp_product_ads`: una de cada una por perfil activo y por día, tenga o no SP, desde las 03:00 del
+  perfil y con 3 intentos hasta las 23:00. Si Amazon no da permiso cierran completas con 0 filas y el aviso («sin
+  permiso para leer los ad groups» / «… los negativos»). Alertas y Registro de solicitudes las nombran («ad groups SP»,
+  «negativos SP») y cuentan lo guardado («N ad groups», «N negativos»). Los placements no suman pedidos.
+- **Costo: estimado el 22/09, no medido.** Base medida en producción ese día: 52 perfiles sincronizados, 27 con ids de
+  ad group SP en `ads_target` / `ads_product_ad` (`ads_ad_group` todavía no existía), 14.704 ad groups distintos en total
+  y 4.941 en el más grande (cota superior: esas tablas acumulan upserts).
+  `sp_ad_groups`: entre 27 y 41 páginas de 1000 en los perfiles con SP más 1 pedido vacío en cada uno de los otros 25,
+  ≈ 52-66 POST por día. `sp_negatives`: cuatro listados por perfil, 208 POST por día como mínimo (una página más por
+  cada 1000 negativos de un listado; sólo Shapermint US son 374, medido, ver «Negativos por partes»). Placements: 0.
+  Reportes nuevos: 0, el cupo de 3 en vuelo no se toca. En el listado real del 22/09 (sólo lectura) los ad groups de
+  Shapermint US fueron 5 páginas en 4,4 s; cuánto tarda cada listado nuevo en producción se mide en el Registro de
+  solicitudes después de la primera noche.
+- **Negativos por partes.** Medido el 22/09 contra la API real (sólo lectura): Shapermint US tiene 371.407 negativos SP
+  —`/sp/negativeKeywords/list` 310.574 (311 páginas), `/sp/campaignNegativeKeywords/list` 48.313 (49),
+  `/sp/negativeTargets/list` 10.460 (11) y `/sp/campaignNegativeTargets/list` 2.060 (3)—, a 0,95 s por página de 1000 en
+  promedio y ~767 bytes por fila en Python: listarlos de una vez son 374 pedidos, unos 6 minutos en un solo tick (la
+  alerta de worker callado salta a los 5) y ~285 MB en un worker de 768 MB, y `_list_by_token` corta a las 200 páginas
+  (`MAX_PAGES`), menos que las 311 del primero. Dermaglós US: 1.181 en 4 pedidos, 2,2 s. Por eso `sp_negatives` lista
+  por partes (`fetch_negative_page`, una página de uno de los cuatro `SP_NEGATIVE_LISTINGS`): cada tick tiene
+  `NEGATIVE_PAGES_PER_TICK` = 40 páginas para todos los jobs de negativos (`_Tick.listing_pages_left`), cada página se
+  guarda apenas llega (la memoria es de una página) y, cuando se acaba el cupo o el worker se apaga, el job guarda
+  dónde quedó en `integration_sync_jobs.progress` (`{"listing", "next_token", "seen_at", "rows", "pages"}`; `rows` va también a
+  `rows_written`, así el Registro de solicitudes muestra cuántos lleva) y vuelve a `pending` con
+  `SyncJobStore.pause_listing`. Una cuenta chica termina en su primera parte; Shapermint US necesita al menos 10 partes
+  (374 páginas de a 40). Una corrida que ya leyó una página conserva su lugar en la cola (su `next_attempt_at`), así el
+  tick siguiente la retoma antes que lo planificado después y su token no espera; una que todavía no leyó ninguna y se
+  reclama sin páginas en el tick se pausa sin llamar a Amazon y va al final. Al terminar el cuarto listado se escribe
+  `ads_listing_snapshot` (`profile_id`, `listing` = 'sp_negatives', `seen_at` de la corrida, `rows`, `completed_at`) y
+  el job se completa, con `started_at` en el despacho de su primera parte (no en el claim, que sella un lote entero:
+  medido el 23/09, los 1.181 negativos de Dermaglós US figuraban 3 min por los 8 listados reclamados con ellos, y
+  duran 2 s). Lo que guarda una corrida sólo vale cuando termina: la
+  lectura toma los negativos con `seen_at` desde el de la última corrida completa, así mientras otra corre se sigue
+  viendo la anterior (más lo nuevo que ya encontró), y antes de la primera no hay negativos. Un 429 deja la corrida en
+  la última parte guardada, o la empieza de nuevo si cortó la primera (reintento en 5 minutos sin gastar intento; las
+  páginas de la parte cortada se vuelven a pedir y a sumar en `rows`); cualquier otro fallo borra `progress` y el
+  reintento empieza de nuevo, porque un token de página puede no durar minutos. Un 403 en la primera página cierra
+  completa con el aviso y sin snapshot; en una página posterior, falla. Una página que devuelve el mismo token que se le
+  mandó falla la corrida (`fetch_negative_page`) en vez de gastar el cupo de cada tick, y un listado que pasa de
+  `MAX_NEGATIVE_LISTING_PAGES` = 2000 páginas (`pages` en `progress`; el más largo medido tiene 311) también falla: es
+  un ciclo de tokens, no negativos. Una corrida por cuenta a la vez:
+  un job que empezaría otra mientras la de otro job está a medias (un reintento junto al del día) cierra completo con 0
+  filas y el aviso «otra solicitud ya estaba listando los negativos de la cuenta», porque dos corridas se re-estampan
+  las filas. Medido el 22-23/09 con un job real de Shapermint US en la base local contra la API real (sólo lectura), por
+  el claim y el despacho del worker: 10 partes (nueve de 35-40 s y una de 12 s), 342 s en total, 371.482 negativos, 45 MB
+  de memoria como máximo, el snapshot escrito una sola vez al final y el job completo sin errores.
+- **Placements: 0 no es NULL.** 0 es "sin ajuste en ese placement": Amazon mandó `dynamicBidding` y no ajustó ese
+  placement (con `placementBidding: []`, o sin esa clave, también es 0). Medido el 22/09 en el listado real (sólo
+  lectura): a las campañas sin ningún ajuste Amazon les manda `[]` (941 de 5.072 en Shapermint US, 114 de 281 en
+  Dermaglós US), y ninguna vino sin `dynamicBidding` ni sin `placementBidding`. NULL es "no se sabe": campaña no listada
+  desde la 018, Amazon no mandó `dynamicBidding`, o un porcentaje que no es entero. Un placement que no está en
+  `PLACEMENT_COLUMNS` se loguea una vez por listado y no se guarda. Un placement desconocido nunca se lee como 0.
+- **El bid efectivo vive sólo en la vista `ads_target_bid`** (con `security_invoker`): un keyword o target sin bid
+  propio usa el `defaultBid` de su ad group (medido en producción el 22/09 sobre la última lista de cada cuenta, que
+  tenía todas las filas guardadas: 15.339 de 146.004 targets SP habilitados o pausados, el 10,5%, se listan sin bid). Devuelve `own_bid`, `default_bid` y `bid` (el efectivo), con el nombre y el estado del ad
+  group. De ahí leen `graduation_targets_between` —que además deja afuera los targets de ad groups listados como
+  pausados, en M6 y en `idle_targets` del chat (ver M6)— y `sp_structure_between`; ningún módulo recalcula la regla.
+- **Última lista.** Cada familia se lee de su `max(seen_at)` (por perfil, y por producto en ad groups y targets): lo que
+  dejó de listarse no queda vivo. Los negativos, de su última corrida completa (ver «Negativos por partes»), y su
+  `listed_at` es la hora en que empezó esa corrida, no la de una a medias que ya re-estampó filas. Los ad groups se
+  cruzan con los targets sin ese filtro, porque las dos listas corren con horas de diferencia: un target cuyo ad group
+  nunca se listó vuelve con nombre y estado vacíos. Un ad group archivado no se lista, así que conserva el último estado
+  con el que se listó.
+- **Cómo lo lee un módulo.** `StructureProvider(rest).sp_structure(option, desde, hasta, entities=...,
+  campaign_ids=...)` (`core/amazon_ads/structure_provider.py`, sin Streamlit ni `core/bulk`: la imagen del MCP también
+  lo importa) → `SpStructure`, o `None` si la base no tiene la 018. `entities` acota a familias de `ENTITIES` (campaign,
+  bidding_adjustment, ad_group, keyword, product_targeting, product_ad y los cuatro de `NEGATIVE_ENTITIES`) y
+  `campaign_ids` (tupla) a esas campañas: va a la RPC como `p_campaign_ids text[]`, cualquiera de ellas, y sólo si se
+  pasa. La RPC `sp_structure_between` no ordena: el provider ordena cada respuesta por punto de código (campaña,
+  familia, ad group, texto, id, placement), así la misma lista pagina siempre igual. `sp_structure_counts(option, desde,
+  hasta, campaign_ids=...)` → `StructureCounts` (`rows` y `listed_at` por familia) cuenta sin traer filas, con la RPC
+  `sp_structure_counts`, que cuenta sobre `sp_structure_between` (las reglas de qué lista vale viven una vez): una
+  familia sin filas no vuelve, salvo los negativos, que con una corrida completa vuelven las cuatro, en 0 las que no
+  tienen ninguno en el alcance; ausentes, todavía no se sincronizaron. Medido el 22-23/09 en la base local con los
+  datos reales de Shapermint US: 0,22 s sin negativos y 0,45 s con sus 371.482. `rows`: las
+  filas de la RPC tipadas y con sus nombres, para código. `frame`: las mismas filas bajo los headers del Bulk File
+  (`STRUCTURE_COLUMNS`), que ya entienden los lectores de Bulk: los tests de contrato pasan `frame` por
+  `get_exact_activas` y `get_portfolio_por_campaign` (`core/bulk/parser.py`), `_asin_por_ad_group` (M4) y
+  `_analyze_target_graduation` (M20). En `frame` el estado va en minúscula, Targeting Type y Match Type como los escribe
+  el bulk, Bidding Strategy con los valores que acepta un upload («Fixed bid», «Dynamic bids - down only»,
+  «Dynamic bids - up and down»), Spend/Sales/Orders con la atribución de la cuenta (7 días seller, 14 vendor) y
+  Placement con el código de la API: ninguna descarga del repo muestra cómo lo escribe Amazon. `listed_at`: familia →
+  hora de su último listado (los negativos: cuando empezó su última corrida completa), para decir "estructura al …".
+  Métricas sólo en campañas, keywords y product targets, y NaN (nunca 0) cuando la ventana no tiene reportes
+  (`metrics_known`).
+- **Chat.** `campaign_structure` del MCP: `entity` (campaigns, placements, ad_groups, keywords, product_targets,
+  product_ads, negatives), `campaign` por parte del nombre (sin distinguir mayúsculas) o por id, `state` (enabled,
+  paused, archived) y la ventana como las demás herramientas. Las campañas traen presupuesto, estrategia (con los
+  nombres del Campaign CSV, `BID_STRATEGY_LABELS`) y sus cuatro placements; keywords y product targets, `bid`,
+  `own_bid`, `default_bid` y `bid_source` (`own` / `ad_group_default`); los negativos, su `level`. `counts` y
+  `listed_at` salen de `sp_structure_counts`, de la cuenta o de las campañas filtradas, en cualquier estado, con
+  `listed_at` en la hora de la cuenta. Una familia está sincronizada si aparece ahí o si su última solicitud de listado
+  terminó sin aviso de permiso; los negativos, sólo si aparecen (hay una corrida completa: un job completado sin
+  snapshot, o uno a medias, no cuenta), y los placements, con las campañas listadas, si alguna del alcance trae sus
+  ajustes o si el alcance no tiene campañas. En `counts`, 0 es "listada, sin ninguna" y un tipo ausente todavía no se
+  sincronizó; si ninguna campaña coincide con `campaign`, la respuesta no trae `counts`. Con `campaign` se leen primero
+  sólo las campañas (nombre o id) y después sólo la familia pedida de esas campañas, con `p_campaign_ids`. Los
+  negativos de una cuenta grande nunca se leen enteros: con más de `MAX_ACCOUNT_NEGATIVES` = 5000 en el alcance se leen
+  de a una campaña, así que sin `campaign`, o con uno que abarca varias campañas, vuelven sólo contados, con una `note`
+  que dice cuántos son y pide acotar; una sola campaña se lee entera, y hasta 5000 se leen como cualquier otra familia.
+  Filas sin reportes de la ventana van sin métricas, con `metrics_note`. El chat no le devuelve esa `note` al AM como
+  pregunta: la regla compartida «el recorte lo elegís vos» (`ai/agents/_shared/chat.md`) lo hace acotar solo, con lo
+  activo que más pesa en el período (acá, la campaña habilitada con más gasto), y decir qué criterio usó y cuánto quedó
+  afuera. Es de todos los agentes, no de esta herramienta: vale para cualquier respuesta que vuelva sin filas pidiendo
+  acotar. Una página cortada (la `note` de `limits.page`) no la dispara: sigue la regla de los listados.
+  Toda página de las herramientas entra en el corte de 20.000 caracteres del provider de IA: `limits.page` deja sólo las
+  filas que entran en `MAX_ROWS_CHARS` = 14.000, medidas como las escribe el SDK (JSON con indent 2), y el total y la
+  nota van antes de las filas; el chat sigue con el offset de la nota. Sin eso, las filas anchas (keywords, campañas,
+  negativos) llegaban cortadas y sin total.
+- **Duración real de los listados.** Los listados síncronos de una vez (portfolios, campañas, targets, anuncios, ad
+  groups, SB y SD) guardan en `started_at` la hora del worker al despacharlos y en `finished_at` la de cuando terminan
+  (`SyncJobStore.complete(..., started_at=...)`). Antes duraban ~0 s: `started_at` era la hora del claim, que sella un
+  lote entero, y `finished_at` el inicio del tick. Los negativos, por partes, van desde el despacho de su primera parte
+  (lo escribe su primera pausa, o el cierre si terminan en una) hasta que termina la última. Los reportes no cambian, y `seen_at` sigue siendo la hora del tick (en los negativos, la
+  de la primera parte de la corrida).
+- **No verificado todavía:** los límites de rate de los listados nuevos, si los ids de los cuatro listados de negativos
+  pueden chocar (por eso van en la clave), cuánto dura un token de página de negativos, y cuánto tardan en producción
+  los listados nuevos (en local, contra la API real, lo medido está en «Negativos por partes» y en `sp_structure_counts`).
+- **Qué queda afuera.** SB y SD: `ads_ad_group` y `ads_negative` tienen `ad_product` en la clave, pero hoy sólo se
+  escribe SP. Lo archivado: ad groups, targets, anuncios y negativos archivados no se listan (las campañas archivadas
+  sí). Las etiquetas de bulk de Placement. Y los consumidores: Atom11 (IT-42), PPC Audit (IT-44) y Análisis Cruzado
+  (IT-51) todavía no la leen, son sus tickets.
+- **Deploy.** La foto de campañas escribe las columnas de placement y los listados nuevos sus tablas. Jenkins levanta
+  la imagen en «Deploy» antes de «DB migrate», en el mismo pipeline: lo que corra en esa ventana sin la 018 falla y se
+  reintenta a los 5 minutos, sin perder nada. Es aditiva y la imagen anterior funciona sobre ella
+  (`graduation_targets_between` conserva sus columnas). **Rollback con la 018 aplicada:** cancelar antes los jobs de
+  `sp_ad_groups` y `sp_negatives` que estén en cola (Registro de solicitudes o `cancel_sync_job`); la imagen anterior no
+  conoce esos tipos, los marca fallidos y cada cuenta queda con una alerta por 24 h. Cerrar o fallar un job escribe `progress` sólo si el job lo tenía (un listado pausado): los reportes y los
+  análisis IA siguen cerrando aunque la columna todavía no exista. `deploy/db/smoke_readonly.py` prueba `ads_ad_group`,
+  `ads_negative`, `ads_listing_snapshot`, `ads_campaign.placement_top_pct` e `integration_sync_jobs.progress`.
+- ❌ NO sacar la estructura de los reportes, ni leer un placement NULL como 0.
+- ❌ NO recalcular el bid efectivo fuera de `ads_target_bid`.
+- ❌ NO envolver `ads_target` en una función `returns table (... text)`: las columnas pierden el collate "C", el cruce
+  con las campañas deja de usar `ads_target_campaign_idx` y graduation pasó de 0,05 s a 16 s (medido el 22/09 con
+  Shapermint US, 44.526 targets). Por eso la regla es una vista y cada lectura elige la última lista de targets.
+- ❌ NO guardar negativos en `ads_target`: su lista pasaría a ser la última (`max(seen_at)` por producto) y graduation y
+  la estructura los leerían como targets.
+- ❌ NO leer los negativos por `max(seen_at)` ni dar por buena una corrida a medias: valen desde la última completa
+  (`ads_listing_snapshot`). Tampoco correr dos corridas de negativos de una cuenta a la vez.
+- Tests: `tests/test_sp_structure_migration.py` (la 018, por texto), `tests/test_amazon_ads_structure_provider.py`
+  (parseo, `frame` y contrato con los lectores de Bulk), `tests/test_mcp_campaign_structure.py`, y los de `ad_entities`,
+  `campaign_entities`, `sync_planner`, `ingestion_job` y `sync_jobs`.
 
 **Operación.** Horarios: diaria de 14 días a las 03:00 del perfil (lunes a sábado), 42 días los domingos, carga
 inicial de 65 días (la retención de `spSearchTerm`) apenas aparece una cuenta, reintentos hasta las 23:00 del perfil.

@@ -76,6 +76,16 @@ def test_request_log_keys_share_interpolation_slots_across_languages():
         assert set(_SLOT.findall(i18n._ES[key])) == set(_SLOT.findall(i18n._EN[key])), key
 
 
+def test_every_snapshot_listing_has_its_title_and_count_in_both_languages():
+    from modules.pages import request_log
+
+    assert {"sp_ad_groups", "sp_negatives"} <= request_log._SNAPSHOT_COUNT_KEYS.keys()
+    for job_kind, count_key in request_log._SNAPSHOT_COUNT_KEYS.items():
+        for catalog in (i18n._ES, i18n._EN):
+            assert f"request_log.kind.{job_kind}" in catalog, job_kind
+            assert {f"{count_key}_one", f"{count_key}_other"} <= catalog.keys(), count_key
+
+
 def test_request_log_plural_keys_come_in_pairs():
     keys = _request_log_keys(i18n._ES)
     for key in keys:

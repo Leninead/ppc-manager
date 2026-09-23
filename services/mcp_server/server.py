@@ -151,10 +151,26 @@ def build_tools(rest) -> list:
         _tool("idle_targets",
               "Target Graduation de una cuenta de Amazon Ads: los keywords y targets habilitados, de campañas "
               "habilitadas de Sponsored Products, Brands y Display, que no tuvieron una impresión en los últimos "
-              "días, con su campaña, tipo, match type y bid. counts dice por producto cuántos se miraron y cuántos "
-              "no tuvieron impresiones. Es lo que hace falta para contestar qué targets pausar o a cuáles subirles "
-              "la puja. product acota a SP, SB o SD; date_from y date_to (AAAA-MM-DD), el período exacto.",
+              "días, con su campaña, tipo, match type y bid. El bid es el efectivo: el propio del target o, si no "
+              "tiene, el default de su ad group. Los de ad groups de Sponsored Products listados como pausados no se "
+              "miran. counts dice por producto cuántos se miraron y cuántos no tuvieron impresiones. Es lo que hace "
+              "falta para contestar qué targets pausar o a cuáles subirles la puja. product acota a SP, SB o SD; "
+              "date_from y date_to (AAAA-MM-DD), el período exacto.",
               partial(amazon_ads.idle_targets, rest)),
+        _tool("campaign_structure",
+              "La estructura de las campañas de Sponsored Products de una cuenta de Amazon Ads, como Amazon Ads la "
+              "listó por última vez (listed_at dice cuándo): de cada campaña, su presupuesto, su estrategia de puja y "
+              "sus ajustes por placement (entity=campaigns, o placements de a uno por fila); sus ad groups con su bid "
+              "default (ad_groups); sus keywords y product targets con su bid efectivo, el propio o el default de su "
+              "ad group (bid_source dice cuál), también los que no tuvieron tráfico (keywords, product_targets); sus "
+              "product ads con ASIN y SKU (product_ads), y sus negativos de campaña y de ad group (negatives). "
+              f"Más de {amazon_ads.MAX_ACCOUNT_NEGATIVES} negativos los da sólo de a una campaña: sin campaign, o con "
+              "uno que abarca varias campañas, negatives vuelve con counts y sin filas. "
+              "campaign filtra por parte del nombre o por el id de la campaña; state, por enabled, paused o archived. "
+              "counts dice cuántos hay de cada tipo en la cuenta o en las campañas filtradas. Campañas, keywords y "
+              "product targets traen sus métricas de la ventana cuando hay reportes; date_from y date_to (AAAA-MM-DD) "
+              "piden el período exacto.",
+              partial(amazon_ads.campaign_structure, rest)),
         _tool("funnel_coverage",
               "Análisis de Funnel de una cuenta de Amazon Ads, con las mismas reglas del módulo: las campañas "
               "activas de Sponsored Products que no tuvieron ni un search term con clicks (section=idle_campaigns), "

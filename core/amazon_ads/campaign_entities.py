@@ -2,7 +2,8 @@
 
 This is the campaign universe: every campaign the profile has, including the ones with no
 activity. The spCampaigns report only returns campaigns that had activity in the range asked
-for, so the metrics alone would silently lose the quiet ones.
+for, so the metrics alone would silently lose the quiet ones. The same listing carries each
+campaign's bid adjustment per placement.
 """
 from __future__ import annotations
 
@@ -19,9 +20,26 @@ CAMPAIGNS_LIST_PATH = "/sp/campaigns/list"
 CAMPAIGNS_TABLE = "ads_campaign"
 # A profile with more pages than this means the paging token is looping, not real campaigns.
 MAX_PAGES = 200
+# Amazon's placement names and the `ads_campaign` column that keeps each one's percentage.
+PLACEMENT_COLUMNS = {
+    "PLACEMENT_TOP": "placement_top_pct",
+    "PLACEMENT_PRODUCT_PAGE": "placement_product_page_pct",
+    "PLACEMENT_REST_OF_SEARCH": "placement_rest_of_search_pct",
+    "SITE_AMAZON_BUSINESS": "amazon_business_pct",
+}
 
 
 def fetch_campaigns(api: AdsApiClient, profile_id: str) -> list[dict]:
+    listed = _list_campaigns(api, profile_id)
+    unknown_placements = sorted({_placement_name(adjustment) for raw in listed
+                                 for adjustment in _placement_adjustments(raw)} - PLACEMENT_COLUMNS.keys())
+    if unknown_placements:
+        log.warning("amazon_ads: profile %s lists placements %s, which have no column and are not stored",
+                    profile_id, ", ".join(unknown_placements))
+    return [_campaign_row(raw) for raw in listed]
+
+
+def _list_campaigns(api: AdsApiClient, profile_id: str) -> list[dict]:
     campaigns: list[dict] = []
     seen_tokens: set[str] = set()
     request_body: dict = {}
@@ -43,7 +61,7 @@ def fetch_campaigns(api: AdsApiClient, profile_id: str) -> list[dict]:
         if not isinstance(page, dict):
             raise AdsApiError(f"unexpected campaigns page for profile {profile_id}",
                               status=response.status_code)
-        campaigns.extend(_campaign_row(raw) for raw in page.get("campaigns") or [] if _has_id(raw))
+        campaigns.extend(raw for raw in page.get("campaigns") or [] if _has_id(raw))
 
         next_token = str(page.get("nextToken") or "")
         if not next_token:
@@ -89,7 +107,42 @@ def _campaign_row(raw: dict) -> dict:
         "bidding_strategy": str(bidding.get("strategy") or ""),
         # Amazon omits portfolioId entirely when the campaign is in no portfolio.
         "portfolio_id": _id_text(raw.get("portfolioId")),
+        **_placement_percentages(raw),
     }
+
+
+def _placement_percentages(raw: dict) -> dict[str, int | None]:
+    """Every placement column on every row, as the bulk upsert needs: 0 where the listed campaign has no
+    adjustment, None (unknown) when Amazon sent no dynamicBidding at all."""
+    if not isinstance(raw.get("dynamicBidding"), dict):
+        return dict.fromkeys(PLACEMENT_COLUMNS.values())
+    percentages: dict[str, int | None] = dict.fromkeys(PLACEMENT_COLUMNS.values(), 0)
+    for adjustment in _placement_adjustments(raw):
+        column = PLACEMENT_COLUMNS.get(_placement_name(adjustment))
+        if column is not None:
+            percentages[column] = _percentage(adjustment.get("percentage"))
+    return percentages
+
+
+def _placement_adjustments(raw: dict) -> list[dict]:
+    bidding = raw.get("dynamicBidding")
+    adjustments = bidding.get("placementBidding") if isinstance(bidding, dict) else None
+    return [item for item in adjustments if isinstance(item, dict)] if isinstance(adjustments, list) else []
+
+
+def _placement_name(adjustment: dict) -> str:
+    return str(adjustment.get("placement") or "")
+
+
+def _percentage(value) -> int | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = None
+    if number is None or not number.is_integer():
+        log.warning("amazon_ads: placement percentage %r is not a whole number, stored empty", value)
+        return None
+    return int(number)
 
 
 def _id_text(value) -> str:

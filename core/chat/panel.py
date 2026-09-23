@@ -64,6 +64,7 @@ _L = {
                      "breakdown": "Desglose", "funnel": "Funnel", "candidates": "Candidatos",
                      "bids": "Bids", "asins": "Salud por ASIN",
                      "campaign_health": "Diagnóstico de campañas",
+                     "campaign_structure": "Estructura de campañas",
                      "idle_targets": "Targets sin impresiones"}},
     "en": {"title": "Capybaras Copilot",
            "empty": "Ask about an analysis in the app, an Amazon Ads "
@@ -86,6 +87,7 @@ _L = {
                      "breakdown": "Breakdown", "funnel": "Funnel", "candidates": "Candidates",
                      "bids": "Bids", "asins": "ASIN health",
                      "campaign_health": "Campaign diagnosis",
+                     "campaign_structure": "Campaign structure",
                      "idle_targets": "Targets without impressions"}},
 }
 
@@ -121,7 +123,8 @@ _TOOL_SOURCES = (
      # "candidate" before "search_term": search_term_candidates reads the module's candidates, not raw terms.
      (("analys", "analyses"), ("candidate", "candidates"), ("search_term", "search_terms"), ("daily", "daily"),
       ("breakdown", "breakdown"), ("account", "accounts"), ("funnel", "funnel"), ("bid", "bids"),
-      ("asin", "asins"), ("campaign_health", "campaign_health"), ("idle_target", "idle_targets"))),
+      ("asin", "asins"), ("campaign_health", "campaign_health"), ("campaign_structure", "campaign_structure"),
+      ("idle_target", "idle_targets"))),
 )
 
 
