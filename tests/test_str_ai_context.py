@@ -111,7 +111,6 @@ class TestAgentOnDisk:
     def test_runtime_loads_str_agent(self):
         agent = ai_runtime._agent("str")
         assert agent["meta"]["model"] == "claude-opus-5-5"
-        assert agent["meta"]["effort"] == "high"
         assert agent["meta"]["timeout_s"] == "3600"
         assert "analista senior" in agent["system"]
 

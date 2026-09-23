@@ -176,6 +176,18 @@ def diagnosis_rules(params: CampaignAnalyzerParams, *, has_impressions: bool) ->
     }
 
 
+def signal_rules(params: CampaignAnalyzerParams, *, window_days: int) -> dict[str, str]:
+    """Each signal with the rule and the thresholds `_signals` applies over a window of `window_days`."""
+    return {
+        BUDGET_LIMITED: (f"presupuesto diario, con órdenes y un ACoS de {params.target_acos:g}% o menos (dentro del "
+                         "target), que gastó al menos el 95% de su presupuesto del día en "
+                         f"{min(BUDGET_CAPPED_MIN_DAYS, window_days)} días o más del período"),
+        NEW_CAMPAIGN: f"empezó hace menos de {NEW_CAMPAIGN_DAYS} días",
+        LOW_VISIBILITY: (f"en {diagnosis_name(PAUSE)} o {diagnosis_name(REVIEW)}, con menos del "
+                         f"{LOW_TOP_OF_SEARCH_SHARE:g}% de sus impresiones arriba de la búsqueda"),
+    }
+
+
 def with_diagnosis(analyzer: AnalyzerFrame, params: CampaignAnalyzerParams) -> pd.DataFrame:
     campaigns = analyzer.campaigns.copy()
     campaigns[DIAGNOSIS_COLUMN] = (

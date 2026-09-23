@@ -144,6 +144,20 @@ def test_the_synthesis_names_the_term_behind_each_row_id_it_cites(data):
     assert synthesis["risks"][0]["urgency"] == "media"
 
 
+def test_the_chat_is_told_a_count_in_the_analysis_prose_is_checked_against_its_rows(data):
+    """An agent wrote «the four rows with history» over six: repeated as is, the chat's count was wrong too."""
+    data["bid_optimizer"]["1"] = _stored("1", "bid_optimizer", situation="Las cuatro filas con historial bajaron.",
+                                         records=[{"asin": "B0CYLMJJJC"}])
+
+    index = analyses.list_analyses(object())
+    analysis = analyses.get_analysis(object(), profile_id="1", module="bid_optimizer")
+
+    assert index["situation_note"] == analyses.SITUATION_NOTE
+    assert "se comprueba contando las filas de get_analysis antes de repetirla" in analyses.SITUATION_NOTE
+    assert analysis["synthesis_note"] == analyses.SYNTHESIS_NOTE
+    assert "se dice contando las filas de rows, no copiándola de la síntesis" in analyses.SYNTHESIS_NOTE
+
+
 def test_the_row_id_prefixes_are_the_ones_the_agents_gave_the_rows():
     """The MCP image does not carry the agents, so it keeps its own copy; this is what keeps them equal."""
     from ai.agents.bid_optimizer.context import ASIN_PREFIX

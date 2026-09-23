@@ -163,12 +163,24 @@ def test_a_campaign_filter_names_the_campaigns_it_summed():
     assert payload["campaigns"] == ["Demo - SP - KW - EXACT - cuchillo"]
 
 
+def test_the_campaigns_it_summed_are_those_in_the_reports_not_every_one_with_that_name():
+    """Counted as the account's campaigns, 41 with data would read as the account having 41, when it lists 121."""
+    rest = _FakeRest([_day("2026-09-16", campaign_names=["Demo - SP - KW - EXACT - cuchillo"])])
+
+    payload = amazon_ads.daily_metrics(rest, profile_id="1111222233334444", days=1, campaign="cuchillo")
+
+    assert payload["campaigns_note"] == (
+        "Son las campañas con «cuchillo» en el nombre que figuran en los reportes de estos días, no todas las que la "
+        "cuenta tiene con ese nombre: las que no tuvieron actividad pueden no figurar. Cuántas tiene la cuenta lo dice "
+        "campaign_structure.")
+
+
 def test_a_campaign_that_matches_nothing_returns_no_days_instead_of_a_series_of_zeros():
     """A row of zeros would read as a campaign that stopped spending, not as a name that matched nothing."""
     payload = amazon_ads.daily_metrics(_FakeRest([]), profile_id="1111222233334444", days=7, campaign="inexistente")
 
     assert payload["rows"] == [] and payload["campaigns"] == []
-    assert "inexistente" in payload["note"]
+    assert "inexistente" in payload["note"] and "campaigns_note" not in payload
 
 
 def test_a_short_fragment_that_matches_many_campaigns_lists_a_bounded_number_of_them():
@@ -292,3 +304,52 @@ def test_each_account_says_its_own_today_and_whether_its_data_is_up_to_date(monk
     (row,) = amazon_ads.list_accounts(_FakeRest())["rows"]
 
     assert (row["today"], row["up_to_date"]) == (today, up_to_date)
+
+
+def test_a_calendar_month_returns_its_own_days_even_when_they_are_not_the_last_ones():
+    rest = _FakeRest()
+
+    payload = amazon_ads.daily_metrics(rest, profile_id="1111222233334444", date_from="2026-08-01",
+                                       date_to="2026-08-31")
+
+    assert (rest.rpc_calls[0]["p_from"], rest.rpc_calls[0]["p_to"]) == ("2026-08-01", "2026-08-31")
+    assert payload["window"] == {"from": "2026-08-01", "to": "2026-08-31", "days": 31}
+    assert len(payload["rows"]) == 31 and "window_note" not in payload
+
+
+class _ManyAccounts(_FakeRest):
+    """An agency with more accounts than one answer can carry."""
+
+    def __init__(self, count: int):
+        super().__init__([_day("2026-09-16")])
+        self.profiles = [{**PROFILE, "profile_id": f"{5000 + n}", "cliente": f"Marca {n:03d}"} for n in range(count)]
+
+    def select(self, table, params):
+        return super().select(table, params) if table == "integration_sync_jobs" else self.profiles
+
+
+def test_a_long_account_list_comes_in_pages_that_together_name_every_account():
+    """The chat said «there are 52 and I could bring 45»: the rest has to be one call away."""
+    rest = _ManyAccounts(120)
+
+    first = amazon_ads.list_accounts(rest)
+    assert first["total"] == 120 and first["showing"] < 120
+    assert f"offset={first['showing']}" in first["note"]
+
+    seen = [row["profile_id"] for row in first["rows"]]
+    while len(seen) < first["total"]:
+        seen += [row["profile_id"] for row in amazon_ads.list_accounts(rest, offset=len(seen))["rows"]]
+    assert sorted(seen) == sorted(profile["profile_id"] for profile in rest.profiles)
+
+
+def test_the_overview_of_many_accounts_comes_in_pages_and_says_how_to_ask_for_the_rest():
+    """«Sólo pude ver 31 de las 52»: the currency warning used to overwrite the note that points to the next page."""
+    rest = _ManyAccounts(120)
+
+    first = amazon_ads.accounts_overview(rest, days=1)
+    assert first["total"] == 120 and first["showing"] < 120
+    assert f"offset={first['showing']}" in first["note"] and "moneda" in first["note"]
+
+    second = amazon_ads.accounts_overview(rest, days=1, offset=first["showing"])
+    assert second["offset"] == first["showing"]
+    assert {row["profile_id"] for row in first["rows"]}.isdisjoint(row["profile_id"] for row in second["rows"])

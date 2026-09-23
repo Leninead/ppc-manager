@@ -6,6 +6,53 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Fixed — El chat contesta con las cifras de cada cuenta y arranca con preguntas sugeridas (2026-09-23)
+
+**Por qué.** En producción, 74 preguntas vagas de un AM (77 turnos, las de cobertura total y parcial) dieron 46 bien y
+28 mal, contrastadas con SQL. Las fallas: preguntar «¿US o MX?» cuando una sola de las cuentas gastó (20 casos), dar
+como total de la cuenta uno que sumaba menos, cuantificar («todas», «sólo», «sus 12») sobre una página de filas,
+repetir la cantidad de una síntesis sin contar sus filas, dar como de la competencia un ASIN propio, fechar un cambio
+con la foto del día o comparar meses restando totales. Además, el panel arrancaba chico y crecía al abrirse.
+
+**Ahora.**
+- **Preguntas generales y particulares.** El prompt del orquestador separa dos modos. Una pregunta general (sin cuenta
+  en la pregunta, la pantalla ni la conversación) se contesta sobre todas las cuentas con `accounts_overview` y
+  `list_analyses`, y el detalle se abre en hasta tres, diciendo con qué criterio y cuántas quedaron afuera. Una
+  particular usa la cuenta de la pantalla o de la conversación sin preguntar; si no hay, pregunta una vez proponiendo
+  una con su razón. Entre cuentas homónimas elige la única que gastó y nombra las otras.
+- **Cifras.** Cada cantidad lleva su denominador y su filtro y se cuenta sobre filas traídas enteras, nunca sobre el
+  texto de una síntesis; una cantidad chica va con sus filas nombradas; el titular se escribe desde las filas y dice
+  sólo lo que cumplen todas; un «empezó» o «dejó de» necesita los días de antes; la atribución se nombra por producto
+  (7 días en SP para un seller, 14 en SB y SD); el share de top of search es de impresiones, no de ventas; cada parte
+  de la pregunta tiene su respuesta; un pedido de redactar da el borrador con corchetes para lo que no se ve.
+- **DataDive.** Los niches del cliente se buscan por cada producto y por las palabras de sus campañas, se abren todos
+  los que devuelve la búsqueda, se cruzan todos los ASINs de sus product ads y la conclusión se dice sobre los niches
+  abiertos dentro de la primera oración, la que contesta: ninguna herramienta busca niches por ASIN.
+- **Esfuerzo.** Los ocho agentes corren con `effort: xhigh` (antes `high`). Se midió en el chat: sobre las 10
+  preguntas que fallaron en la última pasada, `xhigh` contestó bien 8 y `high` 7; `xhigh` no tuvo ningún desliz de
+  conteo, `high` tuvo 3. La respuesta tarda más: 201 s de promedio contra 107 s en esas 10. El costo no se midió, y en
+  los análisis de los módulos el cambio no se midió. Los tests ya no fijan el esfuerzo de ningún agente.
+- **Herramientas del MCP.** `accounts_overview`, `daily_metrics` y `breakdown` aceptan `date_from`/`date_to` (el mismo
+  período exacto para todas las cuentas, sin restar totales); `accounts_overview` y `list_accounts` paginan;
+  `campaign_health` trae `signal_rules`; `campaign_structure` filtra con `target` keywords, product targets, negativos
+  y product ads por ASIN o SKU (saber si un ASIN es propio es una llamada), primero los que son exactamente ese texto
+  (`exact_matches` dice cuántos), y da el estado de la campaña
+  (`campaign_state`) en todo lo que cuelga de ella; `list_analyses` y `get_analysis` avisan que las cantidades de la
+  situación y la síntesis se comprueban contando filas; `daily_metrics` con `campaign` aclara que las campañas que
+  nombra son las que figuran en los reportes del período.
+- **Panel.** Arranca con «Capybaras Assistant», un saludo y preguntas sugeridas que se envían con un click, sacadas de
+  un pool de 21 (las de la pantalla primero) y distintas en cada conversación. El escenario tiene el mismo alto en
+  todos los estados (`min(52vh, 480px)`): no salta al abrirse ni mientras llega la respuesta.
+
+**Resultado.** Con las mismas 74 preguntas, en local: 60, 62 y 64 bien en tres pasadas completas con `high`. Las 10 que
+fallaron en la última se re-corrieron con `xhigh` y contestan bien, contrastadas contra la base local, las herramientas
+del MCP y DataDive en vivo. No se hizo otra pasada completa con `xhigh`.
+
+**Reglas compartidas.** El repaso contra las herramientas antes de escribir, traer las páginas que faltan de un
+listado y la cuenta propuesta con su razón están en `ai/agents/_shared/chat.md`, así que valen para el chat de todos
+los módulos. Eso y el esfuerzo cambian el `agent_version` de todos los agentes: los análisis guardados figuran de la
+versión anterior del prompt hasta su próxima corrida. El resto de las reglas va en el prompt del orquestador.
+
 ### Changed — Los agentes de IA usan Claude Opus 5.5 (2026-09-23)
 
 **Por qué.** Opus 5.5 es el Opus que sucede a Opus 5, y hasta ahora no se podía pedir: el provider traía Claude Code

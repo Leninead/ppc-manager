@@ -1,6 +1,6 @@
 ---
 model: claude-opus-5-5
-effort: high
+effort: xhigh
 timeout_s: 3600
 tools: datadive, amazon_ads
 ---

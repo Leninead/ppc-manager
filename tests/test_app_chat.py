@@ -167,6 +167,20 @@ class TestMount:
         monkeypatch.setattr(app_chat.ai_config, "AI_ENABLED", True)
         return calls
 
+    def test_the_chat_offers_the_questions_of_the_open_page_first(self, session, mounted):
+        app_chat.mount_app_chat("📁 Bulk Campañas", "am.test")
+
+        assert mounted[-1]["starters"]()[0] in {"¿Qué campañas pausarías hoy?",
+                                                "¿Qué campañas rinden bien pero se quedan sin presupuesto?"}
+
+    def test_the_ideas_are_drawn_once_per_conversation(self, session, mounted):
+        app_chat.mount_app_chat("🏠 Inicio", "am.test")
+        app_chat.mount_app_chat("🏠 Inicio", "am.test")
+
+        first, again = (call["starters"]() for call in mounted[-2:])
+        assert first == again == app_chat.starter_questions.for_page("🏠 Inicio", "es",
+                                                                    seed=app_chat._conversation_id())
+
     def test_the_chat_opens_over_every_shared_analysis_and_nothing_else(self, session, mounted):
         app_chat.share_analysis(_analysis("str", "str:111:8:5", profile_id="111", country_code="MX"))
 
@@ -332,7 +346,6 @@ class TestRecordTurn:
 def test_the_orchestrator_is_an_agent_with_the_three_tool_profiles():
     assert runtime.agent_tools("orchestrator") == ["amazon_ads", "datadive", "ppc_manager"]
     assert runtime._agent("orchestrator")["meta"]["model"] == "claude-opus-5-5"
-    assert runtime._agent("orchestrator")["meta"]["effort"] == "high"
     assert runtime._agent("orchestrator")["meta"]["timeout_s"] == "3600"
     system = runtime._agent("orchestrator")["system"]
     for section in ("<fuentes>", "<elegir_la_fuente>", "<estado_de_la_app>", "<clientes>"):

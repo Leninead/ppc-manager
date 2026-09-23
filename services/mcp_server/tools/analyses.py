@@ -39,6 +39,12 @@ CAMPAIGN_STATE_UNREAD_NOTE = ("No se pudo leer el estado actual de las campañas
 # La situación de cada análisis viaja en el índice para comparar cuentas en una llamada; el resto
 # de la síntesis, con get_analysis.
 HEADLINE_MAX_CHARS = 600
+# The situation and the synthesis are prose the analysis model wrote: their counts were never checked against the rows.
+SITUATION_NOTE = ("La situación de cada análisis es la lectura que escribió su modelo, no un conteo: una cantidad o un "
+                  "«todas» de ese texto («las cuatro filas», «tres campañas») se comprueba contando las filas de "
+                  "get_analysis antes de repetirla.")
+SYNTHESIS_NOTE = ("La síntesis es la lectura que escribió el modelo del análisis: puede dejar filas afuera o contarlas "
+                  "mal. Una cantidad o un «todas» se dice contando las filas de rows, no copiándola de la síntesis.")
 
 
 def list_analyses(rest, *, profile_id: str = "", offset: int = 0, limit: int = 60) -> dict:
@@ -78,7 +84,9 @@ def list_analyses(rest, *, profile_id: str = "", offset: int = 0, limit: int = 6
     } for module, profile, analysis in found]
     payload = page(rows, offset=offset, limit=limit).as_payload(what="análisis guardados")
     payload["modules"] = list(MODULES)
-    if not rows:
+    if rows:
+        payload["situation_note"] = SITUATION_NOTE
+    else:
         payload["note"] = ("Ninguna cuenta tiene análisis guardado todavía. No es que no haya datos: "
                            "es que nadie generó un análisis.")
     return payload
@@ -109,6 +117,7 @@ def get_analysis(rest, *, profile_id: str, module: str) -> dict:
         "finished_at": _account_time(analysis.finished_at, profile),
         "currency": profile.currency_code,
         "synthesis": _annotated((analysis.result or {}).get("synthesis") or {}, _labels(analysis)),
+        "synthesis_note": SYNTHESIS_NOTE,
         "rows": _rows(analysis),
     }
     if module == "str" and payload["rows"] and analysis.window_start and analysis.window_end:

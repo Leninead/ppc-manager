@@ -42,9 +42,10 @@ class ChatTurn:
 _ACCENT = ACCENT
 
 _L = {
-    "es": {"title": "Capybaras Copilot",
-           "empty": "Preguntá por un análisis de la app, una cuenta de "
-                    "Amazon Ads o un niche de DataDive.",
+    "es": {"title": "Capybaras Assistant",
+           "greeting": "Hola, soy Capybaras Assistant. Preguntame por tus clientes, "
+                       "sus cuentas o lo que estás viendo en la app.",
+           "ideas": "Ideas para preguntar",
            "placeholder": "Escribí tu pregunta...", "send": "Enviar",
            "send_hint": "Enter envía · Shift+Enter agrega una línea",
            "copy": "Copiar chat", "copied": "Copiado",
@@ -66,9 +67,10 @@ _L = {
                      "campaign_health": "Diagnóstico de campañas",
                      "campaign_structure": "Estructura de campañas",
                      "idle_targets": "Targets sin impresiones"}},
-    "en": {"title": "Capybaras Copilot",
-           "empty": "Ask about an analysis in the app, an Amazon Ads "
-                    "account or a DataDive niche.",
+    "en": {"title": "Capybaras Assistant",
+           "greeting": "Hi, I'm Capybaras Assistant. Ask me about your clients, "
+                       "their accounts or what you're looking at in the app.",
+           "ideas": "Ideas to ask",
            "placeholder": "Type your question...", "send": "Send",
            "send_hint": "Enter sends · Shift+Enter adds a line",
            "copy": "Copy chat", "copied": "Copied",
@@ -333,9 +335,64 @@ def _enter_sends(panel: str) -> None:
         components.html(f"<script>{_enter_sends_script(panel)}</script>", height=0)
 
 
+def _pick(pick_key: str, question: str) -> None:
+    st.session_state[pick_key] = question
+
+
+# The stage between the header and the input keeps this height in every state, so the panel never jumps.
+_STAGE_HEIGHT = "min(52vh, 480px)"
+
+
+def _thread_box(history: list[dict], labels: dict, pending: str = "") -> str:
+    """The conversation in the stage, newest at the bottom; `pending` is the exchange still being answered."""
+    # Newest first in the DOM, `column-reverse` in the CSS: the pair puts the
+    # latest message at the visual bottom AND starts the box scrolled there,
+    # which a plain `column` box does not. Measured on this panel before the
+    # change: the last answer was never fully visible, a median of 26% of it
+    # showed, and in 9 of 48 conversations none of it did — the AM waited half
+    # a minute and got their own old question. The closing question is the last
+    # line of nearly every answer, so it was the first thing to fall below the
+    # fold. Streamlit strips <script> from st.markdown even with
+    # unsafe_allow_html, so scrolling it from JS is not on the table here; this
+    # does it in CSS.
+    # `resize` gives the AM the drag handle they asked for: a long answer about
+    # a dozen campaigns does not fit in half a viewport. `height` rather than
+    # `max-height` because a box only resizes from a height it already has, and
+    # `min-height` keeps a drag from collapsing it to nothing.
+    thread = pending + "".join(
+        _user_bubble(t["text"]) if t["role"] == "user" else _assistant_turn(t, labels["tool_failed"])
+        for t in reversed(history))
+    return ('<div style="display:flex;flex-direction:column-reverse;'
+            f'height:{_STAGE_HEIGHT};min-height:140px;'
+            'max-height:88vh;resize:vertical;overflow-y:auto;'
+            'background:#FAF8F4;border-radius:12px;'
+            f'padding:10px">{thread}</div>')
+
+
+def _pending_turn(question: str, tools: tuple[list[str], list[str]], labels: dict) -> str:
+    """The question on its way and what its answer has read so far, as one element of the reversed thread."""
+    return ("<div>" + _user_bubble(question) + _tools_row(*tools, labels["tool_failed"])
+            + _typing(labels) + "</div>")
+
+
+def _start_screen(stage, labels: dict, questions: list[str], start_key: str, ideas_key: str,
+                  pick_key: str) -> None:
+    """The greeting and the questions to start with, in the stage the thread will fill; a click sends one."""
+    with stage.container(key=start_key):
+        st.markdown('<div style="color:#1F1F1F;font-size:15px;line-height:1.5;padding:2px 4px">'
+                    f'{html.escape(labels["greeting"])}</div>', unsafe_allow_html=True)
+        if questions:
+            st.markdown('<div style="color:#8A867C;font-size:12.5px;padding:2px 4px 0">'
+                        f'{html.escape(labels["ideas"])}</div>', unsafe_allow_html=True)
+        for index, question in enumerate(questions):
+            st.button(question, key=f"{ideas_key}_{index}", use_container_width=True,
+                      on_click=_pick, args=(pick_key, question))
+
+
 def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | None],
                   turn: Callable[[], ChatTurn], title: str | None = None, lang: str = "es",
-                  on_turn_finished: Callable[[str, runtime.ChatReply | None, str], None] | None = None) -> None:
+                  on_turn_finished: Callable[[str, runtime.ChatReply | None, str], None] | None = None,
+                  starters: Callable[[], list[str]] | None = None) -> None:
     """Every question is answered by the provider; the first one opens the session.
 
     `session_key` runs on every render of every page, so it stays cheap; a new
@@ -346,11 +403,15 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
     History keeps each answer's raw text for the model and its annotated text
     for the bubbles and the transcript.
     `on_turn_finished(question, reply, shown)` hears of every finished turn:
-    reply is None when it failed, and shown is what the AM read."""
+    reply is None when it failed, and shown is what the AM read.
+    `starters` gives the questions an empty chat offers; clicking one sends it."""
     L = _L.get(lang, _L["es"])
     title = title or L["title"]
     anchor = f"aichat_{chat_id}_anchor"
     panel = f"aichat_{chat_id}_panel"
+    start_key = f"{panel}_start"
+    ideas_key = f"{panel}_ideas"
+    pick_key = f"aichat_{chat_id}_pick"
     hist_key = f"aichat_{chat_id}_hist"
     sid_key = f"aichat_{chat_id}_sid"
     context_key_key = f"aichat_{chat_id}_context"
@@ -397,6 +458,17 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
         .st-key-{panel} iframe {{display: block;}}
         .st-key-{panel} [data-testid="stForm"] {{border: none; padding: 0;}}
         .st-key-{panel}_enter {{display: none;}}
+        /* The opening screen takes the stage the thread will fill, at its height. */
+        .st-key-{start_key} {{height: {_STAGE_HEIGHT}; min-height: 140px; flex: none; overflow-y: auto;
+                              overflow-x: hidden; gap: 8px; background: #FAF8F4; border-radius: 12px;
+                              padding: 10px 0;}}
+        /* Streamlit widens buttons over the block's padding and scrollbar, and gives markdown a -1rem meant for paragraphs. */
+        .st-key-{start_key} > div {{flex-shrink: 0; padding: 0 10px; width: 100% !important;}}
+        .st-key-{panel} [data-testid="stMarkdownContainer"] {{margin-bottom: 0;}}
+        /* A question is a sentence: it wraps and reads from the left, and stays a thumb-sized target. */
+        .st-key-{start_key} button {{justify-content: flex-start; min-height: 44px;
+                                    height: auto; white-space: normal; text-align: left;}}
+        .st-key-{start_key} button p {{text-align: left;}}
         .ia-dots span {{width:7px; height:7px; border-radius:99px;
             background:#B4B2A9; display:inline-block; margin-right:4px;
             animation: iaDot 1s infinite;}}
@@ -426,48 +498,18 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                             or st.session_state.get("username") or "AM")
                 plain = (title + "\n\n" + "\n\n".join(
                     (f"{user_lbl}: " + t["text"]) if t["role"] == "user"
-                    else ("Capybaras AI: " + t.get("shown", t["text"]))
+                    else (f"{title}: " + t.get("shown", t["text"]))
                     for t in history)) if history else ""
+                picked = st.session_state.pop(pick_key, "")
                 _chat_header(title, plain, L["copy"], L["close"])
-                if history:
-                    # Newest first in the DOM, `column-reverse` in the CSS: the
-                    # pair puts the latest message at the visual bottom AND
-                    # starts the box scrolled there, which a plain `column` box
-                    # does not. Measured on this panel before the change: the
-                    # last answer was never fully visible, a median of 26% of it
-                    # showed, and in 9 of 48 conversations none of it did — the
-                    # AM waited half a minute and got their own old question.
-                    # The closing question is the last line of nearly every
-                    # answer, so it was the first thing to fall below the fold.
-                    # Streamlit strips <script> from st.markdown even with
-                    # unsafe_allow_html, so scrolling it from JS is not on the
-                    # table here; this does it in CSS.
-                    thread = "".join(
-                        _user_bubble(t["text"]) if t["role"] == "user" else _assistant_turn(t, L["tool_failed"])
-                        for t in reversed(history))
-                    # `resize` gives the AM the drag handle they asked for: a
-                    # long answer about a dozen campaigns does not fit in half a
-                    # viewport, and until now the box was a fixed 480px with no
-                    # way out. `height` rather than `max-height` because a box
-                    # only resizes from a height it already has, and `min-height`
-                    # keeps a drag from collapsing it to nothing.
-                    st.markdown(
-                        '<div style="display:flex;flex-direction:column-reverse;'
-                        'height:min(52vh, 480px);min-height:140px;'
-                        'max-height:88vh;resize:vertical;overflow-y:auto;'
-                        'background:#FAF8F4;border-radius:12px;'
-                        f'padding:10px">{thread}</div>',
-                        unsafe_allow_html=True)
+                # Declared before the input so the thread, with the exchange
+                # being answered at its bottom, renders ABOVE it.
+                stage = st.empty()
+                if history or picked:
+                    pending = _pending_turn(picked, ([], []), L) if picked else ""
+                    stage.markdown(_thread_box(history, L, pending), unsafe_allow_html=True)
                 else:
-                    st.markdown(
-                        '<div style="color:#1F1F1F;font-size:15px;'
-                        f'line-height:1.5;padding:2px 4px 8px 4px">'
-                        f'{html.escape(L["empty"])}</div>',
-                        unsafe_allow_html=True)
-
-                # Declared before the input so the in-flight exchange renders
-                # ABOVE it: the question is visible while the answer arrives.
-                live = st.container()
+                    _start_screen(stage, L, starters() if starters else [], start_key, ideas_key, pick_key)
                 # A form, not st.chat_input. Inside a popover that also holds a
                 # fragment, chat_input renders and accepts text but its submit
                 # never arrives — typed or pasted, the box keeps the text and
@@ -489,60 +531,57 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                     sent = st.form_submit_button(L["send"], use_container_width=True,
                                                  type="primary", help=L["send_hint"])
                 _enter_sends(panel)
-                question = (question or "").strip() if sent else ""
+                question = (question or "").strip() if sent else picked
                 if question:
                     _sync_session()
                     sending = turn()
                     sid = st.session_state.get(sid_key)
-                    with live:
-                        # One element rewritten on every tool the provider reports,
-                        # while the answer is still being worked out.
-                        waiting = st.empty()
-                        asked: list[str] = []
-                        failed_calls: list[str] = []
-                        reading: tuple[list[str], list[str]] = ([], [])
-                        waiting.markdown(_user_bubble(question) + _typing(L),
-                                         unsafe_allow_html=True)
-                        try:
-                            reply = None
-                            for event in runtime.stream_followup(
-                                    agent, sid, question, ads_scope=sending.ads_scope,
-                                    context_docs=sending.documents, note=sending.note,
-                                    thread=list(history)):
-                                if event["type"] == "reply":
-                                    reply = event["reply"]
-                                    continue
-                                if event["type"] == "tool_result":
-                                    if not event["ok"]:
-                                        failed_calls.append(event["name"])
-                                else:
-                                    asked.append(event["name"])
-                                chips = (_tool_labels(asked, L), _failed_labels(asked, failed_calls, L))
-                                if chips != reading:
-                                    reading = chips
-                                    waiting.markdown(
-                                        _user_bubble(question) + _tools_row(*reading, L["tool_failed"])
-                                        + _typing(L), unsafe_allow_html=True)
-                            if reply is None:
-                                raise AIError("el provider no devolvió la respuesta")
-                            st.session_state[sid_key] = reply.session_id
-                            # Annotated once, against the analyses it was answered
-                            # from: the page shown later may reuse the same row ids.
-                            blocks = reply.blocks
-                            if blocks and sending.annotate:
-                                blocks = chat_components.map_strings(blocks, sending.annotate)
-                            if blocks:
-                                shown = chat_components.plain_text(blocks)
+                    asked: list[str] = []
+                    failed_calls: list[str] = []
+                    reading: tuple[list[str], list[str]] = ([], [])
+                    # The stage is rewritten on every tool the provider reports,
+                    # while the answer is still being worked out.
+                    stage.markdown(_thread_box(history, L, _pending_turn(question, reading, L)),
+                                   unsafe_allow_html=True)
+                    try:
+                        reply = None
+                        for event in runtime.stream_followup(
+                                agent, sid, question, ads_scope=sending.ads_scope,
+                                context_docs=sending.documents, note=sending.note,
+                                thread=list(history)):
+                            if event["type"] == "reply":
+                                reply = event["reply"]
+                                continue
+                            if event["type"] == "tool_result":
+                                if not event["ok"]:
+                                    failed_calls.append(event["name"])
                             else:
-                                shown = sending.annotate(reply.text) if sending.annotate else reply.text
-                            answer = {"role": "assistant", "text": reply.text, "shown": shown,
-                                      "blocks": blocks, "tools": _tool_labels(reply.tool_calls, L),
-                                      "tools_failed": _failed_labels(reply.tool_calls, reply.failed_tools, L)}
-                        except AIError as e:
-                            reply = None
-                            failure = f"{L['error']}: {e}"
-                            answer = {"role": "assistant", "text": failure, "shown": failure,
-                                      "error": True}
+                                asked.append(event["name"])
+                            chips = (_tool_labels(asked, L), _failed_labels(asked, failed_calls, L))
+                            if chips != reading:
+                                reading = chips
+                                stage.markdown(_thread_box(history, L, _pending_turn(question, reading, L)),
+                                               unsafe_allow_html=True)
+                        if reply is None:
+                            raise AIError("el provider no devolvió la respuesta")
+                        st.session_state[sid_key] = reply.session_id
+                        # Annotated once, against the analyses it was answered
+                        # from: the page shown later may reuse the same row ids.
+                        blocks = reply.blocks
+                        if blocks and sending.annotate:
+                            blocks = chat_components.map_strings(blocks, sending.annotate)
+                        if blocks:
+                            shown = chat_components.plain_text(blocks)
+                        else:
+                            shown = sending.annotate(reply.text) if sending.annotate else reply.text
+                        answer = {"role": "assistant", "text": reply.text, "shown": shown,
+                                  "blocks": blocks, "tools": _tool_labels(reply.tool_calls, L),
+                                  "tools_failed": _failed_labels(reply.tool_calls, reply.failed_tools, L)}
+                    except AIError as e:
+                        reply = None
+                        failure = f"{L['error']}: {e}"
+                        answer = {"role": "assistant", "text": failure, "shown": failure,
+                                  "error": True}
                     if on_turn_finished is not None:
                         on_turn_finished(question, reply, answer["shown"])
                     history.append({"role": "user", "text": question})

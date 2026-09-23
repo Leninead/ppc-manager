@@ -103,6 +103,41 @@ def test_each_account_says_which_window_it_covers():
     assert row["window"] == {"from": "2026-09-10", "to": "2026-09-16", "days": 7}
 
 
+def test_every_account_is_read_over_the_same_exact_period_when_one_is_asked_for():
+    """Comparing a month with the one before takes two calls, not subtracting totals."""
+    payload, rest = _overview(date_from="2026-09-01", date_to="2026-09-15")
+
+    assert {(call["p_from"], call["p_to"]) for call in rest.rpc_calls} == {("2026-09-01", "2026-09-15")}
+    assert {row["window"]["from"] for row in payload["rows"]} == {"2026-09-01"}
+    assert all("window_note" not in row for row in payload["rows"])
+
+
+def test_a_period_past_the_synced_days_is_cut_and_says_so():
+    row = next(row for row in _overview(date_from="2026-09-10", date_to="2026-09-20")[0]["rows"]
+               if row["account"] == "wamery · US")
+
+    assert row["window"] == {"from": "2026-09-10", "to": "2026-09-16", "days": 7}
+    assert "se recortó" in row["window_note"]
+
+
+def test_an_account_without_data_in_the_period_comes_back_without_figures_not_as_zero():
+    """A zero would say it did not spend; it simply had nothing synced then."""
+    row = next(row for row in _overview(date_from="2026-06-01", date_to="2026-06-10")[0]["rows"]
+               if row["account"] == "wamery · US")
+
+    assert row["window"] is None and "spend" not in row
+    assert "queda afuera" in row["window_note"]
+
+
+@pytest.mark.parametrize("period", [{"date_from": "2026-09-01"}, {"date_from": "2026-09-15", "date_to": "2026-09-01"}])
+def test_a_malformed_period_is_refused_before_any_account_is_read(period):
+    rest = _FakeRest([_profile("1", "wamery", "US", "USD")], {})
+
+    with pytest.raises(ValueError):
+        amazon_ads.accounts_overview(rest, **period)
+    assert rest.rpc_calls == []
+
+
 def test_the_overview_says_it_covers_the_three_products():
     assert "Sponsored Products, Brands y Display" in _overview()[0]["source"]
 
