@@ -118,6 +118,7 @@ _ES: dict[str, str] = {
     "nav.page.gamboa_generator": "Gamboa Generator",
     "nav.page.variation_builder": "Variation Builder",
     "nav.page.monthly_forecast": "Monthly Forecast",
+    "nav.page.sop_library": "SOPs / Drive AM",
     "nav.page.proposal_studio": "Proposal Studio",
     "nav.page.case_study_studio": "Case Study Studio",
     "nav.page.agency_dashboard": "Dashboard Global",
@@ -737,6 +738,33 @@ estado está, cuántas veces se intentó y cuántas filas guardó.
         "Reintentar suele alcanzar. Si vuelve a fallar, pasale este error al "
         "equipo de sistemas."
     ),
+
+    # ── SOPs / Drive AM ───────────────────────────────────────────────────
+    "sop_library.header_title": "SOPs / Drive AM",
+    "sop_library.header_caption": (
+        "Links a documentos de Drive. Las notas en .md viven en Knowledge Base."
+    ),
+    "sop_library.kpi_total": "SOPs",
+    "sop_library.kpi_categories": "Categorías con SOPs",
+    "sop_library.kpi_review": "A revisar",
+    "sop_library.search_label": "Buscar",
+    "sop_library.search_placeholder": "Título, descripción, owner o categoría",
+    "sop_library.category_label": "Categoría",
+    "sop_library.category_all": "Todas",
+    "sop_library.badge_new": "🆕 Nuevo",
+    "sop_library.badge_review": "⚠️ Revisar",
+    "sop_library.owner_reviewed": "{owner} · revisado {date}",
+    "sop_library.open": "Abrir",
+    "sop_library.empty_title": "📂 Ningún SOP coincide con el filtro",
+    "sop_library.empty_body": "Probá con otra palabra o elegí la categoría Todas.",
+    "sop_library.catalog_errors": "El catálogo de SOPs tiene errores de carga:",
+    "sop_library.doc_type.doc": "Doc",
+    "sop_library.doc_type.sheet": "Sheet",
+    "sop_library.doc_type.slides": "Slides",
+    "sop_library.doc_type.folder": "Carpeta",
+    "sop_library.doc_type.video": "Loom",
+    "sop_library.doc_type.pdf": "Archivo",
+    "sop_library.doc_type.link": "Link",
 }
 
 
@@ -812,6 +840,7 @@ _EN: dict[str, str] = {
     "nav.page.gamboa_generator": "Gamboa Generator",
     "nav.page.variation_builder": "Variation Builder",
     "nav.page.monthly_forecast": "Monthly Forecast",
+    "nav.page.sop_library": "SOPs / AM Drive",
     "nav.page.proposal_studio": "Proposal Studio",
     "nav.page.case_study_studio": "Case Study Studio",
     "nav.page.agency_dashboard": "Global Dashboard",
@@ -1423,6 +1452,33 @@ many times it was tried and how many rows it saved.
         "Retrying is usually enough. If it fails again, pass this error to the "
         "systems team."
     ),
+
+    # ── SOPs / AM Drive ───────────────────────────────────────────────────
+    "sop_library.header_title": "SOPs / AM Drive",
+    "sop_library.header_caption": (
+        "Links to Drive documents. Notes in .md live in Knowledge Base."
+    ),
+    "sop_library.kpi_total": "SOPs",
+    "sop_library.kpi_categories": "Categories with SOPs",
+    "sop_library.kpi_review": "To review",
+    "sop_library.search_label": "Search",
+    "sop_library.search_placeholder": "Title, description, owner or category",
+    "sop_library.category_label": "Category",
+    "sop_library.category_all": "All",
+    "sop_library.badge_new": "🆕 New",
+    "sop_library.badge_review": "⚠️ Review",
+    "sop_library.owner_reviewed": "{owner} · reviewed {date}",
+    "sop_library.open": "Open",
+    "sop_library.empty_title": "📂 No SOP matches the filter",
+    "sop_library.empty_body": "Try another word or pick the All category.",
+    "sop_library.catalog_errors": "The SOP catalog has loading errors:",
+    "sop_library.doc_type.doc": "Doc",
+    "sop_library.doc_type.sheet": "Sheet",
+    "sop_library.doc_type.slides": "Slides",
+    "sop_library.doc_type.folder": "Folder",
+    "sop_library.doc_type.video": "Loom",
+    "sop_library.doc_type.pdf": "File",
+    "sop_library.doc_type.link": "Link",
 }
 
 _CATALOG: dict[str, dict[str, str]] = {"es": _ES, "en": _EN}
@@ -1461,6 +1517,7 @@ _PAGE_KEYS: dict[str, str] = {
     "📊 Gamboa Generator": "nav.page.gamboa_generator",
     "🧬 Variation Builder": "nav.page.variation_builder",
     "📈 Monthly Forecast": "nav.page.monthly_forecast",
+    "📂 SOPs / Drive AM": "nav.page.sop_library",
     "📋 Proposal Studio": "nav.page.proposal_studio",
     "🏆 Case Study Studio": "nav.page.case_study_studio",
     "📚 Knowledge Base": "nav.page.knowledge_base",

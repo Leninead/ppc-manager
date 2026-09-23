@@ -69,6 +69,7 @@ SECTIONS: tuple[Section, ...] = (
         "📊 Gamboa Generator",
         "🧬 Variation Builder",
         "📈 Monthly Forecast",
+        "📂 SOPs / Drive AM",
     )),
     Section("Sales Director", ":material/description:", False, (
         "📋 Proposal Studio",
@@ -145,6 +146,7 @@ _ICONS: dict[str, str] = {
     "📊 Gamboa Generator": ":material/table_view:",
     "🧬 Variation Builder": ":material/account_tree:",
     "📈 Monthly Forecast": ":material/calendar_month:",
+    "📂 SOPs / Drive AM": ":material/folder_shared:",
     "📋 Proposal Studio": ":material/article:",
     "🏆 Case Study Studio": ":material/emoji_events:",
     "📚 Knowledge Base": ":material/menu_book:",

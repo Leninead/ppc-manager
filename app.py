@@ -56,6 +56,7 @@ from modules.pages.supply_ordenes import render as render_supply_ordenes
 from modules.pages.proposal_studio import render as render_proposal_studio
 from modules.pages.case_study_studio import render as render_case_study_studio
 from modules.pages.revenue_forecast import render as render_revenue_forecast
+from modules.pages.sop_library import render as render_sop_library
 from modules.mercado_libre.main import render as render_mercado_libre
 from modules.pages.agency_dashboard_page import render as render_agency_dashboard
 from modules.pages.accounts import render as render_accounts
@@ -378,6 +379,9 @@ if selected == "🌐 Dashboard Global":
 
 if selected == "📈 Monthly Forecast":
     render_revenue_forecast()
+
+if selected == "📂 SOPs / Drive AM":
+    render_sop_library()
 
 if selected == "🛒 Mercado Libre":
     render_mercado_libre(username=_username, role=_role)
