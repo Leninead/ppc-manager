@@ -19,7 +19,7 @@ import streamlit as st
 from ai import config as ai_config
 from ai import runtime as ai_runtime
 from core import navigation
-from core.chat import ads_scope, turns
+from core.chat import ads_scope, starter_questions, turns
 from core.chat.panel import ChatTurn, floating_chat
 from core.chat.screen_selection import ScreenSelection, selections_note
 from core.ui import i18n
@@ -151,9 +151,16 @@ def mount_app_chat(page: str, username: str) -> None:
     """The bubble, on every page. Nothing is read or sent until the AM asks something."""
     if not ai_config.AI_ENABLED:
         return
-    floating_chat(chat_id=CHAT_ID, agent=AGENT, lang=i18n.current_lang(),
+    lang = i18n.current_lang()
+    floating_chat(chat_id=CHAT_ID, agent=AGENT, lang=lang,
                   session_key=chat_session_key, turn=partial(chat_turn, page),
-                  on_turn_finished=partial(record_turn, page, username))
+                  on_turn_finished=partial(record_turn, page, username),
+                  starters=partial(_starters, page, lang))
+
+
+def _starters(page: str, lang: str) -> list[str]:
+    """This conversation's ideas: drawn once per conversation, so they stay put while the AM reads them."""
+    return starter_questions.for_page(page, lang, seed=_conversation_id())
 
 
 def record_turn(page: str, username: str, question: str, reply: ai_runtime.ChatReply | None,

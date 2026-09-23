@@ -6,9 +6,11 @@ read its window from the campaign sync rather than from the search-term one.
 import csv
 import io
 import json
+from pathlib import Path
 
 import pytest
 
+from services.mcp_server import server
 from services.mcp_server.tools import amazon_ads
 
 RPC_HEADER = ["campaign_id", "name", "state", "targeting_type", "start_date", "budget_amount", "budget_type",
@@ -189,6 +191,24 @@ def test_the_rule_of_each_diagnosis_travels_with_the_thresholds_it_used():
     assert rules["ESCALAR"] == "con 5 órdenes o más y un ACoS de 10% o menos (la mitad del target)"
     assert rules["REVISAR"] == "con órdenes y un ACoS de más de 40% (el doble del target)"
     assert rules["PAUSAR"] == "sin órdenes y con un gasto de 10 o más"
+
+
+def test_the_rule_of_each_signal_travels_with_the_thresholds_it_used():
+    rules = _health(target_acos=20)["parameters"]["signal_rules"]
+
+    assert set(rules) == {"Limitada por presupuesto", "Nueva", "Baja visibilidad"}
+    assert "un ACoS de 20% o menos (dentro del target)" in rules["Limitada por presupuesto"]
+    assert rules["Limitada por presupuesto"].endswith("en 3 días o más del período")
+
+
+def test_the_chat_is_told_the_budget_signal_is_only_part_of_the_campaigns_that_ran_out_of_budget():
+    description = {tool["name"]: tool for tool in server.build_tools(object())}["campaign_health"]["description"]
+    prompt = (Path(__file__).resolve().parents[1] / "ai/agents/orchestrator/prompt.md").read_text(encoding="utf-8")
+
+    assert "parameters.signal_rules" in description
+    assert "budget_capped_days: los días en que gastó al menos el 95% de su presupuesto del día" in description
+    assert "es una parte de las que se quedan sin presupuesto" in prompt
+    assert "las dice `budget_capped_days`" in prompt
 
 
 def test_the_thresholds_on_screen_replace_the_saved_ones_and_the_answer_says_so():

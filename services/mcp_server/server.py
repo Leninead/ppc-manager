@@ -89,14 +89,18 @@ def build_tools(rest) -> list:
         _tool("list_accounts",
               "Las cuentas de Amazon Ads sincronizadas, con país, moneda, hasta qué día tienen datos, qué día es "
               "hoy en cada una (today, en su zona horaria) y si sus datos están al día (up_to_date). Empezá "
-              "por acá para saber qué profile_id usar en las demás herramientas.",
+              "por acá para saber qué profile_id usar en las demás herramientas. Devuelve una página; si hay más, "
+              "lo dice y da el offset siguiente.",
               partial(amazon_ads.list_accounts, rest)),
         _tool("accounts_overview",
               "Los totales de TODAS las cuentas de Amazon Ads en una llamada: gasto, ventas, órdenes, clicks, "
               "ACoS y CVR de cada una en sus últimos días, de sus campañas de Sponsored Products, Brands y Display. "
-              "Con source=search_terms, los de Sponsored Products sumados del reporte de search terms, que sólo trae "
+              "date_from y date_to (AAAA-MM-DD) piden el mismo período exacto para todas —un mes, el anterior, "
+              "del 10 al 22—, para comparar períodos sin restar totales; una cuenta sin datos en esas fechas "
+              "vuelve sin cifras y con window_note. Con source=search_terms, los de Sponsored Products sumados del reporte de search terms, que sólo trae "
               "términos con clicks y por eso muchas menos impresiones. Es lo que hace falta para comparar o rankear "
-              "cuentas en vivo sin consultarlas una por una.",
+              "cuentas en vivo sin consultarlas una por una. Devuelve una página; si hay más, lo dice y da el offset "
+              "siguiente.",
               partial(amazon_ads.accounts_overview, rest)),
         _tool("list_analyses",
               "Índice de análisis de IA guardados: qué cuentas y qué módulos tienen uno, de qué período, "
@@ -119,22 +123,26 @@ def build_tools(rest) -> list:
               "La serie diaria de una cuenta de Amazon Ads: gasto, ventas, órdenes, clicks, ACoS y CVR por día, "
               "de sus campañas de Sponsored Products, Brands y Display. Es lo que hace falta para contestar cómo "
               "viene o cómo evolucionó una cuenta, un producto o una campaña. product acota a SP, SB o SD; campaign "
-              "filtra por parte del nombre de la campaña; days, hasta 60; source=search_terms da la de Sponsored "
-              "Products sumada del reporte de search terms, que sólo trae términos con clicks y por eso muchas menos "
-              "impresiones.",
+              "filtra por parte del nombre de la campaña; days, hasta 60; date_from y date_to (AAAA-MM-DD) piden un "
+              "período exacto —un mes, del 10 al 22—, también de hasta 60 días; source=search_terms da la de "
+              "Sponsored Products sumada del reporte de search terms, que sólo trae términos con clicks y por eso "
+              "muchas menos impresiones.",
               partial(amazon_ads.daily_metrics, rest)),
         _tool("breakdown",
-              "Los totales de una cuenta de Amazon Ads en los últimos días, agrupados por campaña, portfolio, "
+              "Los totales de una cuenta de Amazon Ads en los últimos días, o en un período exacto con date_from y "
+              "date_to (AAAA-MM-DD, hasta 60 días), agrupados por campaña, portfolio, "
               "producto (SP, SB, SD), tipo de match, search term o ASIN: gasto, ventas, órdenes, clicks, ACoS y CVR "
-              "por grupo, de mayor a menor por sort_by, y el total de la cuenta en totals. Campaña, portfolio y "
-              "producto salen de los reportes de campaña de los tres productos; tipo de match, search term y ASIN, del "
-              "reporte de search terms, sólo Sponsored Products. El ASIN de cada término sale del producto anunciado "
+              "por grupo, de mayor a menor por sort_by, y en totals la suma de todos los grupos. Campaña, portfolio y "
+              "producto salen de los reportes de campaña de los tres productos, y su totals es el total de la cuenta "
+              "en el período: suma también las campañas que se pausaron o archivaron después. Tipo de match, search "
+              "term y ASIN salen del reporte de search terms, sólo Sponsored Products: su totals es el de Sponsored "
+              "Products, no el de la cuenta. El ASIN de cada término sale del producto anunciado "
               "de su ad group, o del nombre de la campaña cuando el ad group anuncia varios, y lo que no se puede "
               "atribuir queda en su propio grupo. asin deja sólo los search terms "
               "de ese ASIN, por ejemplo para ver los que gastan sin vender. Con source=search_terms, campaña, "
-              "portfolio y producto (un solo grupo, SP) también salen de ese reporte. Es lo que hace falta para "
-              "repartir un total entre sus partes o rankear campañas, portfolios, productos, términos o ASINs, en una "
-              "sola llamada.",
+              "portfolio y producto (un solo grupo, SP) también salen de ese reporte, con el totals de Sponsored "
+              "Products. Es lo que hace falta para repartir un total entre sus partes o rankear campañas, portfolios, "
+              "productos, términos o ASINs, en una sola llamada.",
               partial(amazon_ads.breakdown, rest)),
         _tool("campaign_health",
               "Las campañas habilitadas de una cuenta de Amazon Ads (Sponsored Products, Brands y Display) en sus "
@@ -142,9 +150,13 @@ def build_tools(rest) -> list:
               "ESCALAR u OK), sus señales (sólo SP: Limitada por presupuesto, Nueva, Baja visibilidad), su estrategia "
               "de puja, su presupuesto y sus métricas. Sale de la foto de campañas, así que cuenta también las que no "
               "tuvieron actividad, que breakdown no ve. Es lo que hace falta para contestar qué campañas pausar, "
-              "escalar o revisar, cuáles no entregan o cuáles se quedan sin presupuesto. product acota todo a SP, SB "
+              "escalar o revisar, cuáles no entregan o cuáles se quedan sin presupuesto. No da el total de la cuenta: "
+              "deja afuera las campañas pausadas o archivadas, que también gastaron en el período; ese total sale de "
+              "breakdown o daily_metrics. product acota todo a SP, SB "
               "o SD; diagnosis y signal filtran filas; counts y totals cubren todas las habilitadas del alcance; "
-              "parameters.rules dice la regla y los umbrales de cada diagnóstico. "
+              "parameters.rules dice la regla y los umbrales de cada diagnóstico, y parameters.signal_rules los de "
+              "cada señal. Cada fila de SP trae budget_capped_days: los días en que gastó al menos el 95% de su "
+              "presupuesto del día, esté o no dentro del target. "
               "date_from y date_to (AAAA-MM-DD) piden el período exacto que el AM tiene en pantalla, y target_acos, "
               "spend_to_pause y min_orders_to_scale, sus umbrales.",
               partial(amazon_ads.campaign_health, rest)),
@@ -166,8 +178,14 @@ def build_tools(rest) -> list:
               "product ads con ASIN y SKU (product_ads), y sus negativos de campaña y de ad group (negatives). "
               f"Más de {amazon_ads.MAX_ACCOUNT_NEGATIVES} negativos los da sólo de a una campaña: sin campaign, o con "
               "uno que abarca varias campañas, negatives vuelve con counts y sin filas. "
-              "campaign filtra por parte del nombre o por el id de la campaña; state, por enabled, paused o archived. "
-              "counts dice cuántos hay de cada tipo en la cuenta o en las campañas filtradas. Campañas, keywords y "
+              "campaign filtra por parte del nombre o por el id de la campaña; state, por enabled, paused o archived; "
+              "target deja los keywords, product targets o negativos que contienen ese texto, o los product ads con "
+              "ese ASIN o SKU, en cualquier campaña, primero los que son exactamente ese texto (exact_matches dice "
+              "cuántos son; el resto lo contiene dentro de otro más largo): es lo que hace falta para saber si la cuenta "
+              "ya pauta una keyword, o si un ASIN es suyo sin recorrer todos sus anuncios. "
+              "Ad groups, keywords, targets, anuncios y negativos traen el estado de su campaña "
+              "(campaign_state): corren sólo si ellos y su campaña están habilitados. counts dice cuántos hay de cada "
+              "tipo en la cuenta o en las campañas filtradas. Campañas, keywords y "
               "product targets traen sus métricas de la ventana cuando hay reportes; date_from y date_to (AAAA-MM-DD) "
               "piden el período exacto.",
               partial(amazon_ads.campaign_structure, rest)),

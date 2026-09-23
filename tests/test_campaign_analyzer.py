@@ -147,6 +147,19 @@ class TestSignals:
 
         assert BUDGET_LIMITED in campaigns.iloc[0]["Señales"]
 
+    def test_the_signal_rules_say_the_thresholds_the_signals_apply(self):
+        strict = CampaignAnalyzerParams(target_acos=20.0, spend_to_pause=10.0, min_orders_to_scale=5)
+
+        week = analyzer.signal_rules(strict, window_days=7)
+        two_days = analyzer.signal_rules(strict, window_days=2)
+
+        assert list(week) == [BUDGET_LIMITED, NEW_CAMPAIGN, LOW_VISIBILITY]
+        assert "con órdenes y un ACoS de 20% o menos (dentro del target)" in week[BUDGET_LIMITED]
+        assert week[BUDGET_LIMITED].endswith("en 3 días o más del período")
+        assert two_days[BUDGET_LIMITED].endswith("en 2 días o más del período")
+        assert week[NEW_CAMPAIGN] == "empezó hace menos de 14 días"
+        assert week[LOW_VISIBILITY].startswith("en PAUSAR o REVISAR, con menos del 10%")
+
     def test_only_daily_budgets_can_be_capped_by_the_day(self):
         campaigns = _signals([_campaign()], [_inputs(capped=6, budget_type="")])
 

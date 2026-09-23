@@ -298,6 +298,77 @@ def test_a_state_filter_leaves_the_rows_in_that_state():
     assert _structure(entity="keywords", state="paused")["rows"] == []
 
 
+def test_rows_under_a_campaign_carry_its_state_since_an_enabled_keyword_of_a_paused_one_does_not_run():
+    serum = _target(KEYWORD, "12", AUTO, "22", "AG - auto", "9003", "demo serum", match_type="EXACT",
+                    default_bid="0.5", bid="0.5")
+    rest = FakeRest(STRUCTURE + [serum])
+
+    keywords = _by(_structure(rest, entity="keywords")["rows"], "target")
+    negatives = _by(_structure(rest, entity="negatives")["rows"], "negative_id")
+
+    assert (keywords["demo cream"]["state"], keywords["demo cream"]["campaign_state"]) == ("ENABLED", "ENABLED")
+    assert (keywords["demo serum"]["state"], keywords["demo serum"]["campaign_state"]) == ("ENABLED", "PAUSED")
+    assert (negatives["8001"]["campaign_state"], negatives["8003"]["campaign_state"]) == ("ENABLED", "PAUSED")
+    assert "campaign_state" not in _structure(rest)["rows"][0]
+
+
+def test_a_keyword_is_found_by_part_of_its_text_in_any_campaign_whatever_the_case():
+    serum = _target(KEYWORD, "12", AUTO, "22", "AG - auto", "9003", "Demo Cream Serum", match_type="PHRASE",
+                    default_bid="0.5", bid="0.5")
+    rest = FakeRest(STRUCTURE + [serum])
+
+    payload = _structure(rest, entity="keywords", target="demo CREAM")
+
+    assert [(row["target"], row["campaign"], row["campaign_state"]) for row in payload["rows"]] == [
+        ("demo cream", EXACT, "ENABLED"), ("Demo Cream Serum", AUTO, "PAUSED")]
+    # The text only narrows the rows: the counts stay those of the account.
+    assert payload["counts"]["keywords"] == 3
+
+
+def test_the_rows_that_are_exactly_the_target_come_before_those_that_only_contain_it():
+    longer = _target(KEYWORD, "11", EXACT, "21", "AG - core", "9004", "a demo cream pack", match_type="PHRASE",
+                     default_bid="0.8", bid="0.8")
+    rest = FakeRest(STRUCTURE + [longer])
+
+    payload = _structure(rest, entity="keywords", target="Demo Cream", limit=1)
+
+    assert [row["target"] for row in payload["rows"]] == ["demo cream"]
+    assert payload["total"] == 2
+    # Where a keyword is counts only its exact rows, not the longer ones that contain it.
+    assert payload["exact_matches"] == 1
+
+
+def test_a_target_no_row_contains_says_so_and_is_read_as_plain_text():
+    payload = _structure(entity="keywords", target="cream (xl")
+
+    assert payload["rows"] == []
+    assert payload["note"] == "Ninguno de los keywords de la cuenta contiene «cream (xl» en el último listado."
+    assert _structure(entity="negatives", campaign="exact", target="pink")["note"] == (
+        "Ninguno de los negativos de las campañas con «exact» contiene «pink» en el último listado.")
+
+
+def test_a_target_on_an_entity_without_text_is_refused():
+    with pytest.raises(ValueError, match="target busca en keywords, product_targets, negatives, product_ads"):
+        _structure(entity="ad_groups", target="cream")
+
+
+def test_a_product_ad_is_found_by_its_asin_or_sku_in_any_state_the_exact_asin_first():
+    paused = _row(PRODUCT_AD, "12", AUTO, CAMPAIGNS_LISTED, ad_group_id="22", ad_group_name="AG - auto",
+                  entity_id="7002", asin="B0CYLMJJJC", sku="DG-CREAM-02", state="PAUSED")
+    bundle = _row(PRODUCT_AD, "11", EXACT, CAMPAIGNS_LISTED, ad_group_id="21", ad_group_name="AG - core",
+                  entity_id="7003", asin="B0F548KTXD", sku="PACK-B0CYLMJJJC")
+    rest = FakeRest(STRUCTURE + [bundle, paused])
+
+    by_asin = _structure(rest, entity="product_ads", target="b0cylmjjjc")
+    by_sku = _structure(rest, entity="product_ads", target="dg-cream")
+
+    found = [(row["ad_id"], row["state"]) for row in by_asin["rows"]]
+    assert sorted(found[:2]) == [("7001", "ENABLED"), ("7002", "PAUSED")] and found[2] == ("7003", "ENABLED")
+    assert sorted(row["ad_id"] for row in by_sku["rows"]) == ["7001", "7002"]
+    assert _structure(rest, entity="product_ads", target="B0NOTOURS1")["note"] == (
+        "Ninguno de los product ads de la cuenta contiene «B0NOTOURS1» en el último listado.")
+
+
 def test_a_campaign_is_found_by_part_of_its_name_whatever_the_case():
     payload = _structure(entity="keywords", campaign="sp - EXACT")
 
@@ -457,7 +528,7 @@ def test_one_campaign_is_counted_and_read_on_its_own_instead_of_the_whole_accoun
     assert [row["target"] for row in payload["rows"]] == ["demo cream", "demo lotion"]
     assert [(name, args.get("p_entities"), args.get("p_campaign_ids")) for name, args in rest.reads] == [
         (STRUCTURE_RPC, ["campaign"], None), (STRUCTURE_COUNTS_RPC, None, ["11"]),
-        (STRUCTURE_RPC, ["keyword"], ["11"])]
+        (STRUCTURE_RPC, ["campaign", "keyword"], ["11"])]
 
 
 def test_several_campaigns_are_read_by_their_ids_and_no_match_reads_only_the_campaigns():
@@ -470,10 +541,10 @@ def test_several_campaigns_are_read_by_their_ids_and_no_match_reads_only_the_cam
     assert payload["campaigns"] == [AUTO, EXACT]
     assert [(name, args.get("p_entities"), args.get("p_campaign_ids")) for name, args in rest.reads] == [
         (STRUCTURE_RPC, ["campaign"], None), (STRUCTURE_COUNTS_RPC, None, ["12", "11"]),
-        (STRUCTURE_RPC, ["ad_group"], ["12", "11"]), (STRUCTURE_RPC, ["campaign"], None)]
+        (STRUCTURE_RPC, ["campaign", "ad_group"], ["12", "11"]), (STRUCTURE_RPC, ["campaign"], None)]
 
 
-def test_the_counts_come_from_the_database_and_only_the_family_asked_for_is_read():
+def test_the_counts_come_from_the_database_and_only_the_family_asked_for_and_its_campaigns_are_read():
     # The ad group negatives the database counts, far more than the rows this fake would read.
     rest = FakeRest(counted=[{**family, "entity_rows": 4200, "listed_at": "2026-09-22 06:09:00+00"}
                              if family["entity"] == NEGATIVE_KEYWORD else family for family in _counted(STRUCTURE)])
@@ -482,16 +553,16 @@ def test_the_counts_come_from_the_database_and_only_the_family_asked_for_is_read
 
     assert payload["counts"]["negatives"] == 4202
     assert payload["listed_at"]["negatives"] == "2026-09-21T23:09:00-07:00"
-    assert rest.row_reads() == [(["ad_group"], None)]
+    assert rest.row_reads() == [(["campaign", "ad_group"], None)]
 
 
-def test_campaigns_read_their_placement_adjustments_and_negatives_their_four_families():
+def test_campaigns_read_their_placement_adjustments_and_negatives_their_four_families_and_campaigns():
     rest = FakeRest()
 
     _structure(rest)
     _structure(rest, entity="negatives")
 
-    assert rest.row_reads() == [(["campaign", "bidding_adjustment"], None), (list(NEGATIVE_ENTITIES), None)]
+    assert rest.row_reads() == [(["campaign", "bidding_adjustment"], None), (["campaign", *NEGATIVE_ENTITIES], None)]
 
 
 def test_a_family_with_nothing_in_the_last_listing_is_not_read():
@@ -533,7 +604,7 @@ def test_a_big_accounts_negatives_are_read_per_campaign():
 
     assert [row["negative_id"] for row in exact["rows"]] == ["8900"] and exact["counts"]["negatives"] == 1
     assert (auto["total"], auto["showing"]) == (amazon_ads.MAX_ACCOUNT_NEGATIVES, 2)
-    assert rest.row_reads()[-1] == (list(NEGATIVE_ENTITIES), ["12"])
+    assert rest.row_reads()[-1] == (["campaign", *NEGATIVE_ENTITIES], ["12"])
 
 
 def test_a_filter_that_takes_in_several_campaigns_of_a_big_account_does_not_read_their_negatives():
@@ -556,7 +627,7 @@ def test_one_campaign_is_read_whole_even_past_the_negatives_limit():
     payload = _structure(rest, entity="negatives", campaign="auto", limit=1)
 
     assert (payload["total"], payload["showing"]) == (amazon_ads.MAX_ACCOUNT_NEGATIVES + 1, 1)
-    assert rest.row_reads()[-1] == (list(NEGATIVE_ENTITIES), ["12"])
+    assert rest.row_reads()[-1] == (["campaign", *NEGATIVE_ENTITIES], ["12"])
 
 
 def test_an_account_at_the_negatives_limit_reads_them_without_a_campaign():
@@ -566,7 +637,7 @@ def test_an_account_at_the_negatives_limit_reads_them_without_a_campaign():
     payload = _structure(rest, entity="negatives", limit=1)
 
     assert (payload["total"], payload["showing"]) == (amazon_ads.MAX_ACCOUNT_NEGATIVES, 1)
-    assert rest.row_reads() == [(list(NEGATIVE_ENTITIES), None)]
+    assert rest.row_reads() == [(["campaign", *NEGATIVE_ENTITIES], None)]
 
 
 def test_a_page_says_there_are_more_rows_and_where_the_next_one_starts():
@@ -627,6 +698,20 @@ def test_the_chat_is_told_the_graduation_bid_is_the_effective_one_and_paused_ad_
     for text in (amazon_ads.TARGETS_SOURCE, idle, amazon_ads.idle_targets.__doc__, prompt):
         assert "archivados no se miran" not in text and "archivados quedan afuera" not in text
     assert "ad groups de Sponsored Products listados como pausados no se miran" in prompt
+
+
+def test_the_chat_is_told_how_to_find_a_keyword_and_that_it_runs_only_with_its_campaign():
+    description = {tool["name"]: tool for tool in server.build_tools(object())}["campaign_structure"]["description"]
+    prompt = (Path(__file__).resolve().parents[1] / "ai/agents/orchestrator/prompt.md").read_text(encoding="utf-8")
+
+    assert "target deja los keywords, product targets o negativos que contienen ese texto" in description
+    assert "o los product ads con ese ASIN o SKU" in description and "si un ASIN es suyo" in description
+    assert "exact_matches dice cuántos son" in description
+    assert "en cuántos lugares está ese keyword lo dice `exact_matches`, no el total de filas" in prompt
+    for text in (description, amazon_ads.STRUCTURE_SOURCE):
+        assert "campaign_state" in text and "corren sólo si ellos y su campaña están habilitados" in text
+    assert "`campaign_structure` con `entity`=keywords y `target` dice si la cuenta tiene una keyword" in prompt
+    assert "una keyword habilitada de una campaña pausada no corre" in prompt
 
 
 def test_the_chat_is_told_a_big_accounts_negatives_come_per_campaign():

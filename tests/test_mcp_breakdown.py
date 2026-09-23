@@ -4,8 +4,11 @@ from __future__ import annotations
 import csv
 import io
 
+from pathlib import Path
+
 import pytest
 
+from services.mcp_server import server
 from services.mcp_server.tools import amazon_ads
 
 PROFILE = {
@@ -315,3 +318,45 @@ def test_a_split_asked_from_a_source_that_does_not_have_it_is_refused():
 def test_the_search_terms_refuse_brands_and_display():
     with pytest.raises(ValueError, match="Sponsored Products"):
         _breakdown(by="campaign", product="SB", source="search_terms")
+
+
+def test_a_calendar_month_is_split_over_exactly_its_days_and_not_the_last_ones():
+    """«Cómo le fue en agosto» needs August's totals, with the campaigns paused since then still in them."""
+    rest = _FakeRest(TERMS, CAMPAIGNS)
+
+    payload = amazon_ads.breakdown(rest, profile_id="1111222233334444", by="campaign",
+                                   date_from="2026-08-01", date_to="2026-08-31")
+
+    [(name, args)] = [call for call in rest.rpc_calls if call[0] == "campaign_window_totals"]
+    assert (args["p_from"], args["p_to"]) == ("2026-08-01", "2026-08-31")
+    assert payload["window"] == {"from": "2026-08-01", "to": "2026-08-31", "days": 31}
+    assert "window_note" not in payload and payload["totals"]["spend"] == 60.0
+
+
+def test_the_search_term_split_also_takes_an_exact_period():
+    rest = _FakeRest(TERMS, CAMPAIGNS)
+
+    payload = amazon_ads.breakdown(rest, profile_id="1111222233334444", by="search_term",
+                                   date_from="2026-09-01", date_to="2026-09-07")
+
+    assert rest.rpc_calls == [("search_terms_between", {"p_profile_id": "1111222233334444", "p_from": "2026-09-01",
+                                                         "p_to": "2026-09-07"})]
+    assert payload["window"] == {"from": "2026-09-01", "to": "2026-09-07", "days": 7}
+
+
+def test_a_period_that_starts_before_the_synced_days_is_clipped_and_says_so():
+    payload = _breakdown(by="search_term", date_from="2026-07-20", date_to="2026-08-10")
+
+    assert payload["window"] == {"from": "2026-08-01", "to": "2026-08-10", "days": 10}
+    assert "se recortó" in payload["window_note"]
+
+
+def test_the_chat_is_told_a_search_term_split_totals_sponsored_products_and_never_the_account():
+    description = {tool["name"]: tool for tool in server.build_tools(object())}["breakdown"]["description"]
+    prompt = (Path(__file__).resolve().parents[1] / "ai/agents/orchestrator/prompt.md").read_text(encoding="utf-8")
+    by_asin = _breakdown(by="asin", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
+
+    assert "su totals es el total de la cuenta" in description
+    assert "su totals es el de Sponsored Products, no el de la cuenta" in description
+    assert "su `totals` es sólo el de Sponsored Products" in prompt
+    assert by_asin["source"].startswith("Sólo Sponsored Products") and by_asin["totals"] is not None
