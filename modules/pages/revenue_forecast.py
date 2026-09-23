@@ -93,6 +93,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
 from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -2643,9 +2644,14 @@ def generate_forecast(
 
     yoy_enabled = _yoy_enabled(yoy_mode, rows)
 
-    g_rev = _avg_mom_growth("revenue", mom_window, rows)
+    # Diverges from the HTML: with seasonality on, MoM growth is measured without the season so it isn't extrapolated.
+    growth_rows = (
+        _deseasonalize(rows, seasonality.get("indices", [1.0] * 12))
+        if use_season and seasonality.get("enabled") else rows
+    )
+    g_rev = _avg_mom_growth("revenue", mom_window, growth_rows)
     g_units = _avg_mom_growth("units", mom_window, rows)
-    g_sess = _avg_mom_growth("sessions", mom_window, rows)
+    g_sess = _avg_mom_growth("sessions", mom_window, growth_rows)
     y_rev = _yoy_growth("revenue", rows) if yoy_enabled else 0.0
     y_sess = _yoy_growth("sessions", rows) if yoy_enabled else 0.0
     # y_units no se usa en el HTML (línea 1776 lo calcula pero no lo aplica
@@ -2699,33 +2705,36 @@ def generate_forecast(
     last_hist = rows[-1]
     prev: dict = dict(last_hist)  # copia defensiva
     curr_iso = start_from or _get_next_month_iso(last_hist["date"])
+    prev_m_idx = date.fromisoformat(str(last_hist["date"])[:10]).month - 1
 
     for _ in range(horizon):
         m_idx = date.fromisoformat(curr_iso[:10]).month - 1  # 0-11
         year = date.fromisoformat(curr_iso[:10]).year
 
+        # Seasonality. HTML L1811-1813: `indices[mIdx] || 1`.
+        # Diverges from the HTML: both projections already carry a season, so the index only moves the MoM one from the previous month's season to this one.
+        if use_season and seasonality.get("enabled"):
+            indices = seasonality.get("indices", [1.0] * 12)
+            s_factor = _season_index(indices, m_idx)
+            mom_season = s_factor / _season_index(indices, prev_m_idx)
+        else:
+            s_factor = 1.0
+            mom_season = 1.0
+
         # Revenue: blend MoM + YoY.
-        mom_proj = _js_number(prev.get("revenue")) * (1.0 + g_rev)
+        mom_proj = _js_number(prev.get("revenue")) * (1.0 + g_rev) * mom_season
         yoy_month = _same_month_last_year_engine(curr_iso, rows)
         yoy_proj = (
             _js_number(yoy_month.get("revenue")) * (1.0 + y_rev)
             if yoy_month is not None else mom_proj
         )
         if yoy_enabled and yoy_month is not None:
-            rev_base = blend * mom_proj + (1.0 - blend) * yoy_proj
+            revenue = blend * mom_proj + (1.0 - blend) * yoy_proj
         else:
-            rev_base = mom_proj
-
-        # Seasonality. HTML L1811-1813: `indices[mIdx] || 1`.
-        if use_season and seasonality.get("enabled"):
-            sf_raw = seasonality.get("indices", [1.0] * 12)[m_idx]
-            s_factor = float(sf_raw) if sf_raw else 1.0
-        else:
-            s_factor = 1.0
-        revenue = rev_base * s_factor
+            revenue = mom_proj
 
         # Sessions: misma lógica.
-        mom_sess = _js_number(prev.get("sessions")) * (1.0 + g_sess)
+        mom_sess = _js_number(prev.get("sessions")) * (1.0 + g_sess) * mom_season
         yoy_sess = (
             _js_number(yoy_month.get("sessions")) * (1.0 + y_sess)
             if yoy_month is not None else mom_sess
@@ -2734,8 +2743,6 @@ def generate_forecast(
             sessions = blend * mom_sess + (1.0 - blend) * yoy_sess
         else:
             sessions = mom_sess
-        # Sessions escala con seasonality cuando aplica (mismo factor que rev).
-        sessions = sessions * (s_factor if (use_season and seasonality.get("enabled")) else 1.0)
 
         # AOV: estable alrededor del trailing avg (L1822-1824).
         aov = avg_aov
@@ -2799,9 +2806,80 @@ def generate_forecast(
             "sessions": f["sessions"],
             "cvr": f["cvr"],
         }
+        prev_m_idx = m_idx
         curr_iso = _get_next_month_iso(curr_iso)
 
     return forecasts
+
+
+def _season_index(indices: list, m_idx: int) -> float:
+    """`indices[mIdx] || 1` del HTML: un índice 0/None cuenta como neutro."""
+    raw = indices[m_idx]
+    return float(raw) if raw else 1.0
+
+
+def _deseasonalize(rows: list[dict], indices: list) -> list[dict]:
+    """Copia de `rows` con revenue y sessions divididos por el índice de su mes."""
+    adjusted = []
+    for r in rows:
+        factor = _season_index(indices, date.fromisoformat(str(r["date"])[:10]).month - 1)
+        adjusted.append({
+            **r,
+            "revenue": _js_number(r.get("revenue")) / factor,
+            "sessions": _js_number(r.get("sessions")) / factor,
+        })
+    return adjusted
+
+
+# With fewer months each calendar month appears once and a year's level can't be told from its season.
+_SEASON_MIN_MONTHS = 13
+_SEASON_INDEX_MIN = 0.2
+_SEASON_INDEX_MAX = 4.0
+
+
+def _seasonal_indices_by_year(rows: list[dict]) -> Optional[list[float]]:
+    """Índices mes-del-año sin el crecimiento entre años.
+
+    Ajusta por mínimos cuadrados `log(revenue) = nivel del año + efecto del mes`:
+    cada mes se compara con el nivel de SU año, así un año más grande no infla los
+    meses que ya tienen dato de ese año. Meses con revenue <= 0 no entran al ajuste.
+    Los índices de los meses con dato promedian 1.00; un mes sin dato queda en 1.0.
+
+    Devuelve None si hay menos de `_SEASON_MIN_MONTHS` meses con revenue o si los
+    años no comparten meses (el nivel de cada año no se puede estimar).
+    """
+    obs: list[tuple[int, int, float]] = []
+    for r in rows:
+        try:
+            d = date.fromisoformat(str(r["date"])[:10])
+        except (ValueError, KeyError, TypeError):
+            continue
+        revenue = _js_number(r.get("revenue"))
+        if revenue > 0:
+            obs.append((d.year, d.month - 1, math.log(revenue)))
+    if len(obs) < _SEASON_MIN_MONTHS:
+        return None
+
+    years = sorted({y for y, _, _ in obs})
+    months = sorted({m for _, m, _ in obs})
+    design = np.zeros((len(obs), len(years) + len(months) - 1))
+    for i, (y, m, _) in enumerate(obs):
+        design[i, years.index(y)] = 1.0
+        if m != months[0]:
+            design[i, len(years) + months.index(m) - 1] = 1.0
+    if np.linalg.matrix_rank(design) < design.shape[1]:
+        return None
+    coef = np.linalg.lstsq(design, np.array([v for _, _, v in obs]), rcond=None)[0]
+
+    effect = {months[0]: 1.0}
+    effect.update({m: math.exp(coef[len(years) + i]) for i, m in enumerate(months[1:])})
+    mean = sum(effect.values()) / len(effect)
+    return [
+        _round_half_up_dec(
+            min(_SEASON_INDEX_MAX, max(_SEASON_INDEX_MIN, effect[m] / mean)), 3)
+        if m in effect else 1.0
+        for m in range(12)
+    ]
 
 
 def auto_detect_seasonality(rows: list[dict]) -> Optional[dict]:
@@ -2811,6 +2889,10 @@ def auto_detect_seasonality(rows: list[dict]) -> Optional[dict]:
     tocamos UI ni state global: si len < 12 devolvemos None (el caller en UI
     muestra el mensaje). Si len >= 12, devuelve un dict NUEVO
     `{enabled: True, indices: [12 floats]}` listo para asignar al cliente.
+
+    Con 13+ meses con revenue, los índices salen de `_seasonal_indices_by_year`
+    (sin el crecimiento entre años; diverge del HTML). Con menos, o si ese ajuste
+    no se puede hacer, el cálculo del HTML:
 
     Cálculo:
       - sums/counts por month-of-year sobre `revenue`.
@@ -2823,6 +2905,10 @@ def auto_detect_seasonality(rows: list[dict]) -> Optional[dict]:
     """
     if len(rows) < 12:
         return None
+
+    indices = _seasonal_indices_by_year(rows)
+    if indices is not None:
+        return {"enabled": True, "indices": indices}
 
     sums = [0.0] * 12
     counts = [0] * 12
@@ -2854,21 +2940,15 @@ def auto_detect_seasonality(rows: list[dict]) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Riesgo de estacionalidad distorsionada (Opción 3 — solo aviso, 2026-09-22)
+# Riesgo de sobre-proyección por crecimiento YoY (solo aviso)
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# `auto_detect_seasonality` promedia cada mes-del-año sobre todos los años SIN quitar
-# la tendencia. Con crecimiento YoY fuerte, un mes que todavía no tiene dato del año
-# en curso solo promedia años viejos (más bajos): su índice queda artificialmente
-# bajo y el forecast de ese mes sale subestimado. Ej. negocio plano, 20 meses, +120%
-# YoY → índice de septiembre 0.714 en vez de 1.00.
-#
-# El cálculo NO se toca acá (fix de fondo pendiente de datos reales y enfoque): esto
-# solo detecta la condición para avisar en la UI.
+# Un mes del forecast que todavía no tiene dato del año en curso se proyecta desde el
+# mismo mes del año anterior crecido al YoY reciente. Si ese crecimiento no se
+# sostiene, el forecast queda inflado (backtest de Tucann, jun-ago 2026: +88% a +146%).
+# El motor no corrige eso: esto solo detecta la condición para avisar en la UI.
 
-# Crecimiento YoY a partir del cual se avisa. Con 20 meses de historia la distorsión
-# del índice de un mes sin dato del año es ~3/(3+g): +50% → índice 0.857 (proyección
-# ~14% baja), que ya supera el ruido normal del MoM. Por debajo, el sesgo es chico.
+# Crecimiento YoY a partir del cual se avisa.
 _SEASON_RISK_YOY_MIN = 0.50
 # Cuántos de los últimos meses con dato (y con su par del año anterior) miden el YoY.
 _SEASON_RISK_VENTANA = 3
@@ -2876,15 +2956,13 @@ _SEASON_RISK_VENTANA = 3
 
 def _detectar_riesgo_estacionalidad(historical: list[dict],
                                     forecast: list[dict]) -> Optional[dict]:
-    """¿El forecast aplicó índices de estacionalidad sesgados por crecimiento?
+    """¿El forecast supone un crecimiento YoY fuerte que puede no sostenerse?
 
-    Condición (las tres a la vez):
+    Condición (las dos a la vez, con o sin estacionalidad):
       1. YoY fuerte: los últimos `_SEASON_RISK_VENTANA` meses con dato que tienen su
          mismo mes del año anterior crecen más de `_SEASON_RISK_YOY_MIN` (sumados).
       2. Hay meses del forecast sin NINGUNA observación en el año en curso (el año del
          último dato del historial).
-      3. En esos meses el forecast aplicó un factor de estacionalidad (!= 1.0). Así no
-         avisa sobre un forecast generado sin estacionalidad.
 
     Returns:
         None si no hay riesgo; si no, {"anio", "meses": [nombres], "yoy": float}.
@@ -2911,7 +2989,7 @@ def _detectar_riesgo_estacionalidad(historical: list[dict],
     if not yoy > _SEASON_RISK_YOY_MIN:
         return None
 
-    # (2) + (3) Meses del forecast sin dato del año en curso, con índice aplicado.
+    # (2) Meses del forecast sin dato del año en curso.
     anio = max(y for y, _ in revenue_por_mes)
     meses_con_dato = {m for y, m in revenue_por_mes if y == anio}
     meses: list[int] = []
@@ -2920,8 +2998,7 @@ def _detectar_riesgo_estacionalidad(historical: list[dict],
             m = int(f.get("month"))
         except (TypeError, ValueError):
             continue
-        aplicado = abs(_js_number(f.get("seasonality")) - 1.0) > 1e-9
-        if m not in meses_con_dato and aplicado and m not in meses:
+        if m not in meses_con_dato and m not in meses:
             meses.append(m)
     if not meses:
         return None
@@ -2933,13 +3010,13 @@ def _mensaje_riesgo_estacionalidad(riesgo: dict) -> str:
     """Texto del st.warning para un riesgo detectado."""
     meses = riesgo["meses"]
     lista = meses[0] if len(meses) == 1 else f"{', '.join(meses[:-1])} y {meses[-1]}"
-    verbo = "no tiene" if len(meses) == 1 else "no tienen"
     return (
-        "⚠️ La estacionalidad puede estar distorsionando esta proyección porque "
-        f"{lista} {verbo} datos de {riesgo['anio']} (la cuenta crece "
-        f"+{riesgo['yoy'] * 100:.0f}% interanual en los últimos meses, y esos meses "
-        "solo se comparan contra años más bajos). Si el número no te cierra, probá "
-        "destildar estacionalidad o revisar el override manual."
+        "⚠️ Esta proyección puede quedar inflada. La cuenta viene creciendo "
+        f"+{riesgo['yoy'] * 100:.0f}% interanual en los últimos meses, y el forecast de "
+        f"{lista} supone que ese ritmo se sostiene sobre lo vendido en "
+        f"{riesgo['anio'] - 1}. Si el crecimiento se frena, el número real va a quedar "
+        "por debajo. Si el mes en curso ya tiene ventas, comparalas con la proyección "
+        "antes de mandarla."
     )
 
 
@@ -5501,7 +5578,7 @@ def _render_forecast_section(cur: dict) -> None:
         else:
             st.warning("No se generó el forecast (sin historial o sin cliente activo).")
 
-    # Aviso de estacionalidad sesgada por crecimiento (solo aviso; el cálculo no cambia).
+    # Aviso de sobre-proyección por crecimiento YoY fuerte (solo aviso).
     riesgo = _detectar_riesgo_estacionalidad(cur.get("historical", []),
                                              cur.get("forecast", []))
     if riesgo is not None:

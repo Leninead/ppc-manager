@@ -1,14 +1,9 @@
-"""M31 — warning de estacionalidad distorsionada (Opción 3, 2026-09-22).
+"""M31 — warning de sobre-proyección por crecimiento YoY fuerte.
 
-El bug: `auto_detect_seasonality` promedia cada mes-del-año sobre todos los años SIN
-quitar la tendencia. Con crecimiento YoY fuerte, un mes que todavía no tiene dato del
-año en curso solo promedia años viejos (más bajos) y su índice queda bajo; el forecast
-de ese mes sale subestimado.
-
-Hoy NO se toca el cálculo (ni `auto_detect_seasonality` ni `generate_forecast`): solo
-se detecta la condición y se avisa en la UI. Todos los datos acá son SINTÉTICOS: un
-negocio plano dentro de cada año (sin estacionalidad real) que crece de un año a otro,
-así que cualquier índice distinto de 1.00 es el bug y no estacionalidad.
+Un mes del forecast sin dato del año en curso se proyecta desde el mismo mes del año
+anterior crecido al YoY reciente: si ese crecimiento no se sostiene, el forecast queda
+inflado. El warning avisa, con o sin estacionalidad. Todos los datos acá son
+SINTÉTICOS: un negocio plano dentro de cada año que crece de un año a otro.
 """
 
 from __future__ import annotations
@@ -51,16 +46,12 @@ _HIST_CRECE = _hist("2025-01", "2026-08", {2025: 10_000.0, 2026: 22_000.0})
 
 
 # ---------------------------------------------------------------------------
-# El mecanismo (documenta el bug; no se corrige hoy)
+# El crecimiento ya no se lee como estacionalidad
 # ---------------------------------------------------------------------------
 
-def test_mecanismo_meses_sin_dato_del_anio_quedan_con_indice_bajo():
-    idx = rf.auto_detect_seasonality(_HIST_CRECE)["indices"]
-    # Negocio plano: todos deberían ser 1.00. Ene-ago promedian 2025+2026 (alto),
-    # sep-dic solo 2025 (bajo). Índice sep = 3 / (3 + 1.2) ≈ 0.714.
-    assert idx[8] == pytest.approx(0.714, abs=0.001)            # septiembre
-    assert all(i < 1 for i in idx[8:12])
-    assert all(i > 1 for i in idx[0:8])
+def test_los_meses_sin_dato_del_anio_ya_no_quedan_con_indice_bajo():
+    # Antes del fix, septiembre salía 0.714 en este negocio plano.
+    assert rf.auto_detect_seasonality(_HIST_CRECE)["indices"] == [1.0] * 12
 
 
 # ---------------------------------------------------------------------------
@@ -83,14 +74,16 @@ def test_no_detecta_con_poco_crecimiento():
 
 def test_no_detecta_con_historia_completa_del_anio():
     # Último dato dic-2026: el forecast (ene-mar 2027) cae en meses que SÍ tienen
-    # dato del año en curso, así que todos los índices mezclan los mismos años.
+    # dato del año en curso.
     hist = _hist("2025-01", "2026-12", {2025: 10_000.0, 2026: 22_000.0})
     assert rf._detectar_riesgo_estacionalidad(hist, _forecast(hist)) is None
 
 
-def test_no_detecta_si_el_forecast_no_aplico_estacionalidad():
+def test_detecta_tambien_si_el_forecast_no_aplico_estacionalidad():
     fc = _forecast(_HIST_CRECE, use_season=False)
-    assert rf._detectar_riesgo_estacionalidad(_HIST_CRECE, fc) is None
+    riesgo = rf._detectar_riesgo_estacionalidad(_HIST_CRECE, fc)
+    assert riesgo is not None
+    assert riesgo["meses"] == ["Septiembre", "Octubre", "Noviembre"]
 
 
 def test_no_detecta_sin_meses_para_comparar_contra_el_anio_anterior():
@@ -117,19 +110,23 @@ def test_sin_historial_o_sin_forecast_no_detecta():
 # Mensaje
 # ---------------------------------------------------------------------------
 
-def test_mensaje_nombra_los_meses_y_sugiere_que_hacer():
+def test_mensaje_avisa_la_sobre_proyeccion_con_los_meses_y_el_crecimiento():
     msg = rf._mensaje_riesgo_estacionalidad(
-        {"anio": 2026, "meses": ["Septiembre", "Octubre", "Noviembre"], "yoy": 1.2})
+        {"anio": 2026, "meses": ["Septiembre", "Octubre", "Noviembre"], "yoy": 1.48})
 
-    assert "Septiembre, Octubre y Noviembre no tienen datos de 2026" in msg
-    assert "+120%" in msg
-    assert "destildar" in msg and "override manual" in msg
+    assert msg == (
+        "⚠️ Esta proyección puede quedar inflada. La cuenta viene creciendo +148% "
+        "interanual en los últimos meses, y el forecast de Septiembre, Octubre y "
+        "Noviembre supone que ese ritmo se sostiene sobre lo vendido en 2025. Si el "
+        "crecimiento se frena, el número real va a quedar por debajo. Si el mes en "
+        "curso ya tiene ventas, comparalas con la proyección antes de mandarla."
+    )
 
 
-def test_mensaje_en_singular_con_un_solo_mes():
+def test_mensaje_con_un_solo_mes():
     msg = rf._mensaje_riesgo_estacionalidad(
         {"anio": 2026, "meses": ["Diciembre"], "yoy": 0.8})
-    assert "Diciembre no tiene datos de 2026" in msg
+    assert "el forecast de Diciembre supone" in msg
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +164,7 @@ def _run_section(nivel_2026: float) -> AppTest:
 
 
 def _warnings_estacionalidad(at: AppTest) -> list[str]:
-    return [w.value for w in at.warning if "estacionalidad" in w.value.lower()]
+    return [w.value for w in at.warning if "inflada" in w.value.lower()]
 
 
 def test_ui_muestra_el_warning_con_crecimiento_fuerte():
