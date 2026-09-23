@@ -30,9 +30,16 @@ import pandas as pd
 import streamlit as st
 
 from core.supply.metrics import (
+    MOTIVO_EMITIDA_DUPLICADA,
+    MOTIVO_FECHA_ILEGIBLE,
+    MOTIVO_FECHAS_INVERTIDAS,
+    MOTIVO_OK,
+    MOTIVO_SIN_EMITIDA,
+    MOTIVO_SIN_EVENTOS,
     TRANSICIONES,
     cambiar_estado_oc,
     generar_codigo_oc,
+    previsualizar_lead_time,
 )
 from core.supply.oc_import import (
     consolidar_duplicados,
@@ -43,6 +50,7 @@ from core.supply.persistence import (
     ESTADOS_OC,
     get_oc,
     get_proveedor,
+    leer_eventos,
     list_ocs,
     list_proveedores,
     save_oc,
@@ -563,6 +571,101 @@ def _bloque_avance(oc_id: str, destinos: list[str]) -> None:
             _transicionar(oc_id, destino, fecha)
 
 
+def _lt_opcional(valor) -> float | None:
+    """Lead time declarado -> float, o None si falta. NO usar _num: convierte
+    None en 0, y con lt_max=0 todo saldria 'arriba'."""
+    if valor is None or valor == "":
+        return None
+    try:
+        n = float(valor)
+    except (TypeError, ValueError):
+        return None
+    return None if n != n else n
+
+
+def _preview_lead_time(oc: dict, fecha: date) -> dict:
+    """Muestra el lead time que se va a registrar con esta recepcion y devuelve
+    el preview (el caller usa 'bloquear' para deshabilitar el boton).
+
+    Es lo que hubiera atajado el caso de Fede: 54 dias en Tarik por dejar la
+    fecha de hoy en la recepcion de una OC vieja.
+    """
+    oc_id = str(oc.get("id") or "")
+    try:
+        df = leer_eventos(oc_id)
+    except Exception:
+        # Un log que no se pudo leer NO es "sin emision": no se afirma nada y
+        # no se bloquea.
+        st.warning(
+            "No pude leer el historial de movimientos de esta OC: el lead time "
+            "no se puede previsualizar."
+        )
+        return {
+            "dias": None,
+            "motivo": MOTIVO_SIN_EVENTOS,
+            "ya_medido": False,
+            "fecha_emision": None,
+            "fuera_de_rango": None,
+            "bloquear": False,
+        }
+    eventos = [] if df is None or df.empty else df.to_dict("records")
+
+    prov_id = str(oc.get("proveedor_id") or "")
+    prov = get_proveedor(prov_id) or {}
+    prov_nombre = str(prov.get("nombre") or prov_id or "el proveedor")
+    lt_min = _lt_opcional(prov.get("lt_min"))
+    lt_max = _lt_opcional(prov.get("lt_max"))
+
+    pv = previsualizar_lead_time(eventos, fecha.isoformat(), lt_min, lt_max)
+    motivo = pv["motivo"]
+    dias = pv["dias"]
+
+    if pv["bloquear"]:
+        st.error(
+            "La fecha de recepción es anterior a la emisión de esta OC. "
+            "Corregila para poder registrar."
+        )
+    elif motivo == MOTIVO_OK and pv["ya_medido"]:
+        st.info(
+            "El lead time de esta OC ya quedó medido en la primera recepción: "
+            f"{dias} días. Esta recepción no lo cambia."
+        )
+    elif motivo == MOTIVO_OK:
+        emitida = date.fromisoformat(pv["fecha_emision"]).strftime("%d/%m/%Y")
+        base = f"Lead time que se va a registrar: {dias} días (emitida el {emitida})"
+        if pv["fuera_de_rango"] == "arriba":
+            st.warning(
+                f"{base} — {_fmt_num(dias - lt_max)} más que el máximo declarado "
+                f"de {prov_nombre} ({_fmt_num(lt_max)}). Si estás cargando una "
+                "orden vieja, revisá que esta fecha sea la real."
+            )
+        elif pv["fuera_de_rango"] == "abajo":
+            st.warning(
+                f"{base} — {_fmt_num(lt_min - dias)} menos que el mínimo declarado "
+                f"de {prov_nombre} ({_fmt_num(lt_min)}). Revisá que las fechas "
+                "sean las reales."
+            )
+        else:
+            st.info(f"{base}.")
+    elif motivo == MOTIVO_EMITIDA_DUPLICADA:
+        st.warning(
+            "Esta OC tiene más de una emisión registrada: no va a contar para "
+            "el lead time del proveedor."
+        )
+    elif motivo == MOTIVO_SIN_EMITIDA:
+        st.info("Esta OC no tiene emisión registrada: no va a medir lead time.")
+    elif motivo == MOTIVO_FECHA_ILEGIBLE:
+        st.warning(
+            "Una de las fechas de esta OC no se puede leer: no va a medir lead time."
+        )
+    elif motivo == MOTIVO_FECHAS_INVERTIDAS:
+        st.warning(
+            "Las fechas de esta OC están invertidas: no va a medir lead time."
+        )
+
+    return pv
+
+
 def _bloque_recepcion(oc: dict) -> None:
     """Carga de lo recibido + transicion.
 
@@ -609,11 +712,14 @@ def _bloque_recepcion(oc: dict) -> None:
         help="Fecha de negocio de la llegada. Cierra la ventana del lead time medido.",
     )
 
+    pv = _preview_lead_time(oc, fecha)
+
     if st.button(
         "📥 Registrar recepcion",
         key=f"supply_oc_recep_{oc_id}",
         type="primary",
         use_container_width=True,
+        disabled=pv["bloquear"],
     ):
         if not nuevas:
             st.error("La OC no tiene lineas para recibir.")
