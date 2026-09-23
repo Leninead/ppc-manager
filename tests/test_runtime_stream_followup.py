@@ -99,7 +99,7 @@ def test_the_reply_names_the_model_asked_for_and_the_cost_the_provider_reports(m
 
     reply = list(runtime.stream_followup("orchestrator", None, "¿?"))[-1]["reply"]
 
-    assert reply.model == streamed[0]["model"] == "claude-opus-5"
+    assert reply.model == streamed[0]["model"] == "claude-opus-5-5"
     assert reply.cost_usd == 0.0831
 
 

@@ -1,5 +1,5 @@
 ---
-model: claude-opus-5
+model: claude-opus-5-5
 effort: high
 timeout_s: 3600
 ---

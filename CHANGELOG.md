@@ -6,6 +6,16 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Los agentes de IA usan Claude Opus 5.5 (2026-09-23)
+
+**Por qué.** Opus 5.5 es el Opus que sucede a Opus 5, y hasta ahora no se podía pedir: el provider traía Claude Code
+2.1.251 y la API contesta 400 a `claude-opus-5-5` desde cualquier Claude Code anterior al 2.1.280.
+
+**Ahora.** Los ocho agentes de `ai/agents/` (Search Term Report, Search Query Performance, Bid Optimizer, Bulk
+Campañas, Análisis de Funnel, PPC Insights, DataDive y el chat) piden `claude-opus-5-5`. El effort sigue explícito en
+`high`: en Opus 5.5 el valor por defecto bajó a `medium`. Necesita desplegado antes el provider con `claude-agent-sdk`
+0.2.158 (Claude Code 2.1.280); contra el anterior, las pestañas de IA y el chat fallan con ese 400.
+
 ### Added — La estructura de las campañas SP sale de los listados de Amazon Ads (ad groups, placements y negativos), para cualquier módulo y el chat (2026-09-22)
 
 **Por qué.** Un reporte sólo trae lo que tuvo actividad, y la estructura de una cuenta es también lo que no corre.
