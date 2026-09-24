@@ -155,7 +155,49 @@ def test_the_chat_is_told_a_count_in_the_analysis_prose_is_checked_against_its_r
     assert index["situation_note"] == analyses.SITUATION_NOTE
     assert "se comprueba contando las filas de get_analysis antes de repetirla" in analyses.SITUATION_NOTE
     assert analysis["synthesis_note"] == analyses.SYNTHESIS_NOTE
-    assert "se dice contando las filas de rows, no copiándola de la síntesis" in analyses.SYNTHESIS_NOTE
+    assert "sale de row_summary, que cuenta y suma todas las filas de cada grupo" in analyses.SYNTHESIS_NOTE
+
+
+def test_the_summary_counts_and_sums_every_row_even_those_past_the_page(data):
+    """The chat saw 21 of 60 Bulk Campañas rows and ranked campaigns over those: the summary covers all of them."""
+    records = [{"campaign": f"Campaña {n}", "diagnostico": "PAUSAR" if n < 3 else "OK", "spend": 10.0, "orders": 1}
+               for n in range(60)]
+    data["bulk_campaigns"]["1"] = _stored("1", "bulk_campaigns", records=records)
+
+    analysis = analyses.get_analysis(object(), profile_id="1", module="bulk_campaigns", limit=10)
+    summary = analysis["row_summary"]["filas"]
+
+    assert summary["rows"] == 60
+    assert summary["counts"]["diagnostico"] == {"OK": 57, "PAUSAR": 3}
+    assert "campaign" not in summary["counts"]
+    assert summary["totals"] == {"spend": 600.0, "orders": 60}
+    assert analysis["rows"]["filas"]["showing"] == 10
+    assert "paging_note" in analysis
+
+
+def test_the_rows_past_the_page_are_reached_with_the_group_and_offset(data):
+    records = [{"campaign": f"Campaña {n}", "spend": float(n)} for n in range(30)]
+    data["bulk_campaigns"]["1"] = _stored("1", "bulk_campaigns", records=records)
+
+    later = analyses.get_analysis(object(), profile_id="1", module="bulk_campaigns", group="filas", offset=25)
+
+    assert [row["row_id"] for row in later["rows"]["filas"]["rows"]] == ["C26", "C27", "C28", "C29", "C30"]
+    with pytest.raises(ValueError, match="no tiene el grupo"):
+        analyses.get_analysis(object(), profile_id="1", module="bulk_campaigns", group="harvest")
+
+
+def test_each_metric_kept_with_its_previous_window_says_whether_it_went_up_or_down(data):
+    """An agent wrote «the four rows with history lowered their CVR» over seven with history, one of them up."""
+    records = [{"asin": "A", "cvr": 10.0, "cvr_previo": 12.0}, {"asin": "B", "cvr": 46.0, "cvr_previo": 30.0},
+               {"asin": "C", "cvr": 0.0, "cvr_previo": 0.0}, {"asin": "D", "cvr": 5.0}]
+    data["bid_optimizer"]["1"] = _stored("1", "bid_optimizer", records=records)
+
+    analysis = analyses.get_analysis(object(), profile_id="1", module="bid_optimizer")
+
+    assert [row["cvr_vs_previo"] for row in analysis["rows"]["filas"]["rows"]] == [
+        "bajó", "subió", "igual", analyses.NO_PREVIOUS]
+    assert analysis["row_summary"]["filas"]["counts"]["cvr_vs_previo"] == {
+        "bajó": 1, "igual": 1, "sin tramo previo": 1, "subió": 1}
 
 
 def test_the_row_id_prefixes_are_the_ones_the_agents_gave_the_rows():

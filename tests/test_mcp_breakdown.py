@@ -108,6 +108,30 @@ def _breakdown(**kwargs):
     return amazon_ads.breakdown(rest, profile_id="1111222233334444", **kwargs)
 
 
+def test_the_leaders_of_each_metric_cover_every_group_not_only_the_page():
+    """The chat said Exact had «the lowest ACoS after Broad»: Exact was the lowest. The comparison comes done."""
+    payload = _breakdown(by="campaign", limit=1)
+
+    assert payload["showing"] == 1
+    assert payload["leaders"]["most_spend"] == {"group": "Camp A", "spend": 40.0}
+    assert payload["leaders"]["lowest_acos"] == {"group": "Camp B", "acos": 25.0}
+    assert payload["leaders"]["highest_acos"]["group"] == "Camp A"
+    assert payload["leaders"]["groups_spending_without_sales"] == 1
+
+
+def test_a_list_by_a_criterion_comes_from_the_filters_complete_and_counted():
+    """Listing «the terms with 4+ orders under 30%» by eye, the chat dropped one of the rows that met it."""
+    payload = _breakdown(by="campaign", min_orders=1, max_acos=30)
+
+    assert [row["group"] for row in payload["rows"]] == ["Camp B"]
+    assert payload["total"] == 1
+    assert payload["filters"] == {"min_orders": 1, "max_acos": 30}
+    assert payload["totals"]["spend"] == 60.0
+
+    unsold = _breakdown(by="campaign", without_sales=True)
+    assert [row["group"] for row in unsold["rows"]] == ["Camp C"]
+
+
 ASIN_TERMS = [
     _term("vitamin cream", "DG - Exact", cost=40.0, clicks=20, sales=160.0, orders=4, ad_group="AG1"),
     _term("night cream", "DG - Exact", cost=10.0, clicks=10, ad_group="AG1"),
@@ -164,7 +188,8 @@ def test_a_campaign_breakdown_comes_from_the_campaign_reports_largest_spend_firs
     assert [row["group"] for row in payload["rows"]] == ["Camp A", "Camp C", "Camp B"]
     assert payload["rows"][0] == {"group": "Camp A", "spend": 40.0, "sales": 120.0, "orders": 4, "clicks": 40,
                                   "impressions": 200, "acos": 33.3, "cvr": 10.0, "sales_clicks": 120.0,
-                                  "orders_clicks": 4}
+                                  "orders_clicks": 4, "spend_share": 66.7, "sales_share": 85.7,
+                                  "orders_share": 80.0, "clicks_share": 85.1}
 
 
 def test_the_totals_cover_every_group_so_a_share_of_the_whole_can_be_computed():
@@ -216,7 +241,8 @@ def test_a_search_term_breakdown_adds_up_the_same_term_across_campaigns():
     rows = _breakdown(by="search_term")["rows"]
 
     assert rows[0] == {"group": "zapatilla", "spend": 35.0, "sales": 140.0, "orders": 5, "clicks": 15,
-                       "impressions": 200, "acos": 25.0, "cvr": 33.33}
+                       "impressions": 200, "acos": 25.0, "cvr": 33.33, "spend_without_sales": 0.0,
+                       "spend_share": 58.3, "sales_share": 100.0, "orders_share": 100.0, "clicks_share": 31.9}
 
 
 def test_any_metric_can_rank_the_groups():
@@ -272,7 +298,9 @@ def test_campaigns_can_still_be_split_from_the_search_terms_on_request():
 
     assert [name for name, _ in rest.rpc_calls] == ["search_terms_between"]
     assert payload["rows"][0] == {"group": "Camp A", "spend": 40.0, "sales": 120.0, "orders": 4, "clicks": 40,
-                                  "impressions": 200, "acos": 33.3, "cvr": 10.0}
+                                  "impressions": 200, "acos": 33.3, "cvr": 10.0, "spend_without_sales": 10.0,
+                                  "spend_share": 66.7, "sales_share": 85.7, "orders_share": 80.0,
+                                  "clicks_share": 85.1}
     assert payload["data_source"] == "search_terms" and "source=campaigns" in payload["alternative"]
 
 
@@ -296,7 +324,9 @@ def test_the_product_split_from_the_search_terms_is_sponsored_products_alone():
 
     assert [name for name, _ in rest.rpc_calls] == ["search_terms_between"]
     assert payload["rows"] == [{"group": "Sponsored Products", "spend": 60.0, "sales": 140.0, "orders": 5,
-                                "clicks": 47, "impressions": 400, "acos": 42.9, "cvr": 10.64}]
+                                "clicks": 47, "impressions": 400, "acos": 42.9, "cvr": 10.64,
+                                "spend_without_sales": 25.0, "spend_share": 100.0, "sales_share": 100.0,
+                                "orders_share": 100.0, "clicks_share": 100.0}]
     assert payload["data_source"] == "search_terms" and "source=campaigns" in payload["alternative"]
 
 
@@ -360,3 +390,20 @@ def test_the_chat_is_told_a_search_term_split_totals_sponsored_products_and_neve
     assert "su totals es el de Sponsored Products, no el de la cuenta" in description
     assert "su `totals` es sólo el de Sponsored Products" in prompt
     assert by_asin["source"].startswith("Sólo Sponsored Products") and by_asin["totals"] is not None
+
+
+def test_a_term_within_its_campaign_is_its_own_group_with_the_spend_it_made_without_selling():
+    """Asked for the terms over $20 without sales by campaign, the chat summed each term across campaigns and found
+    none: the one that bled did sell in another campaign."""
+    rows = _breakdown(by="campaign_search_term", without_sales=True)["rows"]
+
+    assert [(row["group"], row["campaign"], row["spend"], row["spend_without_sales"]) for row in rows] == [
+        ("b0asin", "Camp C", 15.0, 15.0), ("zapatilla roja", "Camp A", 10.0, 10.0)]
+
+
+def test_each_group_says_its_share_of_the_whole_and_where_the_unsold_spend_sits():
+    payload = _breakdown(by="match_type")
+
+    assert payload["totals"]["spend_without_sales"] == 25.0
+    assert sum(row["spend_without_sales"] for row in payload["rows"]) == 25.0
+    assert sum(row["spend_share"] for row in payload["rows"]) == pytest.approx(100.0, abs=0.2)

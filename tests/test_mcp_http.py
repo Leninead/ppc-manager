@@ -105,7 +105,7 @@ def test_the_breakdown_offers_its_dimensions_and_metrics_as_closed_lists():
     schema = next(tool.input_schema for tool in asyncio.run(server.list_tools()) if tool.name == "breakdown")
 
     assert schema["properties"]["by"]["enum"] == ["campaign", "portfolio", "product", "match_type", "search_term",
-                                                  "asin"]
+                                                  "campaign_search_term", "asin"]
     assert schema["properties"]["product"]["enum"] == ["", "SP", "SB", "SD"]
     assert "acos" in schema["properties"]["sort_by"]["enum"]
 

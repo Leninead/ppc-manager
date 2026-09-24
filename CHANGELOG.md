@@ -6,6 +6,43 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Las herramientas del MCP entregan el dato ya calculado, para que el chat no dependa del esfuerzo (2026-09-23)
+
+**Por qué.** Con esfuerzo `low`, las respuestas del chat fallaban donde el modelo tenía que contar, comparar o armar
+una lista a ojo: repetía un conteo de la síntesis de un análisis, daba por hecho que un término ya corría en exact, o
+armaba «las 10 peores» con un corte que sus filas no seguían. `xhigh` lo reducía, pero cada respuesta tarda casi el
+doble.
+
+**Ahora.**
+- `get_analysis` trae `row_summary`: cuántas filas de cada grupo toman cada valor de sus categorías (diagnóstico,
+  estado, prioridad), sus métricas sumadas y, por cada métrica guardada con su tramo anterior, cuántas subieron,
+  bajaron o no tienen tramo previo (`*_vs_previo`), sobre todas las filas. `group`, `offset` y `limit` piden cualquier
+  página de las filas, que antes quedaban cortadas.
+- `search_term_candidates` dice por cada candidato a harvest si la cuenta ya lo tiene en exact —una keyword exact o,
+  si el término es un ASIN, un product target `asin="…"`— (`exact_in_account`: corre, no corre o no está) y dónde
+  corre, y `counts` lo cuenta; `without_running_exact` deja sólo los que no corren. Cada candidato dice si su término
+  es un ASIN que la cuenta anuncia (`own_asin`), sin abrir sus product ads.
+- `list_accounts` filtra por `account` (parte del nombre, sin mirar mayúsculas, espacios ni guiones): la cuenta de un
+  cliente sale en una llamada, en vez de paginar la lista.
+- `breakdown` da la parte de cada grupo en el total (`spend_share`, `sales_share`, `orders_share`, `clicks_share`), lo
+  que gastaron sus términos sin ventas (`spend_without_sales`, desde search terms) y agrupa cada término dentro de su
+  campaña (`by=campaign_search_term`).
+- `campaign_health` cuenta y lista las campañas que tocaron su presupuesto algún día (`budget_capped`), cada señal por
+  diagnóstico (`signal_counts`) y cada diagnóstico por producto (`diagnosis_by_product`), antes de filtrar, y filtra
+  por `min_budget_capped_days`.
+- `campaign_structure` cuenta los ASINs y SKUs distintos de los product ads (`distinct`): cada fila es un anuncio.
+- `daily_metrics` dice el día de la semana de cada fila y, cuando la serie suma varias campañas, que cada día las suma.
+- `asin_health` da en `spend_without_sales` todo lo que gastaron los términos sin órdenes de cada ASIN; lo que antes
+  llevaba ese nombre, los 10 términos más caros sin órdenes, pasa a `top_unsold_terms_spend`.
+- `breakdown` trae `leaders` (el de más gasto, ventas, órdenes y clicks, y el de ACoS más bajo y más alto, sobre
+  todos los grupos) y filtra por `min_orders`, `max_acos`, `min_spend` y `without_sales`.
+- `campaign_structure` ordena por métrica (`sort_by`) y filtra por `running_only`, `min_clicks`, `min_spend`,
+  `min_acos` y `without_sales` en campañas, keywords y product targets.
+- `daily_metrics` trae `before_window`: el día más alto y el más bajo de cada métrica en los 60 días sincronizados
+  anteriores a la ventana, para decir «nunca» o «desde» contra la historia.
+- El prompt del orquestador manda pedir las listas por criterio con esos filtros, y los líderes y conteos a
+  `leaders` y `row_summary`.
+
 ### Fixed — El chat contesta con las cifras de cada cuenta y arranca con preguntas sugeridas (2026-09-23)
 
 **Por qué.** En producción, 74 preguntas vagas de un AM (77 turnos, las de cobertura total y parcial) dieron 46 bien y

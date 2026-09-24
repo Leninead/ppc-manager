@@ -7,8 +7,11 @@ sólo la forma en que un modelo la consulta.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal
+
+import pandas as pd
 
 from core.search_term import frame as canonical
 from core.ai_analysis.store import AiAnalysisStore
@@ -93,6 +96,20 @@ MAX_DAYS = 60
 # Dos semanas: alcanzan para ver una forma, y el patrón de los días de semana todavía se lee.
 DEFAULT_SERIES_DAYS = 14
 MAX_CAMPAIGNS_LISTED = 30
+SHARED_METRICS = ("spend", "sales", "orders", "clicks")
+UNSOLD_TERMS_NOTE = ("spend_without_sales es lo que gastaron, dentro de cada grupo, los search terms que no vendieron "
+                     "nada en su campaña en el período: dice dónde está el gasto sin ventas sin sumar términos a mano.")
+DISTINCT_ADS_NOTE = ("Cada fila es un anuncio: un ASIN en varias campañas o ad groups son varios anuncios. distinct "
+                     "cuenta los ASINs y SKUs distintos de todas las filas que cumplen el pedido, no sólo de esta página.")
+# How Amazon Ads writes a product target that aims exactly at one ASIN; asin-expanded-from="…" is the expanded one.
+ASIN_TARGET_PREFIX = 'asin="'
+# The day of the week comes with each date: a model working it out from the date got every name in a week wrong.
+WEEKDAYS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+BEFORE_WINDOW_MAX_DAYS = 60
+BEFORE_WINDOW_METRICS = ("spend", "sales", "orders", "clicks", "impressions")
+BEFORE_WINDOW_NOTE = ("before_window da, de los días sincronizados anteriores a la ventana (hasta 60), el día más alto y "
+                      "el más bajo de cada métrica: un «nunca», un «desde el», un «por primera vez» o un «antes llegaba "
+                      "como mucho a» se dicen contra esos días, no sólo contra los de rows.")
 # Cómo cuenta cada producto sus ventas: sin esto, el modelo compara ACoS de SB con los de SP como si fueran iguales.
 ATTRIBUTION_NOTE = ("Las ventas y órdenes de cada producto son las de Campaign Manager: SP después de un click; SB y SD "
                     "después de un click o una vista, a 14 días. sales_clicks y orders_clicks son sólo las de "
@@ -117,7 +134,7 @@ _SEARCH_TERM_GROUPS = {"campaign": canonical.CAMPAIGN_NAME, "portfolio": canonic
                        "match_type": "_origin_match_type", "search_term": canonical.SEARCH_TERM}
 # Lo que agrupan los reportes de campaña de los tres productos: la fuente de siempre de campaña y portfolio.
 _CAMPAIGN_GROUPS = ("campaign", "portfolio", "product")
-_DIMENSIONS = ("campaign", "portfolio", "product", "match_type", "search_term", "asin")
+_DIMENSIONS = ("campaign", "portfolio", "product", "match_type", "search_term", "campaign_search_term", "asin")
 _EMPTY_GROUP = {"portfolio": "Sin portfolio", "match_type": "Sin tipo"}
 # Lo que no se atribuye a un ASIN queda en su grupo, sin repartir: los grupos siguen sumando el total.
 _UNATTRIBUTED_GROUPS = {SEVERAL_ASINS: "Varios ASINs en el ad group", WITHOUT_ASIN: "Sin ASIN"}
@@ -129,7 +146,7 @@ ASIN_NOTE = ("El ASIN de cada término sale del producto anunciado de su ad grou
 _MATCH_TYPE_LABELS = {"AUTO": "Automática", "PRODUCT_TARGETING": "Product targeting", "BROAD": "Broad",
                       "PHRASE": "Phrase", "EXACT": "Exact"}
 RANKING_METRICS = ("spend", "sales", "orders", "clicks", "impressions", "acos", "cvr")
-Dimension = Literal["campaign", "portfolio", "product", "match_type", "search_term", "asin"]
+Dimension = Literal["campaign", "portfolio", "product", "match_type", "search_term", "campaign_search_term", "asin"]
 RankingMetric = Literal["spend", "sales", "orders", "clicks", "impressions", "acos", "cvr"]
 # "" = sin filtro: un parámetro opcional con None llegaría al modelo sin tipo.
 Diagnosis = Literal["", "FANTASMA", "PAUSAR", "REVISAR", "ESCALAR", "OK"]
@@ -193,9 +210,10 @@ _PLACEMENT_KEYS = {"PLACEMENT_TOP": "top_of_search_pct", "PLACEMENT_PRODUCT_PAGE
 CAMPAIGN_STATUS = "Campaign Status"
 
 
-def list_accounts(rest, *, offset: int = 0) -> dict:
+def list_accounts(rest, *, account: str = "", offset: int = 0) -> dict:
     """Las cuentas de Amazon Ads sincronizadas, con su país, moneda, hasta qué día tienen datos, qué día es hoy en
-    cada una y si sus datos están al día. Paginadas como toda respuesta larga: `offset` trae la página siguiente."""
+    cada una y si sus datos están al día. `account` deja las que tienen ese texto en el nombre, sin mirar mayúsculas,
+    espacios ni guiones. Paginadas como toda respuesta larga: `offset` trae la página siguiente."""
     profiles = ReportProvider(rest).profiles()
     labels = account_labels(profiles)
     now = _now()
@@ -209,8 +227,19 @@ def list_accounts(rest, *, offset: int = 0) -> dict:
         "data_through": profile.data_through.isoformat() if profile.data_through else None,
         **_freshness(profile, now),
     } for profile in profiles]
+    wanted = _name_key(account)
+    if wanted:
+        rows = [row for row in rows if wanted in _name_key(row["account"])]
     rows.sort(key=lambda row: row["account"])
-    return page(rows, offset=offset).as_payload(what="cuentas")
+    payload = page(rows, offset=offset).as_payload(what="cuentas")
+    if wanted and not rows:
+        payload["note"] = f"Ninguna cuenta tiene «{account}» en el nombre; sin account vienen todas."
+    return payload
+
+
+def _name_key(name: str) -> str:
+    """A name compared by its letters and digits alone: «Acme & Co» finds acme-co."""
+    return "".join(character for character in name.casefold() if character.isalnum())
 
 
 def top_search_terms(rest, *, profile_id: str, days: int = DEFAULT_DAYS, offset: int = 0,
@@ -261,13 +290,18 @@ def daily_metrics(rest, *, profile_id: str, days: int = DEFAULT_SERIES_DAYS, cam
         profile = _campaign_profile(rest, profile_id, search_terms_hint=product in ("", "SP"))
         start, end, window_note = requested_window(profile, days, date_from, date_to)
         series = campaign_totals.daily_totals(rest, profile, start, end, campaign=campaign, product=product)
-        rows = [{"date": day.day.isoformat(), **_totals_metrics(day.totals)} for day in series.days]
+        rows = [{"date": day.day.isoformat(), "weekday": WEEKDAYS[day.day.weekday()], **_totals_metrics(day.totals)}
+                for day in series.days]
         products = list(series.products)
     payload = {"rows": rows, "window": _window(start, end), "currency": series.currency_code,
                "attribution_days": series.attribution_days, "products": products,
                **_source_fields(source or SOURCE_CAMPAIGNS, alternative=product in ("", "SP"))}
     if window_note:
         payload["window_note"] = window_note
+    if source != SOURCE_SEARCH_TERMS:
+        before = _before_window(rest, profile, start, campaign, product)
+        if before:
+            payload.update(before_window=before, before_window_note=BEFORE_WINDOW_NOTE)
     if source != SOURCE_SEARCH_TERMS:
         _add_old_format_note(payload, rest, profile_id, start, end, product)
     fragment = campaign.strip()
@@ -276,7 +310,9 @@ def daily_metrics(rest, *, profile_id: str, days: int = DEFAULT_SERIES_DAYS, cam
         if len(series.campaigns) > MAX_CAMPAIGNS_LISTED:
             payload["campaigns_total"] = len(series.campaigns)
         if series.campaigns:
-            payload["campaigns_note"] = (
+            summed = (f"Cada día suma las {len(series.campaigns)} campañas de campaigns, no una sola: lo de una de "
+                      "ellas sale de breakdown por campaña. " if len(series.campaigns) > 1 else "")
+            payload["campaigns_note"] = summed + (
                 f"Son las campañas con «{fragment}» en el nombre que figuran en los reportes de estos días, no todas "
                 "las que la cuenta tiene con ese nombre: las que no tuvieron actividad pueden no figurar. Cuántas "
                 "tiene la cuenta lo dice campaign_structure.")
@@ -285,6 +321,24 @@ def daily_metrics(rest, *, profile_id: str, days: int = DEFAULT_SERIES_DAYS, cam
             payload["note"] = (f"Ninguna campaña de la cuenta tiene «{fragment}» en el nombre en este período. "
                                "Buscá el nombre exacto con campaign_health o breakdown por campaña.")
     return payload
+
+
+def _before_window(rest, profile: ProfileOption, start: date, campaign: str, product: str) -> dict | None:
+    """The synced days before the window, up to BEFORE_WINDOW_MAX_DAYS: each metric's highest and lowest day."""
+    if profile.data_from is None:
+        return None
+    first = max(profile.data_from, start - timedelta(days=BEFORE_WINDOW_MAX_DAYS))
+    last = start - timedelta(days=1)
+    if last < first:
+        return None
+    days = campaign_totals.daily_totals(rest, profile, first, last, campaign=campaign, product=product).days
+    extremes = {}
+    for metric in BEFORE_WINDOW_METRICS:
+        values = [(getattr(day.totals, metric), day.day) for day in days]
+        high, low = max(values, key=lambda pair: pair[0]), min(values, key=lambda pair: pair[0])
+        extremes[metric] = {"max": _plain(round(high[0], 2)), "max_date": high[1].isoformat(),
+                            "min": _plain(round(low[0], 2)), "min_date": low[1].isoformat()}
+    return {"from": first.isoformat(), "to": last.isoformat(), "days": len(days), "extremes": extremes}
 
 
 def accounts_overview(rest, *, days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
@@ -328,7 +382,8 @@ def accounts_overview(rest, *, days: int = DEFAULT_DAYS, date_from: str = "", da
 
 def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS, product: Product = "",
               source: Source = "", sort_by: RankingMetric = "spend", asin: str = "", offset: int = 0,
-              limit: int = 50, date_from: str = "", date_to: str = "") -> dict:
+              limit: int = 50, date_from: str = "", date_to: str = "", min_orders: int = 0, max_acos: float = 0,
+              min_spend: float = 0, without_sales: bool = False) -> dict:
     """Los totales de una cuenta en sus últimos `days` días o de `date_from` a `date_to`, agrupados por campaña,
     portfolio, producto, tipo de match, search term o ASIN.
 
@@ -336,8 +391,10 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
     tipo de match, search term y ASIN, de los search terms, que sólo son de SP. Campaña, portfolio y producto también
     salen de los search terms con `source`=search_terms (por producto, un solo grupo: SP). `asin` deja sólo los
     search terms de ese ASIN. Ordenados de mayor a menor por `sort_by`; los grupos sin ventas no tienen ACoS y quedan
-    al final de ese orden. `totals` suma todos los grupos, también los que no entran en la página.
+    al final de ese orden. `totals` suma todos los grupos, también los que no entran en la página. `min_orders`,
+    `max_acos`, `min_spend` y `without_sales` dejan sólo los grupos que cumplen ese criterio, y `total` los cuenta.
     """
+    filters = GroupFilters(min_orders=min_orders, max_acos=max_acos, min_spend=min_spend, without_sales=without_sales)
     if by not in _DIMENSIONS:
         raise ValueError(f"by tiene que ser uno de: {', '.join(_DIMENSIONS)}")
     if sort_by not in RANKING_METRICS:
@@ -351,7 +408,8 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
         raise ValueError("El filtro asin sale de los search terms: pedilo con source=search_terms, o agrupá por "
                          "search_term o match_type.")
     if source != SOURCE_SEARCH_TERMS and by in _CAMPAIGN_GROUPS:
-        return _campaign_breakdown(rest, profile_id, by, days, product, sort_by, offset, limit, date_from, date_to)
+        return _campaign_breakdown(rest, profile_id, by, days, product, sort_by, offset, limit, date_from, date_to,
+                                   filters)
     if product not in ("", "SP"):
         raise ValueError(f"{by} sale de los search terms, que sólo son de Sponsored Products: pedilo sin product "
                          "o con product=SP.")
@@ -381,23 +439,33 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
     column = _SEARCH_TERM_GROUPS.get(by)
     if by == "asin":
         groups = asin_groups.loc[frame.index]
+    elif by == "campaign_search_term":
+        groups = pd.Series(list(zip(frame[canonical.SEARCH_TERM].astype(str).str.strip(),
+                                    frame[canonical.CAMPAIGN_NAME].fillna("").astype(str))), index=frame.index)
     elif column is None:  # by product: every search term is Sponsored Products
         groups = PRODUCT_TYPES["SP"]
     else:
         groups = (frame[column].fillna("").astype(str).str.strip()
                   .replace(_MATCH_TYPE_LABELS if by == "match_type" else {})
                   .replace("", _EMPTY_GROUP.get(by, "Sin nombre")))
-    sums = frame.assign(_group=groups).groupby("_group", sort=False).agg(
+    unsold = _spend_of_unsold_terms(frame, terms.attribution_days)
+    sums = frame.assign(_group=groups, _unsold=unsold).groupby("_group", sort=False).agg(
         spend=(canonical.SPEND, "sum"), sales=(canonical.sales_column(terms.attribution_days), "sum"),
         orders=(canonical.orders_column(terms.attribution_days), "sum"), clicks=(canonical.CLICKS, "sum"),
-        impressions=(canonical.IMPRESSIONS, "sum"))
-    rows = [{"group": str(group), **_metrics(row.spend, row.sales, row.orders, row.clicks, row.impressions)}
-            for group, row in sums.iterrows()]
+        impressions=(canonical.IMPRESSIONS, "sum"), spend_without_sales=("_unsold", "sum"))
+    whole = sums.sum()
+    totals = {**_metrics(whole.spend, whole.sales, whole.orders, whole.clicks, whole.impressions),
+              "spend_without_sales": round(float(whole.spend_without_sales), 2)}
+    rows = _with_shares([{**_group_fields(group),
+                          **_metrics(row.spend, row.sales, row.orders, row.clicks, row.impressions),
+                          "spend_without_sales": round(float(row.spend_without_sales), 2)}
+                         for group, row in sums.iterrows()], totals)
+    leaders = _leaders(rows)
+    rows = [row for row in rows if filters.keeps(row)]
     rows.sort(key=lambda row: (row[sort_by] is not None, row[sort_by] or 0), reverse=True)
     payload = page(rows, offset=offset, limit=limit).as_payload(what="grupos")
-    totals = sums.sum()
-    payload.update(context, totals=_metrics(totals.spend, totals.sales, totals.orders, totals.clicks,
-                                            totals.impressions))
+    payload.update(context, totals=totals, leaders=leaders, spend_without_sales_note=UNSOLD_TERMS_NOTE,
+                   **filters.described())
     if window_note:
         payload["window_note"] = window_note
     return payload
@@ -406,9 +474,11 @@ def breakdown(rest, *, profile_id: str, by: Dimension, days: int = DEFAULT_DAYS,
 def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
                     diagnosis: Diagnosis = "", signal: Signal = "", product: Product = "",
                     target_acos: float = 0, spend_to_pause: float = 0, min_orders_to_scale: int = 0,
-                    sort_by: RankingMetric = "spend", offset: int = 0, limit: int = 50) -> dict:
+                    sort_by: RankingMetric = "spend", offset: int = 0, limit: int = 50,
+                    min_budget_capped_days: int = 0) -> dict:
     """Las campañas habilitadas de una cuenta (SP, SB y SD) en sus últimos `days` días, o de `date_from` a `date_to`,
-    con el diagnóstico de Bulk Campañas y sus señales.
+    con el diagnóstico de Bulk Campañas y sus señales. `min_budget_capped_days` deja las de SP que llegaron a su tope
+    del día al menos esos días; `signal_counts` y `budget_capped` cruzan señales y topes con el diagnóstico.
 
     Parte de la foto de campañas, así que trae también las que no tuvieron actividad (las FANTASMA), que
     `breakdown` por campaña no ve. Clasifica con los parámetros guardados de la cuenta en Bulk Campañas, o
@@ -456,15 +526,51 @@ def campaign_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_fro
     counts = campaigns[DIAGNOSIS_COLUMN].map(diagnosis_name).value_counts()
     totals = _metrics(campaigns["_spend"].sum(), campaigns["_sales"].sum(), campaigns["_orders"].sum(),
                       campaigns["_clicks"].sum(), campaigns["_impr"].sum() if analyzer.has_impressions else 0)
+    crossed = {"signal_counts": _signal_counts(rows), "budget_capped": _budget_capped_counts(rows),
+               "diagnosis_by_product": _diagnosis_by_product(rows)}
     if diagnosis:
         rows = [row for row in rows if row["diagnosis"] == diagnosis]
     if signal:
         rows = [row for row in rows if signal in row["signals"]]
+    if min_budget_capped_days:
+        rows = [row for row in rows if (row.get("budget_capped_days") or 0) >= min_budget_capped_days]
     rows.sort(key=lambda row: (row[sort_by] is not None, row[sort_by] or 0), reverse=True)
     payload = page(rows, offset=offset, limit=limit).as_payload(what="campañas")
     payload.update(context, counts={str(name): int(count) for name, count in counts.items()}, totals=totals,
-                   pause_spend=round(float(campaigns.loc[campaigns[DIAGNOSIS_COLUMN] == PAUSE, "_spend"].sum()), 2))
+                   pause_spend=round(float(campaigns.loc[campaigns[DIAGNOSIS_COLUMN] == PAUSE, "_spend"].sum()), 2),
+                   **crossed)
     return payload
+
+
+def _signal_counts(rows: list[dict]) -> dict:
+    """Per signal, how many enabled campaigns carry it in each diagnosis."""
+    found: dict[str, dict[str, int]] = {}
+    for row in rows:
+        for name in row["signals"]:
+            per_diagnosis = found.setdefault(name, {})
+            per_diagnosis[row["diagnosis"]] = per_diagnosis.get(row["diagnosis"], 0) + 1
+    return found
+
+
+def _budget_capped_counts(rows: list[dict]) -> dict:
+    """How many SP campaigns reached their daily budget at least one day, in total and per diagnosis."""
+    capped = sorted((row for row in rows if (row.get("budget_capped_days") or 0) >= 1),
+                    key=lambda row: row["budget_capped_days"], reverse=True)
+    per_diagnosis: dict[str, int] = {}
+    for row in capped:
+        per_diagnosis[row["diagnosis"]] = per_diagnosis.get(row["diagnosis"], 0) + 1
+    listed = [{"campaign": row["campaign"], "diagnosis": row["diagnosis"], "days": row["budget_capped_days"],
+               "acos": row.get("acos")} for row in capped[:MAX_CAMPAIGNS_LISTED]]
+    return {"campaigns": len(capped), "by_diagnosis": per_diagnosis, "list": listed}
+
+
+def _diagnosis_by_product(rows: list[dict]) -> dict:
+    """Per product (SP, SB, SD), how many enabled campaigns fall in each diagnosis."""
+    found: dict[str, dict[str, int]] = {}
+    for row in rows:
+        per_diagnosis = found.setdefault(str(row.get("product") or ""), {})
+        per_diagnosis[row["diagnosis"]] = per_diagnosis.get(row["diagnosis"], 0) + 1
+    return found
 
 
 def idle_targets(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
@@ -506,7 +612,9 @@ def idle_targets(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: 
 
 def campaign_structure(rest, *, profile_id: str, entity: StructureEntity = "campaigns", campaign: str = "",
                        state: StructureState = "", target: str = "", days: int = DEFAULT_DAYS, date_from: str = "",
-                       date_to: str = "", offset: int = 0, limit: int = 50) -> dict:
+                       date_to: str = "", offset: int = 0, limit: int = 50, sort_by: str = "",
+                       running_only: bool = False, min_clicks: int = 0, min_spend: float = 0, min_acos: float = 0,
+                       without_sales: bool = False) -> dict:
     """La estructura de Sponsored Products de una cuenta, como Amazon Ads la listó por última vez: sus campañas con
     presupuesto, estrategia y ajustes por placement (`entity`=campaigns), o sus placements, ad_groups, keywords,
     product_targets, product_ads o negatives.
@@ -518,10 +626,19 @@ def campaign_structure(rest, *, profile_id: str, entity: StructureEntity = "camp
     Campañas, keywords y product targets traen sus métricas de los últimos `days` días, o de `date_from` a
     `date_to`, cuando hay reportes de esa ventana. Más de `MAX_ACCOUNT_NEGATIVES`
     negativos se leen de a una campaña: sin `campaign`, o con uno que abarca varias campañas, vuelven sólo contados.
+    En campañas, keywords y product targets, `running_only` deja lo que corre (habilitado, y su campaña también),
+    `min_clicks`, `min_spend`, `min_acos` y `without_sales` filtran por sus métricas y `sort_by` los ordena de mayor a
+    menor: una lista por un criterio sale entera y contada en `total`.
     """
     families = STRUCTURE_ENTITIES.get(entity)
     if families is None:
         raise ValueError(f"entity tiene que ser uno de: {', '.join(STRUCTURE_ENTITIES)}")
+    filters = StructureFilters(running_only=running_only, min_clicks=min_clicks, min_spend=min_spend,
+                               min_acos=min_acos, without_sales=without_sales)
+    if (sort_by or filters.applied()) and entity not in _MEASURED_ENTITIES:
+        raise ValueError(f"sort_by y los filtros por métricas son para {', '.join(_MEASURED_ENTITIES)}.")
+    if sort_by and sort_by not in RANKING_METRICS:
+        raise ValueError(f"sort_by tiene que ser uno de: {', '.join(RANKING_METRICS)}")
     if state and state not in STRUCTURE_STATES:
         raise ValueError(f"state tiene que ser uno de: {', '.join(STRUCTURE_STATES)}, o vacío para todos")
     wanted_text = target.strip()
@@ -606,12 +723,55 @@ def campaign_structure(rest, *, profile_id: str, entity: StructureEntity = "camp
             row.update(_metrics(record["cost"], record[sales_field], record[orders_field], record["clicks"],
                                 record["impressions"]))
         rows.append(row)
+    rows = [row for row in rows if filters.keeps(row)]
+    if sort_by:
+        rows.sort(key=lambda row: (row.get(sort_by) is not None, row.get(sort_by) or 0), reverse=True)
     payload = page(rows, offset=offset, limit=limit).as_payload(what=what)
-    payload.update(context)
+    payload.update(context, **filters.described())
+    if entity == "product_ads":
+        payload["distinct"] = {"asins": len({row["asin"] for row in rows if row["asin"]}),
+                               "skus": len({row["sku"] for row in rows if row["sku"]})}
+        payload["distinct_note"] = DISTINCT_ADS_NOTE
     if entity in _MEASURED_ENTITIES and not wanted["metrics_known"].all():
         payload["metrics_note"] = ("Todavía no hay reportes de esta ventana para estas filas: van sin métricas, que no "
                                    "se conocen (no son cero).")
     return payload
+
+
+def exact_keywords(rest, profile_id: str, start: date, end: date) -> dict[str, dict]:
+    """Each term the account targets exactly, lowercased: a keyword in exact match, or an ASIN as an `asin="…"`
+    product target. For each, the campaigns where it runs (it and its campaign enabled) and how many of its targets
+    do not run. Empty when the structure was never listed."""
+    entities = (CAMPAIGN, *STRUCTURE_ENTITIES["keywords"], *STRUCTURE_ENTITIES["product_targets"])
+    structure = StructureProvider(rest).sp_structure(_campaign_profile(rest, profile_id), start, end,
+                                                     entities=entities)
+    if structure is None:
+        return {}
+    scope = structure.rows
+    campaign_states = _campaign_states(scope)
+    targets = scope[scope["entity"].isin((*STRUCTURE_ENTITIES["keywords"], *STRUCTURE_ENTITIES["product_targets"]))]
+    found: dict[str, dict] = {}
+    for record in targets.to_dict("records"):
+        term = _exact_term(record)
+        if not term:
+            continue
+        entry = found.setdefault(term, {"running_in": [], "not_running": 0})
+        runs = (str(record["state"]).upper() == "ENABLED"
+                and str(campaign_states.get(record["campaign_id"], "")).upper() == "ENABLED")
+        if runs:
+            entry["running_in"].append(record["campaign_name"])
+        else:
+            entry["not_running"] += 1
+    return found
+
+
+def _exact_term(record: dict) -> str:
+    """The lowercased term an exact keyword or an `asin="…"` product target aims at; empty for any other target."""
+    text = str(record["target_text"]).strip()
+    if record["entity"] in STRUCTURE_ENTITIES["product_targets"]:
+        exact_asin = text.startswith(ASIN_TARGET_PREFIX) and text.endswith('"')
+        return text[len(ASIN_TARGET_PREFIX):-1].casefold() if exact_asin else ""
+    return text.casefold() if str(record["match_type"]).upper() == "EXACT" else ""
 
 
 def _too_many_negatives(total: int, fragment: str, campaigns: int) -> str:
@@ -791,7 +951,7 @@ def _campaign_row(row, has_impressions: bool) -> dict:
 
 
 def _campaign_breakdown(rest, profile_id: str, by: str, days: int, product: str, sort_by: str, offset: int,
-                        limit: int, date_from: str, date_to: str) -> dict:
+                        limit: int, date_from: str, date_to: str, filters: GroupFilters) -> dict:
     # SB and SD have nothing in the search terms: only a split that holds SP can be asked from there.
     alternative = product in ("", "SP")
     profile = _campaign_profile(rest, profile_id, search_terms_hint=alternative)
@@ -810,14 +970,121 @@ def _campaign_breakdown(rest, profile_id: str, by: str, days: int, product: str,
     groups = groups.replace("", _EMPTY_GROUP.get(by, "Sin nombre"))
     metric_columns = list(campaign_totals.Totals.__dataclass_fields__)
     sums = frame.assign(_group=groups).groupby("_group", sort=False)[metric_columns].sum()
-    rows = [{"group": str(group), **_totals_metrics(campaign_totals.Totals(**row))}
-            for group, row in sums.to_dict("index").items()]
+    totals = _totals_metrics(campaign_totals.Totals(**sums.sum().to_dict()))
+    rows = _with_shares([{"group": str(group), **_totals_metrics(campaign_totals.Totals(**row))}
+                         for group, row in sums.to_dict("index").items()], totals)
+    leaders = _leaders(rows)
+    rows = [row for row in rows if filters.keeps(row)]
     rows.sort(key=lambda row: (row[sort_by] is not None, row[sort_by] or 0), reverse=True)
     payload = page(rows, offset=offset, limit=limit).as_payload(what="grupos")
-    payload.update(context, totals=_totals_metrics(campaign_totals.Totals(**sums.sum().to_dict())))
+    payload.update(context, totals=totals, leaders=leaders, **filters.described())
     if window_note:
         payload["window_note"] = window_note
     return payload
+
+
+@dataclass(frozen=True)
+class GroupFilters:
+    """The criterion a list is asked by; 0 or False leaves that part out."""
+
+    min_orders: int = 0
+    max_acos: float = 0
+    min_spend: float = 0
+    without_sales: bool = False
+
+    def keeps(self, row: dict) -> bool:
+        if self.min_orders and (row["orders"] or 0) < self.min_orders:
+            return False
+        if self.max_acos and (row.get("acos") is None or row["acos"] > self.max_acos):
+            return False
+        if self.min_spend and (row["spend"] or 0) < self.min_spend:
+            return False
+        return not self.without_sales or (not row["sales"] and bool(row["spend"]))
+
+    def described(self) -> dict:
+        applied = {name: value for name, value in vars(self).items() if value}
+        if not applied:
+            return {}
+        return {"filters": applied,
+                "filters_note": ("Sólo vienen los grupos que cumplen filters, y total los cuenta; totals y leaders son "
+                                 "de todos los grupos.")}
+
+
+@dataclass(frozen=True)
+class StructureFilters:
+    """What a structure listing keeps by state and metrics; 0 or False leaves that part out."""
+
+    running_only: bool = False
+    min_clicks: int = 0
+    min_spend: float = 0
+    min_acos: float = 0
+    without_sales: bool = False
+
+    def applied(self) -> dict:
+        return {name: value for name, value in vars(self).items() if value}
+
+    def keeps(self, row: dict) -> bool:
+        runs = str(row.get("state", "")).upper() == "ENABLED" and str(
+            row.get("campaign_state", "ENABLED")).upper() == "ENABLED"
+        if self.running_only and not runs:
+            return False
+        if self.min_clicks and (row.get("clicks") or 0) < self.min_clicks:
+            return False
+        if self.min_spend and (row.get("spend") or 0) < self.min_spend:
+            return False
+        if self.min_acos and (row.get("acos") is None or row["acos"] < self.min_acos):
+            return False
+        return not self.without_sales or (not row.get("sales") and bool(row.get("spend")))
+
+    def described(self) -> dict:
+        applied = self.applied()
+        if not applied:
+            return {}
+        return {"filters": applied,
+                "filters_note": "Sólo vienen las filas que cumplen filters, y total las cuenta; counts es de todas."}
+
+
+def _spend_of_unsold_terms(frame, attribution_days: int):
+    """Each row's spend when its search term sold nothing in that campaign over the window, else 0."""
+    orders = frame.groupby([canonical.CAMPAIGN_NAME, canonical.SEARCH_TERM], dropna=False)[
+        canonical.orders_column(attribution_days)].transform("sum")
+    return frame[canonical.SPEND].where(orders.eq(0), 0.0)
+
+
+def _with_shares(rows: list[dict], totals: dict) -> list[dict]:
+    """Each group's percent of the whole's spend, sales, orders and clicks: «most of» reads off a number."""
+    for row in rows:
+        for metric in SHARED_METRICS:
+            whole = totals.get(metric) or 0
+            row[f"{metric}_share"] = round(row[metric] / whole * 100, 1) if whole else None
+    return rows
+
+
+def _group_fields(group) -> dict:
+    """A search term within its campaign travels as the term plus its campaign; any other group, as itself."""
+    if isinstance(group, tuple):
+        term, campaign = group
+        return {"group": str(term), "campaign": str(campaign)}
+    return {"group": str(group)}
+
+
+def _leaders(rows: list[dict]) -> dict:
+    """Over every group, not only the page: which one leads each metric, and the ACoS ends among those that sold."""
+    if not rows:
+        return {}
+    leaders = {f"most_{metric}": _leader(max(rows, key=lambda row: row[metric] or 0), metric)
+               for metric in ("spend", "sales", "orders", "clicks")}
+    sold = [row for row in rows if row.get("acos") is not None]
+    if sold:
+        leaders["lowest_acos"] = _leader(min(sold, key=lambda row: row["acos"]), "acos")
+        leaders["highest_acos"] = _leader(max(sold, key=lambda row: row["acos"]), "acos")
+    unsold = [row for row in rows if not row.get("sales") and row.get("spend")]
+    leaders["groups_spending_without_sales"] = len(unsold)
+    return leaders
+
+
+def _leader(row: dict, metric: str) -> dict:
+    return {"group": row["group"], metric: row[metric]}
 
 
 def _check_product(product: str) -> None:
@@ -869,7 +1136,7 @@ def _account_totals(rest, jobs: SyncJobStore, profile: ProfileOption, days: int,
 
 
 def _day_row(day: DayTotals) -> dict:
-    return {"date": day.day.isoformat(), **_days_metrics((day,))}
+    return {"date": day.day.isoformat(), "weekday": WEEKDAYS[day.day.weekday()], **_days_metrics((day,))}
 
 
 def _days_metrics(days) -> dict:

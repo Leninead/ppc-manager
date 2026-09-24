@@ -89,8 +89,9 @@ def build_tools(rest) -> list:
         _tool("list_accounts",
               "Las cuentas de Amazon Ads sincronizadas, con país, moneda, hasta qué día tienen datos, qué día es "
               "hoy en cada una (today, en su zona horaria) y si sus datos están al día (up_to_date). Empezá "
-              "por acá para saber qué profile_id usar en las demás herramientas. Devuelve una página; si hay más, "
-              "lo dice y da el offset siguiente.",
+              "por acá para saber qué profile_id usar en las demás herramientas. Para un cliente, pasá account con "
+              "parte de su nombre (sin importar mayúsculas, espacios ni guiones): vienen sólo sus cuentas, de todos "
+              "los países, en una llamada. Devuelve una página; si hay más, lo dice y da el offset siguiente.",
               partial(amazon_ads.list_accounts, rest)),
         _tool("accounts_overview",
               "Los totales de TODAS las cuentas de Amazon Ads en una llamada: gasto, ventas, órdenes, clicks, "
@@ -109,10 +110,12 @@ def build_tools(rest) -> list:
               "Pasá profile_id para una sola cuenta.",
               partial(analyses.list_analyses, rest)),
         _tool("get_analysis",
-              "El último análisis guardado de una cuenta y un módulo: su síntesis y las filas que citó. Las del "
-              "Search Term Report traen el estado que su campaña tiene hoy (campaign_state), no si un negativo "
-              "entra al bulk: eso lo da search_term_candidates. Módulos posibles: " + ", ".join(analyses.MODULES)
-              + ".",
+              "El último análisis guardado de una cuenta y un módulo: su síntesis, row_summary (cuántas filas tiene "
+              "cada grupo, cuántas toman cada valor de sus categorías —diagnóstico, estado, prioridad— y sus "
+              "métricas sumadas, sobre todas las filas) y una página de las filas que citó; group elige un grupo y "
+              "offset/limit su página. Las del Search Term Report traen el estado que su campaña tiene hoy "
+              "(campaign_state), no si un negativo entra al bulk: eso lo da search_term_candidates. Módulos "
+              "posibles: " + ", ".join(analyses.MODULES) + ".",
               partial(analyses.get_analysis, rest)),
         _tool("top_search_terms",
               "Los search terms de mayor gasto de una cuenta de Amazon Ads en los últimos días, cada uno con el "
@@ -132,7 +135,13 @@ def build_tools(rest) -> list:
               "Los totales de una cuenta de Amazon Ads en los últimos días, o en un período exacto con date_from y "
               "date_to (AAAA-MM-DD, hasta 60 días), agrupados por campaña, portfolio, "
               "producto (SP, SB, SD), tipo de match, search term o ASIN: gasto, ventas, órdenes, clicks, ACoS y CVR "
-              "por grupo, de mayor a menor por sort_by, y en totals la suma de todos los grupos. Campaña, portfolio y "
+              "por grupo, de mayor a menor por sort_by, en totals la suma de todos los grupos y en leaders, sobre todos "
+              "los grupos, el de más gasto, ventas, órdenes y clicks, el de ACoS más bajo y más alto entre los que "
+              "vendieron, y cuántos gastaron sin vender. Cada grupo trae su parte del total en spend_share, "
+              "sales_share, orders_share y clicks_share (%). Los grupos que salen de search terms traen además "
+              "spend_without_sales: lo que gastaron sus términos que no vendieron nada en su campaña. "
+              "campaign_search_term agrupa cada término dentro de su campaña (group es el término y campaign su "
+              "campaña); search_term, en cambio, suma el término en todas sus campañas. Campaña, portfolio y "
               "producto salen de los reportes de campaña de los tres productos, y su totals es el total de la cuenta "
               "en el período: suma también las campañas que se pausaron o archivaron después. Tipo de match, search "
               "term y ASIN salen del reporte de search terms, sólo Sponsored Products: su totals es el de Sponsored "
@@ -156,7 +165,10 @@ def build_tools(rest) -> list:
               "o SD; diagnosis y signal filtran filas; counts y totals cubren todas las habilitadas del alcance; "
               "parameters.rules dice la regla y los umbrales de cada diagnóstico, y parameters.signal_rules los de "
               "cada señal. Cada fila de SP trae budget_capped_days: los días en que gastó al menos el 95% de su "
-              "presupuesto del día, esté o no dentro del target. "
+              "presupuesto del día, esté o no dentro del target; min_budget_capped_days deja las que lo tocaron al "
+              "menos esos días. budget_capped cuenta y lista todas las que lo tocaron algún día, con su diagnóstico, "
+              "sus días y su ACoS; signal_counts cuenta cada señal por diagnóstico, y diagnosis_by_product cada "
+              "diagnóstico por producto, todo antes de cualquier filtro. "
               "date_from y date_to (AAAA-MM-DD) piden el período exacto que el AM tiene en pantalla, y target_acos, "
               "spend_to_pause y min_orders_to_scale, sus umbrales.",
               partial(amazon_ads.campaign_health, rest)),
@@ -175,7 +187,8 @@ def build_tools(rest) -> list:
               "sus ajustes por placement (entity=campaigns, o placements de a uno por fila); sus ad groups con su bid "
               "default (ad_groups); sus keywords y product targets con su bid efectivo, el propio o el default de su "
               "ad group (bid_source dice cuál), también los que no tuvieron tráfico (keywords, product_targets); sus "
-              "product ads con ASIN y SKU (product_ads), y sus negativos de campaña y de ad group (negatives). "
+              "product ads con ASIN y SKU (product_ads: cada fila es un anuncio, y distinct cuenta los ASINs y SKUs "
+              "distintos), y sus negativos de campaña y de ad group (negatives). "
               f"Más de {amazon_ads.MAX_ACCOUNT_NEGATIVES} negativos los da sólo de a una campaña: sin campaign, o con "
               "uno que abarca varias campañas, negatives vuelve con counts y sin filas. "
               "campaign filtra por parte del nombre o por el id de la campaña; state, por enabled, paused o archived; "
@@ -185,7 +198,11 @@ def build_tools(rest) -> list:
               "ya pauta una keyword, o si un ASIN es suyo sin recorrer todos sus anuncios. "
               "Ad groups, keywords, targets, anuncios y negativos traen el estado de su campaña "
               "(campaign_state): corren sólo si ellos y su campaña están habilitados. counts dice cuántos hay de cada "
-              "tipo en la cuenta o en las campañas filtradas. Campañas, keywords y "
+              "tipo en la cuenta o en las campañas filtradas. En campañas, keywords y product targets, running_only "
+              "deja lo que corre, min_clicks, min_spend, min_acos y without_sales filtran por sus métricas y sort_by "
+              "ordena de mayor a menor (spend, sales, orders, clicks, impressions, acos o cvr): «las 10 peores "
+              "keywords» o «las que gastan sin vender» salen enteras y contadas en total, en una llamada. Campañas, "
+              "keywords y "
               "product targets traen sus métricas de la ventana cuando hay reportes; date_from y date_to (AAAA-MM-DD) "
               "piden el período exacto.",
               partial(amazon_ads.campaign_structure, rest)),
@@ -203,7 +220,14 @@ def build_tools(rest) -> list:
               "a negativizar, con su regla, su acción y su prioridad (section=negatives), o a harvest, con su regla, "
               "su prioridad y el bid sugerido (section=harvest), cada uno con el estado actual de su campaña y la "
               "sección sumada en totals. Cada negativo dice si entra al bulk del módulo (in_bulk) y, si no, por qué "
-              "(bulk_exclusion); totals_in_bulk suma sólo los que entran. Arranca de los parámetros guardados de la "
+              "(bulk_exclusion); totals_in_bulk suma sólo los que entran. Cada harvest dice si la cuenta ya tiene ese "
+              "término en exact —una keyword exact o, si el término es un ASIN, un product target asin=\"…\"— "
+              "(exact_in_account: corre, no corre —ella o su campaña están pausadas— o no está) y en qué campañas "
+              "corre, y "
+              "cada candidato dice si su término es un ASIN que la cuenta anuncia (own_asin: producto propio, no de "
+              "la competencia), y "
+              "counts lo cuenta; without_running_exact deja sólo los harvest sin una exact que corra, con counts "
+              "de todos. Arranca de los parámetros guardados de la "
               "cuenta, o de los valores por "
               "defecto del módulo si no guardó ninguno; price, harvest_price, harvest_target_acos, "
               "harvest_min_clicks y portfolios los reemplazan. Para lo que el AM ve en pantalla, usá sus fechas y "
@@ -216,8 +240,9 @@ def build_tools(rest) -> list:
               partial(module_results.bid_suggestions, rest)),
         _tool("asin_health",
               "PPC Insights de una cuenta de Amazon Ads, con las mismas reglas del módulo: el health score (0-100) de "
-              "cada ASIN con sus partes, su gasto, ACoS, CVR y el gasto de sus términos que no vendieron, de mayor a "
-              "menor gasto. Sin el SQP, el Business Report ni el Campaign CSV, que se suben a mano en el módulo: "
+              "cada ASIN con sus partes, su gasto, ACoS, CVR, lo que gastaron todos sus términos sin órdenes "
+              "(spend_without_sales) y la parte de sus 10 términos sin órdenes más caros (top_unsold_terms_spend), de "
+              "mayor a menor gasto. Sin el SQP, el Business Report ni el Campaign CSV, que se suben a mano en el módulo: "
               "esas partes del score valen su punto neutro. target_acos reemplaza el guardado de la cuenta.",
               partial(module_results.asin_health, rest)),
     ]

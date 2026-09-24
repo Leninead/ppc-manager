@@ -44,7 +44,19 @@ SITUATION_NOTE = ("La situación de cada análisis es la lectura que escribió s
                   "«todas» de ese texto («las cuatro filas», «tres campañas») se comprueba contando las filas de "
                   "get_analysis antes de repetirla.")
 SYNTHESIS_NOTE = ("La síntesis es la lectura que escribió el modelo del análisis: puede dejar filas afuera o contarlas "
-                  "mal. Una cantidad o un «todas» se dice contando las filas de rows, no copiándola de la síntesis.")
+                  "mal. Una cantidad o un «todas» sale de row_summary, que cuenta y suma todas las filas de cada "
+                  "grupo, no de la síntesis ni de una página de rows.")
+ROW_SUMMARY_NOTE = ("row_summary cuenta, en cada grupo, cuántas filas tienen cada valor de sus campos de categoría "
+                    "(diagnóstico, estado, prioridad…) y suma sus métricas, sobre todas las filas del grupo, también "
+                    "las que no entran en esta página. Cada métrica que el análisis guardó con su valor del tramo "
+                    "anterior (*_previo) trae además *_vs_previo: subió, bajó, igual o sin tramo previo.")
+# A text field with at most this many distinct values, repeated across rows, is a category worth counting.
+MAX_CATEGORY_VALUES = 12
+EMPTY_CATEGORY = "(sin valor)"
+SUMMED_FIELDS = ("spend", "sales", "orders", "clicks", "impressions", "sales_clicks", "orders_clicks")
+PREVIOUS_SUFFIX = "_previo"
+TREND_SUFFIX = "_vs_previo"
+NO_PREVIOUS = "sin tramo previo"
 
 
 def list_analyses(rest, *, profile_id: str = "", offset: int = 0, limit: int = 60) -> dict:
@@ -92,10 +104,15 @@ def list_analyses(rest, *, profile_id: str = "", offset: int = 0, limit: int = 6
     return payload
 
 
-def get_analysis(rest, *, profile_id: str, module: str) -> dict:
-    """El último análisis guardado de una cuenta y un módulo: su síntesis y sus filas."""
+def get_analysis(rest, *, profile_id: str, module: str, group: str = "", offset: int = 0, limit: int = 50) -> dict:
+    """El último análisis guardado de una cuenta y un módulo: su síntesis, un resumen de todas sus filas y una
+    página de ellas. `group` deja sólo ese grupo de filas, y `offset`/`limit` eligen su página."""
     if module not in MODULES:
         raise ValueError(f"Módulo desconocido: {module!r}. Los que hay: {', '.join(MODULES)}.")
+    group_names = [name for name, _, _ in ROW_IDS[module]]
+    if group and group not in group_names:
+        raise ValueError(f"El análisis de {module} no tiene el grupo {group!r}. Los que tiene: "
+                         f"{', '.join(group_names)}.")
     profiles = ReportProvider(rest).profiles()
     profile = next((p for p in profiles if p.profile_id == profile_id), None)
     if profile is None:
@@ -118,8 +135,13 @@ def get_analysis(rest, *, profile_id: str, module: str) -> dict:
         "currency": profile.currency_code,
         "synthesis": _annotated((analysis.result or {}).get("synthesis") or {}, _labels(analysis)),
         "synthesis_note": SYNTHESIS_NOTE,
-        "rows": _rows(analysis),
+        "row_summary": {name: _row_summary(records) for name, _, _, records in _groups(analysis)},
+        "row_summary_note": ROW_SUMMARY_NOTE,
+        "rows": _rows(analysis, group=group, offset=offset, limit=limit),
     }
+    if any(part.get("note") for part in payload["rows"].values()):
+        payload["paging_note"] = ("Las filas que faltan de un grupo se piden con get_analysis, group=<nombre del "
+                                  "grupo> y el offset que da su nota.")
     if module == "str" and payload["rows"] and analysis.window_start and analysis.window_end:
         try:
             _add_campaign_states(payload["rows"], rest, profile, analysis)
@@ -187,12 +209,47 @@ def _annotated(value, labels: dict):
     return value
 
 
-def _rows(analysis) -> dict:
-    """Las filas que el análisis citó, cada una con su row_id, acotadas como todo lo demás.
+def _rows(analysis, *, group: str = "", offset: int = 0, limit: int = 50) -> dict:
+    """Una página de las filas que el análisis citó, cada una con su row_id, de cada grupo o sólo de `group`.
 
     Las listas ya nacen acotadas al generarse, pero el techo se aplica igual: el día que un módulo
     guarde de más, el corte tiene que verse acá y no en el contexto del cliente.
     """
-    return {name: page([{"row_id": row_id, **row} for row_id, row in zip(make_ids(prefix, len(records)), records)])
-            .as_payload(what=f"filas de {name}")
-            for name, prefix, _, records in _groups(analysis)}
+    return {name: page([{"row_id": row_id, **row}
+                        for row_id, row in zip(make_ids(prefix, len(records)), _with_trends(records))],
+                       offset=offset, limit=limit).as_payload(what=f"filas de {name}")
+            for name, prefix, _, records in _groups(analysis) if not group or name == group}
+
+
+def _with_trends(records: list[dict]) -> list[dict]:
+    """Each row plus, for every metric kept with its previous window's value, whether it went up, down or stayed."""
+    trended = []
+    for record in records:
+        trends = {}
+        for key, previous in record.items():
+            current = record.get(key[:-len(PREVIOUS_SUFFIX)]) if key.endswith(PREVIOUS_SUFFIX) else None
+            if isinstance(current, (int, float)) and isinstance(previous, (int, float)):
+                trends[key[:-len(PREVIOUS_SUFFIX)] + TREND_SUFFIX] = (
+                    "subió" if current > previous else "bajó" if current < previous else "igual")
+        trended.append({**record, **trends})
+    trend_fields = dict.fromkeys(field for record in trended for field in record if field.endswith(TREND_SUFFIX))
+    return [{**record, **{field: NO_PREVIOUS for field in trend_fields if field not in record}}
+            for record in trended]
+
+
+def _row_summary(records: list[dict]) -> dict:
+    """How many rows take each value of every category field, and each metric summed over all the rows."""
+    records = _with_trends(records)
+    summary: dict = {"rows": len(records), "counts": {}, "totals": {}}
+    for field in dict.fromkeys(key for record in records for key in record):
+        values = [record.get(field) for record in records]
+        if field.casefold() in SUMMED_FIELDS:
+            summary["totals"][field] = round(sum(value for value in values if isinstance(value, (int, float))), 2)
+            continue
+        if any(isinstance(value, (int, float, bool, dict, list)) for value in values):
+            continue
+        labels = [str(value).strip() if value not in (None, "") else EMPTY_CATEGORY for value in values]
+        distinct = set(labels)
+        if field.endswith(TREND_SUFFIX) or (len(distinct) <= MAX_CATEGORY_VALUES and len(distinct) < len(labels)):
+            summary["counts"][field] = {label: labels.count(label) for label in sorted(distinct)}
+    return summary
