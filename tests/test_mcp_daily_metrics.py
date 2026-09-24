@@ -83,9 +83,10 @@ def test_each_day_carries_the_metrics_the_chat_can_draw():
 
     payload = amazon_ads.daily_metrics(rest, profile_id="1111222233334444", days=1)
 
-    assert payload["rows"] == [{"date": "2026-09-16", "spend": 30.0, "sales": 120.0, "orders": 4, "clicks": 40,
-                                "impressions": 1000, "acos": 25.0, "cvr": 10.0, "sales_clicks": 120.0,
-                                "orders_clicks": 4}]
+    # 16/09/2026 is a Wednesday: the name comes with the date so the chat never works it out.
+    assert payload["rows"] == [{"date": "2026-09-16", "weekday": "miércoles", "spend": 30.0, "sales": 120.0,
+                                "orders": 4, "clicks": 40, "impressions": 1000, "acos": 25.0, "cvr": 10.0,
+                                "sales_clicks": 120.0, "orders_clicks": 4}]
     assert payload["currency"] == "USD" and payload["attribution_days"] == 7
     assert payload["products"] == ["SP"]
 
@@ -122,8 +123,9 @@ def test_a_day_without_sales_has_no_acos_and_a_day_without_clicks_has_no_cvr():
     rows = amazon_ads.daily_metrics(rest, profile_id="1111222233334444", days=2)["rows"]
 
     assert rows[0]["acos"] is None and rows[0]["cvr"] == 0.0
-    assert rows[1] == {"date": "2026-09-16", "spend": 0.0, "sales": 0.0, "orders": 0, "clicks": 0,
-                       "impressions": 0, "acos": None, "cvr": None, "sales_clicks": 0.0, "orders_clicks": 0}
+    assert rows[1] == {"date": "2026-09-16", "weekday": "miércoles", "spend": 0.0, "sales": 0.0, "orders": 0,
+                       "clicks": 0, "impressions": 0, "acos": None, "cvr": None, "sales_clicks": 0.0,
+                       "orders_clicks": 0}
 
 
 def test_the_window_ends_on_the_last_synced_day_and_defaults_to_two_weeks():
@@ -173,6 +175,16 @@ def test_the_campaigns_it_summed_are_those_in_the_reports_not_every_one_with_tha
         "Son las campañas con «cuchillo» en el nombre que figuran en los reportes de estos días, no todas las que la "
         "cuenta tiene con ese nombre: las que no tuvieron actividad pueden no figurar. Cuántas tiene la cuenta lo dice "
         "campaign_structure.")
+
+
+def test_a_series_of_several_campaigns_says_each_day_sums_them_all():
+    """A campaign's name matched its 5 siblings too and the chat read the sum as that one campaign alone."""
+    names = ["Demo - SP - AUTO", "Demo - SP - AUTO - BROAD"]
+    rest = _FakeRest([_day("2026-09-16", campaign_names=names)])
+
+    payload = amazon_ads.daily_metrics(rest, profile_id="1111222233334444", days=1, campaign="Demo - SP - AUTO")
+
+    assert payload["campaigns_note"].startswith("Cada día suma las 2 campañas de campaigns, no una sola")
 
 
 def test_a_campaign_that_matches_nothing_returns_no_days_instead_of_a_series_of_zeros():
@@ -234,8 +246,8 @@ def test_sp_summed_from_the_search_terms_is_still_there_on_request():
     payload = amazon_ads.daily_metrics(rest, profile_id="1111222233334444", days=1, source="search_terms")
 
     assert rest.rpc_names == ["ads_daily_totals"]
-    assert payload["rows"] == [{"date": "2026-09-16", "spend": 30.0, "sales": 120.0, "orders": 4, "clicks": 40,
-                                "impressions": 400, "acos": 25.0, "cvr": 10.0}]
+    assert payload["rows"] == [{"date": "2026-09-16", "weekday": "miércoles", "spend": 30.0, "sales": 120.0,
+                                "orders": 4, "clicks": 40, "impressions": 400, "acos": 25.0, "cvr": 10.0}]
     assert payload["data_source"] == "search_terms" and payload["products"] == ["SP"]
     assert "search terms" in payload["source"] and "source=campaigns" in payload["alternative"]
 
@@ -342,6 +354,17 @@ def test_a_long_account_list_comes_in_pages_that_together_name_every_account():
     assert sorted(seen) == sorted(profile["profile_id"] for profile in rest.profiles)
 
 
+def test_an_account_name_finds_its_accounts_in_one_call_whatever_its_spacing_and_case():
+    """Every answer opened by paging the account list to find one client: a third of those calls were repeats."""
+    rest = _ManyAccounts(120)
+
+    found = amazon_ads.list_accounts(rest, account="marca 07")
+    assert found["total"] == 10
+    assert all(row["account"].startswith("Marca 07") for row in found["rows"])
+    assert amazon_ads.list_accounts(rest, account="MARCA-071")["total"] == 1
+    assert "Ninguna cuenta" in amazon_ads.list_accounts(rest, account="nadie")["note"]
+
+
 def test_the_overview_of_many_accounts_comes_in_pages_and_says_how_to_ask_for_the_rest():
     """«Sólo pude ver 31 de las 52»: the currency warning used to overwrite the note that points to the next page."""
     rest = _ManyAccounts(120)
@@ -353,3 +376,18 @@ def test_the_overview_of_many_accounts_comes_in_pages_and_says_how_to_ask_for_th
     second = amazon_ads.accounts_overview(rest, days=1, offset=first["showing"])
     assert second["offset"] == first["showing"]
     assert {row["profile_id"] for row in first["rows"]}.isdisjoint(row["profile_id"] for row in second["rows"])
+
+
+def test_the_series_carries_the_highest_and_lowest_day_before_its_window():
+    """The chat said spend «never went over $23.20 until the 2nd» looking only at its window: 15/08 had $35.30."""
+    rest = _FakeRest([_day("2026-09-01", cost=35.3), _day("2026-09-05", cost=5.0), _day("2026-09-16", cost=30.0)])
+
+    payload = amazon_ads.daily_metrics(rest, profile_id="1111222233334444", date_from="2026-09-10",
+                                       date_to="2026-09-16")
+    before = payload["before_window"]
+
+    assert before["to"] == "2026-09-09"
+    assert (before["extremes"]["spend"]["max"], before["extremes"]["spend"]["max_date"]) == (35.3, "2026-09-01")
+    assert before["extremes"]["spend"]["min"] == 0
+    assert payload["before_window_note"] == amazon_ads.BEFORE_WINDOW_NOTE
+    assert payload["rows"][-1]["spend"] == 30.0

@@ -6,8 +6,11 @@ the values can be the ones the AM has on screen: the chat's turn note names them
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Literal
+
+import pandas as pd
 
 from core.ai_analysis.store import AiAnalysisStore
 from core.amazon_ads.campaign_provider import (
@@ -60,7 +63,16 @@ from core.search_term.negatives import (
     select_for_bulk,
 )
 from services.mcp_server.limits import page
-from services.mcp_server.tools.amazon_ads import DEFAULT_DAYS, _campaign_profile, _profile, _window, requested_window
+from services.mcp_server.tools.amazon_ads import (
+    DEFAULT_DAYS,
+    _campaign_profile,
+    _profile,
+    _window,
+    exact_keywords,
+    requested_window,
+)
+
+log = logging.getLogger(__name__)
 
 FunnelSection = Literal["idle_campaigns", "gap_terms", "harvest"]
 CandidateSection = Literal["negatives", "harvest"]
@@ -82,6 +94,10 @@ BIDS_SOURCE = ("Del reporte de search terms: el ASIN sale del nombre de la campa
 ASIN_HEALTH_SOURCE = ("Del reporte de search terms, con el ASIN de cada término como en PPC Insights. El SQP, el "
                       "Business Report y el Campaign CSV se suben a mano en el módulo y acá no están: Buy Box, "
                       "estructura de campañas y visibilidad valen su punto neutro.")
+UNSOLD_SPEND_NOTE = ("spend_without_sales es lo que gastaron todos los search terms del ASIN que no tuvieron ninguna "
+                     "orden, cada término sumado en todas sus campañas. top_unsold_terms_spend es sólo la parte de "
+                     "sus 10 términos sin órdenes de más gasto, de más de 5 cada uno: los que PPC Insights marca "
+                     "para cortar.")
 
 _FUNNEL_WHAT = {"idle_campaigns": "campañas activas sin search terms",
                 "gap_terms": "search terms de campañas pausadas o inexistentes", "harvest": "candidatos a harvest"}
@@ -154,14 +170,15 @@ def funnel_coverage(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_fro
 def search_term_candidates(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "",
                            date_to: str = "", section: CandidateSection = "negatives",
                            portfolios: tuple[str, ...] = (), price: float = 0, harvest_price: float = 0,
-                           harvest_target_acos: int = 0, harvest_min_clicks: int = 0, offset: int = 0,
-                           limit: int = 50) -> dict:
+                           harvest_target_acos: int = 0, harvest_min_clicks: int = 0,
+                           without_running_exact: bool = False, offset: int = 0, limit: int = 50) -> dict:
     """The Search Term Report's candidates of an account: to negate (with their rule and action) or to harvest (with
     their rule and suggested bid).
 
     Starts from the parameters saved for the account in the Search Term Report, or the defaults of its currency;
     `price`, `harvest_price`, `harvest_target_acos` and `harvest_min_clicks` replace the ones given (0 = unchanged).
-    `portfolios` keeps only those portfolios, as the page's filter does.
+    `portfolios` keeps only those portfolios, as the page's filter does. `without_running_exact` keeps the harvest
+    candidates whose term has no exact that runs; counts still cover every candidate.
     """
     if section not in ("negatives", "harvest"):
         raise ValueError("section tiene que ser negatives o harvest.")
@@ -215,11 +232,18 @@ def search_term_candidates(rest, *, profile_id: str, days: int = DEFAULT_DAYS, d
                                                          target_acos=bid_target)) if columns["search_term"] else None)
         states = campaign_states(frame, columns)
         rows = [] if harvest is None else [_str_harvest_row(row, states) for row in harvest.to_dict("records")]
+        _add_exact_presence(rows, rest, profile_id, start, end)
         what = "candidatos a harvest"
         counts = _counts(rows, "priority")
+        if rows and "exact_in_account" in rows[0]:
+            counts |= {f"exact_{key}": value for key, value in _counts(rows, "exact_in_account").items()}
+            if without_running_exact:
+                rows = [row for row in rows if row["exact_in_account"] != "corre"]
         missing = "Sin precio de harvest no hay bid sugerido." if bid_price is None else ""
         totals = _totals(rows, ("clicks", "orders"))
         bulk = {}
+    if _mark_own_asins(rows, rest, profile.profile_id):
+        counts["own_asin"] = sum(1 for row in rows if row["own_asin"])
     payload = page(rows, offset=offset, limit=limit).as_payload(what=what)
     payload.update(context, counts=counts, totals=totals, **bulk)
     if missing:
@@ -288,9 +312,11 @@ def asin_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: s
     target = target_acos or saved.target_acos
     resolved = resolve_asins(source.frame.copy(), ad_group_asins)
     asin_data = analyze_asins(resolved.frame.copy(), None, None, None, target, resolved.column)
-    rows = sorted((_asin_row(asin, metrics, resolved.grouped_asins.get(asin)) for asin, metrics in asin_data.items()),
-                  key=lambda row: (-row["spend"], row["asin"]))
+    unsold_spend = _spend_without_sales(resolved.frame, resolved.column)
+    rows = sorted((_asin_row(asin, metrics, resolved.grouped_asins.get(asin), unsold_spend.get(str(asin), 0.0))
+                   for asin, metrics in asin_data.items()), key=lambda row: (-row["spend"], row["asin"]))
     payload = page(rows, offset=offset, limit=limit).as_payload(what="ASINs")
+    payload.update(unsold_spend_note=UNSOLD_SPEND_NOTE)
     payload.update(window=_window(start, end), currency=source.currency_code, source=ASIN_HEALTH_SOURCE,
                    asin_source=resolved.source, asin_spend_share=resolved.spend_share,
                    parameters={"target_acos": target,
@@ -303,6 +329,20 @@ def asin_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: s
     if notes:
         payload["asin_note"] = " ".join(notes)
     return payload
+
+
+def _spend_without_sales(frame, asin_column: str | None) -> dict[str, float]:
+    """Per ASIN, what its search terms without a single order spent, each term summed over its campaigns."""
+    columns = detect_columns(frame)
+    term, spend, orders = columns["search_term"], columns["spend"], columns["orders"]
+    if not (term and spend and orders and asin_column in frame.columns):
+        return {}
+    metrics = frame[[asin_column, term]].assign(
+        spend=pd.to_numeric(frame[spend], errors="coerce").fillna(0.0),
+        orders=pd.to_numeric(frame[orders], errors="coerce").fillna(0.0))
+    per_term = metrics.groupby([asin_column, term], dropna=False)[["spend", "orders"]].sum()
+    unsold = per_term[per_term["orders"] == 0]
+    return {str(asin): round(float(spent), 2) for asin, spent in unsold.groupby(level=0)["spend"].sum().items()}
 
 
 def _idle_campaign_rows(idle) -> list[dict]:
@@ -357,14 +397,15 @@ def _bid_row(row, columns: dict, asin_column: str) -> dict:
             "status": str(row["Estado"]).split(" ", 1)[-1]}
 
 
-def _asin_row(asin, metrics: dict, grouped_asins: int | None) -> dict:
+def _asin_row(asin, metrics: dict, grouped_asins: int | None, spend_without_sales: float) -> dict:
     top_terms = metrics["top_kws"]
     row = {"asin": str(asin), "health_score": metrics["health_score"],
            "health_parts": {part: _number(points) for part, points in metrics["health_parts"].items()},
            "spend": _number(metrics["spend"]) or 0, "sales": _number(metrics["sales"]),
            "orders": _number(metrics["orders"]), "clicks": _number(metrics["clicks"]),
            "acos": _number(metrics["acos"]), "cvr": _number(metrics["cvr"]),
-           "spend_without_sales": _number(metrics["wasted_spend"]),
+           "spend_without_sales": _number(spend_without_sales),
+           "top_unsold_terms_spend": _number(metrics["wasted_spend"]),
            "top_search_terms": [] if top_terms.empty else top_terms["Search Term"].astype(str).tolist()}
     if grouped_asins:
         row["grouped_asins"] = grouped_asins
@@ -385,6 +426,39 @@ def _bulk_verdicts(candidates: list[NegativeCandidate], frame) -> list[dict]:
 def _totals(rows: list[dict], keys: tuple[str, ...]) -> dict:
     """Every row of the section summed, so the answer quotes a total instead of adding rows up."""
     return {key: _number(sum(row[key] or 0 for row in rows)) for key in keys}
+
+
+def _mark_own_asins(rows: list[dict], rest, profile_id: str) -> bool:
+    """Each candidate says whether its term is an ASIN the account advertises: its own product, not a rival's."""
+    if not rows:
+        return False
+    try:
+        by_ad_group = ReportProvider(rest).advertised_asins(profile_id)
+    except ReportReadError as exc:
+        log.warning("advertised ASINs of profile %s could not be read for candidates: %s", profile_id, exc)
+        return False
+    advertised = {asin.upper() for asins in by_ad_group.values() for asin in asins}
+    for row in rows:
+        row["own_asin"] = str(row["search_term"]).strip().upper() in advertised
+    return True
+
+
+def _add_exact_presence(rows: list[dict], rest, profile_id: str, start, end) -> None:
+    """Each harvest candidate gets whether the account already has its term as an exact keyword, and where it runs."""
+    if not rows:
+        return
+    try:
+        exact = exact_keywords(rest, profile_id, start, end)
+    except (ReportReadError, ValueError) as exc:
+        log.warning("exact keywords of profile %s could not be read for harvest: %s", profile_id, exc)
+        return
+    if not exact:
+        return
+    for row in rows:
+        entry = exact.get(str(row["search_term"]).strip().casefold())
+        row["exact_in_account"] = ("corre" if entry and entry["running_in"] else "no corre" if entry else "no está")
+        if entry and entry["running_in"]:
+            row["exact_running_in"] = entry["running_in"][:3]
 
 
 def _counts(rows: list[dict], key: str) -> dict:

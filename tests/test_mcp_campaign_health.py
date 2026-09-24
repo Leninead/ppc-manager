@@ -151,6 +151,22 @@ def test_the_signals_travel_as_a_list_and_filter_too():
     assert {row["campaign"]: row["signals"] for row in _health()["rows"]}["Bleeder"] == ["Baja visibilidad"]
 
 
+def test_the_budget_capped_campaigns_come_counted_by_diagnosis_before_any_filter():
+    """Asked which campaigns ran out of budget, the chat listed some of them and left one out."""
+    payload = _health(diagnosis="PAUSAR")
+
+    assert payload["budget_capped"] == {"campaigns": 1, "by_diagnosis": {"ESCALAR": 1},
+                                        "list": [{"campaign": "Winner", "diagnosis": "ESCALAR", "days": 5,
+                                                  "acos": 10.0}]}
+    assert payload["diagnosis_by_product"] == {"SP": {"FANTASMA": 1, "PAUSAR": 1, "ESCALAR": 1}}
+    assert payload["signal_counts"] == {"Limitada por presupuesto": {"ESCALAR": 1}, "Baja visibilidad": {"PAUSAR": 1}}
+
+
+def test_min_budget_capped_days_keeps_the_campaigns_capped_at_least_that_many_days():
+    assert [row["campaign"] for row in _health(min_budget_capped_days=1)["rows"]] == ["Winner"]
+    assert _health(min_budget_capped_days=6)["rows"] == []
+
+
 def test_it_classifies_with_the_account_parameters_and_says_where_they_came_from():
     default = _health()
     strict = _health(FakeRest(settings={"target_acos": 35, "spend_to_pause": 30, "min_orders_to_scale": 2}))

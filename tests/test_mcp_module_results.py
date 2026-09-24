@@ -65,6 +65,30 @@ CAMPAIGNS = [
     _campaign("3003", "Luna - B0CYLMJJJC - SP - KW - PHRASE - Fantasma", budget="25.0"),
     _campaign("3004", "Luna - B0CYLM4L23 - SP - AUTO - Chica", budget="5.0"),
 ]
+STRUCTURE_ROW_COLUMNS = ["entity", "campaign_id", "ad_group_id", "entity_id", "campaign_name", "ad_group_name",
+                         "portfolio_id", "portfolio_name", "state", "targeting_type", "budget_amount", "budget_type",
+                         "bidding_strategy", "placement", "percentage", "asin", "sku", "target_kind", "target_text",
+                         "match_type", "default_bid", "own_bid", "bid", "impressions", "clicks", "cost", "purchases_7d",
+                         "sales_7d", "purchases_14d", "sales_14d", "metrics_known", "currency_code", "listed_at"]
+
+
+def _structure_row(entity, campaign_id, entity_id, *, state="ENABLED", text="", match_type=""):
+    return {**dict.fromkeys(STRUCTURE_ROW_COLUMNS, ""), "entity": entity, "campaign_id": campaign_id,
+            "entity_id": entity_id, "campaign_name": f"Campaña {campaign_id}", "state": state, "target_text": text,
+            "match_type": match_type, "metrics_known": "f", "currency_code": "USD",
+            "listed_at": "2026-09-15T03:00:00+00:00"}
+
+
+# "luna pajamas" runs as an exact keyword in 3001; "cheap toy" is exact only in the paused 3002. B0RIVAL001 runs as
+# an ASIN target; B0RIVAL002 is only an expanded one, which is not exact.
+STRUCTURE = [
+    _structure_row("campaign", "3001", "3001"),
+    _structure_row("campaign", "3002", "3002", state="PAUSED"),
+    _structure_row("keyword", "3001", "k1", text="luna pajamas", match_type="EXACT"),
+    _structure_row("keyword", "3002", "k2", text="cheap toy", match_type="EXACT"),
+    _structure_row("product_targeting", "3001", "t1", text='asin="B0RIVAL001"'),
+    _structure_row("product_targeting", "3001", "t2", text='asin-expanded-from="B0RIVAL002"'),
+]
 SETTINGS = {
     "str": {"target_acos": 30, "price": 30.0, "harvest_target_acos": 30, "harvest_price": 30.0,
             "harvest_min_clicks": 15},
@@ -114,6 +138,8 @@ class FakeRest:
         self.reads.append((name, args["p_from"], args["p_to"]))
         if name == "search_terms_between":
             return _csv(SEARCH_TERM_COLUMNS, self.search_terms)
+        if name == "sp_structure_between":
+            return _csv(STRUCTURE_ROW_COLUMNS, STRUCTURE)
         assert name == "campaigns_between"
         return _csv(CAMPAIGN_COLUMNS, CAMPAIGNS)
 
@@ -210,6 +236,47 @@ class TestSearchTermCandidates:
         assert row["rule"] == "Regla principal + CVR alto + Volumen"
         assert row["suggested_bid"] is not None
 
+    def test_each_harvest_candidate_says_whether_the_account_already_runs_it_in_exact(self):
+        """Asked what to fix first, the chat said «most harvest candidates already run in exact»: 7 of 15 did."""
+        payload = module_results.search_term_candidates(FakeRest(), profile_id="111", section="harvest")
+
+        (row,) = payload["rows"]
+        assert row["exact_in_account"] == "corre"
+        assert row["exact_running_in"] == ["Campaña 3001"]
+        assert payload["counts"]["exact_corre"] == 1
+
+    def test_the_exact_presence_of_a_term_is_not_running_when_its_campaign_is_paused(self):
+        exact = module_results.exact_keywords(FakeRest(), "111", amazon_ads.date(2026, 9, 1),
+                                              amazon_ads.date(2026, 9, 14))
+
+        assert exact["cheap toy"] == {"running_in": [], "not_running": 1}
+        assert exact["luna pajamas"]["running_in"] == ["Campaña 3001"]
+
+    def test_a_term_that_is_an_asin_the_account_advertises_is_its_own_product(self):
+        """The chat opened the product ads of 6 ASIN terms, one call each, to tell its own products from rivals."""
+        rows = [{"search_term": "b0cylmjjjc"}, {"search_term": "luna pajamas"}]
+
+        assert module_results._mark_own_asins(rows, FakeRest(), "111")
+        assert [row["own_asin"] for row in rows] == [True, False]
+        payload = module_results.search_term_candidates(FakeRest(), profile_id="111", section="harvest")
+        assert payload["counts"]["own_asin"] == 0
+
+    def test_without_running_exact_keeps_only_the_harvest_the_account_does_not_run_yet(self):
+        """Asked for the terms not yet in exact, the chat paged 138 candidates, 24 at a time, to keep 71."""
+        payload = module_results.search_term_candidates(FakeRest(), profile_id="111", section="harvest",
+                                                        without_running_exact=True)
+
+        assert payload["rows"] == []
+        assert payload["counts"]["exact_corre"] == 1
+
+    def test_an_asin_term_is_in_exact_when_the_account_targets_that_asin(self):
+        """Asked which harvest terms were not in exact yet, the chat counted 7 of 10: the ASIN targets were missing."""
+        exact = module_results.exact_keywords(FakeRest(), "111", amazon_ads.date(2026, 9, 1),
+                                              amazon_ads.date(2026, 9, 14))
+
+        assert exact["b0rival001"] == {"running_in": ["Campaña 3001"], "not_running": 0}
+        assert "b0rival002" not in exact
+
 
 class TestSearchTermRowsCarryTheirCampaignState:
     """The report keeps the last name of each campaign («Viejo», «Pausada»): the state says whether it runs."""
@@ -303,6 +370,22 @@ class TestAsinHealth:
         assert first["top_search_terms"][0] == "luna pajamas"
         assert payload["asin_source"] == "attributed"
         assert payload["parameters"]["target_acos"] == 20
+        assert first["spend_without_sales"] == 56.0
+        assert payload["unsold_spend_note"] == module_results.UNSOLD_SPEND_NOTE
+
+    def test_spend_without_sales_adds_every_term_without_orders_not_only_the_costliest(self):
+        """The chat told a client $86.03 of an ASIN went to searches that did not sell; they had spent $517.43."""
+        import pandas as pd
+
+        frame = pd.DataFrame([
+            {"asin": "A1", "Customer Search Term": "big leak", "Spend": 40.0, "Orders": 0},
+            {"asin": "A1", "Customer Search Term": "small leak", "Spend": 3.0, "Orders": 0},
+            {"asin": "A1", "Customer Search Term": "seller", "Spend": 9.0, "Orders": 0},
+            {"asin": "A1", "Customer Search Term": "seller", "Spend": 5.0, "Orders": 2},
+            {"asin": "A2", "Customer Search Term": "other", "Spend": 7.0, "Orders": 0},
+        ])
+
+        assert module_results._spend_without_sales(frame, "asin") == {"A1": 43.0, "A2": 7.0}
 
 
 class TestRequestedWindow:

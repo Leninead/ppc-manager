@@ -252,6 +252,19 @@ def test_a_keyword_says_whether_its_bid_is_its_own_or_its_ad_group_default():
         0.8, None, 0.8, "ad_group_default")
 
 
+def test_a_list_by_a_criterion_comes_sorted_filtered_and_counted_in_one_call():
+    """Asked for the 10 worst keywords, the chat read 342 in 21 calls and described a cut its rows did not follow."""
+    sold = _structure(entity="keywords", min_spend=1, sort_by="spend")
+    assert [row["target"] for row in sold["rows"]] == ["demo cream"]
+    assert sold["total"] == 1 and sold["filters"] == {"min_spend": 1}
+
+    running = _structure(running_only=True)
+    assert [row["campaign_id"] for row in running["rows"]] == ["11"]
+
+    with pytest.raises(ValueError, match="sort_by y los filtros"):
+        _structure(entity="negatives", sort_by="spend")
+
+
 def test_keywords_without_traffic_are_there_with_their_zeros():
     rows = _by(_structure(entity="keywords")["rows"], "target")
 
@@ -264,6 +277,14 @@ def test_product_targets_carry_their_kind_and_no_match_type():
 
     assert (row["target"], row["kind"], row["match_type"], row["state"], row["bid_source"]) == (
         "close-match", "Automático", "", "PAUSED", "ad_group_default")
+
+
+def test_product_ads_count_their_distinct_asins_apart_from_the_ads():
+    """Asked how many products 5 campaigns advertise, the chat said 167: those were ads, 61 distinct ASINs."""
+    payload = _structure(entity="product_ads")
+
+    assert payload["distinct"] == {"asins": 1, "skus": 1}
+    assert "un ASIN en varias campañas" in payload["distinct_note"]
 
 
 def test_product_ads_carry_their_asin_and_sku():
