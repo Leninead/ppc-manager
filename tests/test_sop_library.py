@@ -1,4 +1,4 @@
-"""The AM SOP library: doc-type detection, badges, search, catalog validation and its place in the rail."""
+"""The AM and PPC SOP library: doc-type detection, badges, search, catalog validation and its place in the rail."""
 from __future__ import annotations
 
 import re
@@ -16,11 +16,20 @@ from core.sop_library import (
     badges,
     detect_doc_type,
     filter_sops,
+    sops_for_area,
     validate_catalog,
 )
 from core.ui import i18n
 
 ROUTING_KEY = "📂 SOPs / Drive AM"
+PPC_ROUTING_KEY = "📂 SOPs / Drive PPC"
+_PPC_SOP_IDS = ["ppc-launch-sop", "ppc-prompt-wow", "ppc-skills-sophie-hub", "ppc-prompts-sophie-hub"]
+_PPC_DOC_TYPES = {
+    "ppc-launch-sop": "doc",
+    "ppc-prompt-wow": "doc",
+    "ppc-skills-sophie-hub": "folder",
+    "ppc-prompts-sophie-hub": "doc",
+}
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _TODAY = date(2026, 9, 23)
 
@@ -28,9 +37,10 @@ _TODAY = date(2026, 9, 23)
 def _sop(**overrides) -> dict:
     sop = {
         "id": "sop-test",
+        "area": "AM",
         "title": "SOP de Prueba",
         "description": "Descripción de prueba.",
-        "category": "PPC",
+        "category": "Listings",
         "url": "https://docs.google.com/document/d/abc/edit",
         "owner": "Owner Test",
         "added": _TODAY,
@@ -99,6 +109,32 @@ def test_bad_category_url_and_missing_field_are_reported():
     assert len(errors) == 3
 
 
+def test_sops_for_area_splits_the_catalog():
+    assert [sop["id"] for sop in sops_for_area(SOPS, "AM")] == ["sop-lanzamiento"]
+    assert [sop["id"] for sop in sops_for_area(SOPS, "PPC")] == _PPC_SOP_IDS
+
+
+def test_invalid_area_is_reported():
+    errors = validate_catalog([_sop(area="Ventas")])
+    assert errors == ["sop-test: área 'Ventas' no está en AREAS"]
+
+
+def test_missing_area_is_reported():
+    errors = validate_catalog([_sop(area="")])
+    assert errors == ["sop-test: faltan campos area"]
+
+
+def test_category_from_another_area_is_reported():
+    errors = validate_catalog([_sop(area="PPC", category="Onboarding")])
+    assert errors == ["sop-test: categoría 'Onboarding' no está en CATEGORIES_BY_AREA['PPC']"]
+
+
+@pytest.mark.parametrize("sop_id, doc_type", _PPC_DOC_TYPES.items())
+def test_ppc_sops_have_their_doc_type(sop_id, doc_type):
+    sop = next(sop for sop in SOPS if sop["id"] == sop_id)
+    assert detect_doc_type(sop["url"])["key"] == doc_type
+
+
 def test_page_is_the_last_account_destination():
     account = next(section for section in navigation.SECTIONS if section.title == "Account")
     assert account.pages[-1] == ROUTING_KEY
@@ -131,3 +167,34 @@ def test_every_page_text_exists_in_both_languages():
 def test_router_dispatches_the_page():
     source = (_REPO_ROOT / "app.py").read_text(encoding="utf-8")
     assert f'if selected == "{ROUTING_KEY}":\n    render_sop_library()' in source
+
+
+def test_ppc_page_is_the_last_ppc_destination():
+    ppc = next(section for section in navigation.SECTIONS if section.title == "PPC")
+    account = next(section for section in navigation.SECTIONS if section.title == "Account")
+    assert ppc.pages[-1] == PPC_ROUTING_KEY
+    assert PPC_ROUTING_KEY not in account.pages
+    assert ROUTING_KEY not in ppc.pages
+    assert navigation.all_pages().count(PPC_ROUTING_KEY) == 1
+
+
+def test_ppc_page_has_its_own_icon():
+    assert navigation.icon_for(PPC_ROUTING_KEY) == ":material/folder_special:"
+
+
+@pytest.mark.parametrize("lang, expected", [("es", "SOPs / Drive PPC"), ("en", "SOPs / PPC Drive")])
+def test_ppc_page_label_follows_the_language(monkeypatch, lang, expected):
+    assert i18n._PAGE_KEYS[PPC_ROUTING_KEY] == "nav.page.sop_library_ppc"
+    monkeypatch.setattr(i18n, "current_lang", lambda: lang)
+    assert navigation.visible_label(PPC_ROUTING_KEY) == expected
+
+
+def test_ppc_header_texts_exist_in_both_languages():
+    for key in ("sop_library.header_title_ppc", "sop_library.header_caption_ppc"):
+        assert key in i18n._ES
+        assert key in i18n._EN
+
+
+def test_router_dispatches_the_ppc_page():
+    source = (_REPO_ROOT / "app.py").read_text(encoding="utf-8")
+    assert f'if selected == "{PPC_ROUTING_KEY}":\n    render_sop_library(area="PPC")' in source

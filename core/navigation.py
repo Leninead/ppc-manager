@@ -50,6 +50,7 @@ SECTIONS: tuple[Section, ...] = (
         "🧠 Bid Optimizer",
         "🚀 Campaign Builder",
         "⚙️ Atom11 Rules Builder",
+        "📂 SOPs / Drive PPC",
     )),
     Section("Research", ":material/science:", False, (
         "🧲 DataDive Analyzer",
@@ -147,6 +148,7 @@ _ICONS: dict[str, str] = {
     "🧬 Variation Builder": ":material/account_tree:",
     "📈 Monthly Forecast": ":material/calendar_month:",
     "📂 SOPs / Drive AM": ":material/folder_shared:",
+    "📂 SOPs / Drive PPC": ":material/folder_special:",
     "📋 Proposal Studio": ":material/article:",
     "🏆 Case Study Studio": ":material/emoji_events:",
     "📚 Knowledge Base": ":material/menu_book:",

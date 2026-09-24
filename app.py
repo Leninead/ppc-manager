@@ -383,6 +383,9 @@ if selected == "📈 Monthly Forecast":
 if selected == "📂 SOPs / Drive AM":
     render_sop_library()
 
+if selected == "📂 SOPs / Drive PPC":
+    render_sop_library(area="PPC")
+
 if selected == "🛒 Mercado Libre":
     render_mercado_libre(username=_username, role=_role)
 

@@ -119,6 +119,7 @@ _ES: dict[str, str] = {
     "nav.page.variation_builder": "Variation Builder",
     "nav.page.monthly_forecast": "Monthly Forecast",
     "nav.page.sop_library": "SOPs / Drive AM",
+    "nav.page.sop_library_ppc": "SOPs / Drive PPC",
     "nav.page.proposal_studio": "Proposal Studio",
     "nav.page.case_study_studio": "Case Study Studio",
     "nav.page.agency_dashboard": "Dashboard Global",
@@ -744,6 +745,10 @@ estado está, cuántas veces se intentó y cuántas filas guardó.
     "sop_library.header_caption": (
         "Links a documentos de Drive. Las notas en .md viven en Knowledge Base."
     ),
+    "sop_library.header_title_ppc": "SOPs / Drive PPC",
+    "sop_library.header_caption_ppc": (
+        "Links a los SOPs y prompts del equipo PPC. Las notas en .md viven en Knowledge Base."
+    ),
     "sop_library.kpi_total": "SOPs",
     "sop_library.kpi_categories": "Categorías con SOPs",
     "sop_library.kpi_review": "A revisar",
@@ -841,6 +846,7 @@ _EN: dict[str, str] = {
     "nav.page.variation_builder": "Variation Builder",
     "nav.page.monthly_forecast": "Monthly Forecast",
     "nav.page.sop_library": "SOPs / AM Drive",
+    "nav.page.sop_library_ppc": "SOPs / PPC Drive",
     "nav.page.proposal_studio": "Proposal Studio",
     "nav.page.case_study_studio": "Case Study Studio",
     "nav.page.agency_dashboard": "Global Dashboard",
@@ -1458,6 +1464,10 @@ many times it was tried and how many rows it saved.
     "sop_library.header_caption": (
         "Links to Drive documents. Notes in .md live in Knowledge Base."
     ),
+    "sop_library.header_title_ppc": "SOPs / PPC Drive",
+    "sop_library.header_caption_ppc": (
+        "Links to the PPC team's SOPs and prompts. Notes in .md live in Knowledge Base."
+    ),
     "sop_library.kpi_total": "SOPs",
     "sop_library.kpi_categories": "Categories with SOPs",
     "sop_library.kpi_review": "To review",
@@ -1518,6 +1528,7 @@ _PAGE_KEYS: dict[str, str] = {
     "🧬 Variation Builder": "nav.page.variation_builder",
     "📈 Monthly Forecast": "nav.page.monthly_forecast",
     "📂 SOPs / Drive AM": "nav.page.sop_library",
+    "📂 SOPs / Drive PPC": "nav.page.sop_library_ppc",
     "📋 Proposal Studio": "nav.page.proposal_studio",
     "🏆 Case Study Studio": "nav.page.case_study_studio",
     "📚 Knowledge Base": "nav.page.knowledge_base",

@@ -1,4 +1,4 @@
-"""The AM SOP library: a versioned catalog of Drive links plus the rules the page applies to it.
+"""The SOP library of the AM and PPC teams: a versioned catalog of Drive links plus the rules the page applies to it.
 
 The catalog lives in code, not under data/: in production data/ is a volume seeded with
 `cp -rn`, so an edited catalog there would never replace the copy already on the volume.
@@ -8,14 +8,20 @@ from __future__ import annotations
 import unicodedata
 from datetime import date
 
-CATEGORIES: tuple[str, ...] = (
-    "Lanzamiento",
-    "Onboarding",
-    "Listings",
-    "PPC",
-    "Reporting",
-    "Operaciones",
-)
+AREAS: tuple[str, ...] = ("AM", "PPC")
+
+CATEGORIES_BY_AREA: dict[str, tuple[str, ...]] = {
+    "AM": (
+        "Lanzamiento",
+        "Onboarding",
+        "Listings",
+        "Reporting",
+        "Operaciones",
+    ),
+    "PPC": ("Lanzamiento", "Estructura", "Optimización", "Bulk files", "Reporting", "Masterclasses", "Skills y prompts IA"),
+}
+
+CATEGORIES: tuple[str, ...] = CATEGORIES_BY_AREA["AM"]
 
 ALL_CATEGORIES = "Todas"
 
@@ -23,16 +29,18 @@ NEW_DAYS = 14
 REVIEW_DAYS = 90
 
 REQUIRED_FIELDS: tuple[str, ...] = (
-    "id", "title", "description", "category", "url", "owner", "added", "last_reviewed",
+    "id", "area", "title", "description", "category", "url", "owner", "added", "last_reviewed",
 )
 
 # To add a SOP: copy one block below and fill in every field.
-# `id` must be unique, `category` must be one of CATEGORIES, and `url` must start with https://.
+# `id` must be unique, `area` must be one of AREAS (it picks the page that lists the SOP),
+# `category` must be one of CATEGORIES_BY_AREA[area], and `url` must start with https://.
 # `added` drives the "Nuevo" badge (NEW_DAYS); bump `last_reviewed` whenever the doc is
 # re-checked, or it gets the "Revisar" badge after REVIEW_DAYS.
 SOPS: tuple[dict, ...] = (
     {
         "id": "sop-lanzamiento",
+        "area": "AM",
         "title": "SOP Maestro — Lanzamiento de producto",
         "description": "Proceso estándar para lanzar un producto nuevo en Amazon.",
         "category": "Lanzamiento",
@@ -40,6 +48,50 @@ SOPS: tuple[dict, ...] = (
         "owner": "Equipo AM",
         "added": date(2026, 9, 23),
         "last_reviewed": date(2026, 9, 23),
+    },
+    {
+        "id": "ppc-launch-sop",
+        "area": "PPC",
+        "title": "Launch SOP — Capybaras (Track A / Track B)",
+        "description": "Estrategia de lanzamiento PPC semana a semana según presupuesto y potencial de conversión: Track A (Exact + SKC primero) o Track B (Auto + Phrase primero).",
+        "category": "Lanzamiento",
+        "url": "https://docs.google.com/document/d/1UlMB19zlCyYrCftF0PwHYW8JbloJvFhv_RAduMQ_8Vw/edit?usp=sharing",
+        "owner": "Guille Neuman",
+        "added": date(2026, 9, 24),
+        "last_reviewed": date(2026, 9, 24),
+    },
+    {
+        "id": "ppc-prompt-wow",
+        "area": "PPC",
+        "title": "Prompt: Reporte Semanal WoW de Performance PPC",
+        "description": "Prompt estándar para el mensaje semanal de performance PPC en Slack a partir del export de Atom11 (variante excel y variante MCP).",
+        "category": "Reporting",
+        "url": "https://docs.google.com/document/d/1rHKnicUFXYgdnLYxXEMhsVxIY6C4lVUc/edit?usp=sharing",
+        "owner": "Guille Neuman",
+        "added": date(2026, 9, 24),
+        "last_reviewed": date(2026, 9, 24),
+    },
+    {
+        "id": "ppc-skills-sophie-hub",
+        "area": "PPC",
+        "title": "Skills PPC (Sophie Hub)",
+        "description": "Carpeta con los skills de Sophie Hub copiados para el equipo PPC.",
+        "category": "Skills y prompts IA",
+        "url": "https://drive.google.com/drive/folders/1jMn11sJauO1c4Bwej2eqi5IntLEdeUCi?usp=drive_link",
+        "owner": "Guille Neuman",
+        "added": date(2026, 9, 24),
+        "last_reviewed": date(2026, 9, 24),
+    },
+    {
+        "id": "ppc-prompts-sophie-hub",
+        "area": "PPC",
+        "title": "Prompts PPC (Sophie Hub)",
+        "description": "Documento con los prompts de Sophie Hub copiados para el equipo PPC.",
+        "category": "Skills y prompts IA",
+        "url": "https://docs.google.com/document/d/1BLd0tGL_ODRFLygM2FQDqjXwMLGCUDQg8grKTS9AzVw/edit?usp=sharing",
+        "owner": "Guille Neuman",
+        "added": date(2026, 9, 24),
+        "last_reviewed": date(2026, 9, 24),
     },
 )
 
@@ -89,6 +141,10 @@ def filter_sops(sops, query: str, category: str | None) -> list:
     return matches
 
 
+def sops_for_area(sops, area: str) -> list:
+    return [sop for sop in sops if sop.get("area") == area]
+
+
 def validate_catalog(sops) -> list[str]:
     errors = []
     seen_ids = set()
@@ -102,9 +158,12 @@ def validate_catalog(sops) -> list[str]:
             if sop_id in seen_ids:
                 errors.append(f"{sop_id}: id duplicado")
             seen_ids.add(sop_id)
+        area = sop.get("area")
+        if area and area not in AREAS:
+            errors.append(f"{sop_ref}: área '{area}' no está en AREAS")
         category = sop.get("category")
-        if category and category not in CATEGORIES:
-            errors.append(f"{sop_ref}: categoría '{category}' no está en CATEGORIES")
+        if category and area in AREAS and category not in CATEGORIES_BY_AREA[area]:
+            errors.append(f"{sop_ref}: categoría '{category}' no está en CATEGORIES_BY_AREA['{area}']")
         url = sop.get("url")
         if url and not str(url).startswith("https://"):
             errors.append(f"{sop_ref}: la url no empieza con https://")

@@ -1,4 +1,4 @@
-"""📂 SOPs / Drive AM — the Account Managers' library of SOP links, grouped by category."""
+"""📂 SOPs / Drive AM and 📂 SOPs / Drive PPC — one page per team over one SOP catalog, grouped by category."""
 from __future__ import annotations
 
 import html
@@ -8,11 +8,12 @@ import streamlit as st
 
 from core.sop_library import (
     ALL_CATEGORIES,
-    CATEGORIES,
+    CATEGORIES_BY_AREA,
     SOPS,
     badges,
     detect_doc_type,
     filter_sops,
+    sops_for_area,
     validate_catalog,
 )
 from core.ui import i18n, palette
@@ -21,25 +22,29 @@ from core.ui.kpi_grid import Kpi, render_kpi_grid
 _GRID_COLUMNS = 3
 
 
-def _header() -> None:
-    st.markdown(f"## {i18n.t('sop_library.header_title')}")
-    st.caption(i18n.t("sop_library.header_caption"))
+def _header(area: str) -> None:
+    if area == "PPC":
+        st.markdown(f"## {i18n.t('sop_library.header_title_ppc')}")
+        st.caption(i18n.t("sop_library.header_caption_ppc"))
+    else:
+        st.markdown(f"## {i18n.t('sop_library.header_title')}")
+        st.caption(i18n.t("sop_library.header_caption"))
     st.divider()
 
 
-def _render_kpis(today: date) -> None:
-    categories_in_use = {sop["category"] for sop in SOPS}
-    to_review = sum(1 for sop in SOPS if "review" in badges(sop, today))
+def _render_kpis(sops: list, today: date) -> None:
+    categories_in_use = {sop["category"] for sop in sops}
+    to_review = sum(1 for sop in sops if "review" in badges(sop, today))
     render_kpi_grid([
-        Kpi(i18n.t("sop_library.kpi_total"), str(len(SOPS))),
+        Kpi(i18n.t("sop_library.kpi_total"), str(len(sops))),
         Kpi(i18n.t("sop_library.kpi_categories"), str(len(categories_in_use))),
         Kpi(i18n.t("sop_library.kpi_review"), str(to_review)),
     ])
 
 
-def _category_options() -> list[str]:
-    in_use = {sop["category"] for sop in SOPS}
-    return [ALL_CATEGORIES] + [category for category in CATEGORIES if category in in_use]
+def _category_options(sops: list, area: str) -> list[str]:
+    in_use = {sop["category"] for sop in sops}
+    return [ALL_CATEGORIES] + [category for category in CATEGORIES_BY_AREA[area] if category in in_use]
 
 
 def _category_label(option: str) -> str:
@@ -97,8 +102,8 @@ def _render_grid(sops: list, today: date) -> None:
                 _render_card(sop, today)
 
 
-def _render_by_category(sops: list, today: date) -> None:
-    for category in CATEGORIES:
+def _render_by_category(sops: list, today: date, area: str) -> None:
+    for category in CATEGORIES_BY_AREA[area]:
         in_category = [sop for sop in sops if sop["category"] == category]
         if not in_category:
             continue
@@ -119,36 +124,39 @@ def _empty_state() -> None:
     )
 
 
-def _render_catalog_errors() -> None:
-    errors = validate_catalog(SOPS)
+def _render_catalog_errors(sops: list) -> None:
+    errors = validate_catalog(sops)
     if errors:
         st.warning(
             i18n.t("sop_library.catalog_errors") + "\n\n" + "\n".join(f"- {error}" for error in errors)
         )
 
 
-def render() -> None:
+def render(area: str = "AM") -> None:
     today = date.today()
-    _header()
-    _render_catalog_errors()
-    _render_kpis(today)
+    area_sops = sops_for_area(SOPS, area)
+    query_key = f"sop_lib_query_{area.lower()}"
+    category_key = f"sop_lib_cat_{area.lower()}"
+    _header(area)
+    _render_catalog_errors(area_sops)
+    _render_kpis(area_sops, today)
 
     query = st.text_input(
         i18n.t("sop_library.search_label"),
-        key="sop_lib_query",
+        key=query_key,
         placeholder=i18n.t("sop_library.search_placeholder"),
     )
     # Seeded instead of passing `default=`: a widget with both key and default warns on rerun.
-    st.session_state.setdefault("sop_lib_cat", ALL_CATEGORIES)
+    st.session_state.setdefault(category_key, ALL_CATEGORIES)
     category = st.pills(
         i18n.t("sop_library.category_label"),
-        _category_options(),
+        _category_options(area_sops, area),
         format_func=_category_label,
-        key="sop_lib_cat",
+        key=category_key,
     )
 
-    matches = filter_sops(SOPS, query, category)
+    matches = filter_sops(area_sops, query, category)
     if not matches:
         _empty_state()
         return
-    _render_by_category(matches, today)
+    _render_by_category(matches, today, area)
