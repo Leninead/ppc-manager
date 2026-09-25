@@ -6,6 +6,28 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — PPC Forecast lee las ventas de ads de la cuenta de Amazon Ads, cuenta el fin de semana una vez y suma Análisis IA (IT-47, 2026-09-25)
+
+**Por qué.** El desglose orgánico vs paid y el spend estimado salían de un «Campaign CSV» subido a mano, que el AM tenía
+que exportar con el mismo rango que el BR; sin archivo, el spend estimado mostraba $0.00. Y la proyección contaba el fin
+de semana dos veces: cuatro semanas idénticas (hábiles 100, fines de semana 60) terminadas en domingo se proyectaban en
+$986.02 para los 14 días siguientes en vez de $1,240.00.
+
+**Ahora.**
+- **Cuenta en lugar de archivo.** «Ventas de ads de la cuenta» elige Cuenta y País (arranca sin cuenta: el BR no dice de
+  quién es) y lee los reportes de campaña sincronizados, SP, SB y SD como los cuenta Campaign Manager, sobre los mismos
+  días del BR. No se usan los search terms: son sólo SP, y en la base local SB+SD eran hasta el 18,5% del spend y el 29%
+  de las ventas de ads de una cuenta.
+- **Días en común.** Si la cuenta sincronizó sólo una parte del BR, el desglose va sobre esos días y lo dice; sin días
+  en común no hay desglose. Sin datos de ads el spend estimado es «—», y si las ventas de ads superan las del BR se avisa
+  que la cuenta o el país no son los del BR.
+- **Proyección.** La tendencia y la diferencia de fin de semana se ajustan juntas. En un backtest con ventas diarias
+  reales de ads de 12 cuentas, el sesgo mediano del total a 14 días pasó de +7,7% a +0,3%; el error por día no cambió.
+- **«Generar Forecast» deja el resultado en pantalla** mientras no cambien el BR, el horizonte o el crecimiento; elegir
+  la cuenta actualiza el desglose sin volver a generar.
+- **Análisis IA.** Pestaña nueva con el agente `ppc_forecast`: dice qué tanto confiar en la proyección y en el spend
+  estimado y qué hacer esta semana, sin recalcular cifras. Corre sólo con «Analizar con IA» y se comparte con el chat.
+
 ### Changed — SBH Recommendation marca «En SP» con la cuenta de Amazon Ads y suma Análisis IA (IT-49, 2026-09-25)
 
 **Por qué.** Para saber qué keywords ya corren en Sponsored Products había que subir un «Campaign CSV» a mano, y su
