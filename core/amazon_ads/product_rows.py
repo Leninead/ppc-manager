@@ -330,11 +330,13 @@ SB_TARGETING_SPEC = ReportSpec(
     ad_product="SPONSORED_BRANDS",
     retention_days=60,
 )
+# The two newToBrand columns are Amazon's documented sdCampaigns metrics, not yet checked against the live API.
 SD_CAMPAIGN_SPEC = ReportSpec(
     report_type_id="sdCampaigns",
     group_by=("campaign",),
     columns=("date", "campaignId", "impressions", "impressionsViews", "clicks", "cost", "purchases", "sales",
-             "purchasesClicks", "salesClicks", "costType", "campaignBudgetAmount", "campaignBudgetCurrencyCode"),
+             "purchasesClicks", "salesClicks", "costType", "campaignBudgetAmount", "campaignBudgetCurrencyCode",
+             "newToBrandPurchases", "newToBrandSales"),
     ad_product="SPONSORED_DISPLAY",
     retention_days=65,
 )
@@ -412,7 +414,8 @@ SD_CAMPAIGN_ROWS = _Parser(
     texts={"cost_type": ("costType",)},
     describe=_campaign_cost_type,
     # SD's name for what SB calls viewableImpressions.
-    metrics={**_BRANDS_DISPLAY_METRICS, "viewable_impressions": "impressionsViews"},
+    metrics={**_BRANDS_DISPLAY_METRICS, "new_to_brand_purchases": "newToBrandPurchases",
+             "new_to_brand_sales": "newToBrandSales", "viewable_impressions": "impressionsViews"},
     optionals={"budget_amount": "campaignBudgetAmount"},
     currency_field="campaignBudgetCurrencyCode",
 )

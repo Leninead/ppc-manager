@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Annotated
+
+from pydantic import WithJsonSchema
 
 from ai.agents import make_ids
 from ai.agents.row_annotation import annotate_row_ids, replace_row_ids, row_labels
@@ -15,6 +18,7 @@ from core.amazon_ads.report_provider import ProfileOption, ReportProvider, Repor
 from core.amazon_ads.sync_planner import profile_timezone
 from core.search_term.candidates import campaign_states, detect_columns
 from services.mcp_server.limits import page
+from services.mcp_server.tools.account_resolver import choose_account, matching_profiles
 
 log = logging.getLogger(__name__)
 
@@ -54,22 +58,33 @@ ROW_SUMMARY_NOTE = ("row_summary cuenta, en cada grupo, cuántas filas tienen ca
 MAX_CATEGORY_VALUES = 12
 EMPTY_CATEGORY = "(sin valor)"
 SUMMED_FIELDS = ("spend", "sales", "orders", "clicks", "impressions", "sales_clicks", "orders_clicks")
+WHERE_NOTE = ("Con where, rows y row_summary son sólo de las filas cuyos campos tienen esos valores (matched_rows por "
+              "grupo), con los row_id de siempre; where_skipped_groups son los grupos que no tienen esos campos.")
+# Field -> value, validated as a mapping of text and published as a typed object.
+WhereParam = Annotated[dict[str, str] | None,
+                       WithJsonSchema({"type": "object", "additionalProperties": {"type": "string"}})]
+# The window whose spend tells apart the accounts a name matched, when no tool window applies.
+DEFAULT_ACCOUNT_DAYS = 7
 PREVIOUS_SUFFIX = "_previo"
 TREND_SUFFIX = "_vs_previo"
 NO_PREVIOUS = "sin tramo previo"
 
 
-def list_analyses(rest, *, profile_id: str = "", offset: int = 0, limit: int = 60) -> dict:
+def list_analyses(rest, *, profile_id: str = "", account: str = "", offset: int = 0, limit: int = 60) -> dict:
     """Qué análisis guardados existen, por cuenta y módulo, con su período, su target, su situación y sus riesgos.
 
     Alcanza para comparar cuentas en una llamada. Para las filas y el resto de la síntesis, `get_analysis`.
+    `account` deja las cuentas que llevan ese texto en el nombre.
     """
     profiles = ReportProvider(rest).profiles()
     labels = account_labels(profiles)
-    wanted = [p for p in profiles if p.data_through is not None
+    named = (matching_profiles(profiles, account) if account.strip() and not profile_id else profiles)
+    wanted = [p for p in named if p.data_through is not None
               and (not profile_id or p.profile_id == profile_id)]
     if profile_id and not wanted:
         raise ValueError(f"No hay ninguna cuenta sincronizada con profile_id {profile_id}.")
+    if account.strip() and not profile_id and not wanted:
+        raise ValueError(f"Ninguna cuenta tiene «{account}» en el nombre; list_accounts da los nombres de todas.")
 
     store = AiAnalysisStore(rest)
     found = []
@@ -104,15 +119,21 @@ def list_analyses(rest, *, profile_id: str = "", offset: int = 0, limit: int = 6
     return payload
 
 
-def get_analysis(rest, *, profile_id: str, module: str, group: str = "", offset: int = 0, limit: int = 50) -> dict:
+def get_analysis(rest, *, profile_id: str = "", account: str = "", module: str, group: str = "",
+                 where: WhereParam = None, offset: int = 0, limit: int = 50) -> dict:
     """El último análisis guardado de una cuenta y un módulo: su síntesis, un resumen de todas sus filas y una
-    página de ellas. `group` deja sólo ese grupo de filas, y `offset`/`limit` eligen su página."""
+    página de ellas. `group` deja sólo ese grupo de filas, `where` sólo las filas cuyos campos de categoría tienen
+    esos valores, y `offset`/`limit` eligen su página."""
     if module not in MODULES:
         raise ValueError(f"Módulo desconocido: {module!r}. Los que hay: {', '.join(MODULES)}.")
     group_names = [name for name, _, _ in ROW_IDS[module]]
     if group and group not in group_names:
         raise ValueError(f"El análisis de {module} no tiene el grupo {group!r}. Los que tiene: "
                          f"{', '.join(group_names)}.")
+    choice = choose_account(rest, profile_id, account, days=DEFAULT_ACCOUNT_DAYS)
+    if choice.candidates:
+        return choice.as_payload()
+    profile_id = choice.profile_id
     profiles = ReportProvider(rest).profiles()
     profile = next((p for p in profiles if p.profile_id == profile_id), None)
     if profile is None:
@@ -139,6 +160,8 @@ def get_analysis(rest, *, profile_id: str, module: str, group: str = "", offset:
         "row_summary_note": ROW_SUMMARY_NOTE,
         "rows": _rows(analysis, group=group, offset=offset, limit=limit),
     }
+    if where:
+        payload.update(_where(analysis, group, dict(where), offset, limit))
     if any(part.get("note") for part in payload["rows"].values()):
         payload["paging_note"] = ("Las filas que faltan de un grupo se piden con get_analysis, group=<nombre del "
                                   "grupo> y el offset que da su nota.")
@@ -215,10 +238,46 @@ def _rows(analysis, *, group: str = "", offset: int = 0, limit: int = 50) -> dic
     Las listas ya nacen acotadas al generarse, pero el techo se aplica igual: el día que un módulo
     guarde de más, el corte tiene que verse acá y no en el contexto del cliente.
     """
-    return {name: page([{"row_id": row_id, **row}
-                        for row_id, row in zip(make_ids(prefix, len(records)), _with_trends(records))],
-                       offset=offset, limit=limit).as_payload(what=f"filas de {name}")
+    return {name: page(_identified(prefix, records), offset=offset, limit=limit).as_payload(what=f"filas de {name}")
             for name, prefix, _, records in _groups(analysis) if not group or name == group}
+
+
+def _identified(prefix: str, records: list[dict]) -> list[dict]:
+    """Each row with its row_id and its trends: the ids count every row, so a subset keeps the ones the synthesis cites."""
+    return [{"row_id": row_id, **row} for row_id, row in zip(make_ids(prefix, len(records)), _with_trends(records))]
+
+
+def _where(analysis, group: str, where: dict, offset: int, limit: int) -> dict:
+    """The rows whose category fields take the values asked for, their count and their own row_summary, per group."""
+    matched, summaries, rows, skipped = {}, {}, {}, []
+    for name, prefix, _, records in _groups(analysis):
+        if group and name != group:
+            continue
+        categories = _row_summary(records)["counts"]
+        if not set(where) <= set(categories):
+            skipped.append(name)
+            continue
+        kept = [row for row in _identified(prefix, records)
+                if all(_category_label(row.get(field)).casefold() == str(value).strip().casefold()
+                       for field, value in where.items())]
+        matched[name] = len(kept)
+        summaries[name] = _row_summary([{key: value for key, value in row.items() if key != "row_id"}
+                                        for row in kept])
+        rows[name] = page(kept, offset=offset, limit=limit).as_payload(what=f"filas de {name} que cumplen where")
+    if not matched:
+        fields = {name: sorted(_row_summary(records)["counts"]) for name, _, _, records in _groups(analysis)
+                  if not group or name == group}
+        raise ValueError(f"where filtra por campos de categoría de row_summary.counts; los de este análisis son: "
+                         f"{fields}.")
+    fields = {"where": where, "matched_rows": matched, "row_summary": summaries, "rows": rows,
+              "where_note": WHERE_NOTE}
+    if skipped:
+        fields["where_skipped_groups"] = skipped
+    return fields
+
+
+def _category_label(value) -> str:
+    return str(value).strip() if value not in (None, "") else EMPTY_CATEGORY
 
 
 def _with_trends(records: list[dict]) -> list[dict]:
@@ -229,12 +288,16 @@ def _with_trends(records: list[dict]) -> list[dict]:
         for key, previous in record.items():
             current = record.get(key[:-len(PREVIOUS_SUFFIX)]) if key.endswith(PREVIOUS_SUFFIX) else None
             if isinstance(current, (int, float)) and isinstance(previous, (int, float)):
-                trends[key[:-len(PREVIOUS_SUFFIX)] + TREND_SUFFIX] = (
-                    "subió" if current > previous else "bajó" if current < previous else "igual")
+                trends[key[:-len(PREVIOUS_SUFFIX)] + TREND_SUFFIX] = trend_between(current, previous)
         trended.append({**record, **trends})
     trend_fields = dict.fromkeys(field for record in trended for field in record if field.endswith(TREND_SUFFIX))
     return [{**record, **{field: NO_PREVIOUS for field in trend_fields if field not in record}}
             for record in trended]
+
+
+def trend_between(current, previous) -> str:
+    """A figure against the same figure of the stretch before: subió, bajó or igual, with no threshold."""
+    return "subió" if current > previous else "bajó" if current < previous else "igual"
 
 
 def _row_summary(records: list[dict]) -> dict:

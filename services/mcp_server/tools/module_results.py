@@ -13,6 +13,7 @@ from typing import Literal
 import pandas as pd
 
 from core.ai_analysis.store import AiAnalysisStore
+from core.amazon_ads.advertised_asins import attribute_asins
 from core.amazon_ads.campaign_provider import (
     BUDGET_AMOUNT,
     CAMPAIGN_ID,
@@ -24,7 +25,14 @@ from core.amazon_ads.campaign_provider import (
     CampaignProvider,
 )
 from core.amazon_ads.report_provider import ReportProvider, ReportReadError
-from core.bid_optimizer.bids import NO_ASIN_WARNING, BidAnalysisParams, bids_by_asin, resolve_asin_column
+from core.bid_optimizer.bids import (
+    NO_ASIN_WARNING,
+    BidAnalysisParams,
+    bids_by_asin,
+    previous_bid_figures,
+    previous_window,
+    resolve_asin_column,
+)
 from core.bid_optimizer.bids import detect_columns as bid_columns
 from core.funnel.coverage import (
     ACTIVE_CAMPAIGN_COLUMN,
@@ -63,14 +71,23 @@ from core.search_term.negatives import (
     select_for_bulk,
 )
 from services.mcp_server.limits import page
+from services.mcp_server.tools.account_resolver import choose_account
 from services.mcp_server.tools.amazon_ads import (
     DEFAULT_DAYS,
     _campaign_profile,
     _profile,
     _window,
-    exact_keywords,
     requested_window,
 )
+from services.mcp_server.tools.analyses import PREVIOUS_SUFFIX, _with_trends
+from services.mcp_server.tools.asin_attribution import (
+    ATTRIBUTION_NOTE,
+    UNATTRIBUTED_ORIGINS,
+    advertised_in,
+    attribution_by_asin,
+)
+from services.mcp_server.tools.campaign_structure import exact_keywords
+from services.mcp_server.tools.windows import clipped_window
 
 log = logging.getLogger(__name__)
 
@@ -101,13 +118,19 @@ UNSOLD_SPEND_NOTE = ("spend_without_sales es lo que gastaron todos los search te
 
 _FUNNEL_WHAT = {"idle_campaigns": "campañas activas sin search terms",
                 "gap_terms": "search terms de campañas pausadas o inexistentes", "harvest": "candidatos a harvest"}
+PREVIOUS_BIDS_NOTE = ("Cada fila trae, con *_previo, sus cifras del tramo del mismo largo inmediatamente anterior "
+                      "(previous_window) y, con *_vs_previo, si subieron, bajaron o quedaron igual. El bid sugerido "
+                      "sale de CVR × precio × target ACoS: decí cuál de los tres movió el bid antes de explicarlo.")
+# previous_bid_figures names the suggested bid as the saved analysis does; this tool's rows call it suggested_bid.
+_BID_ROW_KEYS = {"bid_base": "suggested_bid"}
 _PRIORITY_ORDER = {"Alta": 0, "Media": 1, "Revisar": 2}
 NEGATIVE_TOTALS = ("spend", "clicks", "impressions")
 
 
-def funnel_coverage(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
-                    section: FunnelSection = "idle_campaigns", min_orders: int = DEFAULT_MIN_ORDERS,
-                    match_type: MatchType = DEFAULT_MATCH_TYPE, offset: int = 0, limit: int = 50) -> dict:
+def funnel_coverage(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS, date_from: str = "",
+                    date_to: str = "", section: FunnelSection = "idle_campaigns",
+                    min_orders: int = DEFAULT_MIN_ORDERS, match_type: MatchType = DEFAULT_MATCH_TYPE,
+                    offset: int = 0, limit: int = 50) -> dict:
     """Análisis de Funnel of an account: its active campaigns without a single search term, the search terms of
     paused or missing campaigns with the campaign to create for each, and the terms to harvest.
 
@@ -119,6 +142,10 @@ def funnel_coverage(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_fro
         raise ValueError(f"match_type tiene que ser uno de: {', '.join(MATCH_TYPES)}")
     if min_orders < 1:
         raise ValueError("min_orders tiene que ser 1 o más.")
+    choice = choose_account(rest, profile_id, account, days=days, date_from=date_from, date_to=date_to)
+    if choice.candidates:
+        return choice.as_payload()
+    profile_id = choice.profile_id
     profile = _profile(rest, profile_id)
     start, end, window_note = requested_window(profile, days, date_from, date_to)
     search_terms = ReportProvider(rest).search_terms(profile, start, end)
@@ -167,8 +194,8 @@ def funnel_coverage(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_fro
     return payload
 
 
-def search_term_candidates(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "",
-                           date_to: str = "", section: CandidateSection = "negatives",
+def search_term_candidates(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS,
+                           date_from: str = "", date_to: str = "", section: CandidateSection = "negatives",
                            portfolios: tuple[str, ...] = (), price: float = 0, harvest_price: float = 0,
                            harvest_target_acos: int = 0, harvest_min_clicks: int = 0,
                            without_running_exact: bool = False, offset: int = 0, limit: int = 50) -> dict:
@@ -182,6 +209,10 @@ def search_term_candidates(rest, *, profile_id: str, days: int = DEFAULT_DAYS, d
     """
     if section not in ("negatives", "harvest"):
         raise ValueError("section tiene que ser negatives o harvest.")
+    choice = choose_account(rest, profile_id, account, days=days, date_from=date_from, date_to=date_to)
+    if choice.candidates:
+        return choice.as_payload()
+    profile_id = choice.profile_id
     profile = _profile(rest, profile_id)
     start, end, window_note = requested_window(profile, days, date_from, date_to)
     source = ReportProvider(rest).search_terms(profile, start, end)
@@ -251,13 +282,20 @@ def search_term_candidates(rest, *, profile_id: str, days: int = DEFAULT_DAYS, d
     return payload
 
 
-def bid_suggestions(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
-                    target_acos: int = 0, offset: int = 0, limit: int = 50) -> dict:
+def bid_suggestions(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS, date_from: str = "",
+                    date_to: str = "", target_acos: int = 0, compare_previous: bool = False, offset: int = 0,
+                    limit: int = 50) -> dict:
     """The Bid Optimizer of an account: the suggested bid per ASIN (CVR × price × target ACoS) and its traffic light
     by CVR, the highest spend first.
 
     Starts from the target ACoS saved for the account in the Bid Optimizer, or its default; `target_acos` replaces it.
+    `compare_previous` puts each figure next to the stretch of the same length right before, as the saved analysis
+    does: price, CVR and suggested bid move together, so a bid that rose with the ticket is read as such.
     """
+    choice = choose_account(rest, profile_id, account, days=days, date_from=date_from, date_to=date_to)
+    if choice.candidates:
+        return choice.as_payload()
+    profile_id = choice.profile_id
     profile = _profile(rest, profile_id)
     start, end, window_note = requested_window(profile, days, date_from, date_to)
     source = ReportProvider(rest).search_terms(profile, start, end)
@@ -283,18 +321,40 @@ def bid_suggestions(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_fro
     by_asin = bids_by_asin(frame, columns, asin_column, target, {})
     rows = sorted((_bid_row(row, columns, asin_column) for _, row in by_asin.iterrows()),
                   key=lambda row: -row["spend"])
+    if compare_previous:
+        rows = _with_previous_bids(rows, rest, profile, start, end, target, context)
     payload = page(rows, offset=offset, limit=limit).as_payload(what="ASINs")
     payload.update(context, asin_source=asin_source)
     return payload
 
 
-def asin_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: str = "", date_to: str = "",
-                target_acos: int = 0, offset: int = 0, limit: int = 50) -> dict:
+def _with_previous_bids(rows: list[dict], rest, profile, start, end, target: int, context: dict) -> list[dict]:
+    """Each ASIN's figures of the stretch before, as *_previo, and whether each went up, down or stayed."""
+    before = clipped_window(profile, *previous_window(start, end))
+    if before is None:
+        context["previous_note"] = "No hay tramo anterior: la cuenta no tiene datos sincronizados antes de la ventana."
+        return rows
+    previous_start, previous_end, _ = before
+    previous = ReportProvider(rest).search_terms(profile, previous_start, previous_end).frame
+    figures = previous_bid_figures(previous, target)
+    context["previous_window"] = _window(previous_start, previous_end)
+    context["previous_note"] = PREVIOUS_BIDS_NOTE
+    compared = [{**row, **{f"{_BID_ROW_KEYS.get(key, key)}{PREVIOUS_SUFFIX}": _number(value)
+                           for key, value in figures.get(row["asin"], {}).items()}} for row in rows]
+    return _with_trends(compared)
+
+
+def asin_health(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS, date_from: str = "",
+                date_to: str = "", target_acos: int = 0, offset: int = 0, limit: int = 50) -> dict:
     """PPC Insights of an account: the health score (0-100) of each ASIN with its parts, spend, ACoS, CVR and the
     spend of its terms that did not sell, the highest spend first.
 
     Starts from the target ACoS saved for the account in PPC Insights, or its default; `target_acos` replaces it.
     """
+    choice = choose_account(rest, profile_id, account, days=days, date_from=date_from, date_to=date_to)
+    if choice.candidates:
+        return choice.as_payload()
+    profile_id = choice.profile_id
     profile = _profile(rest, profile_id)
     start, end, window_note = requested_window(profile, days, date_from, date_to)
     provider = ReportProvider(rest)
@@ -315,8 +375,9 @@ def asin_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: s
     unsold_spend = _spend_without_sales(resolved.frame, resolved.column)
     rows = sorted((_asin_row(asin, metrics, resolved.grouped_asins.get(asin), unsold_spend.get(str(asin), 0.0))
                    for asin, metrics in asin_data.items()), key=lambda row: (-row["spend"], row["asin"]))
+    totals = _add_attribution(rows, rest, profile, start, end, source, ad_group_asins)
     payload = page(rows, offset=offset, limit=limit).as_payload(what="ASINs")
-    payload.update(unsold_spend_note=UNSOLD_SPEND_NOTE)
+    payload.update(unsold_spend_note=UNSOLD_SPEND_NOTE, totals=totals, attribution_note=ATTRIBUTION_NOTE)
     payload.update(window=_window(start, end), currency=source.currency_code, source=ASIN_HEALTH_SOURCE,
                    asin_source=resolved.source, asin_spend_share=resolved.spend_share,
                    parameters={"target_acos": target,
@@ -329,6 +390,24 @@ def asin_health(rest, *, profile_id: str, days: int = DEFAULT_DAYS, date_from: s
     if notes:
         payload["asin_note"] = " ".join(notes)
     return payload
+
+
+def _add_attribution(rows: list[dict], rest, profile, start, end, source, ad_group_asins: dict) -> dict:
+    """Each ASIN's attributed_by and advertised_in, and the spend and sales no ASIN took, from the same attribution
+    PPC Insights reads."""
+    frame = source.frame
+    attribution = attribute_asins(frame, ad_group_asins, canonical.CAMPAIGN_NAME)
+    spend = frame[canonical.SPEND]
+    origins = attribution_by_asin(attribution.asins, attribution.origins, spend)
+    advertised = advertised_in(rest, profile, start, end)
+    for row in rows:
+        row["attributed_by"] = origins.get(row["asin"], "")
+        if advertised is not None:
+            row["advertised_in"] = advertised.get(row["asin"].upper(), {"campaigns": 0, "running_campaigns": 0})
+    left_out = attribution.origins.isin(UNATTRIBUTED_ORIGINS)
+    sales = frame[canonical.sales_column(source.attribution_days)]
+    return {"unattributed_spend": round(float(spend[left_out].sum()), 2),
+            "unattributed_sales": round(float(sales[left_out].sum()), 2)}
 
 
 def _spend_without_sales(frame, asin_column: str | None) -> dict[str, float]:

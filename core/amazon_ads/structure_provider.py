@@ -35,6 +35,8 @@ log = logging.getLogger(__name__)
 
 STRUCTURE_RPC = "sp_structure_between"
 STRUCTURE_COUNTS_RPC = "sp_structure_counts"
+SB_SD_TARGETS_RPC = "sb_sd_targets_between"
+TARGET_TOP_OF_SEARCH_RPC = "target_top_of_search_between"
 
 CAMPAIGN = "campaign"
 BIDDING_ADJUSTMENT = "bidding_adjustment"
@@ -62,6 +64,18 @@ ROW_COLUMNS = (
     "purchases_14d", "sales_14d", "metrics_known", "currency_code", "listed_at",
 )
 COUNT_COLUMNS = ("entity", "entity_rows", "listed_at")
+# An SB or SD keyword or target: the SP target's columns, its campaign's state, and SB's and SD's attribution.
+SB_SD_TARGET_COLUMNS = (
+    "entity", "campaign_id", "ad_group_id", "entity_id", "campaign_name", "campaign_state", "cost_type", "ad_group_name",
+    "state", "target_kind", "target_text", "match_type", "default_bid", "own_bid", "bid",
+    "impressions", "clicks", "cost", "purchases", "sales", "purchases_clicks", "sales_clicks",
+    "top_of_search_share", "metrics_known", "currency_code", "listed_at",
+)
+_SB_SD_TEXT_FIELDS = ("entity", "campaign_id", "ad_group_id", "entity_id", "campaign_name", "campaign_state",
+                      "cost_type", "ad_group_name", "state", "target_kind", "target_text", "match_type",
+                      "currency_code")
+_SB_SD_COUNT_FIELDS = ("impressions", "clicks", "purchases", "purchases_clicks")
+_SB_SD_AMOUNT_FIELDS = ("cost", "sales", "sales_clicks")
 STRUCTURE_COLUMNS = ("Entity", "Campaign ID", "Ad Group ID", "Ad ID", "Keyword ID", "Product Targeting ID",
                      "Campaign Name", "Ad Group Name", "Portfolio Name", "State", "Targeting Type", "Daily Budget",
                      "Bidding Strategy", "Placement", "Percentage", "ASIN", "SKU", "Ad Group Default Bid", "Bid",
@@ -115,6 +129,8 @@ _AMOUNT_FIELDS = ("cost", "sales_7d", "sales_14d")
 _ORDER_FIELDS = ("campaign_name", "campaign_id", "_rank", "ad_group_name", "target_text", "entity_id", "placement")
 _READ_ACTION = "leer la estructura SP de Amazon Ads"
 _COUNT_ACTION = "contar la estructura SP de Amazon Ads"
+_SB_SD_ACTION = "leer los keywords y targets SB o SD de Amazon Ads"
+_TOP_OF_SEARCH_ACTION = "leer el top of search de los targets de Amazon Ads"
 
 
 @dataclass(frozen=True)
@@ -199,13 +215,43 @@ class StructureProvider:
                  option.profile_id, start, end, len(counts.rows), sum(counts.rows.values()))
         return counts
 
+    def sb_sd_targets(self, option: ProfileOption, start: date, end: date, product: str, *,
+                      campaign_ids: tuple[str, ...] = ()) -> pd.DataFrame | None:
+        """One profile's SB or SD keywords and targets as last listed, in SB_SD_TARGET_COLUMNS, with the metrics
+        summed over [start, end]. None while the database lacks migration 019."""
+        if product not in ("SB", "SD"):
+            raise ValueError(f"sb_sd_targets reads SB or SD, not {product!r}")
+        args = {**_window_args(option, start, end, campaign_ids), "p_ad_product": product}
+        csv_bytes = self._read(SB_SD_TARGETS_RPC, args, _SB_SD_ACTION)
+        if csv_bytes is None:
+            return None
+        try:
+            return _read_sb_sd_targets(csv_bytes)
+        except ValueError as exc:
+            raise ReportReadError(_error_message(exc, _SB_SD_ACTION)) from exc
+
+    def target_top_of_search(self, option: ProfileOption, start: date, end: date,
+                             product: str) -> dict[str, float] | None:
+        """Target id -> its top-of-search impression share over [start, end], for the targets Amazon gave one.
+        None while the database lacks migration 019."""
+        args = {**_window_args(option, start, end, ()), "p_ad_product": product}
+        csv_bytes = self._read(TARGET_TOP_OF_SEARCH_RPC, args, _TOP_OF_SEARCH_ACTION)
+        if csv_bytes is None:
+            return None
+        try:
+            rows = _read_csv(csv_bytes, ("target_id", "top_of_search_share"), TARGET_TOP_OF_SEARCH_RPC)
+            shares = _optional_numbers(rows, "top_of_search_share", TARGET_TOP_OF_SEARCH_RPC)
+        except ValueError as exc:
+            raise ReportReadError(_error_message(exc, _TOP_OF_SEARCH_ACTION)) from exc
+        return {target_id: float(share) for target_id, share in zip(rows["target_id"], shares) if share == share}
+
     def _read(self, rpc: str, args: dict, action: str) -> bytes | None:
         """The RPC's CSV answer, or None while the database lacks it."""
         try:
             return self._rest.rpc_csv(rpc, args, timeout_s=READ_TIMEOUT_SECONDS)
         except requests.HTTPError as exc:
             if _is_missing_function(exc):
-                log.info("amazon ads: %s does not exist yet (migration 018 pending)", rpc)
+                log.info("amazon ads: %s does not exist yet (its migration is pending)", rpc)
                 return None
             raise ReportReadError(_error_message(exc, action)) from exc
         except requests.RequestException as exc:
@@ -284,12 +330,31 @@ def _read_rows(csv_bytes: bytes) -> pd.DataFrame:
     return ordered[list(ROW_COLUMNS)].reset_index(drop=True)
 
 
-def _metrics_known(rows: pd.DataFrame) -> pd.Series:
+def _read_sb_sd_targets(csv_bytes: bytes) -> pd.DataFrame:
+    """The SB or SD targets typed; raises ValueError on a malformed answer."""
+    rows = _read_csv(csv_bytes, SB_SD_TARGET_COLUMNS, SB_SD_TARGETS_RPC)
+    for field in _SB_SD_TEXT_FIELDS:
+        rows[field] = rows[field].str.replace("\\\\", "\\", regex=False)
+    for field in ("default_bid", "own_bid", "bid", "top_of_search_share"):
+        rows[field] = _optional_numbers(rows, field, SB_SD_TARGETS_RPC)
+    known = _metrics_known(rows, SB_SD_TARGETS_RPC)
+    for field in _SB_SD_COUNT_FIELDS:
+        rows[field] = _numbers(rows, field, SB_SD_TARGETS_RPC).round().astype("float64").where(known)
+    for field in _SB_SD_AMOUNT_FIELDS:
+        rows[field] = _numbers(rows, field, SB_SD_TARGETS_RPC).astype("float64").where(known)
+    rows["metrics_known"] = known
+    rows["listed_at"] = pd.to_datetime(rows["listed_at"], utc=True, format="ISO8601")
+    ordered = rows.sort_values(["campaign_name", "campaign_id", "ad_group_name", "target_text", "entity_id"],
+                               kind="mergesort")
+    return ordered[list(SB_SD_TARGET_COLUMNS)].reset_index(drop=True)
+
+
+def _metrics_known(rows: pd.DataFrame, rpc: str = STRUCTURE_RPC) -> pd.Series:
     # PostgREST's CSV writes a boolean the way Postgres prints it: "t" / "f", not true / false.
     raw = rows["metrics_known"].str.strip()
     unreadable = ~raw.isin(("t", "f"))
     if unreadable.any():
-        raise ValueError(f"{STRUCTURE_RPC} answered a non-boolean metrics_known: {raw[unreadable].iloc[0]!r}")
+        raise ValueError(f"{rpc} answered a non-boolean metrics_known: {raw[unreadable].iloc[0]!r}")
     return raw.eq("t")
 
 

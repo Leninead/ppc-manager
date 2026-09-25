@@ -87,16 +87,19 @@ def test_every_published_tool_carries_a_typed_schema():
             assert spec.get("type"), f"{tool.name}.{name} llegaría al modelo sin tipo"
 
 
-def test_the_account_tools_require_the_profile_they_talk_about():
+def test_the_account_tools_take_the_account_by_its_id_or_by_its_name():
+    """A question names a client, not a profile_id: every account tool takes either, and neither is required alone."""
     server = build_server(build_tools(object()))
-    required = {tool.name: (tool.input_schema or {}).get("required", [])
-                for tool in asyncio.run(server.list_tools())}
+    tools = {tool.name: tool.input_schema or {} for tool in asyncio.run(server.list_tools())}
 
-    assert "profile_id" in required["get_analysis"]
-    assert "profile_id" in required["top_search_terms"]
-    assert required["daily_metrics"] == ["profile_id"]      # la ventana y la campaña son opcionales
-    assert sorted(required["breakdown"]) == ["by", "profile_id"]
-    assert required["list_accounts"] == []      # el punto de entrada no pide nada
+    for name in ("get_analysis", "top_search_terms", "daily_metrics", "breakdown", "campaign_health",
+                 "idle_targets", "campaign_structure", "funnel_coverage", "search_term_candidates",
+                 "bid_suggestions", "asin_health"):
+        assert {"profile_id", "account"} <= set(tools[name]["properties"]), name
+        assert "profile_id" not in tools[name].get("required", []), name
+    assert tools["get_analysis"]["required"] == ["module"]
+    assert tools["breakdown"]["required"] == ["by"]
+    assert tools["list_accounts"].get("required", []) == []      # el punto de entrada no pide nada
 
 
 def test_the_breakdown_offers_its_dimensions_and_metrics_as_closed_lists():

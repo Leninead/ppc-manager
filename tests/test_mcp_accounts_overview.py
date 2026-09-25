@@ -183,3 +183,42 @@ def test_with_every_campaign_sync_done_no_account_is_named_as_missing():
 def test_an_unknown_source_is_refused():
     with pytest.raises(ValueError, match="campaigns, search_terms"):
         _overview(source="business_report")
+
+
+# ── by client, by product, counted and compared ─────────────────────────────────────────────────────────────────────
+
+def test_the_accounts_of_one_client_come_by_name():
+    payload, _ = _overview(days=2, account="WAMERY")
+
+    assert sorted(row["account"] for row in payload["rows"]) == ["wamery · MX", "wamery · US"]
+    with pytest.raises(ValueError, match="Ninguna cuenta"):
+        _overview(days=2, account="zzz")
+
+
+def test_each_account_says_whether_it_spent_more_than_it_sold_and_counts_cover_every_account():
+    """#101 read the accounts page by page to count the ones spending over their sales."""
+    payload, _ = _overview(days=1, synced=("1", "2", "3"))
+
+    rows = {row["account"]: row for row in payload["rows"]}
+    assert (rows["wamery · US"]["spend_exceeds_sales"], rows["wamery · US"]["without_sales"]) == (False, False)
+    assert payload["counts"] == {"accounts": 3, "spend_exceeds_sales": 0, "without_sales": 0}
+    assert rows["wamery · US"]["attribution_days"] == {"SP": 7, "SB": 14}
+
+
+def test_one_product_narrows_every_account_and_brands_carries_new_to_brand():
+    payload, _ = _overview(days=2, product="SB")
+
+    wamery = next(row for row in payload["rows"] if row["account"] == "wamery · US")
+    assert (wamery["spend"], wamery["sales"]) == (20.0, 80.0)
+    # The fixture's SB day never measured new-to-brand: unknown, never zero.
+    assert wamery["ntb_orders"] is None and "ntb_orders" in payload["new_to_brand_note"]
+
+
+def test_each_account_is_compared_with_its_own_period_before():
+    payload, _ = _overview(days=1, compare="previous")
+
+    wamery = next(row for row in payload["rows"] if row["account"] == "wamery · US")
+    assert wamery["comparison"] == {"from": "2026-09-15", "to": "2026-09-15", "days": 1}
+    assert (wamery["previous_spend"], wamery["delta_spend"], wamery["delta_spend_pct"]) == (30.0, 0.0, 0.0)
+    harrick = next(row for row in payload["rows"] if row["account"] == "harrick · US")
+    assert "status" not in harrick and harrick["delta_spend_pct"] is None

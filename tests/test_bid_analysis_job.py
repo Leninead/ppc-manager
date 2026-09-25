@@ -69,6 +69,15 @@ def test_the_previous_stretch_travels_as_columns_and_is_announced_in_the_paramet
     assert "columnas *_previo" in docs[0]["content"]
 
 
+def test_the_previous_stretch_carries_its_price_and_bid_so_a_bid_reads_by_what_moved_it():
+    """#98 read «the CVR fell, so the bid fell» when the bid had risen with the ticket."""
+    analysis_input = _input(previous_frame=_frame([_row(clicks=50, orders=2, sales=40.0, spend=30.0)]))
+
+    record = analysis_input.records[0]
+    # 2 orders over 50 clicks, a 20.00 ticket and the 25% target: 4% × 20.00 × 25%.
+    assert (record["price_previo"], record["bid_base_previo"]) == (20.0, pytest.approx(0.2))
+
+
 def test_without_a_previous_stretch_the_parameters_forbid_reading_a_trend():
     from ai.agents.bid_optimizer.context import build_context
 

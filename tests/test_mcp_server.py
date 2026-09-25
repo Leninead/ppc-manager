@@ -2,7 +2,7 @@
 import pytest
 
 from services.mcp_server import server
-from services.mcp_server.tools import amazon_ads, analyses
+from services.mcp_server.tools import analyses, windows
 
 
 class _FakeRest:
@@ -91,8 +91,8 @@ def test_an_empty_expected_token_never_authorizes_anyone():
 
 
 def test_the_search_term_window_is_capped_so_nobody_asks_for_a_year():
-    assert amazon_ads.MAX_DAYS <= 60          # la retención real de spSearchTerm en Amazon
-    assert amazon_ads.DEFAULT_DAYS <= amazon_ads.MAX_DAYS
+    assert windows.MAX_DAYS <= 60          # la retención real de spSearchTerm en Amazon
+    assert windows.DEFAULT_DAYS <= windows.MAX_DAYS
 
 
 def test_the_module_list_mirrors_the_one_the_database_allows():
@@ -120,3 +120,25 @@ def test_without_its_secrets_the_server_idles_instead_of_exiting_into_a_restart_
     assert idled == [True]
     assert "no arranca sin autenticación" in caplog.text
 
+
+
+def test_every_new_field_and_filter_is_described_where_the_model_picks_its_calls():
+    """The model chooses its calls from these descriptions: a field it is not told about is a field it never asks."""
+    described = {tool["name"]: tool["description"] for tool in server.build_tools(object())}
+
+    for name in ("get_analysis", "top_search_terms", "daily_metrics", "breakdown", "campaign_health", "idle_targets",
+                 "campaign_structure", "funnel_coverage", "search_term_candidates", "bid_suggestions", "asin_health"):
+        assert "account, en lugar de profile_id" in described[name], name
+    for name in ("breakdown", "campaign_health", "campaign_structure"):
+        assert "filters recibe cotas por métrica" in described[name] and "sort_order=asc" in described[name], name
+    for name in ("breakdown", "campaign_health", "accounts_overview"):
+        assert "compare=previous" in described[name] and "order_by_change" in described[name], name
+    assert "granularity=week o month" in described["daily_metrics"] and "activity" in described["daily_metrics"]
+    assert "by_period=week o month" in described["breakdown"] and "other_campaigns" in described["breakdown"]
+    assert "attributed_by" in described["breakdown"] and "attributed_by" in described["asin_health"]
+    assert "targets pregunta por una lista" in described["campaign_structure"]
+    assert "bid_gap" in described["campaign_structure"] and "product=SB o SD" in described["campaign_structure"]
+    assert "cost_type" in described["campaign_structure"]
+    assert "where deja sólo las filas" in described["get_analysis"]
+    assert "compare_previous" in described["bid_suggestions"]
+    assert "spend_exceeds_sales" in described["accounts_overview"] and "ntb_orders" in described["accounts_overview"]
