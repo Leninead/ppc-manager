@@ -1,327 +1,346 @@
+"""Inicio: the home of Agency OS.
+
+Nothing here is written by hand: the counts and areas mirror the side rail for the viewer's
+role (`core.home_areas`), the news come from `core.home_news` and the resources from the SOP
+catalog. Every chip and button navigates by setting the same routing key the rail uses.
+"""
+from __future__ import annotations
+
+from datetime import date, datetime
+from html import escape
+from zoneinfo import ZoneInfo
+
 import streamlit as st
 
-from core.constants import _PAGES
+from core import navigation
+from core.home_areas import AREA_OWNERS, SYSTEM_SECTION, home_counts, visible_sections
+from core.home_news import NEWS, count_since, latest
+from core.integrations import roles
+from core.sop_library import SOPS, sops_for_area
+from core.ui import i18n, palette
 
-_NARANJA  = "#E84000"
-_NEGRO    = "#1F1F1F"
-_GRIS_CLR = "#F5F5F5"
-_GRIS_TXT = "#888888"
+_TIMEZONE = ZoneInfo("America/Argentina/Buenos_Aires")
+_NEWS_GRID_SIZE = 4
+# Narrowest a grid card may get before the grid drops a column: below this the text wraps word by word.
+_NEWS_CARD_MIN = "220px"
+_RESOURCE_CARD_MIN = "240px"
+_AREA_CARD_MIN = "300px"
 
-_VERSION = "v3.0"
-_DATE    = "2026-03-27"
+# (routing key, SOP area or None when there is no real count, body text key)
+_RESOURCES: tuple[tuple[str, str | None, str], ...] = (
+    ("📂 SOPs / Drive PPC", "PPC", "home.resources.sops_ppc_body"),
+    ("📂 SOPs / Drive AM", "AM", "home.resources.sops_am_body"),
+    ("📚 Knowledge Base", None, "home.resources.kb_body"),
+)
 
-# Conteo dinámico desde _PAGES — single source of truth.
-# Excluye Inicio (es la home que muestra el badge, no un módulo funcional).
-_TOTAL_MODULOS = len([p for p in _PAGES if "Inicio" not in p])
+_CSS = f"""
+<style>
+.st-key-home_news {{
+    background: {palette.NEWS_BG};
+    border-radius: 26px;
+    padding: 40px 44px;
+    margin: 8px 0 12px 0;
+}}
+.st-key-home_news [data-testid="stMarkdownContainer"] p {{ margin: 0; }}
+[class*="st-key-home_news_card_"] {{
+    background: {palette.NEWS_CARD};
+    border: 1px solid {palette.NEWS_LINE};
+    border-radius: 18px;
+    padding: 18px 20px;
+    justify-content: space-between;
+}}
+.st-key-home_news_grid > [data-testid="stHorizontalBlock"] {{
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax({_NEWS_CARD_MIN}, 1fr));
+    gap: 14px;
+}}
+.st-key-home_resources_grid > [data-testid="stHorizontalBlock"] {{
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax({_RESOURCE_CARD_MIN}, 1fr));
+    gap: 14px;
+}}
+.st-key-home_areas_grid > [data-testid="stHorizontalBlock"] {{
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(max({_AREA_CARD_MIN}, calc((100% - 28px) / 3)), 1fr));
+    gap: 14px;
+}}
+[class*="st-key-home_res_"] {{ justify-content: space-between; }}
+[class*="st-key-home_"][class*="_grid"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{
+    width: auto !important;
+    min-width: 0 !important;
+    flex: none !important;
+}}
+/* Only the column's own block and the card directly inside it stretch: a nested block (the chips)
+   given height:100% spreads its rows down the card. */
+[class*="st-key-home_"][class*="_grid"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlockBorderWrapper"],
+[class*="st-key-home_"][class*="_grid"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlockBorderWrapper"] > div,
+[class*="st-key-home_"][class*="_grid"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"],
+[class*="st-key-home_"][class*="_grid"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"],
+[class*="st-key-home_"][class*="_grid"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] > div,
+[class*="st-key-home_"][class*="_grid"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] {{
+    height: 100%;
+}}
+.st-key-home_news button[kind="tertiary"] p {{ color: {palette.ACCENT_SOFT}; font-weight: 600; }}
+.st-key-home_news button[kind="tertiary"]:hover p {{ color: {palette.SIDEBAR_INK_ACTIVE}; }}
+[class*="st-key-home_chips_"] {{
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    align-content: flex-start !important;
+    justify-content: flex-start !important;
+    align-items: flex-start !important;
+    gap: 6px 8px !important;
+    height: auto !important;
+}}
+[class*="st-key-home_chips_"] > [data-testid="stElementContainer"] {{
+    width: auto !important;
+    max-width: 100%;
+    flex: 0 0 auto !important;
+}}
+[class*="st-key-home_area_head_"] [data-testid="stMarkdownContainer"] p {{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+}}
+[class*="st-key-home_chip_"] button {{
+    border: 1px solid {palette.LINE} !important;
+    border-radius: 999px !important;
+    background: {palette.CARD} !important;
+    padding: 4px 12px !important;
+    min-height: 34px;
+}}
+[class*="st-key-home_chip_"] button:hover {{ border-color: {palette.ACCENT} !important; }}
+[class*="st-key-home_chip_"] button:hover p {{ color: {palette.ACCENT_HOVER} !important; }}
+.st-key-home_system {{
+    background: {palette.ROW_HOVER};
+    border: 1px dashed {palette.FG_SUBTLE};
+    border-radius: 16px;
+    padding: 20px 24px;
+    margin-top: 8px;
+}}
+@media (pointer: coarse) {{
+    [class*="st-key-home_chip_"] button {{ min-height: 44px; }}
+}}
+@media (max-width: 640px) {{
+    .st-key-home_news {{ padding: 24px 18px; border-radius: 20px; }}
+    .st-key-home_system {{ padding: 16px; }}
+}}
+</style>
+"""
 
-_CHANGELOG = [
-    ("2026-04-16", "Listing Compliance — detector keywords weighted product (LTD MX)"),
-    ("2026-03-27", "Knowledge Base — explorador de notas .md con búsqueda, tags y categorías"),
-    ("2026-03-27", "SBH Target Recommendation — targets SBH cruzando MKL+SQP+Campaign CSV"),
-    ("2026-03-27", "Ranking Volatility — tab 4 en DataDive con std dev + PPC IS del SQP"),
-    ("2026-03-27", "Workflow Wizard — flujo de trabajo guiado piramidal en Inicio"),
-    ("2026-03-27", "Helium 10 Analyzer — Cerebro reverse ASIN, KW Research, Competitor Gap"),
-    ("2026-03-27", "DataDive Analyzer — parsers MKL Keywords, Competitors y Rank Radar"),
-    ("2026-03-27", "@st.cache_data en todos los parsers + keys únicos en download_buttons"),
-    ("2026-03-26", "PPC Insights Engine — health score por ASIN cruzando STR+SQP+BR+Campaigns"),
-    ("2026-03-26", "PPC Forecast — proyección de ventas con tendencia lineal + estacionalidad"),
-    ("2026-03-26", "PPC Audit — auditoría integral con score de cuenta 0-100"),
-    ("2026-03-26", "Account Pulse — monitor de salud diaria con ventas, BuyBox, campañas"),
-    ("2026-03-26", "Bid Optimizer — tab Placements & Budget con referencia SOP"),
-    ("2026-03-26", "Campaign Analyzer — upgrade a Auditoría PPC con naming check"),
-    ("2026-03-26", "Weekly Client Report — changelog integrado en Excel"),
-    ("2026-03-26", "STR Harvest — anti-canibalización automática con Campaign CSV"),
-    ("2026-03-26", "Análisis Cruzado — tab PPC Insights por ASIN"),
-    ("2026-03-23", "Atom11 Rules Builder — 274 rules por cuenta, multi-marca"),
-    ("2026-03-21", "Campaign Builder — bulk Amazon listo para subir"),
-    ("2026-03-21", "Bid Optimizer — bids por CVR real + Inventory Report"),
-    ("2026-03-21", "Sidebar oscuro + rediseño Agency OS"),
-]
+
+def _go(page: str) -> None:
+    st.session_state["selected_page"] = page
 
 
-def _area_card(emoji, titulo, descripcion, ownership, modulos, activo=True, grande=False, count=None):
-    border_color = _NARANJA if activo else "#DDDDDD"
-    bg_color     = "#FFFFFF" if activo else _GRIS_CLR
-    badge_color  = "#E8F5E9" if activo else "#F5F5F5"
-    badge_txt    = "#2E7D32" if activo else _GRIS_TXT
-    badge_label  = f"✅ {count} módulos" if count else ("✅ activo" if activo else "🔒 próximamente")
-    opacity      = "1" if activo else "0.55"
+def _key_of_page(page: str) -> str:
+    """Widget keys use the page's position in the menu: routing keys carry emojis."""
+    return str(navigation.all_pages().index(page))
 
-    mods_html = "".join([
-        f"<span style='display:inline-block;background:#F0F0F0;border-radius:4px;"
-        f"padding:2px 8px;margin:2px;font-size:0.70rem;color:#444;'>{m}</span>"
-        for m in modulos
-    ]) if modulos else ""
 
-    emoji_size  = "2.4rem" if grande else "1.6rem"
-    titulo_size = "1.2rem" if grande else "0.95rem"
-    padding     = "1.8rem" if grande else "1.2rem"
+def _key_of_section(section: navigation.Section) -> str:
+    return str(navigation.SECTIONS.index(section))
 
+
+def _today() -> date:
+    return datetime.now(_TIMEZONE).date()
+
+
+def _today_label(today: date) -> str:
+    weekdays = i18n.t("home.weekdays").split(",")
+    months = i18n.t("home.months").split(",")
+    return i18n.t("home.date", weekday=weekdays[today.weekday()], day=today.day,
+                  month=months[today.month - 1])
+
+
+def _news_meta(item: dict) -> str:
+    news_date = i18n.t("home.news.date", day=item["date"].day,
+                       month=i18n.months_short()[item["date"].month - 1])
+    return i18n.t("home.news.meta", date=news_date, kind=i18n.t(f"home.kind.{item['kind']}"))
+
+
+def _section_title_html(text: str) -> str:
+    return (f"<div style='font-family:{palette.SERIF_STACK};font-size:clamp(24px,3vw,30px);font-weight:700;"
+            f"color:{palette.FG};margin:28px 0 4px 0;'>{escape(text)}</div>")
+
+
+def _kpi_html(value: int, label: str) -> str:
     return (
-        f"<div style='border:2px solid {border_color};border-radius:12px;"
-        f"padding:{padding};margin-bottom:0.75rem;background:{bg_color};"
-        f"opacity:{opacity};height:100%;'>"
-        f"<div style='display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;'>"
-        f"<span style='font-size:{emoji_size};'>{emoji}</span>"
-        f"<span style='font-weight:700;font-size:{titulo_size};color:{_NEGRO};'>{titulo}</span>"
-        f"<span style='margin-left:auto;background:{badge_color};color:{badge_txt};"
-        f"font-size:0.70rem;padding:2px 8px;border-radius:20px;white-space:nowrap;'>{badge_label}</span>"
-        f"</div>"
-        f"<div style='font-size:0.80rem;color:#555;margin-bottom:0.5rem;line-height:1.4;'>{descripcion}</div>"
-        f"<div style='font-size:0.72rem;color:{_GRIS_TXT};margin-bottom:0.5rem;'>"
-        f"<strong>Ownership:</strong> {ownership}</div>"
-        f"<div>{mods_html}</div>"
+        f"<div style='flex:1 1 0;min-width:120px;background:{palette.CARD};border:1px solid {palette.LINE};"
+        f"border-radius:16px;padding:12px 16px;'>"
+        f"<div style='font-family:{palette.SERIF_STACK};font-size:34px;font-weight:700;line-height:1.1;"
+        f"color:{palette.FG};font-variant-numeric:tabular-nums;'>{value}</div>"
+        f"<div style='font-size:13px;color:{palette.FG_MUTED};white-space:nowrap;'>{escape(label)}</div>"
         f"</div>"
     )
 
 
-def render():
-    # ── Header ────────────────────────────────────────────────────────────
+def _render_header(today: date, modules: int, areas: int) -> None:
+    """One flex row instead of st.columns: the KPIs share a row, so they stretch to one height,
+    and the whole group drops under the title when the page is narrow."""
     st.markdown(
-        f"<div style='display:flex;align-items:center;gap:1rem;margin-bottom:0.25rem;'>"
-        f"<span style='font-size:2.5rem;'>🦫</span>"
-        f"<div>"
-        f"<div style='font-size:1.6rem;font-weight:800;color:{_NEGRO};'>Agency OS</div>"
-        f"<div style='font-size:0.85rem;color:{_GRIS_TXT};'>"
-        f"El sistema operativo de la agencia — {_VERSION} — {_DATE}</div>"
+        f"<div style='display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;"
+        f"gap:16px 32px;'>"
+        f"<div style='flex:1 1 360px;min-width:0;'>"
+        f"<div style='font-size:13px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;"
+        f"color:{palette.ACCENT};'>{escape(_today_label(today))}</div>"
+        f"<div style='font-family:{palette.SERIF_STACK};font-size:clamp(28px,4vw,42px);font-weight:700;"
+        f"line-height:1.1;color:{palette.FG};margin:6px 0;'>{escape(i18n.t('home.title'))}</div>"
+        f"<div style='font-size:16px;color:{palette.FG_MUTED};'>{escape(i18n.t('home.subtitle'))}</div>"
         f"</div>"
-        f"<div style='margin-left:auto;background:#1A1A1A;color:{_NARANJA};"
-        f"padding:0.5rem 1rem;border-radius:8px;font-weight:800;font-size:1.1rem;'>"
-        f"{_TOTAL_MODULOS} módulos activos</div>"
-        f"</div>",
+        f"<div style='display:flex;align-items:stretch;gap:12px;flex:0 1 auto;'>"
+        f"{_kpi_html(modules, i18n.tn('home.kpi.modules', modules))}"
+        f"{_kpi_html(areas, i18n.tn('home.kpi.areas', areas))}"
+        f"</div></div>",
         unsafe_allow_html=True,
     )
-    st.divider()
 
-    # ── Áreas activas ─────────────────────────────────────────────────────
+
+def _render_featured_news(item: dict, this_week: int) -> None:
+    badge = ""
+    if this_week:
+        badge = (f"<span style='font-size:13px;font-weight:600;color:{palette.NEWS_BG};"
+                 f"background:{palette.ACCENT_SOFT};border-radius:999px;padding:4px 12px;'>"
+                 f"{escape(i18n.tn('home.news.this_week', this_week))}</span>")
     st.markdown(
-        f"<div style='font-weight:700;font-size:0.95rem;color:{_NEGRO};"
-        f"margin-bottom:0.75rem;'>🟢 Áreas activas</div>",
-        unsafe_allow_html=True
-    )
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(_area_card(
-            "📊", "PPC",
-            "Gestionamos campañas publicitarias en Amazon para maximizar ventas y rentabilidad."
-            "<div style='margin-top:0.8rem;padding:0.75rem;background:#FFF3EE;"
-            "border-radius:8px;border-left:3px solid #E84000;'>"
-            "<div style='font-size:0.72rem;font-weight:700;color:#E84000;"
-            "margin-bottom:0.4rem;letter-spacing:0.05em;'>FLUJO DE TRABAJO</div>"
-            "<div style='font-size:0.75rem;color:#444;line-height:1.8;'>"
-            "1️⃣ <b>STR</b> — Negativizar + Harvestear<br>"
-            "2️⃣ <b>SQP</b> — Market share orgánico<br>"
-            "3️⃣ <b>Análisis Cruzado</b> — Oportunidades STR+SQP<br>"
-            "4️⃣ <b>Tendencia</b> — Evolución multi-semana<br>"
-            "5️⃣ <b>Bulk Campañas</b> — Diagnóstico + Auditoría<br>"
-            "6️⃣ <b>Business Report</b> — Ventas y TACoS<br>"
-            "7️⃣ <b>Funnel</b> — Brechas estructurales<br>"
-            "8️⃣ <b>Bid Optimizer</b> — Bids + Placements<br>"
-            "9️⃣ <b>Campaign Builder</b> — Bulk listo para Amazon<br>"
-            "🔟 <b>Atom11 Rules</b> — Automatización"
-            "</div></div>",
-            "Guille Neuman",
-            ["STR", "SQP", "Análisis Cruzado", "Tendencia",
-             "Bulk Campañas", "Business Report", "Funnel",
-             "Bid Optimizer", "Campaign Builder"],
-            activo=True, count=10
-        ), unsafe_allow_html=True)
-
-    with col2:
-        st.markdown(_area_card(
-            "👥", "Account Manager",
-            "Reportes, monitoreo y comunicación con el cliente.",
-            "Eduardo Maya",
-            ["Reportes Atom 11", "MerchanSpring", "Weekly Report", "Account Pulse"],
-            activo=True, count=4
-        ), unsafe_allow_html=True)
-
-    with col3:
-        st.markdown(_area_card(
-            "🔬", "Research & Intelligence",
-            "Análisis profundo de nicho, competidores y salud de cuenta. Herramientas de investigación avanzadas para decisiones estratégicas.",
-            "Lenin Acosta",
-            ["DataDive", "Helium 10", "SBH Recommendation",
-             "PPC Insights", "PPC Forecast", "PPC Audit", "Account Pulse"],
-            activo=True, count=7
-        ), unsafe_allow_html=True)
-
-    col_sc = st.columns(3)
-    with col_sc[0]:
-        st.markdown(_area_card(
-            "🚚", "Supply Chain",
-            "Abastecimiento, inventario y logística.",
-            "Julian López / Federico Valero",
-            ["Proveedores", "Órdenes de Compra"],
-            activo=True, count=2
-        ), unsafe_allow_html=True)
-
-    col_kb = st.columns([1])
-    with col_kb[0]:
-        st.markdown(_area_card(
-            "📚", "Knowledge Base",
-            "Repositorio centralizado de notas, aprendizajes y documentación del equipo. Buscar por tags, categorías y texto libre.",
-            "Lenin Acosta",
-            ["Explorar notas", "Agregar nota", "Búsqueda por tags"],
-            activo=True
-        ), unsafe_allow_html=True)
-
-    st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
-
-    # ── Changelog reciente ────────────────────────────────────────────────
-    st.markdown(
-        f"<div style='font-weight:700;font-size:0.95rem;color:{_NEGRO};"
-        f"margin-bottom:0.75rem;'>📝 Changelog reciente</div>",
-        unsafe_allow_html=True
-    )
-
-    changelog_html = "".join([
-        f"<div style='display:flex;gap:0.75rem;padding:0.35rem 0;"
-        f"border-bottom:1px solid #F0F0F0;font-size:0.78rem;'>"
-        f"<span style='color:{_GRIS_TXT};white-space:nowrap;min-width:85px;'>{date}</span>"
-        f"<span style='color:#333;'>{desc}</span></div>"
-        for date, desc in _CHANGELOG[:10]
-    ])
-
-    st.markdown(
-        f"<div style='background:#FAFAFA;border-radius:8px;padding:0.75rem 1rem;"
-        f"border:1px solid #EEE;max-height:280px;overflow-y:auto;'>{changelog_html}</div>",
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
-
-    # ── Workflow Wizard ──────────────────────────────────────────────────
-    st.markdown(
-        f"<div style='font-weight:700;font-size:0.95rem;color:{_NEGRO};"
-        f"margin-bottom:0.75rem;'>🗺️ Flujo de trabajo guiado</div>",
-        unsafe_allow_html=True
-    )
-
-    def _wf_level(level_num, emoji, title, color, modules_list, desc):
-        """Build a workflow level row."""
-        btns_html = " ".join(
-            f"<span style='display:inline-block;background:{color}15;border:1px solid {color};"
-            f"border-radius:4px;padding:2px 8px;margin:2px;font-size:0.72rem;color:{color};"
-            f"font-weight:600;'>{m}</span>"
-            for m in modules_list
-        )
-        return (
-            f"<div style='display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.75rem;"
-            f"margin-bottom:0.4rem;background:#FAFAFA;border-radius:8px;"
-            f"border-left:4px solid {color};'>"
-            f"<div style='min-width:28px;text-align:center;font-size:1.1rem;'>{emoji}</div>"
-            f"<div style='flex:1;'>"
-            f"<div style='font-size:0.82rem;font-weight:700;color:{_NEGRO};'>"
-            f"Nivel {level_num}: {title}</div>"
-            f"<div style='font-size:0.72rem;color:#777;margin:2px 0 4px;'>{desc}</div>"
-            f"<div>{btns_html}</div>"
-            f"</div></div>"
-        )
-
-    wf_html = ""
-    wf_html += _wf_level(1, "📥", "Subí tus datos", "#2196F3",
-        ["STR", "SQP", "Bulk", "BR", "DataDive", "Helium 10", "Account Pulse"],
-        "Archivos base desde Amazon, DataDive y Helium 10")
-    wf_html += _wf_level(2, "🔍", "Analizá", "#FF9800",
-        ["Análisis Cruzado", "Funnel", "Tendencia", "PPC Audit"],
-        "Cruzar datos, detectar brechas y auditar la cuenta")
-    wf_html += _wf_level(3, "🧠", "Inteligencia", "#9C27B0",
-        ["PPC Insights", "Forecast", "DataDive", "SBH Targets"],
-        "Health score, proyecciones, volatilidad y targeting SBH")
-    wf_html += _wf_level(4, "🚀", "Ejecutá", "#4CAF50",
-        ["Campaign Builder", "Bid Optimizer", "Atom11 Rules"],
-        "Generar bulks, ajustar bids y crear rules de automatización")
-    wf_html += _wf_level(5, "📊", "Reportá", "#E84000",
-        ["Weekly Report", "Account Pulse", "Knowledge Base"],
-        "Reportes semanales, monitoreo diario y documentar aprendizajes")
-
-    st.markdown(wf_html, unsafe_allow_html=True)
-
-    st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
-
-    # ── Próximamente ──────────────────────────────────────────────────────
-    st.markdown(
-        f"<div style='font-weight:700;font-size:0.95rem;color:{_NEGRO};"
-        f"margin-bottom:0.75rem;'>🔒 Próximamente</div>",
-        unsafe_allow_html=True
-    )
-
-    col3, col4, col5 = st.columns(3)
-    with col3:
-        st.markdown(_area_card(
-            "🚦", "Tráfico Externo",
-            "Medios, mailing y contenido para tráfico externo.",
-            "María Fernanda Rojas", [], activo=False
-        ), unsafe_allow_html=True)
-
-    with col4:
-        st.markdown(_area_card(
-            "🎨", "Diseño",
-            "Contenido visual para marcas y productos.",
-            "Guido Pedregoza", [], activo=False
-        ), unsafe_allow_html=True)
-
-    with col5:
-        st.markdown(_area_card(
-            "👔", "RRHH",
-            "Cultura, talento y crecimiento del equipo.",
-            "Keila Vivas", [], activo=False
-        ), unsafe_allow_html=True)
-
-    col6, col7, col8 = st.columns(3)
-    with col6:
-        st.markdown(_area_card(
-            "💼", "Sales",
-            "Desarrollo comercial y nuevos leads.",
-            "—", [], activo=False
-        ), unsafe_allow_html=True)
-
-    with col7:
-        st.markdown(_area_card(
-            "🏥", "Account Health",
-            "Incidencias y cumplimiento de políticas Amazon.",
-            "Marcos", [], activo=True
-        ), unsafe_allow_html=True)
-
-    with col8:
-        st.markdown(_area_card(
-            "🛒", "Marketplaces",
-            "Expansión a Amazon, Mercado Libre y otros canales.",
-            "—", [], activo=False
-        ), unsafe_allow_html=True)
-
-    # Fila de cierre: quedan dos tarjetas. Se pide igual `columns(3)` para que
-    # conserven el ancho de las de arriba; el tercer hueco queda vacio a
-    # proposito, en vez de dos tarjetas estiradas a media pantalla.
-    col9, col10, _col11 = st.columns(3)
-    with col9:
-        st.markdown(_area_card(
-            "📈", "Dirección General",
-            "Dashboard ejecutivo, rentabilidad y KPIs.",
-            "—", [], activo=False
-        ), unsafe_allow_html=True)
-
-    with col10:
-        st.markdown(_area_card(
-            "🔌", "Expansión Futura",
-            "API Amazon Ads, alertas, WhatsApp/Slack, multi-cuenta.",
-            "—", [], activo=False
-        ), unsafe_allow_html=True)
-
-    st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
-    st.divider()
-
-    # ── Footer ────────────────────────────────────────────────────────────
-    st.markdown(
-        f"<div style='text-align:center;padding:1.5rem 0;'>"
-        f"<div style='font-size:0.95rem;color:{_GRIS_TXT};margin-bottom:0.3rem;'>"
-        f"Desarrollado por</div>"
-        f"<div style='font-size:1.3rem;font-weight:800;color:{_NARANJA};'>"
-        f"Lenin Acosta</div>"
-        f"<div style='font-size:0.85rem;color:{_GRIS_TXT};margin-top:0.2rem;'>"
-        f"Capybaras Agency · 2026</div>"
-        f"</div>",
+        f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-bottom:22px;'>"
+        f"<span style='font-family:{palette.SERIF_STACK};font-size:clamp(30px,4vw,44px);font-weight:700;"
+        f"color:{palette.ACCENT_SOFT};line-height:1.1;'>{escape(i18n.t('home.news.title'))}</span>{badge}</div>"
+        f"<div style='font-size:14px;color:{palette.SIDEBAR_INK};margin-bottom:8px;'>"
+        f"{escape(_news_meta(item))}</div>"
+        f"<div style='font-family:{palette.SERIF_STACK};font-size:clamp(30px,5vw,56px);font-weight:700;line-height:1.05;"
+        f"color:{palette.SIDEBAR_INK_ACTIVE};margin-bottom:14px;'>{escape(item['title'])}</div>"
+        f"<div style='font-size:clamp(16px,2vw,20px);line-height:1.45;color:{palette.SIDEBAR_INK};"
+        f"margin-bottom:22px;'>{escape(item['description'])}</div>",
         unsafe_allow_html=True,
     )
+    if item["page"]:
+        st.button(i18n.t("home.news.open"), key=f"home_news_open_{item['id']}", type="primary",
+                  on_click=_go, args=(item["page"],))
+
+
+def _render_news_card(item: dict) -> None:
+    with st.container(key=f"home_news_card_{item['id']}"):
+        st.markdown(
+            f"<div style='font-size:12px;color:{palette.FG_SUBTLE};margin-bottom:6px;'>"
+            f"{escape(_news_meta(item))}</div>"
+            f"<div style='font-size:20px;font-weight:600;line-height:1.25;"
+            f"color:{palette.SIDEBAR_INK_ACTIVE};margin-bottom:6px;'>{escape(item['title'])}</div>"
+            f"<div style='font-size:14px;line-height:1.45;color:{palette.SIDEBAR_INK};'>"
+            f"{escape(item['description'])}</div>",
+            unsafe_allow_html=True,
+        )
+        if item["page"]:
+            st.button(i18n.t("home.news.open_arrow"), key=f"home_news_open_{item['id']}", type="tertiary",
+                      on_click=_go, args=(item["page"],))
+
+
+def _render_news(today: date) -> None:
+    items = latest(NEWS, 1 + _NEWS_GRID_SIZE)
+    if not items:
+        return
+    featured, others = items[0], items[1:]
+    with st.container(key="home_news"):
+        _render_featured_news(featured, count_since(NEWS, today))
+        if others:
+            with st.container(key="home_news_grid"):
+                for column, item in zip(st.columns(len(others)), others):
+                    with column:
+                        _render_news_card(item)
+
+
+def _render_resources(visible: set[str]) -> None:
+    resources = [resource for resource in _RESOURCES if resource[0] in visible]
+    if not resources:
+        return
+    st.markdown(_section_title_html(i18n.t("home.resources.title")), unsafe_allow_html=True)
+    with st.container(key="home_resources_grid"):
+        columns = st.columns(len(resources))
+    for column, (page, sop_area, body_key) in zip(columns, resources):
+        page_key = _key_of_page(page)
+        with column, st.container(border=True, key=f"home_res_{page_key}"):
+            st.markdown(f"{navigation.icon_for(page)} **{navigation.visible_label(page)}**")
+            if sop_area is not None:
+                documents = len(sops_for_area(SOPS, sop_area))
+                st.markdown(
+                    f"<div style='font-size:14px;font-weight:600;color:{palette.ACCENT};'>"
+                    f"{escape(i18n.tn('home.resources.docs', documents))}</div>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown(f"<div style='font-size:14px;color:{palette.FG_MUTED};margin-bottom:8px;'>"
+                        f"{escape(i18n.t(body_key))}</div>", unsafe_allow_html=True)
+            st.button(i18n.t("home.resources.open"), key=f"home_res_open_{page_key}",
+                      on_click=_go, args=(page,))
+
+
+def _material_icon_html(shortcode: str) -> str:
+    """A `:material/name:` icon as raw HTML.
+
+    Mixed with HTML, st.markdown prints the shortcode's name as text. Streamlit loads the
+    "Material Symbols Rounded" font globally but ships no class for it, so the ligature styles
+    of its own icon component are repeated inline.
+    """
+    name = shortcode.removeprefix(":material/").removesuffix(":")
+    return (
+        "<span translate='no' style=\"font-family:'Material Symbols Rounded';font-weight:400;"
+        "font-style:normal;font-size:1.25rem;line-height:1;display:inline-block;white-space:nowrap;"
+        "word-wrap:normal;direction:ltr;font-feature-settings:'liga';-webkit-font-smoothing:antialiased;"
+        f"color:{palette.FG};\">{escape(name)}</span>"
+    )
+
+
+def _render_area_body(section: navigation.Section, pages: tuple[str, ...]) -> None:
+    """No nested st.columns here: the grid's column CSS would reach them and squeeze the header."""
+    section_key = _key_of_section(section)
+    with st.container(key=f"home_area_head_{section_key}"):
+        st.markdown(
+            f"{_material_icon_html(section.icon)}"
+            f"<strong>{escape(navigation.section_label(section.title))}</strong>"
+            f"<span style='margin-left:auto;font-size:12px;font-weight:600;color:{palette.OK_INK};"
+            f"background:{palette.OK_GLOW};border-radius:999px;padding:3px 10px;white-space:nowrap;'>"
+            f"{escape(i18n.tn('home.count.modules', len(pages)))}</span>",
+            unsafe_allow_html=True,
+        )
+    owner = AREA_OWNERS.get(section.title)
+    if owner:
+        st.markdown(f"<div style='font-size:13px;color:{palette.FG_MUTED};margin-bottom:8px;'>"
+                    f"{escape(i18n.t('home.areas.owner', owner=owner))}</div>", unsafe_allow_html=True)
+    with st.container(key=f"home_chips_{section_key}"):
+        for page in pages:
+            st.button(navigation.visible_label(page), icon=navigation.icon_for(page), type="tertiary",
+                      key=f"home_chip_{_key_of_page(page)}", on_click=_go, args=(page,))
+
+
+def _render_areas(sections, modules: int, areas: int) -> None:
+    st.markdown(_section_title_html(i18n.t("home.areas.title")), unsafe_allow_html=True)
+    summary = i18n.t("home.areas.summary", areas=i18n.tn("home.count.areas", areas),
+                     modules=i18n.tn("home.count.modules", modules))
+    st.markdown(f"<div style='font-size:14px;color:{palette.FG_MUTED};margin-bottom:12px;'>"
+                f"{escape(summary)}</div>", unsafe_allow_html=True)
+
+    grid = [(section, pages) for section, pages in sections if section.title != SYSTEM_SECTION]
+    if grid:
+        with st.container(key="home_areas_grid"):
+            columns = st.columns(len(grid))
+        for column, (section, pages) in zip(columns, grid):
+            with column, st.container(border=True, key=f"home_area_{_key_of_section(section)}"):
+                _render_area_body(section, pages)
+
+    system = next(((section, pages) for section, pages in sections if section.title == SYSTEM_SECTION), None)
+    if system is not None:
+        with st.container(key="home_system"):
+            _render_area_body(*system)
+
+
+def render(username: str = "", role: str = roles.USER) -> None:
+    is_admin = roles.is_admin(role)
+    sections = visible_sections(is_admin)
+    modules, areas = home_counts(is_admin)
+    visible = {page for _, pages in sections for page in pages}
+    today = _today()
+
+    st.markdown(_CSS, unsafe_allow_html=True)
+    _render_header(today, modules, areas)
+    _render_news(today)
+    _render_resources(visible)
+    _render_areas(sections, modules, areas)

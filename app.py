@@ -275,7 +275,7 @@ if _LOCAL_MODE:
     st.warning(i18n.t("shell.local_mode.banner"))
 
 if selected == "🏠 Inicio":
-    _render_inicio()
+    _render_inicio(username=_username, role=_role)
 
 if selected == "📊 Search Term Report":
     _render_str()

@@ -32,6 +32,11 @@ SIDEBAR_ROW_HOVER = "#2A2A2A"
 SIDEBAR_INPUT_BG = "#262626"
 SIDEBAR_INPUT_BORDER = "#6E6E6E"
 
+# ── Home news block (dark) ─────────────────────────────────────────────────
+NEWS_BG = "#161513"
+NEWS_CARD = "#23211D"
+NEWS_LINE = "#34312C"
+
 # ── Status ─────────────────────────────────────────────────────────────────
 OK = "#22C55E"
 OK_INK = "#15803D"
@@ -53,6 +58,7 @@ CHIP_MARKETPLACE_FG = "#3730A3"
 CONTAINER_MAX = "1180px"
 ROW_MIN_HEIGHT = "52px"
 MONO_STACK = 'ui-monospace,"SF Mono",Menlo,Consolas,monospace'
+SERIF_STACK = '"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif'
 
 
 # ── CSS partials ───────────────────────────────────────────────────────────

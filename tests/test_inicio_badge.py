@@ -7,22 +7,23 @@ módulos — leer de _PAGES". Estos tests blindan esa regla.
 from __future__ import annotations
 
 
-def test_total_modulos_is_dynamic():
-    """_TOTAL_MODULOS debe leerse de _PAGES, no ser literal."""
+def test_admin_module_count_is_every_page_but_inicio():
+    """Un admin ve todo el menú: el conteo es _PAGES sin Inicio, no un literal."""
     from core.constants import _PAGES
-    from modules.pages.inicio import _TOTAL_MODULOS
+    from core.home_areas import home_counts
 
-    expected = len([p for p in _PAGES if "Inicio" not in p])
-    assert _TOTAL_MODULOS == expected
+    modules, _ = home_counts(is_admin=True)
+    assert modules == len(_PAGES) - 1 == 41
 
 
-def test_total_modulos_excludes_inicio():
-    """Inicio no debe contarse como módulo (es la home del dashboard)."""
+def test_non_admin_module_count_skips_admin_only_pages():
+    """Un no-admin no ve las páginas de ADMIN_ONLY: el badge no se las cuenta."""
     from core.constants import _PAGES
-    from modules.pages.inicio import _TOTAL_MODULOS
+    from core.home_areas import home_counts
+    from core.navigation import ADMIN_ONLY
 
-    # _PAGES tiene Inicio + N módulos. _TOTAL_MODULOS debe ser N (no N+1).
-    assert _TOTAL_MODULOS == len(_PAGES) - 1
+    modules, _ = home_counts(is_admin=False)
+    assert modules == len(_PAGES) - 1 - len(ADMIN_ONLY) == 37
 
 
 def test_pages_includes_listing_monitor():
