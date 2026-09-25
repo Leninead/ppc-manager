@@ -106,8 +106,11 @@ def _csv(columns, rows) -> bytes:
 
 
 class FakeRest:
-    def __init__(self, *, currency="USD", settings=SETTINGS, campaigns_synced=True, search_terms=SEARCH_TERMS):
+    def __init__(self, *, currency="USD", settings=SETTINGS, campaigns_synced=True, search_terms=SEARCH_TERMS,
+                 earlier_terms=None):
         self.search_terms = search_terms
+        # The search terms of the stretch before the default window (1 to 7 September), when a test gives them.
+        self.earlier_terms = earlier_terms
         self.profile = {"profile_id": "111", "account_id": 1, "cliente": "luna", "account_name": "Luna Kids",
                         "country_code": "US", "currency_code": currency, "account_type": "seller",
                         "timezone": "America/Los_Angeles", "status": "active", "data_from": "2026-07-11",
@@ -137,7 +140,8 @@ class FakeRest:
     def rpc_csv(self, name, args, **_):
         self.reads.append((name, args["p_from"], args["p_to"]))
         if name == "search_terms_between":
-            return _csv(SEARCH_TERM_COLUMNS, self.search_terms)
+            earlier = self.earlier_terms is not None and args["p_to"] == "2026-09-07"
+            return _csv(SEARCH_TERM_COLUMNS, self.earlier_terms if earlier else self.search_terms)
         if name == "sp_structure_between":
             return _csv(STRUCTURE_ROW_COLUMNS, STRUCTURE)
         assert name == "campaigns_between"
@@ -360,7 +364,44 @@ class TestBidSuggestions:
         assert payload["parameters"]["origin"] == "pedido en la llamada"
 
 
+    def test_the_stretch_before_travels_with_its_price_and_bid_so_a_bid_reads_by_what_moved_it(self):
+        """#98 read «the CVR fell, so the bid fell» when the bid had risen with the ticket."""
+        earlier = [_term("luna pajamas", "3001", "4001", "Luna - B0CYLMJJJC - SP - KW - EXACT - Viejo", clicks=40,
+                         orders=9, cost=30.0, sales=630.0)]
+
+        payload = module_results.bid_suggestions(FakeRest(earlier_terms=earlier), profile_id="111",
+                                                 compare_previous=True)
+
+        row = payload["rows"][0]
+        assert payload["previous_window"] == {"from": "2026-09-01", "to": "2026-09-07", "days": 7}
+        assert (row["price"], row["price_previo"], row["price_vs_previo"]) == (50.0, 70.0, "bajó")
+        assert (row["suggested_bid_previo"], row["suggested_bid_vs_previo"]) == (6.3, "bajó")
+        assert row["cvr_vs_previo"] == "bajó"
+        # An ASIN without a stretch before says so rather than comparing against nothing.
+        assert payload["rows"][1]["price_vs_previo"] == "sin tramo previo"
+
+    def test_without_a_stretch_before_the_account_has_synced_it_says_so(self):
+        payload = module_results.bid_suggestions(FakeRest(), profile_id="111", date_from="2026-07-11",
+                                                 date_to="2026-07-17", compare_previous=True)
+
+        assert "No hay tramo anterior" in payload["previous_note"] and "price_previo" not in payload["rows"][0]
+
+    def test_the_account_can_be_named_instead_of_its_profile_id(self):
+        assert module_results.bid_suggestions(FakeRest(), account="LUNA")["rows"][0]["asin"] == "B0CYLMJJJC"
+
+
 class TestAsinHealth:
+    def test_each_asin_says_how_its_spend_was_attributed_and_what_no_asin_took(self):
+        """#20 read a family's spend, taken through a campaign name, as one ASIN's own."""
+        payload = module_results.asin_health(FakeRest(), profile_id="111")
+
+        rows = {row["asin"]: row for row in payload["rows"]}
+        assert rows["B0CYLMJJJC"]["attributed_by"] == "single_asin_ad_group"
+        assert rows["B0CYLM4L23"]["attributed_by"] == "campaign_name"
+        assert payload["totals"] == {"unattributed_spend": 0.0, "unattributed_sales": 0.0}
+        # The listing has no product ads: where each ASIN is advertised is unknown, so it is not said.
+        assert "advertised_in" not in rows["B0CYLMJJJC"]
+
     def test_each_asin_scores_with_the_target_saved_for_the_account(self):
         payload = module_results.asin_health(FakeRest(), profile_id="111")
 

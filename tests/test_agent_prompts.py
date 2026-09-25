@@ -55,7 +55,8 @@ def test_the_chat_quantifies_only_what_it_read_whole():
     assert "vale únicamente sobre filas que trajiste enteras con ese mismo filtro" in rules
     assert "De las filas que una página no trajo sabés cuántas son, no cómo son." in rules
     assert "Una lista se nombra por el filtro que la armó" in rules
-    assert "ninguna herramienta busca niches por ASIN" in rules
+    assert "Esa conclusión vale sobre todos los niches de la organización" in rules
+    assert "en qué niches está un cliente se sabe sólo de los niches que abriste" in rules
     assert "Dice cuántos, no cuáles" in rules
     assert "SB y SD no lo traen: de ellas no se sabe si tocaron su presupuesto." in rules
 
@@ -126,7 +127,8 @@ def test_the_chat_looks_for_a_whole_client_in_every_niche_its_searches_bring():
 
     assert "buscá por cada tipo de producto que anuncia y también por las palabras de sus campañas" in rules
     assert "Abrí todos los niches que devuelva cada búsqueda" in rules
-    assert "Esa salvedad va dentro de la primera oración, la que contesta" in rules
+    assert "va dentro de la primera oración, la que contesta, y en esa misma frase dice sobre qué niches vale" in rules
+    assert "Nunca va primero la conclusión y su alcance en otra oración." in rules
     assert "aunque hayas abierto todos los niches que trajeron tus búsquedas" in rules
 
 
@@ -140,6 +142,14 @@ def test_a_general_question_is_answered_over_every_account_and_a_particular_one_
     assert "nunca por el nombre de una herramienta" in rules
     assert "Si la pantalla o la conversación la traen" in rules and "sin preguntar" in rules
     assert "Nunca nombres cuentas sin decir por qué esas" in rules
+
+
+def test_the_chat_answers_for_each_campaign_a_name_matches():
+    """#23 named two «PHRASE - Vitamin A Discovery» campaigns and the answer took one without naming the other."""
+    rules = (_AGENTS / "orchestrator" / "prompt.md").read_text(encoding="utf-8")
+
+    assert "nombralas y contestá por cada una: `by_campaign` en `daily_metrics`" in rules
+    assert "Nunca elijas en silencio una de las campañas que coinciden." in rules
 
 
 def test_every_agent_chat_proposes_an_account_with_its_reason():

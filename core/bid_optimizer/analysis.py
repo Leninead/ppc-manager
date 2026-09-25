@@ -13,6 +13,7 @@ from core.bid_optimizer.bids import (
     bids_by_asin,
     campaign_placements,
     detect_columns,
+    previous_bid_figures,
     resolve_asin_column,
     validated_spend_share,
 )
@@ -57,17 +58,6 @@ def bid_ai_records(df_asin, cols, col_asin, keep, *, validated_share=None, previ
     return records
 
 
-def previous_by_asin(df_asin, cols, col_asin) -> dict:
-    """ASIN -> métricas del período anterior, con las mismas claves que la fila actual."""
-    return {str(row[col_asin]).strip(): {
-        "clicks": int(row[cols["clicks"]]),
-        "orders": int(row[cols["orders"]]),
-        "cvr": round(float(row["_cvr"]), 2),
-        "spend": round(float(row[cols["spend"]]), 2),
-        "acos": round(float(row["_acos"]), 1),
-    } for _, row in df_asin.iterrows()}
-
-
 def bid_row_labels(records):
     """row_id -> ASIN, para anotar los ids que la síntesis y el chat citan (A03)."""
     return {f"A{i + 1:02d}": str(rec.get("asin", "")).strip()
@@ -79,31 +69,12 @@ def canonical_analysis_window(data_from: date | None, data_through: date) -> tup
     return max(earliest, data_through - timedelta(days=CANONICAL_WINDOW_DAYS - 1)), data_through
 
 
-def previous_window(start: date, end: date) -> tuple[date, date]:
-    """El tramo inmediatamente anterior, del mismo largo: con qué se compara el período en pantalla."""
-    days = (end - start).days + 1
-    return start - timedelta(days=days), start - timedelta(days=1)
-
-
 @dataclass(frozen=True)
 class BidAnalysisInput:
     """El payload del agente más las filas a las que apuntan sus row_ids."""
 
     data: BidData | None
     records: list
-
-
-def _previous_metrics(previous_frame, target_acos: int, price_map: dict | None) -> dict:
-    """Las métricas del período anterior por ASIN, o vacío si no hay con qué comparar."""
-    if previous_frame is None or previous_frame.empty:
-        return {}
-    cols = detect_columns(previous_frame)
-    if any(cols[key] is None for key in ("clicks", "orders", "sales", "spend")):
-        return {}
-    with_asin, col_asin, _ = resolve_asin_column(previous_frame, cols)
-    if col_asin is None:
-        return {}
-    return previous_by_asin(bids_by_asin(with_asin, cols, col_asin, target_acos, price_map or {}), cols, col_asin)
 
 
 def build_analysis_input(frame, *, target_acos: int, account_label: str, period_label: str,
@@ -122,7 +93,7 @@ def build_analysis_input(frame, *, target_acos: int, account_label: str, period_
     by_asin = bids_by_asin(with_asin, cols, col_asin, target_acos, price_map or {})
     records = bid_ai_records(by_asin, cols, col_asin, MAX_ASINS,
                              validated_share=validated_spend_share(with_asin, cols, col_asin),
-                             previous=_previous_metrics(previous_frame, target_acos, price_map))
+                             previous=previous_bid_figures(previous_frame, target_acos, price_map))
     if not records:
         return BidAnalysisInput(None, [])
     campaigns = campaign_placements(with_asin, cols)[:MAX_CAMPAIGNS] if cols["campaign"] else []

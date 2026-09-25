@@ -127,6 +127,8 @@ def _sd_campaign_row(**overrides) -> dict:
         "costType": "VCPM",
         "campaignBudgetAmount": 39.0,
         "campaignBudgetCurrencyCode": "USD",
+        "newToBrandPurchases": 3,
+        "newToBrandSales": 86.97,
     }
     row.update(overrides)
     return row
@@ -211,7 +213,7 @@ def _row(report, api_row, **overrides) -> dict:
     pytest.param(SD_CAMPAIGN_ROWS, SD_CAMPAIGN_SPEC, "sdCampaigns", "SPONSORED_DISPLAY", ("campaign",), 65,
                  ("date", "campaignId", "impressions", "impressionsViews", "clicks", "cost", "purchases", "sales",
                   "purchasesClicks", "salesClicks", "costType", "campaignBudgetAmount",
-                  "campaignBudgetCurrencyCode"), id="sdCampaigns"),
+                  "campaignBudgetCurrencyCode", "newToBrandPurchases", "newToBrandSales"), id="sdCampaigns"),
     pytest.param(SD_TARGETING_ROWS, SD_TARGETING_SPEC, "sdTargeting", "SPONSORED_DISPLAY", ("targeting",), 65,
                  ("date", "campaignId", "adGroupId", "targetingId", "targetingExpression", "targetingText",
                   "impressions", "clicks", "cost", "purchases", "sales", "purchasesClicks", "salesClicks"),
@@ -364,10 +366,9 @@ def test_sd_campaign_fields_land_on_the_campaign_table():
         "sales": 115.57,
         "purchases_clicks": 1,
         "sales_clicks": 28.6,
-        # SD reports no new-to-brand sales and no top-of-search share, and calls viewable impressions
-        # impressionsViews.
-        "new_to_brand_purchases": 0,
-        "new_to_brand_sales": 0.0,
+        # SD reports no top-of-search share, and calls viewable impressions impressionsViews.
+        "new_to_brand_purchases": 3,
+        "new_to_brand_sales": 86.97,
         "viewable_impressions": 5000,
         "top_of_search_is": None,
         "cost_type": "VCPM",

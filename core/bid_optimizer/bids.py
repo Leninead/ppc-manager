@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -200,6 +201,38 @@ def bids_by_asin(df, cols, col_asin, target_acos, precio_map=None):
         estado_por_cvr(cvr, c, o)
         for cvr, c, o in zip(grouped["_cvr"], grouped[clicks], grouped[orders])]
     return grouped
+
+
+def previous_by_asin(df_asin, cols, col_asin) -> dict:
+    """ASIN -> métricas del período anterior, con las mismas claves que la fila actual."""
+    return {str(row[col_asin]).strip(): {
+        "clicks": int(row[cols["clicks"]]),
+        "orders": int(row[cols["orders"]]),
+        "cvr": round(float(row["_cvr"]), 2),
+        "price": round(float(row["_precio"]), 2),
+        "spend": round(float(row[cols["spend"]]), 2),
+        "acos": round(float(row["_acos"]), 1),
+        "bid_base": float(row["_bid_base"]),
+    } for _, row in df_asin.iterrows()}
+
+
+def previous_bid_figures(previous_frame, target_acos: int, price_map: dict | None = None) -> dict:
+    """Las métricas del período anterior por ASIN, o vacío si no hay con qué comparar."""
+    if previous_frame is None or previous_frame.empty:
+        return {}
+    cols = detect_columns(previous_frame)
+    if any(cols[key] is None for key in ("clicks", "orders", "sales", "spend")):
+        return {}
+    with_asin, col_asin, _ = resolve_asin_column(previous_frame, cols)
+    if col_asin is None:
+        return {}
+    return previous_by_asin(bids_by_asin(with_asin, cols, col_asin, target_acos, price_map or {}), cols, col_asin)
+
+
+def previous_window(start: date, end: date) -> tuple[date, date]:
+    """El tramo inmediatamente anterior, del mismo largo: con qué se compara el período en pantalla."""
+    days = (end - start).days + 1
+    return start - timedelta(days=days), start - timedelta(days=1)
 
 
 def _precio_de_lista(precio_map, asin):

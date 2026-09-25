@@ -283,3 +283,53 @@ def test_finished_at_is_on_each_accounts_clock_and_the_index_orders_by_the_insta
                                                                          ("2", "2026-09-22T05:00:00+09:00")]
     assert analyses.get_analysis(object(), profile_id="1", module="str")["finished_at"] == "2026-09-21T19:08:00-07:00"
 
+
+
+# ── a subset by its categories, an account by its name ───────────────────────────────────────────────────────────────
+
+def test_where_leaves_the_rows_of_those_categories_with_their_own_summary_and_row_ids(data):
+    """The chat paged through a whole analysis to count the rows of one diagnosis."""
+    records = [{"campaign": f"Campaña {n}", "diagnostico": "PAUSAR" if n % 3 == 0 else "OK", "spend": 10.0}
+               for n in range(9)]
+    data["bulk_campaigns"]["1"] = _stored("1", "bulk_campaigns", records=records)
+
+    analysis = analyses.get_analysis(object(), profile_id="1", module="bulk_campaigns",
+                                     where={"diagnostico": "pausar"})
+
+    assert analysis["matched_rows"] == {"filas": 3}
+    assert [row["row_id"] for row in analysis["rows"]["filas"]["rows"]] == ["C01", "C04", "C07"]
+    assert analysis["row_summary"]["filas"]["totals"] == {"spend": 30.0}
+    assert "row_id de siempre" in analysis["where_note"]
+
+
+def test_where_on_the_trend_of_a_metric_finds_the_rows_that_went_down(data):
+    records = [{"asin": "A", "cvr": 10.0, "cvr_previo": 12.0}, {"asin": "B", "cvr": 46.0, "cvr_previo": 30.0}]
+    data["bid_optimizer"]["1"] = _stored("1", "bid_optimizer", records=records)
+
+    analysis = analyses.get_analysis(object(), profile_id="1", module="bid_optimizer", where={"cvr_vs_previo": "bajó"})
+
+    assert [row["asin"] for row in analysis["rows"]["filas"]["rows"]] == ["A"]
+
+
+def test_where_skips_the_groups_without_those_fields_and_refuses_a_field_no_group_has(data):
+    data["str"]["1"] = _stored("1", negatives=[{"Search Term": "a", "Prioridad": "Alta"},
+                                               {"Search Term": "b", "Prioridad": "Media"},
+                                               {"Search Term": "c", "Prioridad": "Alta"}],
+                               harvest=[{"Search Term": "d"}])
+
+    analysis = analyses.get_analysis(object(), profile_id="1", module="str", where={"Prioridad": "Alta"})
+
+    assert analysis["matched_rows"] == {"negativos": 2} and analysis["where_skipped_groups"] == ["harvest"]
+    with pytest.raises(ValueError, match="campos de categoría"):
+        analyses.get_analysis(object(), profile_id="1", module="str", where={"Regla": "R1"})
+
+
+def test_the_index_narrows_to_the_accounts_a_name_holds(data):
+    data["str"]["1"] = _stored("1", situation="uno")
+    data["str"]["2"] = _stored("2", situation="dos")
+
+    rows = analyses.list_analyses(object(), account="HARRICK")["rows"]
+
+    assert [row["account"] for row in rows] == ["harrick · US"]
+    with pytest.raises(ValueError, match="Ninguna cuenta"):
+        analyses.list_analyses(object(), account="zzz")

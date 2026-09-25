@@ -69,9 +69,26 @@ def _csv(header, rows) -> bytes:
     return buffer.getvalue().encode("utf-8")
 
 
+WINDOW_HEADER = ["ad_product", "campaign_id", "campaign_name", "portfolio_id", "portfolio_name", "impressions",
+                 "clicks", "cost", "purchases_7d", "sales_7d", "purchases_14d", "sales_14d", "purchases", "sales",
+                 "purchases_clicks", "sales_clicks", "currency_code"]
+
+
+def _window_campaign(campaign_id, *, cost, sales=0.0, orders=0) -> dict:
+    """A campaign's totals over the period a comparison reads."""
+    return {"ad_product": "SP", "campaign_id": campaign_id, "campaign_name": "", "portfolio_id": "",
+            "portfolio_name": "", "impressions": 100, "clicks": 10, "cost": cost, "purchases_7d": orders,
+            "sales_7d": sales, "purchases_14d": orders, "sales_14d": sales, "purchases": 0, "sales": 0,
+            "purchases_clicks": 0, "sales_clicks": 0, "currency_code": "USD"}
+
+
 class FakeRest:
-    def __init__(self, campaigns=CAMPAIGNS, *, completed=True, settings=None, products=(), targets=()):
+    def __init__(self, campaigns=CAMPAIGNS, *, completed=True, settings=None, products=(), targets=(),
+                 previous=(), product_header=None):
         self.campaigns = list(campaigns)
+        # What the campaign reports summed per campaign over the period a comparison reads.
+        self.previous = list(previous)
+        self.product_header = product_header or PRODUCT_HEADER
         # SB / SD campaigns and targets (migration 015): none unless a test gives them.
         self.products = list(products)
         self.targets = list(targets)
@@ -103,7 +120,9 @@ class FakeRest:
 
     def rpc_csv(self, name, args, **_):
         if name == "product_campaigns_between":
-            return _csv(PRODUCT_HEADER, self.products) if self.products else b""
+            return _csv(self.product_header, self.products) if self.products else b""
+        if name == "campaign_window_totals":
+            return _csv(WINDOW_HEADER, self.previous)
         if name == "graduation_targets_between":
             return _csv(TARGET_HEADER, self.targets) if self.targets else b""
         assert name == "campaigns_between"
@@ -250,7 +269,7 @@ def test_an_account_the_campaign_sync_never_completed_says_so():
 
 def test_an_unknown_sort_is_refused():
     with pytest.raises(ValueError, match="sort_by"):
-        _health(sort_by="roas")
+        _health(sort_by="margen")
 
 
 PRODUCTS = [_product_campaign("SB", "701", "Brand Video", strategy="MANUAL"),
@@ -330,3 +349,45 @@ def test_idle_targets_say_when_nothing_synced_yet():
     payload = _idle(FakeRest())
 
     assert payload["rows"] == [] and payload["note"] == "Los targets de esta cuenta todavía no se sincronizaron."
+
+
+# ── by name, by figures, against the period before, new-to-brand ─────────────────────────────────────────────────────
+
+def test_a_list_of_campaigns_narrows_the_rows_and_the_counts_to_them():
+    payload = _health(campaigns=("Winner", "2"))
+
+    assert [row["campaign"] for row in payload["rows"]] == ["Bleeder", "Winner"]
+    assert payload["counts"] == {"PAUSAR": 1, "ESCALAR": 1}
+    assert [campaign["campaign"] for campaign in payload["matched_campaigns"]] == ["Bleeder", "Winner"]
+
+
+def test_the_rows_filter_and_sort_by_their_figures():
+    payload = _health(filters={"max_roas": 1}, sort_by="roas", sort_order="asc")
+
+    assert [row["campaign"] for row in payload["rows"]] == ["Bleeder"]
+    assert payload["rows"][0]["roas"] == 0.0 and payload["filters"] == {"max_roas": 1}
+
+
+def test_each_campaign_is_compared_with_the_period_before():
+    """#101 called four times to line two periods up campaign by campaign."""
+    rest = FakeRest(previous=[_window_campaign("3", cost=5.0, sales=50.0, orders=2)])
+
+    payload = _health(rest, compare="previous")
+
+    rows = {row["campaign"]: row for row in payload["rows"]}
+    assert (rows["Winner"]["delta_spend"], rows["Winner"]["delta_spend_pct"], rows["Winner"]["previous_sales"]) == (
+        5.0, 100.0, 50.0)
+    assert rows["Bleeder"]["status"] == "new" and "status" not in rows["Ghost"]
+    assert payload["leaders"]["biggest_rise"] == {"campaign": "Bleeder", "delta_spend": 25.0}
+    assert payload["comparison"] == {"from": "2026-09-03", "to": "2026-09-09", "days": 7}
+
+
+def test_sb_and_sd_rows_carry_their_new_to_brand_figures():
+    header = [*PRODUCT_HEADER, "new_to_brand_purchases", "new_to_brand_sales"]
+    products = [{**PRODUCTS[0], "new_to_brand_purchases": "2", "new_to_brand_sales": "30"},
+                {**PRODUCTS[1], "new_to_brand_purchases": "", "new_to_brand_sales": ""}]
+
+    rows = {row["campaign"]: row for row in _health(FakeRest(products=products, product_header=header))["rows"]}
+
+    assert (rows["Brand Video"]["ntb_orders"], rows["Brand Video"]["ntb_sales_share"]) == (2, 50.0)
+    assert rows["Display Views"]["ntb_orders"] is None and "ntb_orders" not in rows["Winner"]

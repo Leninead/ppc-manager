@@ -444,7 +444,7 @@ def render():
 def _previous_frame(source):
     """El tramo anterior del mismo largo, para que el agente lea qué cambió. None si no hay."""
     from core.amazon_ads.report_provider import ReportReadError, ReportProvider
-    from core.bid_optimizer.analysis import previous_window
+    from core.bid_optimizer.bids import previous_window
     from modules.pages import search_term_source
 
     if source.window_start is None or source.window_end is None:

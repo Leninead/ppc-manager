@@ -6,6 +6,68 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — El chat compara períodos, filtra por métrica, arma series por semana o mes y busca niches por ASIN (2026-09-25)
+
+**Por qué.** Lo que un AM pide de una, el chat lo armaba a mano, llamada por llamada: una serie de 10 semanas eran 11
+llamadas, una comparación con el mes anterior restaba totales, «las campañas con ACoS arriba de 50 y más de 10 clicks»
+se filtraba leyendo páginas, saber si la cuenta ya pauta 20 keywords eran 20 llamadas y los niches de DataDive de un
+ASIN se buscaban abriendo niche por niche.
+
+**Ahora.**
+- **Cuenta por nombre.** Todas las herramientas aceptan `account` (parte del nombre) en lugar de `profile_id`. Si el
+  nombre alcanza a varias cuentas, vuelven `candidates` con el gasto de cada una en la ventana, para elegir.
+- **Comparar con otro período.** `breakdown`, `campaign_health` y `accounts_overview` aceptan `compare=previous` (el
+  período del mismo largo justo antes) o `compare_from`/`compare_to` (días exactos, como los mismos días del mes
+  anterior). Cada fila trae `delta_spend_pct`, `delta_sales_pct`, `delta_orders_pct`, `delta_acos_pp`,
+  `previous_spend`, `previous_sales` y el cambio absoluto de la métrica que ordena (`delta_<métrica>`); `status` marca
+  las filas nuevas (`new`) y las que dejaron de gastar (`gone`, con sus cifras en cero), y `compare_counts` las cuenta.
+  `totals` trae el total anterior (`previous`), `order_by_change` ordena por el cambio y `leaders` da la mayor suba y
+  la mayor baja.
+- **Series por semana o mes.** `daily_metrics` acepta `granularity=week|month` y `periods`: semanas de lunes a domingo
+  y meses de calendario, hasta 60 días, 26 semanas o 12 meses. Cada fila dice `period_start`, `period_end`,
+  `days_with_data` y si el período está completo (`complete`), y `data_since` desde cuándo hay datos. `breakdown` con
+  `by_period=week|month` da la serie de gasto y ACoS de los primeros `series_groups` grupos (10 por defecto) y su
+  tendencia entre los dos últimos períodos completos, con la regla de `*_vs_previo` (subió, bajó o igual). `activity`
+  dice el primer día con clicks y con gasto, desde cuándo corre la racha actual y si llega al primer día leído.
+- **Campañas.** `campaign` (un nombre o un id), `campaigns` (una lista), `state` y `portfolio` eligen campañas igual en
+  `breakdown`, `campaign_health`, `daily_metrics` y `campaign_structure`: primero el nombre exacto, después el id y
+  recién después las que lo contienen. `matched_campaigns` dice cuáles tomó y `campaigns_not_found` las de la lista que
+  no están. `daily_metrics` da la serie de las campañas elegidas, y `by_campaign` cuando son varias. Las filas de
+  `by=campaign` traen `campaign_id`, `product`, `portfolio`, `state` y `daily_budget`; las de `campaign_search_term`,
+  su `ad_group` y en qué otras campañas corre el término (`other_campaigns`).
+- **Filtros.** Un solo objeto `filters` (`min_`/`max_` de spend, sales, orders, clicks, impressions, acos, cvr, roas,
+  cpc y bid_gap, `without_sales` y `combine`, `all` o `any`) reemplaza los parámetros sueltos de `breakdown`
+  (`min_orders`, `max_acos`, `min_spend`, `without_sales`) y de `campaign_structure` (`min_clicks`, `min_spend`,
+  `min_acos`, `without_sales`), y llega a `campaign_health`. `sort_order=asc` ordena de menor a mayor, con los vacíos
+  al final. `match_type` separa el product targeting por ASIN y por categoría.
+- **Métricas por fila.** Cada fila trae `roas` y `cpc`; `ctr` y `aov` van en los totales y sirven de `sort_by`.
+- **Campañas sin actividad.** `breakdown` ya no cuenta como filas las campañas sin impresiones, clicks, gasto ni ventas
+  en la ventana (los reportes les guardan una fila en cero): «73 campañas con actividad» contaba 24 que no sirvieron
+  nada, y una campaña que dejó de servir no salía como `gone`.
+- **Keywords y targets.** `campaign_structure` con `targets` (hasta 50 keywords o ASINs) devuelve una fila por término:
+  si la cuenta lo tiene (`found`), si corre (`running`), sus match types y en qué campañas está, con su bid. Keywords y
+  product targets traen `cpc`, `bid_gap` (el bid menos el cpc) y `top_of_search_share`. Con `product=SB` o `SD` lista
+  los keywords y targets de Sponsored Brands y Display, con `cost_type`: en una campaña VCPM el bid es por mil
+  impresiones visibles y no tiene `bid_gap`.
+- **Atribución por ASIN.** `breakdown` por ASIN y `asin_health` dicen cómo se atribuyó el gasto de cada ASIN
+  (`attributed_by`) y en cuántas campañas se anuncia y cuántas corren (`advertised_in`); los totales traen lo que no se
+  pudo atribuir (`unattributed_spend`, `unattributed_sales`). `attribution_days` va por producto.
+- **New-to-brand de SB y SD.** `accounts_overview`, `breakdown`, `campaign_health` y `daily_metrics` traen
+  `ntb_orders`, `ntb_sales` y `ntb_sales_share` de SB y SD. El sync de SD pide ahora las columnas new-to-brand de su
+  reporte; los valores de SD guardados hasta hoy, que eran 0 porque no se pedían, pasan a vacíos: no se midieron.
+- **Bid Optimizer.** `bid_suggestions` con `compare_previous` trae el precio y el bid base del tramo anterior de cada
+  ASIN.
+- **Análisis guardados.** `get_analysis` acepta `where` (columna → valor) y devuelve sólo esas filas, contadas.
+- **DataDive** (en capybaras-ai-provider): `niches_for_asins` dice en qué niches de la organización están unos ASINs o
+  una marca; `get_niche_competitors` y `get_niche_keywords` marcan los ASINs propios.
+- **Prompts.** El del orquestador pide a estas herramientas las comparaciones, las series y las listas de términos, y
+  el de DataDive busca los niches por ASIN antes que por nombre. Si el nombre de campaña que dijo el AM coincide con
+  varias, el chat contesta por cada una en lugar de elegir una en silencio.
+- **Base.** La migración `019_chat_campaign_reads.sql` agrega el catálogo de campañas, los totales por campaña, los
+  keywords y targets de SB y SD y el new-to-brand de los totales. Jenkins la corre después de levantar los
+  contenedores: hasta entonces, la elección de campañas usa sólo las que tuvieron actividad, y los keywords de SB y SD
+  y la serie de una campaña avisan que falta la migración.
+
 ### Changed — Las herramientas del MCP entregan el dato ya calculado, para que el chat no dependa del esfuerzo (2026-09-23)
 
 **Por qué.** Con esfuerzo `low`, las respuestas del chat fallaban donde el modelo tenía que contar, comparar o armar

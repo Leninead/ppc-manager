@@ -35,6 +35,7 @@ log = logging.getLogger(__name__)
 PROFILE_SYNC_TABLE = "ads_profile_sync"
 SEARCH_TERMS_RPC = "search_terms_between"
 DAILY_TOTALS_RPC = "ads_daily_totals"
+DAILY_TOTALS_BY_CAMPAIGN_RPC = "ads_daily_totals_by_campaign"
 READ_TIMEOUT_SECONDS = 120
 SELLER_ATTRIBUTION_DAYS = 7
 VENDOR_ATTRIBUTION_DAYS = 14
@@ -61,6 +62,10 @@ _TEXT_FIELDS = ("campaign_id", "ad_group_id", "keyword_type", "keyword_id", "mat
 _COUNT_FIELDS = ("impressions", "clicks", "purchases_7d", "units_7d", "purchases_14d", "units_14d")
 _AMOUNT_FIELDS = ("cost", "sales_7d", "sales_14d")
 _RPC_FIELDS = _TEXT_FIELDS + _COUNT_FIELDS + _AMOUNT_FIELDS
+# PostgREST's "function not found", while the database predates the migration that adds it.
+_MISSING_FUNCTION_CODE = "PGRST202"
+# PostgREST v12's code for a table the database does not have yet (before "DB migrate").
+_MISSING_TABLE_CODE = "42P01"
 _ATTRIBUTION_FIELDS = {
     SELLER_ATTRIBUTION_DAYS: ("sales_7d", "purchases_7d", "units_7d"),
     VENDOR_ATTRIBUTION_DAYS: ("sales_14d", "purchases_14d", "units_14d"),
@@ -218,6 +223,34 @@ class ReportProvider:
         )
 
 
+    def daily_totals_by_campaign(self, option: ProfileOption, start: date, end: date,
+                                 campaign_ids: tuple[str, ...]) -> pd.DataFrame | None:
+        """One row per campaign and day of the campaigns asked for by id: day, campaign_id, impressions, clicks,
+        spend, sales and orders. None while the database lacks migration 019."""
+        if end < start:
+            raise ValueError(f"daily totals range ends before it starts: {start}..{end}")
+        columns = ["day", "campaign_id", "impressions", "clicks", "spend", "sales", "orders"]
+        if not campaign_ids:
+            return pd.DataFrame(columns=columns)
+        attribution_days = _attribution_days(option.account_type)
+        try:
+            rows = self._rest.rpc(
+                DAILY_TOTALS_BY_CAMPAIGN_RPC,
+                {"p_profile_id": option.profile_id, "p_from": start.isoformat(), "p_to": end.isoformat(),
+                 "p_campaign_ids": list(campaign_ids)},
+                timeout_s=READ_TIMEOUT_SECONDS,
+            ) or []
+            records = [{"campaign_id": str(row["campaign_id"]), **vars(_day_totals(row, attribution_days))}
+                       for row in rows]
+        except requests.HTTPError as exc:
+            if _is_missing_function(exc):
+                return None
+            raise ReportReadError(_error_message(exc, "leer la serie diaria por campaña de Amazon Ads")) from exc
+        except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+            raise ReportReadError(_error_message(exc, "leer la serie diaria por campaña de Amazon Ads")) from exc
+        return pd.DataFrame(records, columns=columns)
+
+
 def account_labels(profiles: list[ProfileOption]) -> dict[str, str]:
     """Client and country, plus the account type when one client has two profiles in the same country."""
     repeated = Counter((profile.label, profile.country_code) for profile in profiles)
@@ -240,6 +273,24 @@ def _day_totals(row: dict, attribution_days: int) -> DayTotals:
         sales=float(row.get(sales_field) or 0),
         orders=int(row.get(orders_field) or 0),
     )
+
+
+def _is_missing_function(exc: requests.HTTPError) -> bool:
+    return _is_not_found(exc, _MISSING_FUNCTION_CODE)
+
+
+def _is_missing_table(exc: requests.HTTPError) -> bool:
+    return _is_not_found(exc, _MISSING_TABLE_CODE)
+
+
+def _is_not_found(exc: requests.HTTPError, code: str) -> bool:
+    response = exc.response
+    if response is None or response.status_code != 404:
+        return False
+    try:
+        return str((response.json() or {}).get("code") or "") == code
+    except ValueError:
+        return False
 
 
 def _each_day(start: date, end: date) -> list[date]:

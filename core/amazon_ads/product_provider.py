@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import io
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 import pandas as pd
@@ -35,7 +35,14 @@ from core.amazon_ads.campaign_provider import (
     TYPE,
 )
 from core.amazon_ads.ad_entities import AD_GROUPS_TABLE
-from core.amazon_ads.report_provider import READ_TIMEOUT_SECONDS, ReportReadError, _numbers, _portfolio_label
+from core.amazon_ads.report_provider import (
+    READ_TIMEOUT_SECONDS,
+    ReportReadError,
+    _is_missing_function,
+    _is_missing_table,
+    _numbers,
+    _portfolio_label,
+)
 from core.integrations.store import _error_message, _Rest
 
 log = logging.getLogger(__name__)
@@ -77,10 +84,14 @@ _CAMPAIGN_COUNTS = ("impressions", "clicks", "purchases", "purchases_clicks", "v
 _CAMPAIGN_AMOUNTS = ("cost", "sales", "sales_clicks")
 _TARGET_TEXT = ("ad_product", "target_id", "campaign_id", "campaign_name", "ad_group_id", "target_kind",
                 "target_text", "match_type")
-# PostgREST's "function not found" when the database predates migration 015.
-_MISSING_FUNCTION_CODE = "PGRST202"
-# PostgREST v12's code for a table the database does not have yet (migration 018, before "DB migrate").
-_MISSING_TABLE_CODE = "42P01"
+
+
+@dataclass(frozen=True)
+class NewToBrand:
+    """The purchases and sales Amazon credits to customers new to the brand, as SB and SD report them."""
+
+    orders: int
+    sales: float
 
 
 @dataclass(frozen=True)
@@ -91,6 +102,8 @@ class ProductCampaigns:
     # SB campaigns Amazon's v3 reports leave out while in preview (isMultiAdGroupsEnabled = false), until the
     # v2 report has loaded their history: their metrics are unknown, not zero, and never read as ghosts.
     without_metrics: frozenset[str]
+    # Campaign id -> its new-to-brand figures; None where a day of the range never measured them.
+    new_to_brand: dict[str, NewToBrand | None] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -192,7 +205,20 @@ def product_campaigns(totals: pd.DataFrame) -> ProductCampaigns:
     unknown = without.to_numpy()
     frame.loc[unknown, [IMPRESSIONS, CLICKS, PURCHASES, PURCHASES_CLICKS]] = pd.NA
     frame.loc[unknown, [CTR, TOTAL_COST, CPC, SALES, ACOS, ROAS, SALES_CLICKS]] = float("nan")
-    return ProductCampaigns(frame=frame, without_metrics=frozenset(live.loc[without, "campaign_id"]))
+    return ProductCampaigns(frame=frame, without_metrics=frozenset(live.loc[without, "campaign_id"]),
+                            new_to_brand=_new_to_brand(live, without))
+
+
+def _new_to_brand(live: pd.DataFrame, without_metrics: pd.Series) -> dict[str, NewToBrand | None]:
+    """Campaign id -> its new-to-brand figures, None when unmeasured; empty before migration 019 adds them."""
+    if not {"new_to_brand_purchases", "new_to_brand_sales"} <= set(live.columns):
+        return {}
+    figures = {}
+    for campaign_id, orders, sales, unknown in zip(live["campaign_id"], live["new_to_brand_purchases"],
+                                                   live["new_to_brand_sales"], without_metrics):
+        measured = not unknown and not pd.isna(orders) and not pd.isna(sales)
+        figures[campaign_id] = NewToBrand(int(orders), float(sales)) if measured else None
+    return figures
 
 
 def idle_targets(rows: pd.DataFrame, *, sp_ad_groups_known: bool = False) -> IdleTargets:
@@ -254,21 +280,24 @@ def enabled_without_metrics(products: ProductCampaigns | None) -> int:
 def _read_campaigns(csv_bytes: bytes) -> pd.DataFrame:
     fields = _CAMPAIGN_TEXT + ("budget_amount",) + _CAMPAIGN_COUNTS + _CAMPAIGN_AMOUNTS
     totals = _read_csv(csv_bytes, fields, PRODUCT_CAMPAIGNS_RPC)
-    for field in _CAMPAIGN_TEXT:
-        totals[field] = totals[field].str.replace("\\\\", "\\", regex=False)
-    for field in _CAMPAIGN_COUNTS:
-        totals[field] = _numbers(totals, field, PRODUCT_CAMPAIGNS_RPC).round().astype("int64")
-    for field in _CAMPAIGN_AMOUNTS:
-        totals[field] = _numbers(totals, field, PRODUCT_CAMPAIGNS_RPC).astype("float64")
+    for column in _CAMPAIGN_TEXT:
+        totals[column] = totals[column].str.replace("\\\\", "\\", regex=False)
+    for column in _CAMPAIGN_COUNTS:
+        totals[column] = _numbers(totals, column, PRODUCT_CAMPAIGNS_RPC).round().astype("int64")
+    for column in _CAMPAIGN_AMOUNTS:
+        totals[column] = _numbers(totals, column, PRODUCT_CAMPAIGNS_RPC).astype("float64")
     totals["budget_amount"] = _optional_numbers(totals, "budget_amount", PRODUCT_CAMPAIGNS_RPC)
+    for new_to_brand in ("new_to_brand_purchases", "new_to_brand_sales"):
+        if new_to_brand in totals.columns:
+            totals[new_to_brand] = _optional_numbers(totals, new_to_brand, PRODUCT_CAMPAIGNS_RPC)
     return totals
 
 
 def _read_targets(csv_bytes: bytes) -> pd.DataFrame:
     fields = _TARGET_TEXT + ("bid", "impressions")
     rows = _read_csv(csv_bytes, fields, GRADUATION_TARGETS_RPC)
-    for field in _TARGET_TEXT:
-        rows[field] = rows[field].str.replace("\\\\", "\\", regex=False)
+    for column in _TARGET_TEXT:
+        rows[column] = rows[column].str.replace("\\\\", "\\", regex=False)
     rows["bid"] = _optional_numbers(rows, "bid", GRADUATION_TARGETS_RPC)
     rows["impressions"] = _numbers(rows, "impressions", GRADUATION_TARGETS_RPC).round().astype("int64")
     return rows
@@ -297,21 +326,3 @@ def _optional_numbers(frame: pd.DataFrame, field: str, rpc: str) -> pd.Series:
     if unreadable.any():
         raise ReportReadError(_error_message(ValueError(f"{rpc} answered a non-numeric {field}"), f"leer {rpc}"))
     return parsed
-
-
-def _is_missing_function(exc: requests.HTTPError) -> bool:
-    return _is_not_found(exc, _MISSING_FUNCTION_CODE)
-
-
-def _is_missing_table(exc: requests.HTTPError) -> bool:
-    return _is_not_found(exc, _MISSING_TABLE_CODE)
-
-
-def _is_not_found(exc: requests.HTTPError, code: str) -> bool:
-    response = exc.response
-    if response is None or response.status_code != 404:
-        return False
-    try:
-        return str((response.json() or {}).get("code") or "") == code
-    except ValueError:
-        return False
