@@ -2006,6 +2006,26 @@ def _merge_historical(existing: list[dict], incoming: list[dict]) -> tuple[list[
     return merged, added, updated
 
 
+def _delete_historical_month(cur: dict, date_iso: str) -> bool:
+    """Saca un mes del histórico. Los demás meses quedan intactos, con su Spend
+    y Ventas PPC manuales. No toca la capa `actual` ni el forecast.
+
+    Args:
+        cur: dict del cliente (se muta in-place si el mes existe).
+        date_iso: "YYYY-MM-01" (también se acepta "YYYY-MM").
+
+    Returns:
+        True si el mes existía y se borró; False si no (sin mutar nada).
+    """
+    key = _month_key(date_iso)
+    hist = cur.get("historical", [])
+    keep = [r for r in hist if r.get("date") != key]
+    if key is None or len(keep) == len(hist):
+        return False
+    cur["historical"] = keep
+    return True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # EBG — histórico por marca (CSV mes,revenue,units,sessions,orders) y carga
 # mensual por prefijo de SKU (By Child Item con columna SKU)
@@ -4375,6 +4395,58 @@ def _render_account_config(cur: dict) -> None:
             _update_account_config("yoy_mode", new_yoy)
 
 
+_CLEAR_MODES = ("Todo el histórico", "Un mes")
+
+
+def _k_deleted_month(cur: dict) -> str:
+    """Key del aviso "mes borrado": sobrevive al st.rerun que cierra el popover."""
+    return f"{_STATE_PREFIX}deleted_month_{cur['id']}"
+
+
+def _month_label(date_iso: str) -> str:
+    """'2026-03-01' → 'Marzo 2026'."""
+    return f"{_MONTHS_FULL[int(date_iso[5:7]) - 1]} {date_iso[:4]}"
+
+
+def _manual_ads_warning(row: dict) -> str:
+    """Qué Spend / Ventas PPC manuales se pierden al borrar ese mes."""
+    has_spend = _loaded_float(row.get("spend")) is not None
+    has_vppc = _loaded_float(row.get("ventasPPC")) is not None
+    if has_spend and has_vppc:
+        return "Tiene Spend y Ventas PPC cargados: se pierden."
+    if has_spend:
+        return "Tiene Spend cargado: se pierde."
+    if has_vppc:
+        return "Tiene Ventas PPC cargadas: se pierden."
+    return "Este mes no tiene Spend ni Ventas PPC cargados."
+
+
+def _render_delete_month(cur: dict) -> None:
+    """Opción "Un mes" del popover "Limpiar histórico"."""
+    by_date = {r["date"]: r for r in cur.get("historical", [])}
+    dates = sorted(by_date, reverse=True)
+    date_iso = st.selectbox(
+        "Mes a borrar", dates, format_func=_month_label, key=f"rf_clear_month_{cur['id']}",
+    )
+    if date_iso not in by_date:
+        return
+    label = _month_label(date_iso)
+    st.markdown(
+        f"**Se va a borrar {label} del histórico.**  \n"
+        f"{_manual_ads_warning(by_date[date_iso])} "
+        f"Los demás meses no cambian. Esta acción no se puede deshacer."
+    )
+    if st.button(f"Sí, borrar {label}", key=f"rf_clear_month_confirm_{cur['id']}",
+                 type="primary"):
+        _delete_historical_month(cur, date_iso)
+        # The history editor keeps pending edits by row position; after a delete they would land on another month.
+        st.session_state.pop(f"rf_history_editor_{cur['id']}", None)
+        st.session_state.pop(f"rf_clear_month_{cur['id']}", None)
+        _try_persist()
+        st.session_state[_k_deleted_month(cur)] = label
+        st.rerun()
+
+
 def _render_upload_and_demo(cur: dict) -> None:
     """Render del bloque "Cargar Business Report" + botón demo (port del HTML L751-765).
 
@@ -4418,23 +4490,35 @@ def _render_upload_and_demo(cur: dict) -> None:
         with st.popover(
             "🗑️ Limpiar histórico",
             disabled=(n_hist == 0),
-            help="Vacía el histórico del cliente activo. Útil antes de re-subir un reporte desde cero.",
+            help="Vacía el histórico del cliente activo o borra un solo mes. Útil antes de re-subir un reporte desde cero.",
         ):
-            st.markdown(
-                f"**¿Vaciar el histórico de _{cur['name']}_?**  \n"
-                f"Se van a borrar **{n_hist} mes{'es' if n_hist != 1 else ''}** "
-                f"de datos (incluyendo Spend y Ventas PPC manuales). "
-                f"Esta acción no se puede deshacer."
+            mode = st.radio(
+                "Qué borrar", _CLEAR_MODES, key=f"rf_clear_mode_{cur['id']}",
+                horizontal=True, label_visibility="collapsed",
             )
-            if st.button(
-                "Sí, vaciar histórico",
-                key=f"rf_clear_confirm_{cur['id']}",
-                type="primary",
-            ):
-                cur["historical"] = []
-                _try_persist()
-                st.success("Histórico vaciado. Re-subí el reporte para empezar de cero.")
-                st.rerun()
+            if mode == _CLEAR_MODES[0]:
+                st.markdown(
+                    f"**¿Vaciar el histórico de _{cur['name']}_?**  \n"
+                    f"Se van a borrar **{n_hist} mes{'es' if n_hist != 1 else ''}** "
+                    f"de datos (incluyendo Spend y Ventas PPC manuales). "
+                    f"Esta acción no se puede deshacer."
+                )
+                if st.button(
+                    "Sí, vaciar histórico",
+                    key=f"rf_clear_confirm_{cur['id']}",
+                    type="primary",
+                ):
+                    cur["historical"] = []
+                    _try_persist()
+                    st.success("Histórico vaciado. Re-subí el reporte para empezar de cero.")
+                    st.rerun()
+            else:
+                _render_delete_month(cur)
+
+    deleted = st.session_state.pop(_k_deleted_month(cur), None)
+    if deleted:
+        st.success(f"{deleted} borrado del histórico. Los demás meses conservan su Spend y Ventas PPC.")
+        st.warning("El forecast no se recalcula solo: volvé a generarlo.")
 
     if uploaded is not None:
         # `.getvalue()` para que el parser cacheado reciba bytes (patrón M30).
