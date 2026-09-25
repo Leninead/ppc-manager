@@ -96,7 +96,7 @@ corre la suite entera sobre un checkout limpio.
 | 10 | 🚀 Campaign Builder | PPC | ✅ nuevo 2026-03-21 |
 | 11 | 🧲 DataDive Analyzer | Research | ✅ conectado 2026-03-27 (4 tabs: MKL, Competitors, Rank Radar, Volatility) |
 | 12 | 🧲 Helium 10 Analyzer | Research | ✅ conectado 2026-03-27 (3 tabs: Cerebro, KW Research, Competitor Gap) |
-| 13 | 📢 SBH Recommendation | Research | ✅ conectado 2026-03-27 (targets SBH cruzando MKL+SQP+Campaign) |
+| 13 | 📢 SBH Recommendation | Research | ✅ conectado 2026-03-27 (targets SBH cruzando MKL+SQP); IT-49 2026-09-25: «En SP» del listado SP de la cuenta + Análisis IA |
 | 14 | 🔎 PPC Insights | Research | ✅ conectado 2026-03-27 (health score por ASIN, 824 líneas) |
 | 15 | 📈 PPC Forecast | Research | ✅ conectado 2026-03-27 (proyección ventas + estacionalidad) |
 | 16 | 🛡️ PPC Audit | Research | ✅ conectado 2026-03-27 (auditoría integral score 0-100) |

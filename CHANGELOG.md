@@ -6,6 +6,24 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — SBH Recommendation marca «En SP» con la cuenta de Amazon Ads y suma Análisis IA (IT-49, 2026-09-25)
+
+**Por qué.** Para saber qué keywords ya corren en Sponsored Products había que subir un «Campaign CSV» a mano, y su
+parser buscaba «Keyword Text» o «Targeting»: con un Campaign CSV de verdad el set quedaba vacío sin avisar, y sin
+archivo la columna decía ❌ para todo. El search term report sincronizado no alcanzaba para reemplazarlo: sólo trae
+keywords con clicks (en la base local, 49 de las 519 keywords activas de Mott & Bow US en 60 días).
+
+**Ahora.**
+- **Cuenta en lugar de archivo.** «Keywords activas en Sponsored Products» elige Cuenta y País (arranca sin cuenta:
+  el MKL y el SQP no dicen de quién son) y lee el listado diario de estructura SP (migración 018): una keyword corre si
+  ella y su campaña están habilitadas y su ad group no está pausado. El bloque dice cuándo se listó y cuántas corren.
+- **«Sin dato» no es «no».** Sin cuenta, sin listado o con la lectura caída, «En SP» muestra «—» y la leyenda lo explica;
+  la prioridad sigue tratándolas como no en SP, como antes sin archivo.
+- **Análisis IA.** Pestaña nueva con el agente `sbh`: ordena hasta 10 clusters para lanzar como campaña SBH (LANZAR,
+  PROBAR o DESCARTAR), propone un headline de hasta 50 caracteres y cierra con la síntesis; no recalcula prioridades ni
+  propone bids. Corre sólo con «Analizar con IA» y se comparte con el chat de la app.
+- Las reglas (prioridad, clusters, headline) pasaron sin cambios a `core/sbh/targets.py`, con tests por primera vez.
+
 ### Added — El chat compara períodos, filtra por métrica, arma series por semana o mes y busca niches por ASIN (2026-09-25)
 
 **Por qué.** Lo que un AM pide de una, el chat lo armaba a mano, llamada por llamada: una serie de 10 semanas eran 11
