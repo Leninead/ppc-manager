@@ -208,6 +208,10 @@ def _new_client(
     currency: str = "USD",
     yoy_mode: str = "auto",
     client_id: Optional[str] = None,
+    group: Optional[str] = None,
+    seller_account: Optional[str] = None,
+    brand: Optional[str] = None,
+    brand_prefixes: Optional[list] = None,
 ) -> dict:
     """Constructor de un cliente nuevo con defaults completos (shape estable).
 
@@ -230,6 +234,9 @@ def _new_client(
         currency: moneda en que vive el histórico (USD, MXN, EUR…).
         yoy_mode: modo de cálculo YoY ('auto', 'manual', 'off').
         client_id: id explícito; si None se genera del slug del name.
+        group / seller_account / brand / brand_prefixes: metadata opcional del
+            forecast por marca (EBG). Los clientes persistidos antes no tienen
+            estas keys: leerlas siempre con `_brand_meta`.
 
     Returns:
         dict con el shape completo del cliente (15 keys).
@@ -260,7 +267,117 @@ def _new_client(
         "asins": [],               # lista de dicts {asin, name, share, …}
         "selected_asin": None,     # id del ASIN seleccionado para drill-down
         "created_at": date.today().isoformat(),
+        "group": group,
+        "seller_account": seller_account,
+        "brand": brand,
+        "brand_prefixes": list(brand_prefixes or []),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EBG — metadata de marca y selector Grupo → Cuenta → Marca
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ALL_GROUPS = "Todos"
+_ALL_ACCOUNTS = "Todas"
+
+
+def _brand_meta(c: dict) -> dict:
+    """Metadata de marca de un cliente, con defaults para los clientes viejos."""
+    return {
+        "group": c.get("group"),
+        "seller_account": c.get("seller_account"),
+        "brand": c.get("brand"),
+        "brand_prefixes": list(c.get("brand_prefixes") or []),
+    }
+
+
+def _parse_brand_prefixes(text: Optional[str]) -> list[str]:
+    """'BL, blg ,,BL' → ['BL', 'blg']: sin vacíos ni repetidos (sin distinguir mayúsculas)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in (text or "").split(","):
+        p = part.strip()
+        if p and p.lower() not in seen:
+            seen.add(p.lower())
+            out.append(p)
+    return out
+
+
+def _set_brand_meta(
+    cur: dict,
+    group: Optional[str],
+    seller_account: Optional[str],
+    brand: Optional[str],
+    prefixes_text: Optional[str],
+) -> None:
+    """Escribe la metadata de marca en el cliente. Texto en blanco → None."""
+    def _clean(v: Optional[str]) -> Optional[str]:
+        v = (v or "").strip()
+        return v or None
+
+    cur["group"] = _clean(group)
+    cur["seller_account"] = _clean(seller_account)
+    cur["brand"] = _clean(brand)
+    cur["brand_prefixes"] = _parse_brand_prefixes(prefixes_text)
+
+
+def _has_groups(clients: list[dict]) -> bool:
+    return any(_brand_meta(c)["group"] for c in clients)
+
+
+def _client_label(c: dict) -> str:
+    meta = _brand_meta(c)
+    if meta["group"]:
+        return f"{meta['brand'] or c['name']} · {meta['seller_account'] or 'Sin cuenta'}"
+    return f"{c['name']} ({c['marketplace']})"
+
+
+def _client_labels(clients: list[dict]) -> dict[str, str]:
+    """{label: client_id}. Un label repetido se desambigua con el id."""
+    counts: dict[str, int] = {}
+    for c in clients:
+        lbl = _client_label(c)
+        counts[lbl] = counts.get(lbl, 0) + 1
+    labels: dict[str, str] = {}
+    for c in clients:
+        lbl = _client_label(c)
+        labels[f"{lbl} [{c['id']}]" if counts[lbl] > 1 else lbl] = c["id"]
+    return labels
+
+
+def _group_options(clients: list[dict]) -> list[str]:
+    groups = {_brand_meta(c)["group"] for c in clients} - {None}
+    return [_ALL_GROUPS, *sorted(groups)]
+
+
+def _account_options(clients: list[dict], group: str) -> list[str]:
+    if group == _ALL_GROUPS:
+        return [_ALL_ACCOUNTS]
+    accounts = {
+        _brand_meta(c)["seller_account"] for c in clients
+        if _brand_meta(c)["group"] == group
+    } - {None}
+    return [_ALL_ACCOUNTS, *sorted(accounts)]
+
+
+def _filter_clients(clients: list[dict], group: str, account: str) -> list[dict]:
+    if group == _ALL_GROUPS:
+        return list(clients)
+    out = [c for c in clients if _brand_meta(c)["group"] == group]
+    if account != _ALL_ACCOUNTS:
+        out = [c for c in out if _brand_meta(c)["seller_account"] == account]
+    return out
+
+
+def _account_brands(clients: list[dict], group: str, account: str) -> list[dict]:
+    """Marcas de una cuenta, en el formato que consume `_split_by_brand`."""
+    return [
+        {"id": c["id"], "brand": _brand_meta(c)["brand"],
+         "prefixes": _brand_meta(c)["brand_prefixes"]}
+        for c in _filter_clients(clients, group, account)
+        if _brand_meta(c)["brand"]
+    ]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1889,6 +2006,217 @@ def _merge_historical(existing: list[dict], incoming: list[dict]) -> tuple[list[
     return merged, added, updated
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# EBG — histórico por marca (CSV mes,revenue,units,sessions,orders) y carga
+# mensual por prefijo de SKU (By Child Item con columna SKU)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_BRAND_HISTORY_REQUIRED = ("mes", "revenue", "units", "sessions")
+_BRAND_MONTH_RE = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])(?:-\d{2})?$")
+
+# Header normalizado del By Child Item → key interna. Match exacto: evita tomar
+# las columnas "- B2B" en lugar del total.
+_SKU_REPORT_COLS = {
+    "sku": "sku",
+    "(child) asin": "child_asin",
+    "title": "title",
+    "sessions - total": "sessions",
+    "units ordered": "units",
+    "ordered product sales": "revenue",
+    "total order items": "orders",
+}
+_SKU_REPORT_REQUIRED = {
+    "sku": "SKU",
+    "sessions": "Sessions - Total",
+    "units": "Units Ordered",
+    "revenue": "Ordered Product Sales",
+    "orders": "Total Order Items",
+}
+# "orders" is order items, not orders: the brand CSVs and "Total Order Items" are the same metric.
+_BRAND_METRICS = ("revenue", "units", "sessions", "orders")
+
+
+def _brand_month_row(period: str, revenue: float, units: float, sessions: float,
+                     orders: Optional[float]) -> dict:
+    """Fila de histórico de una marca. `orders` None → la key no se escribe."""
+    row = {
+        "date": f"{period}-01",
+        "revenue": revenue,
+        "units": units,
+        "sessions": sessions,
+        "cvr": (units / sessions * 100.0) if sessions > 0 else 0.0,
+    }
+    if orders is not None:
+        row["orders"] = orders
+    return row
+
+
+def _parse_brand_history_csv(data: bytes) -> list[dict]:
+    """CSV histórico de una marca → filas mensuales del histórico, asc por fecha.
+
+    La columna `orders` son order items (misma métrica que "Total Order Items"
+    del By Child Item), no pedidos.
+
+    Sin pageViews / buyBox / revenueB2B: el CSV no los trae y el motor no los usa.
+
+    Raises:
+        ValueError: faltan columnas, un mes no es YYYY-MM o hay meses repetidos.
+    """
+    df = pd.read_csv(BytesIO(data), dtype=str, encoding="utf-8-sig", keep_default_na=False)
+    df.columns = [_norm_header(c) for c in df.columns]
+    missing = [c for c in _BRAND_HISTORY_REQUIRED if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Al CSV de marca le faltan columnas: {', '.join(missing)}. "
+            "Formato esperado: mes,revenue,units,sessions,orders."
+        )
+    has_orders = "orders" in df.columns
+
+    rows: list[dict] = []
+    for raw in df.to_dict("records"):
+        mes = str(raw["mes"]).strip()
+        m = _BRAND_MONTH_RE.match(mes)
+        if not m:
+            raise ValueError(f"Mes inválido en el CSV de marca: {mes!r} (se espera YYYY-MM).")
+        rows.append(_brand_month_row(
+            f"{m.group(1)}-{m.group(2)}",
+            _parse_num(raw["revenue"]),
+            _parse_num(raw["units"]),
+            _parse_num(raw["sessions"]),
+            _parse_num(raw["orders"]) if has_orders else None,
+        ))
+
+    dates = [r["date"] for r in rows]
+    repeated = sorted({d[:7] for d in dates if dates.count(d) > 1})
+    if repeated:
+        raise ValueError(f"Meses repetidos en el CSV de marca: {', '.join(repeated)}.")
+    return sorted(rows, key=lambda r: r["date"])
+
+
+def _import_brand_history(cur: dict, data: bytes) -> tuple[int, int]:
+    """Mergea el CSV de marca en el histórico del cliente. Returns (added, updated)."""
+    merged, added, updated = _merge_historical(
+        cur.get("historical", []), _parse_brand_history_csv(data)
+    )
+    cur["historical"] = merged
+    return added, updated
+
+
+def _match_brand_prefix(sku: str, brands: list[dict]) -> list[tuple[str, str]]:
+    """Marcas cuyo prefijo matchea el SKU (sin distinguir mayúsculas).
+
+    Returns:
+        [(brand_id, prefijo)] con el prefijo más largo de cada marca. Más de un
+        elemento = el SKU matchea varias marcas (conflicto).
+    """
+    s = (sku or "").strip().lower()
+    if not s:
+        return []
+    hits: list[tuple[str, str]] = []
+    for b in brands:
+        matched = [p for p in b.get("prefixes", []) if p and s.startswith(p.lower())]
+        if matched:
+            hits.append((b["id"], max(matched, key=len)))
+    return hits
+
+
+def _split_by_brand(data: bytes, brands: list[dict]) -> dict:
+    """Reparte un By Child Item con SKU entre las marcas de una cuenta.
+
+    Las sessions de una marca son la SUMA de las sessions de sus childs. Puede
+    superar las visitas únicas (una visita a dos childs cuenta dos veces), pero
+    es como Edu arma el histórico por marca, así que las dos series son
+    comparables mes a mes.
+
+    Args:
+        data: bytes del CSV.
+        brands: [{"id", "brand", "prefixes"}] (ver `_account_brands`).
+
+    Returns:
+        {"brands": {id: {"brand", revenue, units, sessions, orders, "skus"}},
+         "unassigned": [fila por SKU sin marca],
+         "conflicts": [fila por SKU con 2+ marcas, más "brands"],
+         "totals": {revenue, units, sessions, orders} del archivo completo}.
+        Asignado + unassigned + conflicts = totals.
+
+    Raises:
+        ValueError: faltan SKU o alguna columna de métricas.
+    """
+    df = pd.read_csv(BytesIO(data), dtype=str, encoding="utf-8-sig", keep_default_na=False)
+    rename = {c: _SKU_REPORT_COLS[_norm_header(c)] for c in df.columns
+              if _norm_header(c) in _SKU_REPORT_COLS}
+    df = df.rename(columns=rename)
+    missing = [label for key, label in _SKU_REPORT_REQUIRED.items() if key not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Al reporte le faltan columnas: {', '.join(missing)}. Descargá "
+            "\"Detail Page Sales and Traffic By Child Item\" con la columna SKU."
+        )
+
+    names = {b["id"]: b["brand"] for b in brands}
+    by_brand = {b["id"]: {"brand": b["brand"], **{m: 0.0 for m in _BRAND_METRICS}, "skus": 0}
+                for b in brands}
+    unassigned: list[dict] = []
+    conflicts: list[dict] = []
+    totals = {m: 0.0 for m in _BRAND_METRICS}
+
+    for raw in df.to_dict("records"):
+        item = {
+            "sku": str(raw.get("sku", "")).strip(),
+            "child_asin": str(raw.get("child_asin", "")).strip(),
+            "title": str(raw.get("title", "")).strip(),
+            **{m: _parse_num(raw.get(m)) for m in _BRAND_METRICS},
+        }
+        for m in _BRAND_METRICS:
+            totals[m] += item[m]
+        hits = _match_brand_prefix(item["sku"], brands)
+        if len(hits) == 1:
+            agg = by_brand[hits[0][0]]
+            for m in _BRAND_METRICS:
+                agg[m] += item[m]
+            agg["skus"] += 1
+        elif not hits:
+            unassigned.append(item)
+        else:
+            conflicts.append({**item, "brands": [names[bid] for bid, _ in hits]})
+
+    return {"brands": by_brand, "unassigned": unassigned,
+            "conflicts": conflicts, "totals": totals}
+
+
+def _month_options(today: date, n: int = 24) -> list[str]:
+    """Últimos `n` meses cerrados, del más reciente al más viejo ('YYYY-MM')."""
+    y, m = today.year, today.month
+    out: list[str] = []
+    for _ in range(n):
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+        out.append(f"{y:04d}-{m:02d}")
+    return out
+
+
+def _apply_month_by_brand(clients: list[dict], period: str, split: dict) -> dict[str, str]:
+    """Suma el mes a cada cliente-marca con SKUs asignados (preserva spend manual).
+
+    Returns:
+        {client_id: "added" | "updated"}. Las marcas sin SKUs no se tocan: un 0
+        cargado por un prefijo mal configurado parecería una caída real.
+    """
+    by_id = {c["id"]: c for c in clients}
+    applied: dict[str, str] = {}
+    for bid, agg in split["brands"].items():
+        c = by_id.get(bid)
+        if c is None or agg["skus"] == 0:
+            continue
+        row = _brand_month_row(period, agg["revenue"], agg["units"],
+                               agg["sessions"], agg["orders"])
+        merged, added, _ = _merge_historical(c.get("historical", []), [row])
+        c["historical"] = merged
+        applied[bid] = "added" if added else "updated"
+    return applied
+
+
 def _load_demo_into_active(state: Optional[Any] = None) -> int:
     """Reemplaza el histórico del cliente activo con DERMAGLOS_DATA.
 
@@ -2022,7 +2350,8 @@ def _build_quick_stats(historical: list[dict], currency: str = "USD") -> list[di
     para que `render()` los pase a `kpi_card`.
 
     Lista base: 8 cards (Revenue/YoY/Sessions/CVR/Units/AOV/Velocity/BuyBox).
-    Si el último mes tiene spend → agrega Spend; si además tiene ventasPPC →
+    Si el último mes tiene orders (histórico por marca) → agrega Order items y
+    AOP (units / order items). Si el último mes tiene spend → agrega Spend; si además tiene ventasPPC →
     agrega ACOS real; el TACOS real se agrega siempre que haya spend.
     """
     if not historical:
@@ -2086,6 +2415,22 @@ def _build_quick_stats(historical: list[dict], currency: str = "USD") -> list[di
             "delta_label": "",
         },
     ]
+
+    # Sólo los históricos importados por marca traen order items.
+    last_orders = last.get("orders")
+    if last_orders is not None:
+        cards.append({
+            "label": "Order items",
+            "value": _fmt_num(last_orders),
+            "delta": _delta_pct(last_orders, prev.get("orders")) if prev else None,
+            "delta_label": "MoM",
+        })
+        cards.append({
+            "label": "AOP",
+            "value": _fmt_num((last.get("units") or 0) / last_orders, 2) if last_orders else "—",
+            "delta": None,
+            "delta_label": "",
+        })
 
     # Cards extra si hay ads data — fiel al HTML L1982-1994.
     last_spend = last.get("spend")
@@ -3760,6 +4105,219 @@ def _header() -> None:
         unsafe_allow_html=True,
     )
     st.divider()
+
+
+_K_GROUP_FILTER = "rf_group_filter"
+_K_ACCOUNT_FILTER = "rf_account_filter"
+
+
+def _keep_valid_choice(key: str, options: list[str]) -> None:
+    """Resetea la elección guardada de un selectbox si ya no está entre sus opciones."""
+    if st.session_state.get(key) not in options:
+        st.session_state[key] = options[0]
+
+
+def _render_client_filters(clients: list[dict]) -> list[dict]:
+    """Filtros Grupo → Cuenta. Sin clientes con grupo no dibuja nada."""
+    if not _has_groups(clients):
+        return clients
+    groups = _group_options(clients)
+    _keep_valid_choice(_K_GROUP_FILTER, groups)
+    col_g, col_a = st.columns(2)
+    with col_g:
+        group = st.selectbox("Grupo", groups, key=_K_GROUP_FILTER)
+    accounts = _account_options(clients, group)
+    _keep_valid_choice(_K_ACCOUNT_FILTER, accounts)
+    with col_a:
+        account = st.selectbox("Cuenta", accounts, key=_K_ACCOUNT_FILTER,
+                               disabled=(group == _ALL_GROUPS))
+    return _filter_clients(clients, group, account) or clients
+
+
+def _pick_client(clients: list[dict]) -> str:
+    """Selectbox "Cliente" (sin key=, se usa el return). Devuelve el id elegido."""
+    label_to_id = _client_labels(clients)
+    labels = list(label_to_id)
+    active_id = st.session_state.get(_K_ACTIVE_CLIENT_ID)
+    default_idx = next((i for i, lbl in enumerate(labels) if label_to_id[lbl] == active_id), 0)
+    return label_to_id[st.selectbox("Cliente", labels, index=default_idx)]
+
+
+def _render_brand_meta_popover(cur: dict) -> None:
+    """Popover "Marca / grupo": metadata de marca del cliente activo."""
+    meta = _brand_meta(cur)
+    keys = {f: f"rf_brand_{f}_{cur['id']}" for f in ("group", "account", "brand", "prefixes")}
+    seeds = {
+        "group": meta["group"] or "",
+        "account": meta["seller_account"] or "",
+        "brand": meta["brand"] or "",
+        "prefixes": ", ".join(meta["brand_prefixes"]),
+    }
+    for f, k in keys.items():
+        if k not in st.session_state:
+            st.session_state[k] = seeds[f]
+
+    with st.popover("🏷️ Marca / grupo"):
+        st.markdown("**Marca / grupo**")
+        st.caption("Para clientes con varias marcas: un cliente por marca, agrupados por grupo y cuenta.")
+        st.text_input("Grupo", key=keys["group"], placeholder="Elevated Beauty Group")
+        st.text_input("Cuenta de Seller Central", key=keys["account"], placeholder="Cuenta 1")
+        st.text_input("Marca", key=keys["brand"], placeholder="Blossom")
+        st.text_input("Prefijos de SKU (separados por coma)", key=keys["prefixes"],
+                      placeholder="BL, BLG")
+        if st.button("Guardar marca", key=f"rf_brand_save_{cur['id']}", type="primary"):
+            _set_brand_meta(
+                cur,
+                group=st.session_state[keys["group"]],
+                seller_account=st.session_state[keys["account"]],
+                brand=st.session_state[keys["brand"]],
+                prefixes_text=st.session_state[keys["prefixes"]],
+            )
+            _try_persist()
+            st.rerun()
+
+
+def _render_brand_history_import(cur: dict) -> None:
+    """Uploader "Importar histórico (CSV por marca)". Sólo para clientes-marca."""
+    meta = _brand_meta(cur)
+    if not (meta["group"] or meta["brand"]):
+        return
+    st.markdown("##### Importar histórico (CSV por marca)")
+    st.caption(
+        "CSV con columnas mes,revenue,units,sessions,orders (mes = YYYY-MM). "
+        "Los meses que ya existen se actualizan; Spend y Ventas PPC manuales se conservan."
+    )
+    uploaded = st.file_uploader(
+        "Histórico por marca (CSV)", type=["csv"],
+        key=f"rf_brand_hist_uploader_{cur['id']}", label_visibility="collapsed",
+    )
+    if uploaded is None:
+        return
+    try:
+        rows = _parse_brand_history_csv(uploaded.getvalue())
+    except Exception as e:  # noqa: BLE001 — fail-soft al AM
+        st.error(f"No se pudo leer el CSV: {e}")
+        return
+    if not rows:
+        st.warning("El CSV no tiene filas.")
+        return
+    st.caption(f"{len(rows)} meses: {rows[0]['date'][:7]} a {rows[-1]['date'][:7]}.")
+    if st.button(f"Importar {len(rows)} meses", key=f"rf_brand_hist_import_{cur['id']}",
+                 type="primary"):
+        added, updated = _import_brand_history(cur, uploaded.getvalue())
+        _try_persist()
+        st.success(f"✓ {added} meses nuevos · {updated} actualizados.")
+
+
+def _brand_preview_df(split: dict, clients: list[dict], period: str) -> pd.DataFrame:
+    """Previa de la carga mensual: una fila por marca. Sin None (Arrow-safe)."""
+    by_id = {c["id"]: c for c in clients}
+    key = f"{period}-01"
+    rows = []
+    for bid, agg in split["brands"].items():
+        hist = by_id.get(bid, {}).get("historical", [])
+        if agg["skus"] == 0:
+            estado = "Sin SKUs: no se carga"
+        elif any(r.get("date") == key for r in hist):
+            estado = "Actualiza el mes"
+        else:
+            estado = "Mes nuevo"
+        rows.append({
+            "Marca": agg["brand"], "SKUs": agg["skus"], "Revenue": agg["revenue"],
+            "Units": agg["units"], "Sessions": agg["sessions"],
+            "Order items": agg["orders"], "Estado": estado,
+        })
+    return pd.DataFrame(rows)
+
+
+def _reconciliation_caption(split: dict, currency: str) -> str:
+    """'Revenue del archivo = asignado + sin marca + en conflicto', listo para st.caption."""
+    def money(n: float) -> str:
+        # Markdown reads a bare "$" as a LaTeX delimiter.
+        return _fmt_currency(n, currency, 2).replace("$", "\\$")
+
+    assigned = sum(b["revenue"] for b in split["brands"].values())
+    unassigned = sum(u["revenue"] for u in split["unassigned"])
+    conflicts = sum(c["revenue"] for c in split["conflicts"])
+    return (
+        f"Revenue del archivo {money(split['totals']['revenue'])} = "
+        f"asignado {money(assigned)} + sin marca {money(unassigned)} + "
+        f"en conflicto {money(conflicts)}."
+    )
+
+
+def _render_month_by_account(cur: dict, clients: list[dict]) -> None:
+    """"Cargar mes por cuenta": reparte un By Child Item entre las marcas de una
+    cuenta del grupo del cliente activo. El mes lo elige el AM; nunca se infiere
+    del nombre del archivo (el reporte no trae fecha).
+    """
+    group = _brand_meta(cur)["group"]
+    if not group:
+        return
+    accounts = _account_options(clients, group)[1:]
+    if not accounts:
+        return
+
+    st.markdown(f"##### Cargar mes por cuenta — {group}")
+    st.caption(
+        "Seller Central → Business Reports → \"Detail Page Sales and Traffic By "
+        "Child Item\" con la columna SKU, del mes completo. Cada SKU va a la marca "
+        "cuyo prefijo coincide."
+    )
+    k_acct, k_period = f"rf_month_acct_{group}", f"rf_month_period_{group}"
+    periods = _month_options(date.today())
+    _keep_valid_choice(k_acct, accounts)
+    _keep_valid_choice(k_period, periods)
+    col_a, col_p = st.columns(2)
+    with col_a:
+        account = st.selectbox("Cuenta", accounts, key=k_acct)
+    with col_p:
+        period = st.selectbox("Mes", periods, key=k_period,
+                              help="Default: el último mes cerrado.")
+
+    brands = _account_brands(clients, group, account)
+    for b in brands:
+        if not b["prefixes"]:
+            st.warning(f"{b['brand']} no tiene prefijos de SKU: no puede recibir ventas.")
+
+    uploaded = st.file_uploader(
+        "By Child Item con SKU (CSV)", type=["csv"],
+        key=f"rf_month_uploader_{group}_{account}", label_visibility="collapsed",
+    )
+    if uploaded is None:
+        return
+    try:
+        split = _split_by_brand(uploaded.getvalue(), brands)
+    except Exception as e:  # noqa: BLE001 — fail-soft al AM
+        st.error(f"No se pudo leer el reporte: {e}")
+        return
+
+    st.markdown(f"**Previa — {account} · {period}**")
+    st.dataframe(_brand_preview_df(split, clients, period), hide_index=True,
+                 use_container_width=True)
+    st.caption(_reconciliation_caption(split, cur.get("currency", "USD")))
+    if split["unassigned"]:
+        st.warning(f"{len(split['unassigned'])} SKUs sin marca: no se cargan en ningún cliente.")
+        st.dataframe(pd.DataFrame(split["unassigned"])[
+            ["sku", "child_asin", "title", "revenue", "units", "orders"]
+        ], hide_index=True, use_container_width=True)
+    if split["conflicts"]:
+        st.error(
+            "Estos SKUs coinciden con los prefijos de más de una marca. Corregí los "
+            "prefijos antes de cargar el mes: "
+            + "; ".join(f"{c['sku']} → {', '.join(c['brands'])}" for c in split["conflicts"])
+        )
+
+    has_data = any(b["skus"] for b in split["brands"].values())
+    if st.button(f"Confirmar carga de {period}", key=f"rf_month_confirm_{group}_{account}",
+                 type="primary", disabled=bool(split["conflicts"]) or not has_data):
+        applied = _apply_month_by_brand(clients, period, split)
+        _try_persist()
+        names = {b["id"]: b["brand"] for b in brands}
+        st.success(f"✓ {period} cargado: " + ", ".join(
+            f"{names[bid]} ({'nuevo' if how == 'added' else 'actualizado'})"
+            for bid, how in applied.items()
+        ))
 
 
 def _render_account_config(cur: dict) -> None:
@@ -6671,21 +7229,15 @@ def render() -> None:
         )
         return
 
-    # 3) Selector de cliente — patrón M30 (sin key=, se usa el return).
-    label_to_id = {f"{c['name']} ({c['marketplace']})": c["id"] for c in clients}
-    labels = list(label_to_id.keys())
-
+    # 3) Selector de cliente — patrón M30 (sin key=, se usa el return). Con
+    # clientes agrupados por marca, filtros Grupo → Cuenta arriba.
     active_id = st.session_state.get(_K_ACTIVE_CLIENT_ID)
-    try:
-        active_label = next(lbl for lbl, cid in label_to_id.items() if cid == active_id)
-        default_idx = labels.index(active_label)
-    except StopIteration:
-        default_idx = 0
+    visible = _render_client_filters(clients)
 
     # Selector + popover "➕ Nuevo cliente" pegado (columns, NO expander — gotcha 1.43.2).
     col_sel, col_new = st.columns([4, 1])
     with col_sel:
-        selected_label = st.selectbox("Cliente", labels, index=default_idx)
+        selected_id = _pick_client(visible)
     with col_new:
         # Spacer para alinear el botón con el input (el selectbox tiene label arriba).
         st.markdown("<div style='height:1.7rem'></div>", unsafe_allow_html=True)
@@ -6704,7 +7256,6 @@ def render() -> None:
                     # el popover al quedar el cliente nuevo activo.
                     st.rerun()
 
-    selected_id = label_to_id[selected_label]
     if selected_id != active_id:
         _set_active_client(selected_id)
 
@@ -6725,6 +7276,7 @@ def render() -> None:
     ):
         if _try_persist():
             st.success("Guardado ✓")
+    _render_brand_meta_popover(cur)
 
     # 4) Aviso de estado del módulo.
     st.info(
@@ -6740,6 +7292,8 @@ def render() -> None:
     st.markdown("")
     _render_upload_and_demo(cur)
     st.markdown("")
+    _render_brand_history_import(cur)
+    _render_month_by_account(cur, clients)
     _render_actual_upload(cur)
     _render_actual_table(cur)
     st.markdown("")

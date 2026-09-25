@@ -110,3 +110,5 @@ resumenes-*.txt
 docker-compose.dev-expose.yml
 # Per-machine scratch of the /design skill's hook.
 .impeccable/
+# Synthetic forecast-by-brand fixtures (invented brands and numbers) run in CI.
+!tests/fixtures/forecast_brands/*.csv
