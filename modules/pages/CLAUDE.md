@@ -1123,30 +1123,65 @@ Analizar exports Helium 10 Cerebro para reverse ASIN, research y competitor gap.
 ---
 
 ## M23 — SBH Recommendation
-**Archivo:** modules/pages/sbh_recommendation.py (230+ líneas)
+**Archivo:** modules/pages/sbh_recommendation.py. Reglas en `core/sbh/targets.py`, payload IA en `core/sbh/analysis.py`,
+agente en `ai/agents/sbh/`.
 **Sección sidebar:** Research
-**Session state prefix:** sbh_
+**Session state prefix:** `sbh_` (uploaders `sbh_mkl`/`sbh_sqp`, cuenta `sbh_src_account`/`sbh_src_profile`, IA `sbh_ai_*`)
 
 ### Propósito
-Recomendar targets para campañas Sponsored Brand Headline cruzando MKL + SQP + Campaign CSV.
+Recomendar targets para campañas Sponsored Brand Headline cruzando el MKL de DataDive y el SQP de la marca con las
+keywords que ya corren en Sponsored Products en la cuenta de Amazon Ads de la marca.
 
 ### Arquitectura
-Carga 3 inputs → prioriza por SV + IS + mercado comprando → clustering automático + headlines sugeridos
+2 pestañas: 📢 Targets (priorización, clusters, headlines, SBH Target Pack) | 🤖 Análisis IA (agente `sbh`).
 
-### Reglas de negocio
+### «En SP» sale del listado de estructura SP (IT-49, 2026-09-25)
+- El uploader «Campaign CSV» salió: su parser buscaba «Keyword Text» o «Targeting», así que con un Campaign CSV de
+  verdad (nivel campaña) dejaba el set vacío sin avisar; sólo andaba con un Bulk.
+- El bloque «Keywords activas en Sponsored Products» elige Cuenta + País (helpers del picker del STR). **La cuenta
+  arranca vacía a propósito**: el MKL y el SQP no dicen de qué cuenta son, y una cuenta por defecto cruzaría la marca
+  con el SP de otro cliente sin avisar.
+- Lee `StructureProvider.sp_structure(..., entities=(campaign, ad_group, keyword))` (migración 018, cache 15 min) y
+  `core/amazon_ads/active_keywords.active_keyword_texts`: corre = keyword y campaña habilitadas y ad group no listado
+  como pausado (un ad group nunca listado cuenta como habilitado, igual que Target Graduation). Match por texto
+  (`normalized_keyword`: casefold + espacios colapsados), en cualquier match type, como hacía el CSV.
+- **No desde `ads_search_term_daily`** (lo que sugería el ticket): el report sólo trae keywords con clicks. Medido en la
+  base local el 25/09 (60 días): el report ve 49 de 519 keywords activas en Mott & Bow US, 39 de 265 en Dermaglós US, 84
+  de 125 en Sakura Care US, 30 de 38 en Tecno plaza MX y 29 de 37 en Tattoo Care US.
+- Sin cuentas, sin cuenta elegida, sin listado (campañas o keywords nunca listadas, o listado rechazado por permiso) o
+  con la lectura caída: «En SP» = «—» (sin dato), nunca ❌, y la prioridad la trata como no en SP (lo mismo que pasaba
+  sin CSV). Una cuenta cuyo listado de keywords terminó sin filas sí es «0 keywords activas» y todo ❌.
+
+### Capa IA (2026-09-25 — consumidor de `core/ai_tab`, en memoria)
+- `auto_fire=False`: nada se gasta hasta «Analizar con IA». La firma cambia con los archivos o la cuenta.
+- Payload (`build_analysis_input`): Parámetros (marca del SQP, cuenta de `en_sp` o «ninguna», conteos del MKL) +
+  Clusters con `row_id` `G01…` (hasta 30 por SV total, con sus 8 keywords de más SV, `en_sp` contado o vacío,
+  `is_ponderado` por SV) + Keywords (hasta 120, sin row_id; `en_sp`/`mercado_compra` en palabras).
+- Salida: `clusters[]` (≤10, en orden de lanzamiento: `razon` → `veredicto` LANZAR/PROBAR/DESCARTAR → `confianza` →
+  `headline` ≤50 caracteres o null → `advertencia`) + la `synthesis` canónica. Nunca recalcula prioridad ni clusters ni
+  propone bids. La tabla avisa si el headline pasa los 50 caracteres del Campaign Builder.
+- Se comparte con el chat vía `publish_analysis_to_chat` (sujeto «marca …», `profile_id` y país de la cuenta elegida).
+
+### Reglas de negocio (sin cambios, movidas a `core/sbh/targets.py`)
 - Prioridad ALTA: SV ≥1000, IS <10%, mercado comprando, no en SP actual
-- MEDIA: SV ≥500, IS <20%
+- MEDIA: SV ≥500, IS <20% y (no en SP o IS <5%)
 - BAJA: SV ≥300
-- Clustering: root words comunes
-- Headline sugerido por cluster
+- Clustering: root words comunes (en 3+ keywords); «other» sin raíz común, «general» si ninguna se repite
+- Headline sugerido por cluster: las 4 raíces más repetidas de sus 5 primeras keywords
 
 ### Inputs
 - DataDive MKL (.xlsx) — requerido
 - SQP (.xlsx, .csv) — requerido
-- Campaign CSV (.xlsx, .csv) — opcional
+- Cuenta de Amazon Ads de la marca — opcional (sin ella «En SP» queda sin dato)
+
+### Tests
+`tests/test_amazon_ads_active_keywords.py`, `tests/test_sbh_targets.py`, `tests/test_sbh_agent.py`,
+`tests/test_sbh_page.py` (AppTest con PostgREST en memoria y proveedor IA falso).
 
 ### Anti-patterns
-- Sin Campaign CSV → no puede detectar keywords ya en SP
+- ❌ NO sacar «En SP» del search term report: sólo ve las keywords con clicks del período.
+- ❌ NO elegir una cuenta por defecto: los archivos no dicen de qué cuenta son.
+- ❌ NO mostrar ❌ cuando no se sabe: sin listado es «—».
 
 ---
 
@@ -1874,7 +1909,8 @@ lista no tiene ninguna fila de `spTargeting` en 60 días (el 98,9% de los pausad
 - **Qué queda afuera.** SB y SD: `ads_ad_group` y `ads_negative` tienen `ad_product` en la clave, pero hoy sólo se
   escribe SP. Lo archivado: ad groups, targets, anuncios y negativos archivados no se listan (las campañas archivadas
   sí). Las etiquetas de bulk de Placement. Y los consumidores: Atom11 (IT-42), PPC Audit (IT-44) y Análisis Cruzado
-  (IT-51) todavía no la leen, son sus tickets.
+  (IT-51) todavía no la leen, son sus tickets. La primera página que la lee es SBH Recommendation (IT-49), para las
+  keywords que ya corren en SP (`core/amazon_ads/active_keywords.py`, ver M23).
 - **Deploy.** La foto de campañas escribe las columnas de placement y los listados nuevos sus tablas. Jenkins levanta
   la imagen en «Deploy» antes de «DB migrate», en el mismo pipeline: lo que corra en esa ventana sin la 018 falla y se
   reintenta a los 5 minutos, sin perder nada. Es aditiva y la imagen anterior funciona sobre ella
