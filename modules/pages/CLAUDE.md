@@ -992,27 +992,80 @@ IA, KPI de gasto, firma de inputs, pestaña guardada con Recalcular), `tests/tes
 ---
 
 ## M19 — PPC Forecast
-**Archivo:** modules/pages/ppc_forecast.py (~450 líneas)
-**Sección sidebar:** Intelligence
-**Session state prefix:** forecast_
+**Archivo:** modules/pages/ppc_forecast.py. Proyección en `core/ppc_forecast/projection.py`, desglose en
+`core/ppc_forecast/paid_split.py`, payload IA en `core/ppc_forecast/analysis.py`, agente en `ai/agents/ppc_forecast/`.
+**Sección sidebar:** Research
+**Session state prefix:** `forecast_` (uploader `forecast_br`, botón `forecast_run` y su firma `forecast_generated_for`,
+cuenta `forecast_src_account` / `forecast_src_profile`), IA `ppc_forecast_ai_*`
 
 ### Propósito
-Proyección de ventas con tendencia lineal + estacionalidad. Estima ventas futuras 7/14/30 días.
+Proyectar las ventas diarias del BR a 7, 14 o 30 días, sumarles el crecimiento objetivo del AM y, con la cuenta de Amazon
+Ads del BR, separar las ventas de ads de las orgánicas y estimar el spend para el objetivo.
 
-### Arquitectura
-Input BR diario (mín 14d) → numpy polyfit → 3 escenarios (conservador/base/optimista) + gráfico + Excel
+### Proyección (IT-47, 2026-09-25)
+- Recta y diferencia de fin de semana ajustadas juntas por mínimos cuadrados (`fit_sales_trend`: ventas = a + b × días +
+  c los sábados y domingos). Los días que faltan en el BR cuentan como días de calendario.
+- Antes la recta se ajustaba sobre todos los días y después los fines de semana se multiplicaban por el ratio
+  finde/laboral: el fin de semana se contaba dos veces y el día en que terminaba la historia inclinaba la recta. Medido:
+  4 semanas idénticas (hábiles 100, fines de semana 60) terminadas en domingo daban $986.02 para los 14 días siguientes
+  en vez de $1,240.00 (`test_a_history_that_repeats_the_same_week_is_projected_as_that_same_week`). Sin diferencia de
+  fin de semana, la proyección es la misma recta de antes.
+- Backtest con ventas diarias reales de ads (12 cuentas, 35 proyecciones de 14 días, base local, 23/09): error mediano
+  del total 21,5% → 19,3% y sesgo mediano +7,7% → +0,3%; el error por día no cambia (~35% del día promedio). El arreglo
+  saca un error sistemático; no vuelve precisa la proyección.
+- «Ratio Finde/Laboral»: sábado o domingo sobre día hábil en la mitad de la historia; «—» si la historia no tiene los
+  dos tipos de día.
 
-### Reglas de negocio
-- Tendencia: numpy polyfit grado 1
-- Estacionalidad: finde vs laboral, detección automática
-- 3 escenarios con bandas de confianza
+### Ventas de ads: reportes de campaña de la cuenta, no el Campaign CSV (IT-47)
+- El uploader «Campaign CSV» salió. El bloque «Ventas de ads de la cuenta» elige Cuenta + País (helpers del picker del
+  STR). **Arranca sin cuenta**: el BR diario no dice de qué cuenta es.
+- Lee `core/amazon_ads/campaign_totals.daily_totals` (RPC `campaign_daily_totals`, migración 019): SP, SB y SD por día,
+  SP con la atribución de la cuenta y SB/SD como los cuenta Campaign Manager. Es lo que traía el CSV.
+- **No desde `ads_search_term_daily`** (lo que sugería el ticket): sólo trae Sponsored Products. Medido en la base local
+  (24/08–22/09): para SP da casi lo mismo (−0,1% a −0,9%), pero SB+SD eran hasta el 18,5% del spend (Sakura Care US) y
+  el 29% de las ventas de ads (Tattoo Care US).
+- Ventana: los días del BR que la sincronización de campañas guarda (`covered_window` sobre `campaign_sync_view`: 65
+  días hasta el último `sp_campaigns` completo). Ads y BR suman los mismos días (`paid_split`); con cobertura parcial la
+  pantalla dice «N de M días del BR», y sin días en común no hay desglose.
+- Spend estimado = ventas con crecimiento × TACoS de esos días (`spend_for_target`); sin datos de ads es «—» (antes
+  $0.00). Si las ventas de ads superan las del BR se avisa: la cuenta o el país no son los del BR.
+- Estados del bloque: sin cuentas conectadas, sin cuenta elegida, campañas sin sincronizar / primera carga / primera
+  carga fallida, lectura caída y al día.
+- Moneda: la de la cuenta (`money()`); sin cuenta, el `$` de siempre.
+
+### «Generar Forecast»
+Sigue el botón: guarda la firma de BR + horizonte + crecimiento (`forecast_generated_for`) y el resultado queda en
+pantalla mientras no cambie (patrón de M18). Elegir la cuenta no cambia la firma: el desglose se actualiza solo. Antes el
+resultado desaparecía en cualquier rerun, y con él la pestaña IA.
+
+### Capa IA (IT-47 — consumidor de `core/ai_tab`, en memoria)
+- `auto_fire=False`: nada se gasta hasta «Analizar con IA». La firma es BR + cuenta; un crecimiento u horizonte nuevo
+  muestra el banner y «Recalcular».
+- Payload (`build_analysis_input`): Parámetros (cuenta o por qué no hay ads, moneda, cifras del módulo y el aviso si las
+  ventas de ads superan las del BR), Historia diaria (hasta 180 días; spend y ventas de ads del día cuando hay) y
+  Proyección diaria. Unidades y sesiones van sólo si el BR las trae.
+- Salida: `lecturas[]` (PROYECCION siempre y PRESUPUESTO sólo con spend estimado: `razon` → `confianza` →
+  `advertencia`) + la `synthesis` canónica. Nunca recalcula ni propone otra proyección u otro spend.
+- Se comparte con el chat vía `publish_analysis_to_chat` (sujeto: la cuenta, el cliente o el archivo; `profile_id` y
+  país de la cuenta).
 
 ### Inputs
-- BR Daily (.xlsx, .csv) — mínimo 14 días
+- BR diario (By Date → Sales and Traffic, .csv o .xlsx): mínimo 7 días, 14 o más recomendado
+- Cuenta de Amazon Ads del BR: opcional
+
+### Tests
+`tests/test_ppc_forecast_projection.py`, `tests/test_ppc_forecast_paid_split.py`, `tests/test_ppc_forecast_agent.py`,
+`tests/test_ppc_forecast_page.py` (AppTest con PostgREST en memoria y proveedor IA falso).
 
 ### Anti-patterns
-- Menos de 14 días → resultados no confiables
-- Proyectar >30 días → pierde precisión
+- ❌ NO sacar las ventas de ads de los search terms: sólo son SP.
+- ❌ NO elegir una cuenta por defecto: el BR no dice de quién es.
+- ❌ NO volver a multiplicar los fines de semana de una recta ajustada sobre todos los días: cuenta el fin de semana dos
+  veces.
+- ❌ NO mostrar $0.00 de spend sin datos de ads: es «—».
+- ❌ NO poner dos montos con `$` en un `st.warning` / `st.info` sin escaparlos (`\\$`): Streamlit lee el texto entre
+  ellos como LaTeX (lo encontró el E2E en el aviso de ventas de ads mayores que las del BR).
+- Menos de 14 días → resultados poco confiables; proyectar más de 30 días → pierde precisión.
 
 ---
 

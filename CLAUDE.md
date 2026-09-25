@@ -98,7 +98,7 @@ corre la suite entera sobre un checkout limpio.
 | 12 | 🧲 Helium 10 Analyzer | Research | ✅ conectado 2026-03-27 (3 tabs: Cerebro, KW Research, Competitor Gap) |
 | 13 | 📢 SBH Recommendation | Research | ✅ conectado 2026-03-27 (targets SBH cruzando MKL+SQP); IT-49 2026-09-25: «En SP» del listado SP de la cuenta + Análisis IA |
 | 14 | 🔎 PPC Insights | Research | ✅ conectado 2026-03-27 (health score por ASIN, 824 líneas) |
-| 15 | 📈 PPC Forecast | Research | ✅ conectado 2026-03-27 (proyección ventas + estacionalidad) |
+| 15 | 📈 PPC Forecast | Research | ✅ conectado 2026-03-27 (proyección ventas + estacionalidad); IT-47 2026-09-25: ventas de ads de la cuenta de Amazon Ads (SP+SB+SD) en lugar del Campaign CSV, fin de semana contado una vez + Análisis IA |
 | 16 | 🛡️ PPC Audit | Research | ✅ conectado 2026-03-27 (auditoría integral score 0-100) |
 | 17 | 📊 Account Pulse | Research | ✅ conectado 2026-03-27 (monitor salud diaria + festivos MX) |
 | 18 | 🔬 Reportes Atom 11 | Account | ✅ completo |
