@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=UClUSEsDS2sdgNJfCcCM_5Uw"/>
+ <title>My Amazon Guy</title>
+ <entry>
+  <id>yt:video:3RN-BEM9BCA</id>
+  <yt:videoId>3RN-BEM9BCA</yt:videoId>
+  <title>How Smart Founders Automate Amazon Workflows</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=3RN-BEM9BCA"/>
+  <author><name>My Amazon Guy</name></author>
+  <published>2026-09-25T17:02:16+00:00</published>
+  <updated>2026-09-25T18:00:00+00:00</updated>
+  <media:group>
+   <media:title>How Smart Founders Automate Amazon Workflows</media:title>
+   <media:description>Steven walks through order automation for Amazon sellers.</media:description>
+  </media:group>
+ </entry>
+ <entry>
+  <id>yt:video:OLDVIDEO123</id>
+  <title>Only updated, never published</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=OLDVIDEO123"/>
+  <updated>2026-09-24T10:00:00+00:00</updated>
+ </entry>
+</feed>

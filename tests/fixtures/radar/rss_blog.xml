@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Ad Badger</title>
+    <link>https://www.adbadger.com/</link>
+    <item>
+      <title>Prime Big Deal Days 2026 PPC Playbook: Bids &amp; Budgets</title>
+      <link>https://www.adbadger.com/blog/prime-big-deal-days-ppc-strategy/</link>
+      <pubDate>Fri, 25 Sep 2026 17:07:32 +0000</pubDate>
+      <dc:creator>Michael</dc:creator>
+      <description><![CDATA[<p>Raise budgets&nbsp;before the event.</p>]]></description>
+      <content:encoded><![CDATA[<p>Raise budgets before the event.</p><script>alert(1)</script><p>Lower bids after it.</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Older post</title>
+      <link>https://www.adbadger.com/blog/older-post/</link>
+      <pubDate>Mon, 01 Sep 2026 10:00:00 +0000</pubDate>
+      <description>Plain description &amp; more.</description>
+    </item>
+  </channel>
+</rss>

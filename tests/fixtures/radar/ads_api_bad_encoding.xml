@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="US-ASCII"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Amazon Ads API Release Notes</title>
+    <link>https://advertising.amazon.com/API/docs/en-us/info/release-notes</link>
+    <item>
+        <title>Bulk operations preview</title>
+        <description>You can now preview your bulk operations files directly on the dashboard—no download needed.</description>
+        <pubDate>Thu, 24 Sep 2026 00:00:00 +0000</pubDate>
+        <guid>https://advertising.amazon.com/API/docs/en-us/release-notes/index#bulk-operations-preview</guid>
+    </item>
+  </channel>
+</rss>
