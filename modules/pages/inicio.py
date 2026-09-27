@@ -6,6 +6,7 @@ catalog. Every chip and button navigates by setting the same routing key the rai
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from html import escape
 from zoneinfo import ZoneInfo
@@ -16,11 +17,22 @@ from core import navigation
 from core.home_areas import AREA_OWNERS, SYSTEM_SECTION, home_counts, visible_sections
 from core.home_news import NEWS, count_since, latest
 from core.integrations import roles
+from core.integrations.store import _Rest, _rest_credentials
+from core.radar import store as radar_store
 from core.sop_library import SOPS, sops_for_area
 from core.ui import i18n, palette
 
+log = logging.getLogger(__name__)
+
 _TIMEZONE = ZoneInfo("America/Argentina/Buenos_Aires")
 _NEWS_GRID_SIZE = 4
+_RADAR_TOPICS = 5
+# (ink, background) of the badge per confidence the Radar run computed.
+_RADAR_BADGES: dict[str, tuple[str, str]] = {
+    "official": (palette.OK_INK, palette.OK_GLOW),
+    "confirmed": (palette.CHIP_MARKETPLACE_FG, palette.CHIP_MARKETPLACE_BG),
+    "expert": (palette.FG_MUTED, palette.LINE_SOFT),
+}
 # Narrowest a grid card may get before the grid drops a column: below this the text wraps word by word.
 _NEWS_CARD_MIN = "220px"
 _RESOURCE_CARD_MIN = "240px"
@@ -249,6 +261,79 @@ def _render_news(today: date) -> None:
                         _render_news_card(item)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_radar() -> list[dict]:
+    """The latest week's Radar topics, or [] when there is no database, no table yet or no rows."""
+    credentials = _rest_credentials()
+    if credentials is None:
+        return []
+    try:
+        return radar_store.latest_topics(_Rest(*credentials), limit=_RADAR_TOPICS)
+    except Exception as exc:  # the home must render even when the Radar cannot be read
+        log.warning("home: radar_items could not be read: %s", exc)
+        return []
+
+
+def _radar_week_label(week_start: str) -> str:
+    day = date.fromisoformat(week_start)
+    months = i18n.t("home.months").split(",")
+    return i18n.t("home.radar.week", day=day.day, month=months[day.month - 1])
+
+
+def _safe_link(url: str) -> str | None:
+    """Feed links are third-party data: only http(s) becomes a clickable href."""
+    return url if isinstance(url, str) and url.startswith(("https://", "http://")) else None
+
+
+def _radar_source_html(source: dict) -> str:
+    parts = [escape(str(source.get("person") or source.get("name") or ""))]
+    try:
+        published = date.fromisoformat(str(source.get("published_at", ""))[:10])
+        parts.append(escape(i18n.t("home.news.date", day=published.day,
+                                   month=i18n.months_short()[published.month - 1])))
+    except ValueError:
+        pass
+    link = _safe_link(source.get("link"))
+    if link:
+        parts.append(f"<a href='{escape(link, quote=True)}' target='_blank' rel='noopener noreferrer' "
+                     f"style='color:{palette.ACCENT_HOVER};'>{escape(i18n.t('home.radar.open_source'))}</a>")
+    return f"<div style='font-size:13px;color:{palette.FG_MUTED};'>{' · '.join(parts)}</div>"
+
+
+def _render_radar_topic(topic: dict) -> None:
+    ink, background = _RADAR_BADGES.get(topic["confidence"], _RADAR_BADGES["expert"])
+    badge = (f"<span style='font-size:12px;font-weight:600;color:{ink};background:{background};"
+             f"border-radius:999px;padding:3px 10px;white-space:nowrap;'>"
+             f"{escape(i18n.t('home.radar.confidence.' + topic['confidence']))}</span>")
+    sources = "".join(_radar_source_html(source) for source in topic.get("sources") or [])
+    with st.container(border=True, key=f"home_radar_topic_{topic['rank']}"):
+        st.markdown(
+            f"<div style='margin-bottom:8px;'>{badge}</div>"
+            f"<div style='font-size:18px;font-weight:600;line-height:1.3;color:{palette.FG};margin-bottom:6px;'>"
+            f"{escape(topic['title_es'])}</div>"
+            f"<div style='font-size:15px;line-height:1.5;color:{palette.FG};margin-bottom:8px;'>"
+            f"{escape(topic['summary_es'])}</div>"
+            f"<div style='font-size:14px;line-height:1.5;color:{palette.FG};background:{palette.ATTENTION_GLOW};"
+            f"border-radius:10px;padding:8px 12px;margin-bottom:8px;'>"
+            f"<strong>{escape(i18n.t('home.radar.implications'))}</strong> {escape(topic['implications_es'])}</div>"
+            f"{sources}",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_radar() -> None:
+    topics = _load_radar()
+    if not topics:
+        return
+    st.markdown(_section_title_html(i18n.t("home.radar.title")), unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:14px;color:{palette.FG_MUTED};margin-bottom:12px;'>"
+                f"{escape(_radar_week_label(topics[0]['week_start']))} · "
+                f"{escape(i18n.t('home.radar.disclaimer'))}</div>", unsafe_allow_html=True)
+    with st.container(key="home_radar"):
+        for topic in topics:
+            _render_radar_topic(topic)
+
+
 def _render_resources(visible: set[str]) -> None:
     resources = [resource for resource in _RESOURCES if resource[0] in visible]
     if not resources:
@@ -342,5 +427,6 @@ def render(username: str = "", role: str = roles.USER) -> None:
     st.markdown(_CSS, unsafe_allow_html=True)
     _render_header(today, modules, areas)
     _render_news(today)
+    _render_radar()
     _render_resources(visible)
     _render_areas(sections, modules, areas)

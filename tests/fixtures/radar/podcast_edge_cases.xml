@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+  <channel>
+    <title>Better Advertising</title>
+    <item>
+      <title>Episode without a link</title>
+      <description>Destaney talks about Sponsored Brands &amp; video &mdash; with a transcript.</description>
+      <pubDate>Tue, 22 Sep 2026 12:00:00 GMT</pubDate>
+      <guid isPermaLink="false">Buzzsprout-12345</guid>
+      <enclosure url="https://cdn.example.com/episode.mp3" type="audio/mpeg" length="1"/>
+      <podcast:transcript url="https://hosting-media.example.com/transcript.srt" type="application/srt"/>
+    </item>
+    <item>
+      <title>Episode without a date</title>
+      <link>https://example.com/episodes/no-date</link>
+      <description>No pubDate, so it never enters.</description>
+    </item>
+    <item>
+      <title>Episode with a broken date</title>
+      <link>https://example.com/episodes/broken-date</link>
+      <pubDate>sometime last week</pubDate>
+    </item>
+  </channel>
+</rss>
