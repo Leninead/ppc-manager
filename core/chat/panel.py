@@ -41,6 +41,10 @@ class ChatTurn:
 
 _ACCENT = ACCENT
 
+# Fastest first; the last one is the orchestrator's own effort, so the default changes nothing.
+EFFORT_LEVELS = ("low", "medium", "xhigh")
+DEFAULT_EFFORT = "xhigh"
+
 _L = {
     "es": {"title": "Capybaras Assistant",
            "greeting": "Hola, soy Capybaras Assistant. Preguntame por tus clientes, "
@@ -56,6 +60,12 @@ _L = {
            "wait_tools": "Buscando los datos…",
            "tool_failed": "falló",
            "wait_long": "Sigue trabajando. Puede tardar unos minutos.",
+           "effort": "Nivel de esfuerzo",
+           "effort_help": "Cuánto analiza el asistente antes de responder. Con más esfuerzo tarda "
+                          "más, pero revisa y cruza más fuentes, así que sus conclusiones son más "
+                          "confiables. Usá Rápido para consultas puntuales y Profundo para números "
+                          "que vas a compartir.",
+           "efforts": {"low": "Rápido", "medium": "Equilibrado", "xhigh": "Profundo"},
            "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive", "src_ppc_manager": "Agency OS",
            "reads": {"reports": "Reportes", "ad_groups": "Ad groups", "targets": "Targets",
                      "budgets": "Presupuestos", "portfolios": "Portfolios", "campaigns": "Campañas",
@@ -80,6 +90,12 @@ _L = {
            "wait_tools": "Looking up the data…",
            "tool_failed": "failed",
            "wait_long": "Still working. This can take a few minutes.",
+           "effort": "Effort level",
+           "effort_help": "How much the assistant analyzes before answering. More effort takes "
+                          "longer, but it checks and crosses more sources, so its conclusions are "
+                          "more reliable. Use Fast for quick lookups and Deep for numbers you will "
+                          "share.",
+           "efforts": {"low": "Fast", "medium": "Balanced", "xhigh": "Deep"},
            "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive", "src_ppc_manager": "Agency OS",
            "reads": {"reports": "Reports", "ad_groups": "Ad groups", "targets": "Targets",
                      "budgets": "Budgets", "portfolios": "Portfolios", "campaigns": "Campaigns",
@@ -510,6 +526,10 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                     stage.markdown(_thread_box(history, L, pending), unsafe_allow_html=True)
                 else:
                     _start_screen(stage, L, starters() if starters else [], start_key, ideas_key, pick_key)
+                effort = st.selectbox(
+                    L["effort"], EFFORT_LEVELS, index=EFFORT_LEVELS.index(DEFAULT_EFFORT),
+                    format_func=L["efforts"].get, key=f"aichat_{chat_id}_effort",
+                    help=L["effort_help"])
                 # A form, not st.chat_input. Inside a popover that also holds a
                 # fragment, chat_input renders and accepts text but its submit
                 # never arrives — typed or pasted, the box keeps the text and
@@ -548,7 +568,7 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                         for event in runtime.stream_followup(
                                 agent, sid, question, ads_scope=sending.ads_scope,
                                 context_docs=sending.documents, note=sending.note,
-                                thread=list(history)):
+                                thread=list(history), effort=effort):
                             if event["type"] == "reply":
                                 reply = event["reply"]
                                 continue

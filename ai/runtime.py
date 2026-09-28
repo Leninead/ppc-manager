@@ -211,7 +211,8 @@ def stream_followup(slug: str, session_id: str | None, question: str,
                     ads_scope: dict | None = None,
                     context_docs: list | None = None,
                     note: str | None = None,
-                    thread: list | None = None) -> Iterator[dict]:
+                    thread: list | None = None,
+                    effort: str | None = None) -> Iterator[dict]:
     """The same turn as `ask_followup`, streamed and answered in components.
 
     The model reads the catalog of what the panel can draw and is held to its
@@ -219,9 +220,11 @@ def stream_followup(slug: str, session_id: str | None, question: str,
     Yields {"type": "tool", "name": ...} for each tool the model asks for while it
     works, {"type": "tool_result", "name": ..., "ok": ...} when that call comes back,
     then one {"type": "reply", "reply": ChatReply}. Raises what
-    `ask_followup` raises."""
+    `ask_followup` raises.
+    `effort` overrides the agent's own for this turn; None keeps the agent's."""
     call = _followup_call(slug, session_id, question, ads_scope, context_docs, note, thread,
-                          guide=chat_components.GUIDE, output_schema=chat_components.SCHEMA)
+                          guide=chat_components.GUIDE, output_schema=chat_components.SCHEMA,
+                          effort=effort)
     for event in client.ask_stream(**call):
         if event.get("type") == "tool":
             yield {"type": "tool", "name": str(event.get("name") or "")}
@@ -239,7 +242,8 @@ def stream_followup(slug: str, session_id: str | None, question: str,
 
 def _followup_call(slug: str, session_id: str | None, question: str, ads_scope: dict | None,
                    context_docs: list | None, note: str | None, thread: list | None,
-                   guide: str = "", output_schema: dict | None = None) -> dict:
+                   guide: str = "", output_schema: dict | None = None,
+                   effort: str | None = None) -> dict:
     agent = _agent(slug)
     system = agent["system"] + ("\n\n" + _CHAT_RULES if _CHAT_RULES else "") + ("\n\n" + guide if guide else "")
     tools = usable_tools(slug, ads_scope) or None
@@ -251,7 +255,7 @@ def _followup_call(slug: str, session_id: str | None, question: str, ads_scope: 
     input_text = f"{note}\n\n{question}" if note else question
     return dict(system=system, input_text=input_text, context=context,
                 model=agent["meta"].get("model", "opus"),
-                effort=agent["meta"].get("effort") or None,
+                effort=effort or agent["meta"].get("effort") or None,
                 session_id=session_id, timeout_s=int(agent["meta"].get("timeout_s", 3600)),
                 output_schema=output_schema,
                 # A schema turn spends turns on the StructuredOutput call, with or without tools.
