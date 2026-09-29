@@ -5,16 +5,23 @@ gateway):  docker exec -w /app ppc-manager python /tmp/e2e_selfhosted_db.py
 Drives the real backend objects (same transport the app uses), not the cached wrappers.
 """
 
+import os
 import sys
 import traceback
 import uuid
+from datetime import date
 
 import pandas as pd
+import requests
 
 import core.persistence as P
 import core.forecast.persistence as F
 import core.innovation.persistence as I
 import core.proposals.persistence as PP
+from core.integrations.store import _Rest, _rest_credentials
+from core.seller_reports import columns as seller_columns
+from core.seller_reports.periods import SqpPeriod, sqp_week
+from core.seller_reports.store import SellerReportRejected, SellerReportStore
 
 results = []
 
@@ -113,6 +120,106 @@ try:
     check("ah_snapshots DELETE", ah.load_snapshot(AREA, CLI, MOD, "9999-del") is None)
 except Exception as e:
     check("delete block", False, f"{type(e).__name__}: {e}")
+    traceback.print_exc()
+
+# ── Seller Central (023): the write path the app and the SP-API worker share ──
+# It creates its own Amazon Ads account with the worker's JWT and removes everything it created at the end, so it
+# leaves nothing behind. Without INTEGRATIONS_WORKER_JWT it is skipped.
+def seller_central_checks(url: str, app_key: str, worker_key: str) -> None:
+    app_rest, worker_rest = _Rest(url, app_key), _Rest(url, worker_key)
+    app, worker = SellerReportStore(app_rest), SellerReportStore(worker_rest)
+    suffix = uuid.uuid4().hex[:10].upper()
+    entity_id, profile_id = f"AE2E{suffix}", f"e2e-{suffix.lower()}"
+    worker_rest.insert("integration_accounts", {
+        "integration_slug": "amazon_ads", "cuenta_externa_id": entity_id, "nombre_externo": "E2E seller reports",
+        "tipo": "seller", "region": "NA", "marketplaces": ["MX"],
+        "profiles": [{"profile_id": profile_id, "marketplace_id": "A1AM78C64UM0Y8", "country_code": "MX"}]})
+    account = None
+    try:
+        account = app.account_for_ads_profile(profile_id, "e2e")
+        check("seller_accounts (from the Ads profile)",
+              account.marketplace_id == "A1AM78C64UM0Y8" and account.selling_partner_id is None, str(account))
+
+        days = [{"day": "2026-09-01", "units_ordered": 10, "sessions": 100},
+                {"day": "2026-09-02", "units_ordered": 12.0, "sessions": 110}]
+        preview = app.upload_sales_traffic_daily(account.id, days, preview=True, loaded_by="e2e", file_name="e2e.csv")
+        stored = app_rest.select("seller_sales_traffic_daily",
+                                 {"select": "day", "seller_account_id": f"eq.{account.id}"})
+        check("upload preview writes nothing",
+              [c.status for c in preview.changes] == ["inserted", "inserted"] and not stored)
+        first = app.upload_sales_traffic_daily(account.id, days, loaded_by="e2e", file_name="e2e.csv")
+        check("upload inserts", [c.status for c in first.changes] == ["inserted", "inserted"] and first.load_id)
+        again = app.upload_sales_traffic_daily(account.id, days, loaded_by="e2e", file_name="e2e.csv")
+        check("the same file twice is unchanged",
+              [c.status for c in again.changes] == ["unchanged", "unchanged"] and again.load_id is None)
+        api = worker.save_sales_traffic_daily(account.id, [{"day": "2026-09-02", "units_ordered": 13, "sessions": 111}],
+                                              loaded_by="e2e worker")
+        check("SP-API replaces a manual day",
+              [(c.status, c.existing_source) for c in api.changes] == [("replaced", "manual")])
+        held = app.upload_sales_traffic_daily(account.id, days, loaded_by="e2e", file_name="e2e.csv")
+        check("the hand over SP-API data asks first",
+              [c.status for c in held.changes] == ["unchanged", "conflict"] and held.load_id is None)
+        confirmed = app.upload_sales_traffic_daily(account.id, days, replace_api_data=True, loaded_by="e2e",
+                                                   file_name="e2e.csv")
+        check("confirmed, the file replaces it", [c.status for c in confirmed.changes] == ["unchanged", "replaced"])
+        undone = app.revert_load(confirmed.load_id, reverted_by="e2e")
+        units = [row["units_ordered"] for row in app_rest.select(
+            "seller_sales_traffic_daily",
+            {"select": "units_ordered", "seller_account_id": f"eq.{account.id}", "order": "day.asc"})]
+        check("undoing the load brings the SP-API day back",
+              [c.status for c in undone.changes] == ["restored"] and units == [10, 13], str(units))
+
+        week = sqp_week(date(2026, 9, 16))
+        sqp = app.upload_search_query_performance(
+            account.id, seller_columns.BRAND_VIEW, "E2E Brand", week,
+            [{"search_query": "e2e query", "total_click_count": 10, "own_click_count": 2}], loaded_by="e2e")
+        check("SQP Brand View of an Amazon week", [c.status for c in sqp.changes] == ["inserted"])
+        try:
+            app.upload_search_query_performance(account.id, seller_columns.BRAND_VIEW, "E2E Brand",
+                                                SqpPeriod("week", date(2026, 9, 14), date(2026, 9, 20)),
+                                                [{"search_query": "e2e query"}])
+            check("a week not on Sunday is refused", False, "it was accepted")
+        except SellerReportRejected as exc:
+            check("a week not on Sunday is refused", exc.code == "week_not_on_sunday", exc.code)
+        by_asin = app.upload_sales_traffic_by_asin(account.id, date(2026, 9, 1), date(2026, 9, 14),
+                                                   [{"child_asin": "B0E2ETEST1", "units_ordered": 5}], loaded_by="e2e")
+        check("By Child of an exact range", [c.status for c in by_asin.changes] == ["inserted"])
+
+        try:
+            app_rest.insert("seller_sales_traffic_daily", {"seller_account_id": account.id, "day": "2026-09-03"})
+            check("the app cannot write a table directly", False, "the insert went through")
+        except requests.HTTPError as exc:
+            check("the app cannot write a table directly", exc.response.status_code in (401, 403),
+                  str(exc.response.status_code))
+
+        deleted = app.delete_periods(account.id, seller_columns.SALES_TRAFFIC_DAILY, "", date(2026, 9, 1),
+                                     date(2026, 9, 30), replace_api_data=True, deleted_by="e2e")
+        restored = app.revert_load(deleted.load_id, reverted_by="e2e")
+        check("a delete is undone", [c.status for c in deleted.changes] == ["deleted", "deleted"]
+              and [c.status for c in restored.changes] == ["restored", "restored"])
+    finally:
+        if account is not None:
+            everything = (date(2000, 1, 1), date(2100, 1, 1))
+            for dataset, brand_or_asin in ((seller_columns.SALES_TRAFFIC_DAILY, ""),
+                                           (seller_columns.SALES_TRAFFIC_BY_ASIN, ""),
+                                           (seller_columns.SQP_BRAND_VIEW, "E2E Brand")):
+                app.delete_periods(account.id, dataset, brand_or_asin, *everything, replace_api_data=True)
+            check("the test account is deleted with its loads and history", app.delete_account(account.id))
+        requests.delete(f"{url.rstrip('/')}/rest/v1/integration_accounts",
+                        params={"cuenta_externa_id": f"eq.{entity_id}"},
+                        headers={"apikey": worker_key, "Authorization": f"Bearer {worker_key}"},
+                        timeout=10).raise_for_status()
+
+
+try:
+    credentials = _rest_credentials()
+    worker_jwt = os.environ.get("INTEGRATIONS_WORKER_JWT", "")
+    if credentials is None or not worker_jwt:
+        print("SKIP | seller central | needs SUPABASE_URL, SUPABASE_KEY and INTEGRATIONS_WORKER_JWT")
+    else:
+        seller_central_checks(credentials[0], credentials[1], worker_jwt)
+except Exception as e:
+    check("seller central block", False, f"{type(e).__name__}: {e}")
     traceback.print_exc()
 
 passed = sum(1 for _, ok in results if ok)

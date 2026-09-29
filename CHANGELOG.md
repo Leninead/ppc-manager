@@ -6,6 +6,26 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Tablas de Seller Central con una sola escritura para la carga manual y la SP-API (IT-59, 2026-09-29)
+
+**Por qué.** Los AMs vuelven a subir el mismo Business Report y el mismo SQP en cada módulo, y nada queda guardado.
+Los datos de Amazon Ads ya se sincronizan; los de Seller Central no. Esta es la base para guardarlos, vengan de un
+archivo o de la SP-API cuando Amazon apruebe la app.
+
+**Qué hay.** Migración `023_seller_reports.sql` y `core/seller_reports/`. Las decisiones están en
+`docs/seller-central-data.md`.
+- Una cuenta de Seller Central es la cuenta de Amazon Ads de un marketplace. Su `selling_partner_id` queda nulo hasta
+  que la SP-API lo confirme o alguien lo cargue a mano. Solo cuentas seller.
+- Guarda tres cosas: el BR por día, el BR por ASIN hijo sobre su rango exacto, y el SQP (Brand View y ASIN View) por
+  semana de domingo a sábado o por mes. Las columnas llevan los nombres de la SP-API; un nulo quiere decir que el
+  export no traía esa columna; shares, tasas y CVR se calculan al leer.
+- Hay una sola escritura: el app sube como `manual` y el worker guarda como `sp_api`. El mismo contenido no escribe
+  nada, la SP-API reemplaza lo manual, y lo manual encima de la SP-API pide confirmación.
+- Toda escritura tiene vista previa (lo que hay y lo que pasaría con cada período). Cada carga se puede volver atrás,
+  y borrar también se deshace.
+- `web_user` no escribe ninguna tabla directo: todo pasa por funciones `security definer`. Las tablas nuevas están en
+  el smoke, y `e2e_selfhosted_db.py` prueba el camino entero por PostgREST y borra lo que crea.
+
 ### Changed — La subida manual vuelve como fallback en los cinco módulos que la habían perdido con la API de Amazon Ads (2026-09-29)
 
 **Por qué.** Al pasar a la API, Search Term Report, Bulk Campañas, Análisis de Funnel, Bid Optimizer, PPC Insights y PPC

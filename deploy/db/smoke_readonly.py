@@ -62,6 +62,14 @@ TABLES = [
     ("integration_sync_jobs", "progress"),   # idem, for the negatives listed in parts
     # Amazon Ads SB search terms (PPC Audit) — 021_sb_search_terms.sql.
     ("ads_sb_search_term_daily", "profile_id"),
+    # Seller Central: Business Report and SQP, by hand or by SP-API — 023_seller_reports.sql.
+    ("seller_accounts", "id"),
+    ("seller_report_loads", "id"),
+    ("seller_report_periods", "seller_account_id"),
+    ("seller_report_period_history", "seller_account_id"),
+    ("seller_sales_traffic_daily", "seller_account_id"),
+    ("seller_sales_traffic_by_asin", "seller_account_id"),
+    ("seller_search_query_performance", "seller_account_id"),
     # Meli API bridge (M36) — 003_meli_api.sql + 004_meli_ads_unique.sql.
     ("meli_auth_identities", "id"),         # refresh_token_sealed idem
     ("meli_ingestion_runs", "id"),
