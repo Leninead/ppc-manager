@@ -231,7 +231,7 @@ Analizar search terms de campañas SP: negativizar, harvestear, clasificar por t
 - **El bulk de negativos (nivel ad group) se habilita sólo con datos de API** (`source.bulk_ready`): `select_for_bulk(candidates, frame, released_ranking=...)` → `core.bulk.export.build_adgroup_negative` → `write_bulk_excel`. Quedan afuera, con el motivo en pantalla: el término aparece con origen Exact o Product Targeting en cualquier fila del mismo ad group (INV-11.1), campaña no habilitada, `*`, términos ASIN o ISBN, texto que Amazon rechaza (`negative_keyword_text_problem`: 80 caracteres, 4 palabras en Phrase, 10 en Exact, símbolos prohibidos), una Negative Phrase que bloquearía un término que convierte o una Exact activa del mismo ad group (plurales s/es cuentan igual), un negativo igual a una keyword propia del ad group, términos que ya corren como Exact activa (INV-11.2), duplicados, y términos con órdenes en cualquier ventana (7 o 14 días) en el mismo ad group.
 - **INV-11.1 se aplica solo al bulk** (decisión de Juan, 2026-09-15, pendiente de validación de Lenin): con datos de API, los términos de origen Exact o Product Targeting siguen en la tabla de candidatos, en su Excel y en el payload de la IA con su Acción (`Negativo` si cumplen R2/R3/R5). El texto de INV-11.1 pide sacarlos antes; si Lenin lo confirma, el filtro va en `evaluate_candidates`.
 - **Portfolios RANKING y portfolios sin nombre** (INV-11.3): quedan afuera por defecto y se liberan **uno por uno** con la casilla «Liberar» (`st.data_editor`); la clave es `negative_key(candidate)`. Sólo esas exclusiones son liberables (`BulkExclusion.releasable`).
-- Guards **parciales**, dichos en pantalla: la Exact activa y las keywords propias sólo se ven si tuvieron clicks en el período, y el estado del ad group no se verifica (se toma el estado de la campaña de su fila más nueva).
+- **Guards con el listado SP de la cuenta (IT-51, 2026-09-28)**: `ad_group_guards(frame, listing)` toma del listado diario (`core/amazon_ads/structure_listing.read_keyword_listing`, en la página `keyword_listing_source.load_keyword_listing`) las Exact habilitadas de la cuenta (INV-11.2, estado propio de la keyword: `active_keywords.enabled_exact_keyword_texts`), las keywords propias de cada ad group (habilitadas o pausadas) y, si los ad groups se listaron, su estado: un ad group pausado (`EXCLUDED_AD_GROUP_NOT_ENABLED`) o que no está en el último listado, archivado o posterior al listado (`EXCLUDED_AD_GROUP_NOT_LISTED`), deja afuera sus negativos. Del frame siguen saliendo el origen del término y si convierte. Sin listado, o si no se puede leer, quedan como antes: sólo ven las keywords con clicks y el estado del ad group no se verifica, y la pantalla lo dice. Los avisos salen de `bulk_guard_notes(listing)`, los mismos para la página y para `search_term_candidates` del MCP, que lee el mismo listado. `EXCLUDED_ACTIVE_EXACT` dice «Ya existe como keyword Exact habilitada en la cuenta»: con el listado, una Exact habilitada en una campaña pausada también cuenta, y no corre.
 - **Moneda distinta de USD**: el precio del producto arranca vacío (clave por moneda); mientras falte, R3 no corre, el bulk queda deshabilitado y el análisis IA se genera sin R3 ni bids sugeridos, con aviso.
 - Sin órdenes en el período, R2 usa un CVR de referencia del 10% y la pantalla lo aclara; la IA recibe el CVR medido.
 - Con archivo manual el bulk sigue deshabilitado: el export de la consola no trae el match type de origen que exigen esas reglas.
@@ -297,28 +297,97 @@ Analizar el mercado total desde Brand Analytics: impression share, click share, 
 ---
 
 ## M4 — Análisis Cruzado STR vs SQP
-**Archivo:** modules/pages/analisis_cruzado.py
+**Archivo:** modules/pages/analisis_cruzado.py. Reglas en `core/cross_analysis/` (`ranking_guards`, `action_plan`,
+`plan_exports`, `asin_summary`), payload IA en `core/cross_analysis/analysis.py`, agente en `ai/agents/cross_analysis/`.
 **Sección sidebar:** PPC
-**Session state prefix:** cruzado_
+**Session state prefix:** `cruzado_src_*` (picker), `cruzado_*` / `pa_*` / `ac_*` (inputs), IA `cross_analysis_ai_*`
 
 ### Propósito
-Cruzar STR (lo que capturan tus campañas) con SQP (lo que busca el mercado). Output: Plan de Acción bulk que es el input del Campaign Builder (M10).
+Cruzar lo que busca el mercado (SQP de la marca) con lo que capturan las campañas de Sponsored Products (search terms
+de Amazon Ads), darle a cada query una acción y exportar dos archivos: el bulk para Bulk Operations y el plan para
+Campaign Builder (M10).
 
 ### Arquitectura
-3 tabs: Cruce (oportunidades) | Plan de Acción (ESCALAR/AGREGAR/HARVEST/BAJAR BID/MONITOREAR) | PPC Insights por ASIN (BR opcional)
+4 tabs: Cruce (en ambos / solo STR / solo SQP + diagnóstico de funnel) | Plan de Acción (acciones, guardas INV-11,
+exports) | PPC Insights por ASIN (BR opcional) | Análisis IA.
 
-### Reglas de negocio
-- Opportunity Score = min-max de impresiones + clicks + purchase rate
-- Acciones: ESCALAR (IS bajo + mercado comprando) | AGREGAR (solo en SQP) | HARVEST (en STR, buen ACoS) | BAJAR BID (ACoS > 2× target) | MONITOREAR
-- Export bulk: formato Plan de Acción compatible con Campaign Builder
+### Fuente de datos (IT-51, 2026-09-28 — sin Bulk File)
+- **Search terms**: `render_source_picker("cruzado", allow_manual=False)`. Sólo cuentas conectadas: el Bulk File y la
+  carga manual salieron (decisión de Juan). Sin cuentas, el picker dice que hace falta una y la página no pide el SQP.
+- **Keywords Exact habilitadas (INV-11.2)**: el listado SP de la misma cuenta
+  (`keyword_listing_source.load_keyword_listing` → `active_keywords.enabled_exact_keyword_texts`): estado propio de la
+  keyword, en cualquier campaña, tengan o no clicks (el reporte sólo trae las que tuvieron). La línea debajo del picker
+  dice la hora del listado y cuántas hay. Sin listado (nunca listado, rechazado por Amazon, lectura caída o sin la 018),
+  «♻️ Ya en Exact» queda sin dato: la columna no se muestra y se dice por qué, nunca ✗.
+- **ASIN de cada search term (Tab 3)**: `ads_product_ad` (`ReportProvider.advertised_asins`) con la regla de M18
+  (`resolve_asins` → `attribute_asins`): el ASIN del ad group si anuncia uno solo; si anuncia varios, el del nombre de
+  la campaña («Agrupa N ASINs»); si no, sin ASIN. Nunca se reparte. Antes se tomaba el primer Product Ad del ad group:
+  medido el 28/09 en `ads_product_ad` de la base local, anuncian más de un ASIN 4.835 de 4.952 ad groups en Shapermint
+  US, 71 de 94 en Mott & Bow US y 76 de 123 en Sakura Care US.
+- **SQP** (requerido) y **BR by ASIN** (opcional, Tab 3): uploads. El BR se indexa por `(Child) ASIN`, el ASIN que
+  anuncia un product ad; antes tomaba la primera columna con «asin», que en el export by Child es `(Parent) ASIN`, y
+  casi nunca cruzaba.
+- Montos en la moneda de la cuenta (`money()`, precio del bid en su símbolo).
 
-### Inputs
-- STR (.xlsx, .csv) — requerido
-- SQP (.xlsx) — requerido
-- BR by ASIN (.csv, .xlsx) — opcional (Tab 3)
+### Guardas INV-11 (`ranking_guards.with_ranking_guards`, informativas: no cambian la acción)
+- **INV-11.1 🛑 No negativizable**: origen Exact o Product Targeting (`_origin_match_type`). Los términos de campañas
+  Auto sí son negativizables; con el Bulk se marcaban mal, porque sus filas llegaban como product targeting.
+- **INV-11.3 🏅 Ranking KW**: portfolio RANKING o sin nombre sincronizado (`negatives.is_ranking_protected`, la regla de
+  M2), del portfolio de cada fila del reporte.
+- **INV-11.2 ♻️ Ya en Exact**: sobre el texto de cada query del SQP (`exact_marks`), no sólo sobre los search terms: una
+  query que corre como Exact sin clicks también se marca, y antes el plan le sugería AGREGAR.
+
+### Plan de Acción (`action_plan`, clasificador movido de `render()` sin cambiar sus reglas)
+- SQP deduplicado por query (volúmenes sumados, share promediado); Opportunity Score 0-100 (impresiones 0,4 + clicks 0,3 +
+  share 0,3), la escala de la Tab 1; cada query hereda los IDs, el texto de su keyword y las guardas del search term de
+  mayor gasto (`aggregate_str_with_top_campaign`, `N campañas` si corrió en varias).
+- 🔍 INVESTIGAR (score > 40, share < 5%, < 300 compras) se dispara desde IT-51: el score del plan iba de 0 a 1 contra
+  ese 40 y ninguna query llegaba. Va antes de BAJAR BID, como se diseñó, y no es una acción del bulk.
+- Acciones (`suggested_action`): ⚫ ASIN (PT) > bloque marca (⚔️ CONQUEST con competidor / ❔ SIN DATA sin share /
+  🛡️ DEFENDER < 70% / 🏆 BRAND PURE OK) > ⚡ ESCALAR (en STR, ACoS ≤ 0,7× target, ≥ 2 órdenes, relevancia confirmada) >
+  ➕ AGREGAR (no en STR, la marca vende en el SQP) > 🚫 NO ATACAR (> 500 compras, marca 0) > 🔍 INVESTIGAR > ⬇️ BAJAR BID
+  (gastó sin vender o ACoS > 2× target) > 👁️ MONITOREAR.
+- Cada query busca su search term en un diccionario: antes era un filtro sobre todo el reporte por query, que con una
+  cuenta de API grande escala como términos × queries.
+
+### Exports (`plan_exports`)
+- **Bulk para Amazon** (`bulk_rows` → `build_keyword_create` / `build_bid_update` → `validate_bulk`): IDs de la campaña
+  de mayor gasto del término. Un update lleva Keyword ID sólo si el término llegó por una keyword (`_keyword_type`
+  BROAD/PHRASE/EXACT): Auto y Product Targeting traen el id de un target y quedan inválidos con su motivo. Un update
+  lleva el texto de su keyword (`_keyword_text`), no el search term, y va una sola vez por Keyword ID: una Broad o
+  Phrase alcanza varios términos del plan, y los demás quedan en Metadata con «Otra fila del bulk ya actualiza la misma
+  keyword». Una creación (AGREGAR, DEFENDER) de algo que ya existe como Exact habilitada no se exporta: en su propio ad
+  group Amazon rechaza el duplicado, y en otro compite con la que existe. INV-9: la pantalla dice cuántas filas entran y
+  por qué no las demás.
+- **Plan para Campaign Builder** (`campaign_builder_plan`): primera hoja «Plan de Acción» con el contrato de M10
+  (`Keyword` / `Acción sugerida` / `Purchases mercado` / `Brand Share %`, más Tipo y En STR), sólo ESCALAR, AGREGAR y
+  DEFENDER, sin lo que ya existe como Exact habilitada (Campaign Builder crea todo en Exact); segunda hoja «Fuera del
+  plan» con el motivo. Desde `bfe291c` el export era sólo el bulk de Amazon, cuya primera hoja trae `Keyword Text`:
+  Campaign Builder no lo podía leer.
+
+### Capa IA (IT-51 — consumidor de `core/ai_tab`, en memoria)
+- Agente `cross_analysis`, `auto_fire=False`: el SQP es manual, así que ningún worker puede generarlo. Firma: search
+  terms + SQP + BR + listado; target ACoS, competidores y ASINs propios son parámetros (banner + «Recalcular»).
+- Payload (`build_analysis_input`): Parámetros (cuenta, período, moneda, marca, de dónde salen las Exact y el ASIN,
+  inputs del AM, cifras del plan con `plan_counts`) + Plan (hasta 60 filas `X01…`, en el orden en que el AM trabaja:
+  ESCALAR, AGREGAR, DEFENDER, BAJAR BID, INVESTIGAR, CONQUEST…, y por compras del mercado) + ASINs (hasta 30).
+- Salida: `consultas[]` (≤15: `razon` → `veredicto` ACTUAR/ESPERAR/INVESTIGAR → `confianza` → `advertencia`) + la
+  `synthesis` canónica. Nunca cambia la acción del módulo ni propone bids ni negativos.
+- Se comparte con el chat vía `publish_analysis_to_chat` (sujeto: la cuenta; `profile_id` y país).
+
+### Tests
+`tests/test_cross_analysis_ranking_guards.py`, `tests/test_cross_analysis_action_plan.py` (una rama del clasificador por
+test), `tests/test_cross_analysis_plan_exports.py`, `tests/test_cross_analysis_asin_summary.py`,
+`tests/test_cross_analysis_agent.py`, `tests/test_cross_analysis_page.py` (AppTest con PostgREST en memoria y proveedor
+IA falso). Datos sintéticos por el provider real: `tests/cross_analysis_data.py`.
 
 ### Anti-patterns
-- No detectar marca manualmente si SQP no la extrae automáticamente
+- ❌ NO volver a pedir el Bulk File: search terms, Exact y ASIN salen de la cuenta de Amazon Ads.
+- ❌ NO calcular «Ya en Exact» sólo sobre los search terms: el reporte no ve las Exact sin clicks.
+- ❌ NO mostrar ✗ en una guarda sin dato: sin listado la columna no se muestra.
+- ❌ NO repartir el gasto de un ad group de varios ASINs ni tomar su primer ASIN.
+- ❌ NO mezclar el bulk de Amazon con el plan de Campaign Builder: Amazon rechaza columnas propias (INV-5.5) y Campaign
+  Builder lee `Keyword` en la primera hoja.
 
 ---
 
@@ -668,7 +737,9 @@ Selector tipo (SP/SB/SD) con radio button → flujo en pasos (Paso 0-4 según ti
 - Afecta a cualquier string que combine `**` y `$` en el mismo bloque
 
 ### Inputs
-- Plan de Acción bulk (de M4, .xlsx) — Paso 1
+- Plan para Campaign Builder (de M4, .xlsx) — Paso 1. Lee la primera hoja: `Keyword` (requerida), `Acción sugerida`,
+  `Purchases mercado` y `Brand Share %`. M4 lo baja aparte del bulk de Amazon desde IT-51; antes bajaba sólo el bulk,
+  que Campaign Builder no puede leer.
 - Marca, ASIN, SKU, precio, CVR, target ACoS, budget — Paso 2
 - Brand Entity ID — Paso 2 (requerido para SB)
 - Video Asset ID (SBV) o Brand Logo Asset ID + Crop (SBH) — Paso 3
@@ -1001,7 +1072,8 @@ la misma función que usa `metrics_by_group` por ASIN del MCP):
    "PAT con el ASIN de un competidor en el nombre" midió 0,0% en los 12 perfiles.
 4. Si no, sin ASIN: «ad groups con varios ASINs sin ASIN en el nombre» o «sin ASIN». Nunca se reparte.
 Sin ningún ASIN queda la regla de siempre: una sola fila `ALL` con la cuenta entera, con aviso.
-- La pantalla dice de dónde salió el ASIN y cuánto gasto quedó afuera (`asin_coverage_caption`). El KPI de gasto
+- La pantalla dice de dónde salió el ASIN y cuánto gasto quedó afuera (`asin_coverage_caption`, en
+  `core/ppc_insights/asin_health.py` desde IT-51: la usa también la Tab 3 de M4). El KPI de gasto
   pasa a «Spend en cards: X de Y (Z%)» cuando las cards no suman todo el reporte (`spend_kpi`).
 - Una card tomada del nombre de campaña en ad groups de varios ASINs dice «agrupa N ASINs» (`grouped_asin_counts`):
   es la etiqueta de una familia, no un producto solo. El agente lo recibe como `asins_agrupados`.
@@ -1260,8 +1332,9 @@ keywords que ya corren en Sponsored Products en la cuenta de Amazon Ads de la ma
 - El bloque «Keywords activas en Sponsored Products» elige Cuenta + País (helpers del picker del STR). **La cuenta
   arranca vacía a propósito**: el MKL y el SQP no dicen de qué cuenta son, y una cuenta por defecto cruzaría la marca
   con el SP de otro cliente sin avisar.
-- Lee `StructureProvider.sp_structure(..., entities=(campaign, ad_group, keyword))` (migración 018, cache 15 min) y
-  `core/amazon_ads/active_keywords.active_keyword_texts`: corre = keyword y campaña habilitadas y ad group no listado
+- Lee el listado con `modules/pages/keyword_listing_source.load_keyword_listing` (migración 018, cache 15 min; desde
+  IT-51 lo comparte con M2 y M4) y `core/amazon_ads/active_keywords.active_keyword_texts`: corre = keyword y campaña
+  habilitadas y ad group no listado
   como pausado (un ad group nunca listado cuenta como habilitado, igual que Target Graduation). Match por texto
   (`normalized_keyword`: casefold + espacios colapsados), en cualquier match type, como hacía el CSV.
 - **No desde `ads_search_term_daily`** (lo que sugería el ticket): el report sólo trae keywords con clicks. Medido en la
@@ -1857,8 +1930,8 @@ con avisos) y sólo se calcula para admins. Si la lectura falla, la página dice
 La ingesta del Search Term Report NO es de M2: el servicio `ads-sync-worker` (`python -m core.amazon_ads.worker run`)
 baja los reportes una vez por perfil de Amazon y los guarda por día en `ads_search_term_daily`, con IDs de campaña /
 ad group / keyword, `keyword_type`, match type, targeting, portfolio, moneda y las atribuciones de 7 y 14 días.
-Cualquier módulo que hoy pide el STR a mano (Bid Optimizer, Análisis de Funnel, PPC Insights; Análisis Cruzado y PPC
-Audit lo sacan del Bulk File) puede leer lo mismo sin tocar la ingesta.
+Cualquier módulo que hoy pide el STR a mano (PPC Audit lo saca del Bulk File) puede leer lo mismo sin tocar la ingesta;
+Bid Optimizer, Análisis de Funnel, PPC Insights y Análisis Cruzado ya lo leen.
 
 **Cómo leer.**
 - Selector listo para usar: `render_source_picker(key_prefix="<prefijo del módulo>", allow_manual=..., module_label=...)`
@@ -1991,8 +2064,8 @@ lista no tiene ninguna fila de `spTargeting` en 60 días (el 98,9% de los pausad
   datos reales de Shapermint US: 0,22 s sin negativos y 0,45 s con sus 371.482. `rows`: las
   filas de la RPC tipadas y con sus nombres, para código. `frame`: las mismas filas bajo los headers del Bulk File
   (`STRUCTURE_COLUMNS`), que ya entienden los lectores de Bulk: los tests de contrato pasan `frame` por
-  `get_exact_activas` y `get_portfolio_por_campaign` (`core/bulk/parser.py`), `_asin_por_ad_group` (M4) y
-  `_analyze_target_graduation` (M20). En `frame` el estado va en minúscula, Targeting Type y Match Type como los escribe
+  `get_exact_activas` y `get_portfolio_por_campaign` (`core/bulk/parser.py`) y `_analyze_target_graduation` (M20), y
+  fijan que `enabled_exact_keyword_texts(rows)`, lo que leen M2 y M4, es el mismo universo que `get_exact_activas(frame)`. En `frame` el estado va en minúscula, Targeting Type y Match Type como los escribe
   el bulk, Bidding Strategy con los valores que acepta un upload («Fixed bid», «Dynamic bids - down only»,
   «Dynamic bids - up and down»), Spend/Sales/Orders con la atribución de la cuenta (7 días seller, 14 vendor) y
   Placement con el código de la API: ninguna descarga del repo muestra cómo lo escribe Amazon. `listed_at`: familia →
@@ -2034,9 +2107,15 @@ lista no tiene ninguna fila de `spTargeting` en 60 días (el 98,9% de los pausad
   los listados nuevos (en local, contra la API real, lo medido está en «Negativos por partes» y en `sp_structure_counts`).
 - **Qué queda afuera.** SB y SD: `ads_ad_group` y `ads_negative` tienen `ad_product` en la clave, pero hoy sólo se
   escribe SP. Lo archivado: ad groups, targets, anuncios y negativos archivados no se listan (las campañas archivadas
-  sí). Las etiquetas de bulk de Placement. Y los consumidores: Atom11 (IT-42), PPC Audit (IT-44) y Análisis Cruzado
-  (IT-51) todavía no la leen, son sus tickets. La primera página que la lee es SBH Recommendation (IT-49), para las
-  keywords que ya corren en SP (`core/amazon_ads/active_keywords.py`, ver M23).
+  sí). Las etiquetas de bulk de Placement. Y los consumidores: Atom11 (IT-42) y PPC Audit (IT-44) todavía no la leen,
+  son sus tickets. La leen SBH Recommendation (IT-49), para las keywords que ya corren en SP
+  (`core/amazon_ads/active_keywords.py`, ver M23), y desde IT-51 Análisis Cruzado (las Exact habilitadas de INV-11.2) y
+  el bulk de negativos de M2 (Exact habilitadas, keywords propias y estado de cada ad group).
+- **Cuándo se puede leer.** `core/amazon_ads/structure_listing.py`: `family_listing` dice cuándo se listó una familia
+  (su fila más nueva, o un pedido completado sin filas) o por qué no (el aviso de un listado que Amazon rechazó), y
+  `read_keyword_listing` arma `KeywordListing` (campañas, ad groups y keywords): conocido cuando se listaron campañas y
+  keywords, `ad_groups_listed` si también ad groups. En páginas se lee con
+  `modules/pages/keyword_listing_source.load_keyword_listing` (cache 15 min), que comparten SBH, M2 y M4.
 - **Deploy.** La foto de campañas escribe las columnas de placement y los listados nuevos sus tablas. Jenkins levanta
   la imagen en «Deploy» antes de «DB migrate», en el mismo pipeline: lo que corra en esa ventana sin la 018 falla y se
   reintenta a los 5 minutos, sin perder nada. Es aditiva y la imagen anterior funciona sobre ella

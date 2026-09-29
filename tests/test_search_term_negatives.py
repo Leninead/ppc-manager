@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pandas as pd
 import pytest
 
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider
+from core.amazon_ads.structure_listing import KeywordListing
+from core.amazon_ads.structure_provider import AD_GROUP, KEYWORD
+from core.amazon_ads.structure_provider import ROW_COLUMNS as STRUCTURE_ROW_COLUMNS
 from core.bulk.export import build_adgroup_negative
 from core.search_term.frame import ANY_WINDOW_PURCHASES, HIDDEN_ID_COLUMNS, PORTFOLIO_NAME_MISSING, add_ratios
 from core.search_term.negatives import (
@@ -18,6 +21,8 @@ from core.search_term.negatives import (
     AD_GROUP_STATE_UNVERIFIED_NOTE,
     EXACT_GUARD_PARTIAL_NOTE,
     EXCLUDED_ACTIVE_EXACT,
+    EXCLUDED_AD_GROUP_NOT_ENABLED,
+    EXCLUDED_AD_GROUP_NOT_LISTED,
     EXCLUDED_CONVERTS,
     EXCLUDED_DUPLICATE,
     EXCLUDED_EXACT_ORIGIN,
@@ -27,6 +32,8 @@ from core.search_term.negatives import (
     EXCLUDED_PHRASE_BLOCKS,
     EXCLUDED_PRODUCT_TARGETING_ORIGIN,
     EXCLUDED_UNKNOWN_ORIGIN,
+    LISTED_AD_GROUPS_NOTE,
+    LISTED_KEYWORDS_NOTE,
     NEGATIVE_EXACT,
     NEGATIVE_PHRASE,
     PRIORITY_HIGH,
@@ -38,7 +45,9 @@ from core.search_term.negatives import (
     RULE_NO_CONVERSION_CLICKS,
     RULE_NO_CONVERSION_SPEND,
     NegativeCandidate,
+    bulk_guard_notes,
     evaluate_candidates,
+    is_ranking_protected,
     negative_key,
     select_for_bulk,
 )
@@ -705,3 +714,111 @@ def test_provider_frame_keeps_unnamed_portfolio_and_fourteen_day_purchases_out_o
     assert [row["keyword_text"] for row in rows] == ["jabon sin aroma"]
     assert reasons["jabon de glicerina"] == EXCLUDED_CONVERTS
     assert "Portfolio 987" in reasons["jabon en barra"]
+
+
+# Guards from the account's SP listing: every keyword and ad group, not only the ones with clicks
+
+def _listing(*rows: dict, ad_groups_listed: bool = False) -> KeywordListing:
+    frame = pd.DataFrame([{**dict.fromkeys(STRUCTURE_ROW_COLUMNS, ""), "state": "ENABLED", **row} for row in rows],
+                         columns=list(STRUCTURE_ROW_COLUMNS))
+    return KeywordListing(rows=frame, listed_at=datetime(2026, 9, 28, 6, tzinfo=timezone.utc),
+                          ad_groups_listed=ad_groups_listed)
+
+
+def _listed_keyword(text: str, *, match_type: str = "EXACT", state: str = "ENABLED",
+                    campaign_id: str = "300000000000009", ad_group_id: str = "400000000000009") -> dict:
+    return {"entity": KEYWORD, "campaign_id": campaign_id, "ad_group_id": ad_group_id, "entity_id": f"k-{text}",
+            "target_text": text, "match_type": match_type, "state": state}
+
+
+def _listed_ad_group(ad_group_id: str, *, state: str = "ENABLED", campaign_id: str = "300000000000001") -> dict:
+    return {"entity": AD_GROUP, "campaign_id": campaign_id, "ad_group_id": ad_group_id, "entity_id": ad_group_id,
+            "state": state}
+
+
+def test_with_the_listing_an_enabled_exact_without_clicks_protects_the_term():
+    rows, exclusions = _select(_frame(_row(clicks=25)), listing=_listing(_listed_keyword("Jabon  Neutro Bebe")))
+
+    assert rows == []
+    assert _reasons(exclusions) == [EXCLUDED_ACTIVE_EXACT]
+
+
+def test_with_the_listing_a_paused_exact_does_not_protect_the_term():
+    rows, _ = _select(_frame(_row(clicks=25)), listing=_listing(_listed_keyword("jabon neutro bebe", state="PAUSED")))
+
+    assert len(rows) == 1
+
+
+def test_with_the_listing_an_own_keyword_without_clicks_blocks_its_negative():
+    own_broad = _listed_keyword("jabon neutro bebe", match_type="BROAD", campaign_id="300000000000001",
+                                ad_group_id="400000000000001")
+
+    rows, exclusions = _select(_frame(_row(clicks=25)), listing=_listing(own_broad))
+
+    assert rows == []
+    assert _reasons(exclusions) == [EXCLUDED_OWN_KEYWORD]
+
+
+def test_with_the_listing_the_keywords_with_clicks_no_longer_decide_alone():
+    # The frame's exact keyword was paused after the window: the listing, which is the account today, lets it go.
+    rows, _ = _select(_frame(_row(clicks=25), _exact_keyword_row("ENABLED")),
+                      listing=_listing(_listed_keyword("jabon neutro bebe", state="PAUSED")))
+
+    assert len(rows) == 1
+
+
+def test_with_the_ad_groups_listed_a_paused_ad_group_keeps_its_negatives_out():
+    listing = _listing(_listed_ad_group("400000000000001", state="PAUSED"), ad_groups_listed=True)
+
+    rows, exclusions = _select(_frame(_row(clicks=25)), listing=listing)
+
+    assert rows == []
+    assert _reasons(exclusions) == [EXCLUDED_AD_GROUP_NOT_ENABLED.format(state="PAUSED")]
+
+
+def test_with_the_ad_groups_listed_an_unlisted_ad_group_keeps_its_negatives_out():
+    listing = _listing(_listed_ad_group("400000000000777"), ad_groups_listed=True)
+
+    rows, exclusions = _select(_frame(_row(clicks=25)), listing=listing)
+
+    assert rows == []
+    assert _reasons(exclusions) == [EXCLUDED_AD_GROUP_NOT_LISTED]
+
+
+def test_with_the_ad_groups_listed_an_enabled_ad_group_lets_its_negatives_in():
+    rows, _ = _select(_frame(_row(clicks=25)),
+                      listing=_listing(_listed_ad_group("400000000000001"), ad_groups_listed=True))
+
+    assert len(rows) == 1
+
+
+def test_without_the_ad_groups_listed_their_state_is_not_checked():
+    rows, _ = _select(_frame(_row(clicks=25)), listing=_listing(_listed_ad_group("400000000000777")))
+
+    assert len(rows) == 1
+
+
+def test_an_unknown_listing_leaves_the_guards_to_the_frame():
+    rows, exclusions = _select(_frame(_row(clicks=25), _exact_keyword_row("ENABLED")), listing=KeywordListing())
+
+    assert rows == []
+    assert _reasons(exclusions) == [EXCLUDED_ACTIVE_EXACT]
+
+
+def test_the_notes_say_which_guards_read_the_listing():
+    assert bulk_guard_notes(None) == [EXACT_GUARD_PARTIAL_NOTE, AD_GROUP_STATE_UNVERIFIED_NOTE]
+    assert bulk_guard_notes(KeywordListing()) == [EXACT_GUARD_PARTIAL_NOTE, AD_GROUP_STATE_UNVERIFIED_NOTE]
+    assert bulk_guard_notes(_listing()) == [LISTED_KEYWORDS_NOTE, AD_GROUP_STATE_UNVERIFIED_NOTE]
+    assert bulk_guard_notes(_listing(ad_groups_listed=True)) == [LISTED_KEYWORDS_NOTE, LISTED_AD_GROUPS_NOTE]
+
+
+@pytest.mark.parametrize("note", [LISTED_KEYWORDS_NOTE, LISTED_AD_GROUPS_NOTE, EXCLUDED_AD_GROUP_NOT_LISTED])
+def test_the_listing_texts_are_one_sentence(note):
+    assert note.endswith(".")
+    assert note.count(". ") == 0
+
+
+def test_a_ranking_or_unnamed_portfolio_is_protected():
+    assert is_ranking_protected("Ranking - Core", False)
+    assert is_ranking_protected("Portfolio 987", True)
+    assert not is_ranking_protected("DISCOVERY", False)

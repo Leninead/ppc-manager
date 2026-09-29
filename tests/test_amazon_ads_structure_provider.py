@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import requests
 
+from core.amazon_ads.active_keywords import enabled_exact_keyword_texts
 from core.amazon_ads.report_provider import READ_TIMEOUT_SECONDS, ProfileOption, ReportReadError
 from core.amazon_ads.structure_provider import (
     AD_GROUP,
@@ -437,6 +438,10 @@ def test_a_malformed_count_is_a_read_error(answer):
 # The Bulk readers of the modules, fed the frame as they are fed a downloaded Bulk File.
 
 def _account():
+    return _account_structure().frame
+
+
+def _account_structure():
     return _structure(
         _campaign(),
         _campaign(campaign_id="12", entity_id="12", campaign_name="Demo SP - Auto", portfolio_id="",
@@ -450,7 +455,7 @@ def _account():
         _row(NEGATIVE_KEYWORD, ad_group_id="21", entity_id="9100", target_text="negative exact",
              match_type="NEGATIVE_EXACT"),
         _row(PRODUCT_AD, ad_group_id="21", entity_id="8001", asin="B0TEST00001", sku="DEMO-001"),
-    )[0].frame
+    )[0]
 
 
 def test_the_exact_guard_reads_the_enabled_exact_keywords():
@@ -461,10 +466,11 @@ def test_the_portfolio_guard_reads_the_campaigns_portfolio():
     assert get_portfolio_por_campaign(_account()) == {"11": "RANKING"}
 
 
-def test_cross_analysis_reads_the_asin_of_each_ad_group():
-    from modules.pages.analisis_cruzado import _asin_por_ad_group
+def test_cross_analysis_reads_from_the_rows_the_enabled_exact_keywords_the_bulk_reader_sees():
+    structure = _account_structure()
 
-    assert _asin_por_ad_group.__wrapped__(_account()) == {"21": "B0TEST00001"}
+    assert enabled_exact_keyword_texts(structure.rows) == get_exact_activas(structure.frame)
+    assert enabled_exact_keyword_texts(structure.rows) == {"demo keyword", "quiet keyword"}
 
 
 def test_target_graduation_returns_the_quiet_keyword_with_its_ad_group_and_bid():

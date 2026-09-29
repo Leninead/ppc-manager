@@ -12,8 +12,13 @@ from core.ppc_insights.asin_health import health_score
 from core.search_term.negatives import (
     AD_GROUP_STATE_UNVERIFIED_NOTE,
     EXACT_GUARD_PARTIAL_NOTE,
+    EXCLUDED_ACTIVE_EXACT,
+    EXCLUDED_AD_GROUP_NOT_ENABLED,
+    EXCLUDED_AD_GROUP_NOT_LISTED,
     EXCLUDED_CAMPAIGN_NOT_ENABLED,
     EXCLUDED_OWN_KEYWORD,
+    LISTED_AD_GROUPS_NOTE,
+    LISTED_KEYWORDS_NOTE,
     RULE_FEW_CLICKS,
     RULE_NO_CONVERSION_CLICKS,
     RULE_NO_CONVERSION_SPEND,
@@ -107,8 +112,9 @@ def _csv(columns, rows) -> bytes:
 
 class FakeRest:
     def __init__(self, *, currency="USD", settings=SETTINGS, campaigns_synced=True, search_terms=SEARCH_TERMS,
-                 earlier_terms=None):
+                 earlier_terms=None, structure=STRUCTURE):
         self.search_terms = search_terms
+        self.structure = structure
         # The search terms of the stretch before the default window (1 to 7 September), when a test gives them.
         self.earlier_terms = earlier_terms
         self.profile = {"profile_id": "111", "account_id": 1, "cliente": "luna", "account_name": "Luna Kids",
@@ -143,7 +149,7 @@ class FakeRest:
             earlier = self.earlier_terms is not None and args["p_to"] == "2026-09-07"
             return _csv(SEARCH_TERM_COLUMNS, self.earlier_terms if earlier else self.search_terms)
         if name == "sp_structure_between":
-            return _csv(STRUCTURE_ROW_COLUMNS, STRUCTURE)
+            return _csv(STRUCTURE_ROW_COLUMNS, self.structure)
         assert name == "campaigns_between"
         return _csv(CAMPAIGN_COLUMNS, CAMPAIGNS)
 
@@ -309,7 +315,8 @@ class TestNegativesSayWhetherTheyGoIntoTheBulk:
     """The page's bulk leaves some candidates out: the chat promised the spend of negatives nobody uploads."""
 
     def test_each_negative_carries_the_verdict_of_the_modules_bulk(self):
-        payload = module_results.search_term_candidates(FakeRest(), profile_id="111")
+        # Without a listing the guards only see the keywords with clicks, and the notes say so.
+        payload = module_results.search_term_candidates(FakeRest(structure=[]), profile_id="111")
 
         assert {row["search_term"]: (row["in_bulk"], row["bulk_exclusion"]) for row in payload["rows"]} == {
             "sleep sack": (False, EXCLUDED_CAMPAIGN_NOT_ENABLED.format(status="PAUSED")),
@@ -321,7 +328,7 @@ class TestNegativesSayWhetherTheyGoIntoTheBulk:
     def test_the_bulk_total_counts_only_the_negatives_that_go_into_it(self):
         broad_toy = _term("cheap toy", "3001", "4001", "Luna - B0CYLMJJJC - SP - KW - EXACT - Viejo", clicks=8,
                           orders=0, cost=16.0, sales=0.0, keyword="toy")
-        rest = FakeRest(search_terms=[*SEARCH_TERMS[:3], broad_toy])
+        rest = FakeRest(search_terms=[*SEARCH_TERMS[:3], broad_toy], structure=[])
 
         payload = module_results.search_term_candidates(rest, profile_id="111")
 
@@ -330,6 +337,46 @@ class TestNegativesSayWhetherTheyGoIntoTheBulk:
         assert payload["totals_in_bulk"] == {"spend": 16, "clicks": 8, "impressions": 500}
         assert payload["totals"] == {"spend": 56, "clicks": 58, "impressions": 1000}
         assert payload["counts"]["in_bulk"] == 1
+
+    def test_with_the_listing_an_enabled_exact_without_clicks_keeps_its_term_out_of_the_bulk(self):
+        # "cheap toy" had no click as an exact keyword, so only the listing knows it exists (enabled, in 3002).
+        broad_toy = _term("cheap toy", "3001", "4001", "Luna - B0CYLMJJJC - SP - KW - EXACT - Viejo", clicks=8,
+                          orders=0, cost=16.0, sales=0.0, keyword="toy")
+
+        payload = module_results.search_term_candidates(
+            FakeRest(search_terms=[*SEARCH_TERMS[:3], broad_toy]), profile_id="111")
+
+        verdicts = {row["search_term"]: (row["in_bulk"], row["bulk_exclusion"]) for row in payload["rows"]}
+        assert verdicts["cheap toy"] == (False, EXCLUDED_ACTIVE_EXACT)
+        assert payload["totals_in_bulk"] == {"spend": 0, "clicks": 0, "impressions": 0}
+        assert payload["bulk_notes"] == [LISTED_KEYWORDS_NOTE, AD_GROUP_STATE_UNVERIFIED_NOTE]
+
+    def test_with_the_ad_groups_listed_a_paused_ad_group_keeps_its_negatives_out(self):
+        broad_toy = _term("cheap toy", "3001", "4001", "Luna - B0CYLMJJJC - SP - KW - EXACT - Viejo", clicks=8,
+                          orders=0, cost=16.0, sales=0.0, keyword="toy")
+        listing = [_structure_row("campaign", "3001", "3001"),
+                   {**_structure_row("ad_group", "3001", "4001", state="PAUSED"), "ad_group_id": "4001"},
+                   {**_structure_row("keyword", "3001", "k9", text="toy", match_type="BROAD"), "ad_group_id": "4001"}]
+
+        payload = module_results.search_term_candidates(
+            FakeRest(search_terms=[*SEARCH_TERMS[:3], broad_toy], structure=listing), profile_id="111")
+
+        verdicts = {row["search_term"]: (row["in_bulk"], row["bulk_exclusion"]) for row in payload["rows"]}
+        assert verdicts["cheap toy"] == (False, EXCLUDED_AD_GROUP_NOT_ENABLED.format(state="PAUSED"))
+        assert payload["bulk_notes"] == [LISTED_KEYWORDS_NOTE, LISTED_AD_GROUPS_NOTE]
+
+    def test_with_the_ad_groups_listed_an_unlisted_ad_group_keeps_its_negatives_out(self):
+        broad_toy = _term("cheap toy", "3001", "4001", "Luna - B0CYLMJJJC - SP - KW - EXACT - Viejo", clicks=8,
+                          orders=0, cost=16.0, sales=0.0, keyword="toy")
+        listing = [_structure_row("campaign", "3001", "3001"),
+                   {**_structure_row("ad_group", "3001", "4777"), "ad_group_id": "4777"},
+                   {**_structure_row("keyword", "3001", "k9", text="toy", match_type="BROAD"), "ad_group_id": "4777"}]
+
+        payload = module_results.search_term_candidates(
+            FakeRest(search_terms=[*SEARCH_TERMS[:3], broad_toy], structure=listing), profile_id="111")
+
+        verdicts = {row["search_term"]: (row["in_bulk"], row["bulk_exclusion"]) for row in payload["rows"]}
+        assert verdicts["cheap toy"] == (False, EXCLUDED_AD_GROUP_NOT_LISTED)
 
     def test_harvest_has_no_bulk_verdict(self):
         payload = module_results.search_term_candidates(FakeRest(), profile_id="111", section="harvest")

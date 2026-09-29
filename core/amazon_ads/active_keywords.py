@@ -9,6 +9,7 @@ import pandas as pd
 from core.amazon_ads.structure_provider import AD_GROUP, CAMPAIGN, KEYWORD
 
 _ENABLED = "ENABLED"
+_EXACT = "EXACT"
 
 
 def normalized_keyword(text: object) -> str:
@@ -31,4 +32,17 @@ def active_keyword_texts(structure_rows: pd.DataFrame) -> frozenset[str]:
     running = keywords[keywords["campaign_id"].isin(running_campaigns)
                        & ~keywords["ad_group_id"].isin(stopped_ad_groups)]
     texts = (normalized_keyword(text) for text in running["target_text"])
+    return frozenset(text for text in texts if text)
+
+
+def enabled_exact_keyword_texts(structure_rows: pd.DataFrame) -> frozenset[str]:
+    """The normalized text of every enabled SP keyword in exact match, in any campaign of the account.
+
+    INV-11.2's universe: the keyword's own state, as the Bulk File's keyword rows carry it, and not only the keywords
+    that got clicks in a report's window.
+    """
+    keywords = structure_rows[structure_rows["entity"].eq(KEYWORD)]
+    enabled_exact = keywords[keywords["state"].fillna("").astype(str).str.upper().eq(_ENABLED)
+                             & keywords["match_type"].fillna("").astype(str).str.upper().eq(_EXACT)]
+    texts = (normalized_keyword(text) for text in enabled_exact["target_text"])
     return frozenset(text for text in texts if text)

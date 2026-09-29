@@ -11,13 +11,24 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from core.amazon_ads.advertised_asins import WITHOUT_ASIN, attribute_asins, grouped_asin_counts
+from core.amazon_ads.advertised_asins import (
+    FROM_AD_GROUP,
+    FROM_CAMPAIGN_NAME,
+    SEVERAL_ASINS,
+    WITHOUT_ASIN,
+    attribute_asins,
+    grouped_asin_counts,
+)
 from core.search_term.candidates import uses_dollar_price
 
 # Where the report's ASINs came from: its own column, Amazon's product ads and campaign names, or nowhere.
 FROM_FILE = "file"
 ATTRIBUTED = "attributed"
 NO_ASINS = "none"
+ASIN_ORIGIN_LABELS = {FROM_FILE: "columna de ASIN del archivo", FROM_AD_GROUP: "producto anunciado del ad group",
+                      FROM_CAMPAIGN_NAME: "nombre de la campaña",
+                      SEVERAL_ASINS: "ad groups con varios ASINs sin ASIN en el nombre", WITHOUT_ASIN: "sin ASIN"}
+UNATTRIBUTED_ORIGINS = (SEVERAL_ASINS, WITHOUT_ASIN)
 RESOLVED_ASIN_COLUMN = "_asin"
 # Stands for the whole report when no row has an ASIN; the page and the agent read it as the account.
 WHOLE_ACCOUNT = "ALL"
@@ -87,6 +98,21 @@ def resolve_asins(str_df, ad_group_asins: dict | None = None) -> ResolvedAsins:
     resolved[RESOLVED_ASIN_COLUMN] = attribution.asins
     return ResolvedAsins(resolved, RESOLVED_ASIN_COLUMN, ATTRIBUTED, share, report_spend,
                          grouped_asin_counts(str_df, attribution, ad_group_asins))
+
+
+def asin_coverage_caption(asin_source: str, spend_share: dict) -> str:
+    """Where the ASINs came from, as shares of the report's spend; "" when there is nothing to say."""
+    if asin_source == NO_ASINS or not spend_share:
+        return ""
+    outside = sum(share for origin, share in spend_share.items() if origin in UNATTRIBUTED_ORIGINS)
+    if asin_source == FROM_FILE and outside == 0:
+        return ""
+    ordered = sorted(spend_share.items(), key=lambda item: -item[1])
+    parts = [f"{ASIN_ORIGIN_LABELS.get(origin, origin)} {share:.1f}%" for origin, share in ordered]
+    text = "Gasto por origen del ASIN: " + " · ".join(parts)
+    if outside > 0:
+        text += f". El {outside:.1f}% sin ASIN no entra en las cards."
+    return text
 
 
 def _spend_share(spend: pd.Series, origins: pd.Series) -> dict:

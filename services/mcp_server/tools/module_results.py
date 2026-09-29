@@ -25,6 +25,7 @@ from core.amazon_ads.campaign_provider import (
     CampaignProvider,
 )
 from core.amazon_ads.report_provider import ReportProvider, ReportReadError
+from core.amazon_ads.structure_listing import KeywordListing, read_keyword_listing
 from core.bid_optimizer.bids import (
     NO_ASIN_WARNING,
     BidAnalysisParams,
@@ -65,9 +66,8 @@ from core.search_term.candidates import (
 )
 from core.search_term.negatives import (
     ACTION_NEGATIVE,
-    AD_GROUP_STATE_UNVERIFIED_NOTE,
-    EXACT_GUARD_PARTIAL_NOTE,
     NegativeCandidate,
+    bulk_guard_notes,
     evaluate_candidates,
     select_for_bulk,
 )
@@ -285,7 +285,8 @@ def search_term_candidates(rest, *, profile_id: str = "", account: str = "", day
         candidates = evaluate_candidates(frame, columns, clicks_threshold=clicks_threshold,
                                          spend_threshold=spend_threshold) if columns["search_term"] else []
         # The bulk guards read every ad group, so they get the frame before the portfolio filter, as on the page.
-        verdicts = _bulk_verdicts(candidates, source.frame)
+        listing = _keyword_listing(rest, profile, end)
+        verdicts = _bulk_verdicts(candidates, source.frame, listing)
         rows = sorted((_negative_row(row, candidate.campaign_status, verdict)
                        for candidate, row, verdict in zip(candidates, negative_candidate_rows(candidates), verdicts)),
                       key=_negative_order)
@@ -296,7 +297,7 @@ def search_term_candidates(rest, *, profile_id: str = "", account: str = "", day
                    else "")
         totals = _totals(rows, NEGATIVE_TOTALS)
         bulk = {"totals_in_bulk": _totals([row for row in rows if row["in_bulk"]], NEGATIVE_TOTALS),
-                "bulk_notes": [EXACT_GUARD_PARTIAL_NOTE, AD_GROUP_STATE_UNVERIFIED_NOTE]}
+                "bulk_notes": bulk_guard_notes(listing)}
     else:
         harvest = (sorted_harvest(harvest_candidate_rows(frame, columns, min_clicks=min_clicks, price=bid_price,
                                                          target_acos=bid_target)) if columns["search_term"] else None)
@@ -535,12 +536,21 @@ def _asin_row(asin, metrics: dict, grouped_asins: int | None, spend_without_sale
     return row
 
 
-def _bulk_verdicts(candidates: list[NegativeCandidate], frame) -> list[dict]:
+def _keyword_listing(rest, profile, day) -> KeywordListing | None:
+    """The account's SP listing for the bulk guards, as the page reads it; None when it cannot be read."""
+    try:
+        return read_keyword_listing(rest, profile, day)
+    except (ReportReadError, ValueError) as exc:
+        log.warning("SP listing of profile %s could not be read for the bulk guards: %s", profile.profile_id, exc)
+        return None
+
+
+def _bulk_verdicts(candidates: list[NegativeCandidate], frame, listing: KeywordListing | None) -> list[dict]:
     """Whether each candidate goes into the Search Term Report's negatives bulk and, if it stays out, the module's
     reason; a candidate whose action is not Negativo is never in the bulk and has no reason."""
     if not candidates:
         return []
-    _, exclusions = select_for_bulk(candidates, frame)
+    _, exclusions = select_for_bulk(candidates, frame, listing=listing)
     reasons = {id(exclusion.candidate): exclusion.reason for exclusion in exclusions}
     return [{"in_bulk": candidate.action == ACTION_NEGATIVE and id(candidate) not in reasons,
              "bulk_exclusion": reasons.get(id(candidate), "")} for candidate in candidates]

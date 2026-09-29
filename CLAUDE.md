@@ -87,7 +87,7 @@ corre la suite entera sobre un checkout limpio.
 | 1 | 🏠 Inicio | — | ✅ rediseñado 2026-03-27 (3 cards + flujo guiado + changelog) |
 | 2 | 📊 Search Term Report | PPC | ✅ completo |
 | 3 | 🔍 Search Query Performance | PPC | ✅ completo |
-| 4 | 🔗 Análisis Cruzado STR vs SQP | PPC | ✅ + Plan de Acción 2026-03-21 |
+| 4 | 🔗 Análisis Cruzado STR vs SQP | PPC | ✅ + Plan de Acción 2026-03-21; IT-51 2026-09-28: search terms, Exact habilitadas y ASIN de la cuenta de Amazon Ads (sin Bulk File), plan para Campaign Builder + Análisis IA |
 | 5 | 📈 Tendencia Multi-Semana | PPC | ✅ completo |
 | 6 | 📁 Bulk Campañas | PPC | ✅ + Campaign Analyzer 2026-03-21 |
 | 7 | 💰 Business Report | PPC | ✅ completo |
@@ -190,12 +190,13 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - **SQP:** `read_sqp()` con `skiprows=1`. Marca extraída con `extract_sqp_brand()`.
 - **Bulk:** Dataframe raw. Filtro por `State == "ENABLED"`.
 - **Business Report:** Dataframe raw de ventas y sesiones.
-- **Análisis Cruzado STR vs SQP** (`modules/pages/analisis_cruzado.py`): cruza STR (búsqueda paga) vs SQP (orgánica) para keyword discovery + clasificación automática. Opportunity Score = min-max de impresiones + clicks + purchase rate.
-  - **Tab 1 Cruce:** oportunidades marca/genéricas + panel diagnóstico cobertura Match Type (warning si AUTO/PT > 20% del spend — mitigación visual BUG-1; el fix real upstream en M2 queda para C-2).
-  - **Tab 2 Plan de Acción:** classifier con 9 acciones priorizadas (bloque BRAND antes que genéricas): ⚔️ CONQUEST (cross-brand) > ❔ SIN DATA marca > 🛡️ DEFENDER marca > 🏆 BRAND PURE OK > ⚫ ASIN (PT) > ⚡ ESCALAR > ➕ AGREGAR keyword > ⬇️ BAJAR BID > 👁️ MONITOREAR. Inputs opcionales: brand terms, competidores conocidos, ASINs propios del cliente, precio promedio, CVR default, target ACoS. Bulk export con Max Bid calculado (CVR × precio × target ACoS) + Match Type variable (ESCALAR→exact, AGREGAR→phrase, DEFENDER→exact).
-  - **Tab 3 PPC Insights por ASIN:** detección ASIN multi-columna (Advertised ASIN → ASIN → SKU → Product → regex Campaign Name) + warning de cobertura de spend.
-  - **Helper `_norm()`:** normaliza brand matching (strip acentos + colapso espacios + lowercase). Aplica en detección Tipo + classifier.
-  - **Contrato con M10 Campaign Builder:** las 4 columnas del bulk (`Keyword` / `Acción sugerida` / `Purchases mercado` / `Brand Share %`) son inmutables. La whitelist de export filtra CONQUEST / SIN DATA / BRAND PURE OK / ASIN — solo ESCALAR/AGREGAR/DEFENDER llegan a M10.
+- **Análisis Cruzado STR vs SQP** (`modules/pages/analisis_cruzado.py`, reglas en `core/cross_analysis/`): cruza los search terms de la cuenta de Amazon Ads (búsqueda paga) con el SQP de la marca (mercado) para keyword discovery + clasificación automática. Desde IT-51 (2026-09-28) no pide el Bulk File: search terms del picker, keywords Exact habilitadas del listado SP de la cuenta y ASIN de cada ad group de sus product ads. Detalle en `modules/pages/CLAUDE.md` (M4).
+  - **Tab 1 Cruce:** oportunidades marca/genéricas + gasto por origen del término (Exact/Phrase/Broad/Auto/Product Targeting). Opportunity Score = min-max de impresiones + clicks + purchase rate.
+  - **Tab 2 Plan de Acción:** classifier con acciones priorizadas (bloque BRAND antes que genéricas): ⚫ ASIN (PT) > ⚔️ CONQUEST (cross-brand) > ❔ SIN DATA marca > 🛡️ DEFENDER marca > 🏆 BRAND PURE OK > ⚡ ESCALAR > ➕ AGREGAR keyword > 🚫 NO ATACAR > 🔍 INVESTIGAR > ⬇️ BAJAR BID > 👁️ MONITOREAR. Inputs opcionales: competidores conocidos, ASINs propios del cliente, precio promedio, CVR default, target ACoS. Guardas INV-11 (🛑 No negativizable · 🏅 Ranking KW · ♻️ Ya en Exact, esta última sobre cada query del SQP contra el listado). Dos exports: bulk para Amazon con Max Bid calculado (CVR × precio × target ACoS) y Match Type por acción (ESCALAR→exact, AGREGAR→phrase, DEFENDER→exact), y plan para Campaign Builder.
+  - **Tab 3 PPC Insights por ASIN:** el ASIN de cada search term con la regla de PPC Insights (`resolve_asins`: el del ad group si anuncia uno, el del nombre de campaña si anuncia varios, nunca repartido) + cobertura de gasto; BR by ASIN opcional por `(Child) ASIN`.
+  - **Tab 4 Análisis IA:** agente `cross_analysis` en memoria, compartido con el chat.
+  - **Helper `accentless_text()`** (antes `_norm()`): normaliza brand matching (strip acentos + colapso espacios + lowercase). Aplica en detección Tipo + classifier.
+  - **Contrato con M10 Campaign Builder:** el plan para Campaign Builder trae en su primera hoja las 4 columnas `Keyword` / `Acción sugerida` / `Purchases mercado` / `Brand Share %`, inmutables. Sólo ESCALAR/AGREGAR/DEFENDER llegan a M10, y no las queries que ya existen como Exact habilitada. El bulk para Amazon es otro archivo.
 - **Tendencia Multi-Semana:** Hasta 4 SQPs. Pivot por `Search Query`. ↑ >10%, ↓ >10%, → estable.
 - **Análisis de Funnel:** Campañas ENABLED, brechas STR vs bulk, campañas sugeridas con naming convention, harvesting Exact/Phrase (Exact si órdenes ≥ 3 o ACoS ≤ 25%).
 

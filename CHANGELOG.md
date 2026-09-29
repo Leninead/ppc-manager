@@ -14,6 +14,41 @@ Recommendation pedían la marca a mano (o seguían sin ella) aunque el archivo l
 primera celda de la fila de metadata en CSV y XLSX, deja el archivo al principio para que `read_sqp` lea el header, y
 un archivo que no se puede leer queda en el log en vez de pasar en silencio.
 
+### Changed — Análisis Cruzado lee la cuenta de Amazon Ads en lugar del Bulk File, exporta el plan que lee Campaign Builder y suma Análisis IA; el bulk de negativos del Search Term Report lee el listado SP (IT-51, 2026-09-28)
+
+**Por qué.** Análisis Cruzado pedía el Bulk File completo: su hoja de search terms para el cruce y su hoja de campañas
+para el ASIN de cada ad group (Tab 3) y las keywords Exact activas (INV-11.2). Esas dos cosas no salen de un reporte de
+métricas, que sólo trae lo que tuvo clicks. Además la Tab 3 le daba el ad group entero a su primer ASIN (en la base
+local, 4.835 de 4.952 ad groups de Shapermint US anuncian más de uno), «♻️ Ya en Exact» sólo llegaba a las queries con
+search term, y el export, un bulk de Amazon válido, ya no traía las columnas que lee Campaign Builder. El bulk de
+negativos del Search Term Report tenía el mismo hueco: sus controles de Exact activas y keywords propias sólo veían las
+keywords con clicks, y no verificaba el estado del ad group.
+
+**Ahora.**
+- **Sin Bulk File.** Análisis Cruzado usa el picker de Amazon Ads (cuenta, país y período) y el SQP de la marca. Las
+  keywords Exact habilitadas salen del listado diario de Sponsored Products de la cuenta y el ASIN de cada ad group de
+  sus productos anunciados, con la regla de PPC Insights: nunca se reparte ni se toma el primero. Sin cuenta conectada la
+  página lo dice; ya no hay carga manual.
+- **Guardas.** «♻️ Ya en Exact» se calcula sobre cada query del SQP contra todas las Exact habilitadas, tengan o no
+  clicks; sin listado no se muestra y se dice por qué. Los términos de campañas Auto ya no figuran como «🛑 No
+  negativizable» (INV-11.1), y un portfolio sin nombre sincronizado cuenta como protegido, como en el Search Term Report.
+- **Dos exports.** El bulk para Bulk Operations no vuelve a crear keywords que ya existen como Exact habilitada, y sólo
+  cambia bids de términos que llegaron por una keyword: cada keyword una sola vez y con su propio texto. Antes, dos
+  términos que llegaban por la misma Broad daban dos Updates del mismo Keyword ID, cada uno con el texto del search term
+  (visto en Mott & Bow US con la base local). El plan para Campaign Builder vuelve a traer `Keyword` /
+  `Acción sugerida` / `Purchases mercado` / `Brand Share %` en su primera hoja, sin las queries que ya corren como Exact.
+- **Tab 3.** El Business Report by ASIN cruza por el ASIN hijo (antes tomaba el padre y casi nunca cruzaba), los montos
+  van en la moneda de la cuenta y los ASINs se ordenan por gasto.
+- **Análisis IA.** Pestaña nueva con el agente `cross_analysis`: qué acciones del plan tomar primero, cuáles esperar o
+  investigar, sin cambiar la acción del módulo ni proponer bids. Corre sólo con «Analizar con IA» y se comparte con el
+  chat con la cuenta.
+- **Search Term Report.** El bulk de negativos lee del mismo listado las Exact habilitadas, las keywords propias de cada
+  ad group y el estado del ad group: un ad group pausado o archivado deja afuera sus negativos. Sin listado sigue como
+  antes y lo avisa. `search_term_candidates` del chat da el mismo veredicto.
+- **Arreglos en el camino.** La Tab 1 ya no se rompe cuando hay una sola query «solo en SQP», y sin precio el bulk dice
+  que falta el precio en vez de culpar a los IDs. 🔍 INVESTIGAR se dispara: el Opportunity Score del plan pasa a 0-100,
+  la escala de la Tab 1 y la de su regla (antes iba de 0 a 1 y ninguna query llegaba a 40).
+
 ### Changed — Account Pulse y Weekly Client Report leen la publicidad de la cuenta de Amazon Ads y suman Análisis IA (IT-45, 2026-09-28)
 
 **Por qué.** Los dos pedían un «Campaign CSV» subido a mano. En Account Pulse el TACoS dividía el spend de ese CSV (el

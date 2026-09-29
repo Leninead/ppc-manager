@@ -12,6 +12,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+from core.amazon_ads.active_keywords import enabled_exact_keyword_texts
 from core.amazon_ads.report_provider import (
     KEYWORD_MATCH_TYPES,
     ORIGIN_AUTO,
@@ -20,6 +21,8 @@ from core.amazon_ads.report_provider import (
     ORIGIN_PHRASE,
     ORIGIN_PRODUCT_TARGETING,
 )
+from core.amazon_ads.structure_listing import KeywordListing
+from core.amazon_ads.structure_provider import AD_GROUP, KEYWORD
 from core.bulk.keyword_text import negative_keyword_text_problem
 from core.search_term.frame import ANY_WINDOW_PURCHASES, PORTFOLIO_NAME_MISSING, SEARCH_TERM, orders_column
 
@@ -52,9 +55,13 @@ EXCLUDED_UNKNOWN_ORIGIN = (
 )
 EXCLUDED_CONVERTS = "El término tiene órdenes en este ad group: lo que convierte no se negativiza."
 EXCLUDED_CAMPAIGN_NOT_ENABLED = "La campaña no está activa ({status})."
+EXCLUDED_AD_GROUP_NOT_ENABLED = "El ad group no está activo ({state})."
+EXCLUDED_AD_GROUP_NOT_LISTED = (
+    "El ad group no aparece en el último listado de Amazon Ads: está archivado o se creó después del listado."
+)
 EXCLUDED_NOT_A_QUERY = "El término no es una búsqueda (un ASIN o «*»): no se puede cargar como keyword negativa."
 EXCLUDED_INVALID_KEYWORD_TEXT = "Amazon no acepta este texto como keyword negativa: {problem}."
-EXCLUDED_ACTIVE_EXACT = "Ya corre como keyword Exact activa en la cuenta."
+EXCLUDED_ACTIVE_EXACT = "Ya existe como keyword Exact habilitada en la cuenta."
 EXCLUDED_OWN_KEYWORD = "Es una keyword propia de este ad group: negativizarla le corta su propio tráfico."
 EXCLUDED_PHRASE_BLOCKS = (
     "La frase negativa bloquearía búsquedas que convierten o una keyword Exact activa de este ad group."
@@ -74,6 +81,11 @@ AD_GROUP_STATE_UNVERIFIED_NOTE = (
     "El estado de los ad groups no se verifica: si alguno está pausado o archivado, sacá sus negativos del "
     "archivo antes de subirlo."
 )
+LISTED_KEYWORDS_NOTE = (
+    "Los controles de keywords Exact activas y de keywords propias del ad group leen el listado diario de Amazon Ads "
+    "de la cuenta: ven todas las keywords, no sólo las que tuvieron clicks."
+)
+LISTED_AD_GROUPS_NOTE = "El estado de cada ad group sale del mismo listado: los pausados o archivados quedan afuera."
 
 _BULK_ORIGINS = (ORIGIN_BROAD, ORIGIN_PHRASE, ORIGIN_AUTO)
 _PRIORITY_ORDER = {PRIORITY_HIGH: 0, PRIORITY_MEDIUM: 1, PRIORITY_REVIEW: 2}
@@ -138,15 +150,17 @@ _EXTREME_ACOS = _RuleOutcome(RULE_EXTREME_ACOS, ACTION_LOWER_BID, "", PRIORITY_M
 
 @dataclass(frozen=True)
 class AdGroupGuards:
-    """What the unfiltered frame says about each ad group, read once per bulk selection."""
+    """What the unfiltered frame and the account's SP listing say about each ad group, read once per bulk selection."""
 
-    active_exact_terms: set[str]
+    active_exact_terms: set[str] | frozenset[str]
     converting_terms: set[tuple[str, str, str]]
     exact_origin_terms: set[tuple[str, str, str]]
     product_targeting_origin_terms: set[tuple[str, str, str]]
     converting_tokens: dict[_AdGroupKey, set[_Tokens]]
     enabled_exact_tokens: dict[_AdGroupKey, set[_Tokens]]
     own_keyword_tokens: dict[_AdGroupKey, set[_Tokens]]
+    # (campaign id, ad group id) -> its listed state; None while the ad groups were never listed.
+    ad_group_states: dict[_AdGroupKey, str] | None = None
 
 
 def evaluate_candidates(frame: pd.DataFrame, cols: dict, *, clicks_threshold: int,
@@ -212,15 +226,16 @@ def negative_key(candidate: NegativeCandidate) -> tuple[str, str, str, str]:
 
 def select_for_bulk(candidates: list[NegativeCandidate], frame: pd.DataFrame, *,
                     released_ranking: frozenset[tuple] = frozenset(),
-                    guards: AdGroupGuards | None = None) -> tuple[list[dict], list[BulkExclusion]]:
+                    guards: AdGroupGuards | None = None,
+                    listing: KeywordListing | None = None) -> tuple[list[dict], list[BulkExclusion]]:
     """Rows for `core.bulk.export.build_adgroup_negative` from the Negativo candidates, plus why the rest stay out.
 
     `frame` must be the unfiltered API frame: the ad group guards read every row of it. RANKING and
     unnamed-portfolio candidates stay out unless their `negative_key` is in `released_ranking`.
-    Pass `guards` from `ad_group_guards(frame)` to select from the same frame again without re-reading it.
+    Pass `guards` from `ad_group_guards(frame, listing)` to select from the same frame again without re-reading it.
     """
     if guards is None:
-        guards = ad_group_guards(frame)
+        guards = ad_group_guards(frame, listing)
 
     rows: list[dict] = []
     exclusions: list[BulkExclusion] = []
@@ -288,6 +303,12 @@ def _blocking_reason(candidate: NegativeCandidate, guards: AdGroupGuards) -> str
         return EXCLUDED_CONVERTS
     if candidate.campaign_status.strip().casefold() != _ENABLED:
         return EXCLUDED_CAMPAIGN_NOT_ENABLED.format(status=candidate.campaign_status.strip() or "sin estado")
+    if guards.ad_group_states is not None:
+        ad_group_state = guards.ad_group_states.get(ad_group)
+        if ad_group_state is None:
+            return EXCLUDED_AD_GROUP_NOT_LISTED
+        if ad_group_state.casefold() != _ENABLED:
+            return EXCLUDED_AD_GROUP_NOT_ENABLED.format(state=ad_group_state)
     if term == "*" or _ASIN_TERM.match(term) or _ISBN10_ASIN_TERM.match(term):
         return EXCLUDED_NOT_A_QUERY
     keyword_text_problem = negative_keyword_text_problem(candidate.search_term.strip(), candidate.match_type)
@@ -307,6 +328,11 @@ def _blocking_reason(candidate: NegativeCandidate, guards: AdGroupGuards) -> str
     return None
 
 
+def is_ranking_protected(portfolio: str, name_missing: bool) -> bool:
+    """INV-11.3: a RANKING portfolio, or one whose name never synced and so could be RANKING."""
+    return _RANKING_PORTFOLIO in portfolio.upper() or name_missing
+
+
 def _portfolio_reason(candidate: NegativeCandidate) -> str | None:
     if _RANKING_PORTFOLIO in candidate.portfolio.upper():
         return EXCLUDED_RANKING_PORTFOLIO.format(portfolio=candidate.portfolio.strip())
@@ -315,8 +341,13 @@ def _portfolio_reason(candidate: NegativeCandidate) -> str | None:
     return None
 
 
-def ad_group_guards(frame: pd.DataFrame) -> AdGroupGuards:
-    """What the unfiltered API frame says about every ad group; raises ValueError when the frame is not bulk-ready."""
+def ad_group_guards(frame: pd.DataFrame, listing: KeywordListing | None = None) -> AdGroupGuards:
+    """What the unfiltered API frame and the account's SP listing say about every ad group.
+
+    With a known `listing`, the enabled Exact keywords, each ad group's own keywords and, once its ad groups were
+    listed, each ad group's state come from it: the frame only carries the keywords that got clicks. Raises
+    ValueError when the frame is not bulk-ready.
+    """
     missing = [column for column in _BULK_FRAME_COLUMNS if column not in frame.columns]
     if missing:
         raise ValueError(f"search term frame is not bulk-ready, missing columns {missing}")
@@ -324,18 +355,12 @@ def ad_group_guards(frame: pd.DataFrame) -> AdGroupGuards:
     ad_group_ids = _texts(frame, "_ad_group_id")
     terms = [_normalized_term(term) for term in _texts(frame, SEARCH_TERM)]
     origins = [origin.upper() for origin in _texts(frame, "_origin_match_type")]
-    keyword_types = [keyword_type.upper() for keyword_type in _texts(frame, "_keyword_type")]
-    keyword_statuses = [status.casefold() for status in _texts(frame, "_ad_keyword_status")]
-    keyword_texts = [_normalized_term(text) for text in _texts(frame, "_keyword_text")]
     purchases = _any_window_purchases(frame)
 
-    active_exact_terms: set[str] = set()
     converting_terms: set[tuple[str, str, str]] = set()
     exact_origin_terms: set[tuple[str, str, str]] = set()
     product_targeting_origin_terms: set[tuple[str, str, str]] = set()
     converting_tokens: dict[_AdGroupKey, set[_Tokens]] = defaultdict(set)
-    enabled_exact_tokens: dict[_AdGroupKey, set[_Tokens]] = defaultdict(set)
-    own_keyword_tokens: dict[_AdGroupKey, set[_Tokens]] = defaultdict(set)
     for position in range(len(frame)):
         ad_group = (campaign_ids[position], ad_group_ids[position])
         term_in_ad_group = (*ad_group, terms[position])
@@ -346,19 +371,73 @@ def ad_group_guards(frame: pd.DataFrame) -> AdGroupGuards:
         if purchases[position] > 0:
             converting_terms.add(term_in_ad_group)
             converting_tokens[ad_group].add(tuple(terms[position].split()))
+
+    listed = listing is not None and listing.known
+    keywords = _listed_keywords(listing.rows) if listed else _clicked_keywords(frame)
+    return AdGroupGuards(
+        active_exact_terms=keywords.active_exact_terms,
+        converting_terms=converting_terms, exact_origin_terms=exact_origin_terms,
+        product_targeting_origin_terms=product_targeting_origin_terms, converting_tokens=converting_tokens,
+        enabled_exact_tokens=keywords.enabled_exact_tokens, own_keyword_tokens=keywords.own_keyword_tokens,
+        ad_group_states=_listed_ad_group_states(listing.rows) if listed and listing.ad_groups_listed else None,
+    )
+
+
+def bulk_guard_notes(listing: KeywordListing | None) -> list[str]:
+    """What the page and the chat say about the bulk's keyword and ad group guards, for the listing they read."""
+    if listing is None or not listing.known:
+        return [EXACT_GUARD_PARTIAL_NOTE, AD_GROUP_STATE_UNVERIFIED_NOTE]
+    return [LISTED_KEYWORDS_NOTE, LISTED_AD_GROUPS_NOTE if listing.ad_groups_listed else AD_GROUP_STATE_UNVERIFIED_NOTE]
+
+
+@dataclass(frozen=True)
+class _KeywordGuards:
+    active_exact_terms: set[str] | frozenset[str]
+    enabled_exact_tokens: dict[_AdGroupKey, set[_Tokens]]
+    own_keyword_tokens: dict[_AdGroupKey, set[_Tokens]]
+
+
+def _clicked_keywords(frame: pd.DataFrame) -> _KeywordGuards:
+    """The keywords behind the frame's rows: only those that got clicks in its window."""
+    campaign_ids = _texts(frame, "_campaign_id")
+    ad_group_ids = _texts(frame, "_ad_group_id")
+    keyword_types = [keyword_type.upper() for keyword_type in _texts(frame, "_keyword_type")]
+    keyword_statuses = [status.casefold() for status in _texts(frame, "_ad_keyword_status")]
+    keyword_texts = [_normalized_term(text) for text in _texts(frame, "_keyword_text")]
+    guards = _KeywordGuards(set(), defaultdict(set), defaultdict(set))
+    for position in range(len(frame)):
         keyword_tokens = tuple(keyword_texts[position].split())
         if not keyword_tokens or keyword_types[position] not in KEYWORD_MATCH_TYPES:
             continue
-        own_keyword_tokens[ad_group].add(keyword_tokens)
+        ad_group = (campaign_ids[position], ad_group_ids[position])
+        guards.own_keyword_tokens[ad_group].add(keyword_tokens)
         if keyword_types[position] == ORIGIN_EXACT and keyword_statuses[position] == _ENABLED:
-            active_exact_terms.add(keyword_texts[position])
-            enabled_exact_tokens[ad_group].add(keyword_tokens)
-    return AdGroupGuards(
-        active_exact_terms=active_exact_terms, converting_terms=converting_terms,
-        exact_origin_terms=exact_origin_terms, product_targeting_origin_terms=product_targeting_origin_terms,
-        converting_tokens=converting_tokens, enabled_exact_tokens=enabled_exact_tokens,
-        own_keyword_tokens=own_keyword_tokens,
-    )
+            guards.active_exact_terms.add(keyword_texts[position])
+            guards.enabled_exact_tokens[ad_group].add(keyword_tokens)
+    return guards
+
+
+def _listed_keywords(listing_rows: pd.DataFrame) -> _KeywordGuards:
+    """Every listed keyword, enabled or paused, by ad group; the enabled Exact ones apart."""
+    keywords = listing_rows[listing_rows["entity"].eq(KEYWORD)]
+    guards = _KeywordGuards(enabled_exact_keyword_texts(listing_rows), defaultdict(set), defaultdict(set))
+    for campaign_id, ad_group_id, text, match_type, state in zip(
+            _texts(keywords, "campaign_id"), _texts(keywords, "ad_group_id"), _texts(keywords, "target_text"),
+            _texts(keywords, "match_type"), _texts(keywords, "state")):
+        keyword_tokens = tuple(_normalized_term(text).split())
+        if not keyword_tokens:
+            continue
+        ad_group = (campaign_id, ad_group_id)
+        guards.own_keyword_tokens[ad_group].add(keyword_tokens)
+        if match_type.upper() == ORIGIN_EXACT and state.casefold() == _ENABLED:
+            guards.enabled_exact_tokens[ad_group].add(keyword_tokens)
+    return guards
+
+
+def _listed_ad_group_states(listing_rows: pd.DataFrame) -> dict[_AdGroupKey, str]:
+    ad_groups = listing_rows[listing_rows["entity"].eq(AD_GROUP)]
+    return {(campaign_id, ad_group_id): state for campaign_id, ad_group_id, state in zip(
+        _texts(ad_groups, "campaign_id"), _texts(ad_groups, "ad_group_id"), _texts(ad_groups, "state"))}
 
 
 def _any_window_purchases(frame: pd.DataFrame) -> np.ndarray:

@@ -160,7 +160,7 @@ def _render_sb():
                 "<div style='font-size:1.5rem;'>📂</div>"
                 "<div style='font-weight:600;margin-top:0.5rem;'>Subí el Plan de Acción bulk</div>"
                 "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
-                "Generalo en: Análisis Cruzado → Plan de Acción → Descargar bulk</div>"
+                "Generalo en: Análisis Cruzado → Plan de Acción → Descargar plan para Campaign Builder</div>"
                 "</div>",
                 unsafe_allow_html=True,
             )
@@ -810,7 +810,7 @@ def render():
             st.caption("Generar bulk listo para subir a Amazon con campañas SP nuevas clusterizadas por intención.")
         with col2:
             st.markdown("**📂 Archivo necesario**")
-            st.caption("Plan de Acción bulk (output del Análisis Cruzado M4, .xlsx).")
+            st.caption("Plan para Campaign Builder (output del Análisis Cruzado M4, .xlsx).")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Atom11 Rules Builder (M11) para automatizar las campañas nuevas.")
@@ -843,7 +843,7 @@ def render():
 
     # ── SP flow (lógica original) ────────────────────────────────────────────
     st.markdown("### Paso 1 — Subí el Plan de Acción bulk")
-    st.caption("El archivo generado en Análisis Cruzado → Plan de Acción → Descargar bulk.")
+    st.caption("El archivo generado en Análisis Cruzado → Plan de Acción → Descargar plan para Campaign Builder.")
 
     file_plan = st.file_uploader(
         "Plan de Acción bulk (.xlsx)",
@@ -858,7 +858,7 @@ def render():
             "<div style='font-size:1.5rem;'>📂</div>"
             "<div style='font-weight:600;margin-top:0.5rem;'>Subí el Plan de Acción bulk</div>"
             "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
-            "Generalo en: Análisis Cruzado → tab Plan de Acción → Descargar bulk</div>"
+            "Generalo en: Análisis Cruzado → tab Plan de Acción → Descargar plan para Campaign Builder</div>"
             "</div>", unsafe_allow_html=True,
         )
         return
@@ -868,7 +868,8 @@ def render():
 
     # Validar columnas mínimas
     if "Keyword" not in df_plan.columns:
-        st.error("❌ El archivo no tiene columna 'Keyword'. Verificá que sea el Plan de Acción bulk.")
+        st.error("❌ El archivo no tiene columna 'Keyword'. Verificá que sea el plan para Campaign Builder de Análisis "
+                 "Cruzado.")
         return
 
     st.markdown("---")
