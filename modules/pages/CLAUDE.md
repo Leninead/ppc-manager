@@ -957,6 +957,19 @@ _L_EXEC                           # textos del ejecutivo, a NIVEL DE MÓDULO (te
   Advertising, de la cuenta (SP+SB+SD). No coinciden, igual que antes con el CSV.
 - Si las ventas de ads superan las del BR, la pestaña Reporte lo avisa (cuenta o país equivocados).
 
+### Stock del Pricing Dashboard (punto 3 de Supply, 2026-09-29)
+- Selector `weekly_stock_client`: «(sin stock)» + `core/pricing_clients.PRICING_CLIENTS` (el catálogo que antes era
+  `_CLIENTES` del Pricing Dashboard; Gamboa no está). Por defecto el reporte sale sin stock.
+- `core/weekly_report/stock.latest_stock(slug)` lee el último period de `account-health/<slug>/pricing-dashboard` vía
+  `core.persistence` (local o base) y `stock_by_asin` suma los SKUs de cada ASIN. Un SKU sin ASIN no llega a ninguna
+  fila: se cuenta en `skus_without_asin` y la nota lo dice.
+- Grupo STOCK al FINAL de WoW Comparison (columnas 24-27: FBA, AWD, Izzi, Total), para no correr las columnas fijas
+  3-23. Encabezado con la fecha del snapshot; CUENTA TOTAL = todo el snapshot.
+- **Sin dato es «—», nunca 0**; un 0 del snapshot sí se muestra (quiebre real). Sin snapshots: «STOCK (sin snapshot)».
+- `_stock_note` arma la nota al pie y el texto de la pantalla (fuente, fecha, SKUs sin ASIN y, si el snapshot es
+  anterior a `period_tw.start` del BR diario, cuántos días).
+- ❌ NO leer el stock como «de la semana»: es el del último «Guardar snapshot» del Pricing Dashboard.
+
 ### Capa IA (IT-45 — consumidor de `core/ai_tab`, en memoria)
 - La pestaña «🤖 Análisis IA» reemplaza al botón «Generar análisis IA» (`core.ai_analyze._claude_analyze`, patrón
   legacy). `auto_fire=False`; la firma son los archivos + la cuenta. El idioma es el del reporte (`wlang`), no el del
@@ -971,7 +984,8 @@ _L_EXEC                           # textos del ejecutivo, a NIVEL DE MÓDULO (te
 ### Tests
 `tests/test_m14_weekly_periodo.py` — dedup, contrato de período, WoW por producto, coherencia, narrativa y
 encabezado. `tests/test_weekly_report_advertising.py` (resumen y hoja), `tests/test_weekly_report_agent.py`,
-`tests/test_weekly_report_page.py` (AppTest con PostgREST en memoria y proveedor IA falso).
+`tests/test_weekly_report_page.py` (AppTest con PostgREST en memoria y proveedor IA falso),
+`tests/test_weekly_report_stock.py` (stock por ASIN, snapshot más reciente, grupo STOCK y nota).
 
 ---
 

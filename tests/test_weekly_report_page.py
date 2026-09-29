@@ -327,5 +327,5 @@ def test_without_connected_accounts_the_report_says_so_and_still_renders(monkeyp
     app = _page(monkeypatch, _FakeRest(profiles=False))
 
     assert weekly_page._ADS_TEXTS.no_accounts in _text(app)
-    assert not app.selectbox
+    assert [box.key for box in app.selectbox] == ["weekly_stock_client"]
     assert [tab.label for tab in app.tabs] == ["📊 Reporte", "🤖 Análisis IA"]

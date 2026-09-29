@@ -62,6 +62,7 @@ from core.persistence import (
     _rebuild_history,
     _validate_against_schema,
 )
+from core.pricing_clients import PRICING_CLIENTS as _CLIENTES
 
 try:
     from openpyxl import Workbook
@@ -102,20 +103,6 @@ Analiza el pricing semanal de cada SKU cruzando varias fuentes y clasifica cada 
 - El histórico se guarda en la nube: no se pierde al reiniciar.
 """
 
-
-# =====================================================================
-# Catálogo built-in de clientes (display → slug)
-# =====================================================================
-# No existe (todavía) un catálogo canónico de slugs en core/constants.py ni dirs
-# en data/account-health/ — se usa este catálogo built-in. Ajustar si más adelante
-# aparece una convención de slugs de Account Health.
-_CLIENTES: dict[str, str] = {
-    "Dermaglos": "dermaglos",
-    "LTD / Love To Dream": "ltd",
-    "Setex": "setex",
-    "Mott & Bow": "mott-bow",
-    "OPTIPET": "optipet",
-}
 
 # Defaults de SUBCAT_FEE_AVG: VERBATIM del HTML fuente (const SUBCAT_FEE_AVG, L578).
 # Shape: {subcat: {ff, rf, ppc}} (NO float plano) — null del HTML -> None.

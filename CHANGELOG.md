@@ -6,6 +6,25 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Weekly Client Report muestra el stock por ASIN del último snapshot del Pricing Dashboard (2026-09-29)
+
+**Por qué.** Punto 3 del pedido de Supply (Freddy): el reporte semanal no mostraba stock, y la única fuente de stock
+de Amazon que la plataforma guarda es el snapshot del Pricing Dashboard (M30), con `fba_available`, `awd_available`,
+`izzi_available` y `total_stock` por SKU.
+
+**Ahora.**
+- Selector «Stock del Pricing Dashboard» debajo del nombre del cliente, con los clientes del Pricing Dashboard.
+  Por defecto «(sin stock)»: el reporte sale como antes.
+- Con un cliente, la hoja «WoW Comparison» suma un grupo STOCK al final, después de TACoS (FBA, AWD, Izzi y Total),
+  con la fecha del snapshot en el encabezado. Cada ASIN suma sus SKUs. La fila CUENTA TOTAL suma todo el snapshot.
+- Un dato que el snapshot no trae queda «—», nunca 0. Un 0 del snapshot se muestra como 0: es un quiebre real.
+- La nota al pie dice de dónde sale el stock, de qué fecha es y cuántos SKUs sin ASIN quedaron afuera. Si el snapshot
+  es anterior a la semana del reporte, lo avisa con los días. La pantalla muestra el mismo texto.
+- Sin snapshots guardados para ese cliente, el grupo dice «STOCK (sin snapshot)» y las celdas «—».
+- El catálogo de clientes del Pricing Dashboard pasa a `core/pricing_clients.py` para que lo compartan los dos módulos.
+
+**Límite.** El stock es el del último «Guardar snapshot» del Pricing Dashboard, no el de la semana del reporte.
+
 ### Changed — PPC Insights lee las campañas del listado de Sponsored Products de la cuenta en lugar del Campaign CSV (2026-09-29)
 
 **Por qué.** La parte «estructura de campañas» del health score (15 de 100 puntos) salía de un Campaign CSV subido a
