@@ -1,7 +1,10 @@
 import html
+import logging
 import streamlit as st
 import pandas as pd
 import re
+
+log = logging.getLogger(__name__)
 
 
 def _color_pct(val):
@@ -17,16 +20,16 @@ def _color_pct(val):
 
 def extract_sqp_brand(file):
     """Extrae el nombre de marca de la fila de metadata del SQP de Amazon."""
+    read_first_row = pd.read_excel if file.name.endswith(".xlsx") else pd.read_csv
     try:
-        first_row = pd.read_csv(file, nrows=0, header=None).columns[0] if not file.name.endswith(".xlsx") else str(pd.read_excel(file, nrows=1, header=None).iloc[0, 0])
+        first_cell = str(read_first_row(file, nrows=1, header=None).iloc[0, 0])
+    except Exception as exc:  # an upload can fail in any way the CSV and Excel readers do
+        log.warning("SQP brand unreadable from %s: %s", file.name, exc)
+        return None
+    finally:
         file.seek(0)
-        match = re.search(r'Brand=\["([^"]+)"\]', first_row, re.IGNORECASE)
-        if match:
-            return match.group(1).lower().strip()
-    except Exception:
-        pass
-    file.seek(0)
-    return None
+    match = re.search(r'Brand=\["([^"]+)"\]', first_cell, re.IGNORECASE)
+    return match.group(1).lower().strip() if match else None
 
 
 @st.cache_data(max_entries=5, ttl=3600, show_spinner=False)
