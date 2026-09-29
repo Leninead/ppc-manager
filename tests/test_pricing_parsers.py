@@ -134,6 +134,16 @@ class TestParseFee:
         assert list(df.columns) == ["MSKU", "Units sold"]
         assert df.iloc[0]["MSKU"] == "ABC"
 
+    def test_fee_preview_limpia_el_signo_de_pregunta_del_primer_header(self):
+        # The North America Fee Preview starts with a literal ASCII '?' (0x3F), not a BOM.
+        data = (
+            '?"sku","asin","amazon-store","product-name"\n'
+            '"ABC","B000000001","US","Sombrero Panamá"\n'
+        ).encode("cp1252")
+        df = _parse_fee(data)
+        assert list(df.columns) == ["sku", "asin", "amazon-store", "product-name"]
+        assert df.iloc[0]["sku"] == "ABC"
+
 
 class TestParseAwd:
     def test_completo(self):
@@ -429,6 +439,42 @@ class TestBuildFeeLookup:
     def test_cast_a_str_confirmado(self):
         df = pd.DataFrame([{"MSKU": 999, FF: 2.0, RF: 1.0, PPC: 0.5, US: 3}])
         assert "999" in _build_fee_lookup(df)
+
+
+FP_FF = "expected-fulfillment-fee-per-unit"
+FP_RF = "estimated-referral-fee-per-unit"
+FP_STORE = "amazon-store"
+
+
+class TestBuildFeeLookupFeePreview:
+    def test_mismo_sku_en_tres_tiendas_usa_solo_las_fees_de_us(self):
+        df = pd.DataFrame(
+            [
+                {"sku": "ABC", FP_STORE: "MX", FP_FF: 140.0, FP_RF: 60.0},
+                {"sku": "ABC", FP_STORE: "CA", FP_FF: 8.5, FP_RF: 6.8},
+                {"sku": "ABC", FP_STORE: "US", FP_FF: 3.5, FP_RF: 3.9},
+            ]
+        )
+        assert _build_fee_lookup(df) == {
+            "ABC": {
+                "fulfillment_fee": 3.5,
+                "referral_fee": 3.9,
+                "ppc_fee": None,
+                "units_sold_week": 0.0,
+            }
+        }
+
+    def test_sin_columna_amazon_store_usa_todas_las_filas(self):
+        df = pd.DataFrame(
+            [
+                {"sku": "ABC", FP_FF: 3.5, FP_RF: 3.9},
+                {"sku": "DEF", FP_FF: 4.0, FP_RF: 2.0},
+            ]
+        )
+        lk = _build_fee_lookup(df)
+        assert set(lk) == {"ABC", "DEF"}
+        assert lk["DEF"]["fulfillment_fee"] == 4.0
+        assert lk["DEF"]["referral_fee"] == 2.0
 
 
 # =====================================================================

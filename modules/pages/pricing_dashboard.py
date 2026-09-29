@@ -215,9 +215,21 @@ def _parse_fee(data: bytes) -> pd.DataFrame:
     sep ;/, autodetect + encoding de core.csv_io.encoding_csv. NO replica el
     parseCSV custom del HTML (trim/descarte/filtro) — divergencia conocida,
     diferida a F3.3.
+
+    Los encabezados se limpian (_clean_fee_header): el FBA Fee Preview de
+    Norteamérica trae un "?" ASCII literal (0x3F, no un BOM) pegado antes del
+    primer header, y la primera columna llegaba como '?"sku"'.
     """
     encoding = encoding_csv(data)
-    return pd.read_csv(BytesIO(data), encoding=encoding, sep=_detect_sep(data))
+    df = pd.read_csv(BytesIO(data), encoding=encoding, sep=_detect_sep(data))
+    df.columns = [_clean_fee_header(c) for c in df.columns]
+    return df
+
+
+def _clean_fee_header(name) -> str:
+    """Header sin BOM, sin "?" inicial y sin comillas ni espacios en los extremos."""
+    text = str(name).lstrip("﻿").strip()
+    return text.removeprefix("?").strip().strip('"').strip()
 
 
 def _awd_header_index(lines: list[str], sep: str) -> int | None:
@@ -328,6 +340,35 @@ def _build_cogs_lookup(df_pl: pd.DataFrame) -> dict[str, float | str]:
     return lookup
 
 
+# The FBA Inventory spine is US only, so fees from other stores never apply.
+_FEE_PREVIEW_STORE = "US"
+
+
+def _is_fee_preview(df_fee: pd.DataFrame) -> bool:
+    """True si es el FBA Fee Preview (sku + expected-fulfillment-fee-per-unit) y no el formato MSKU."""
+    cols = set(df_fee.columns)
+    return "MSKU" not in cols and {"sku", "expected-fulfillment-fee-per-unit"} <= cols
+
+
+def _fee_preview_rows(df_fee: pd.DataFrame) -> list[dict]:
+    """Filas del Fee Preview de _FEE_PREVIEW_STORE, con las claves del formato MSKU.
+
+    Sin columna amazon-store usa todas las filas. La tienda se compara sin
+    mayúsculas ni espacios.
+    """
+    rows = df_fee.to_dict("records")
+    if "amazon-store" in df_fee.columns:
+        rows = [r for r in rows if str(r.get("amazon-store") or "").strip().upper() == _FEE_PREVIEW_STORE]
+    return [
+        {
+            "MSKU": r.get("sku"),
+            "FBA fulfillment fees per unit": r.get("expected-fulfillment-fee-per-unit"),
+            "Referral fee per unit": r.get("estimated-referral-fee-per-unit"),
+        }
+        for r in rows
+    ]
+
+
 def _build_fee_lookup(df_fee: pd.DataFrame) -> dict[str, dict]:
     """Port de buildFeeLookup (HTML L941).
 
@@ -339,9 +380,19 @@ def _build_fee_lookup(df_fee: pd.DataFrame) -> dict[str, dict]:
     last-wins; todas las filas del mismo MSKU contribuyen.
 
     Value: {fulfillment_fee, referral_fee, ppc_fee, units_sold_week}.
+
+    Dos formatos, por encabezados. Con MSKU: el documentado en el HTML, sin
+    cambios. Sin MSKU y con sku + expected-fulfillment-fee-per-unit: el FBA Fee
+    Preview real de Norteamérica (_fee_preview_rows), que trae US, CA y MX en el
+    mismo archivo, cada uno en su moneda; se filtra a US ANTES de agrupar, o el
+    promedio mezcla pesos, dólares canadienses y dólares. El Fee Preview no trae
+    PPC por unidad ni unidades vendidas: ppc_fee queda None (_enrich_record cae al
+    promedio de subcategoría con ppc_fee_est) y units_sold_week en 0 (no lo lee
+    nadie).
     """
+    rows = _fee_preview_rows(df_fee) if _is_fee_preview(df_fee) else df_fee.to_dict("records")
     acc: dict[str, dict] = {}
-    for r in df_fee.to_dict("records"):
+    for r in rows:
         sku = _sku_key(r.get("MSKU"))
         if not sku:
             continue
