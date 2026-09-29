@@ -52,7 +52,7 @@ def _turn(**changes) -> chat_turns.ChatTurnRecord:
     turn = chat_turns.ChatTurnRecord(
         conversation_id="7d0f3c2e-1b4a-4c55-9a51-0f2a1c9b7e10", username="am.test", page="📊 Search Term Report",
         question="¿qué negativizo en Dermaglós?", answer="Frenar N01 (toy box)", error=None,
-        tools=("mcp__ppc_manager__breakdown", "mcp__ppc_manager__breakdown"), model="claude-opus-5",
+        tools=("mcp__ppc_manager__metrics_by_group", "mcp__ppc_manager__metrics_by_group"), model="claude-opus-5",
         cost_usd=0.1234, ads_profile_id="279177258676903", ads_account="Dermaglós · US")
     return dataclasses.replace(turn, **changes)
 
@@ -70,7 +70,7 @@ def test_a_turn_is_one_row_written_without_asking_it_back(database):
         "conversation_id": "7d0f3c2e-1b4a-4c55-9a51-0f2a1c9b7e10", "username": "am.test",
         "page": "📊 Search Term Report", "question": "¿qué negativizo en Dermaglós?",
         "answer": "Frenar N01 (toy box)", "error": None,
-        "tools": ["mcp__ppc_manager__breakdown", "mcp__ppc_manager__breakdown"], "model": "claude-opus-5",
+        "tools": ["mcp__ppc_manager__metrics_by_group", "mcp__ppc_manager__metrics_by_group"], "model": "claude-opus-5",
         "cost_usd": 0.1234, "ads_profile_id": "279177258676903", "ads_account": "Dermaglós · US"}
 
 

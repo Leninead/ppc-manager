@@ -1,4 +1,4 @@
-"""breakdown: a total split by campaign, portfolio, product, match type or search term, in one call."""
+"""metrics_by_group: a total split by campaign, portfolio, product, match type or search term, in one call."""
 from __future__ import annotations
 
 import csv
@@ -10,7 +10,7 @@ import pytest
 
 from core.amazon_ads.structure_provider import ROW_COLUMNS
 from services.mcp_server import server
-from services.mcp_server.tools import breakdown as breakdown_tool
+from services.mcp_server.tools import metrics_by_group as metrics_by_group_tool
 
 PROFILE = {
     "profile_id": "1111222233334444", "account_id": 7, "cliente": "Marca Demo", "account_name": "Demo LLC",
@@ -123,15 +123,15 @@ CAMPAIGNS = [
 ]
 
 
-def _breakdown(**kwargs):
+def _metrics_by_group(**kwargs):
     rest = _FakeRest(kwargs.pop("terms", TERMS), kwargs.pop("campaigns", CAMPAIGNS), kwargs.pop("profile", None),
                      kwargs.pop("product_ads", ()), kwargs.pop("windows", None), kwargs.pop("structure", ()))
-    return breakdown_tool.breakdown(rest, profile_id="1111222233334444", **kwargs)
+    return metrics_by_group_tool.metrics_by_group(rest, profile_id="1111222233334444", **kwargs)
 
 
 def test_the_leaders_of_each_metric_cover_every_group_not_only_the_page():
     """The chat said Exact had «the lowest ACoS after Broad»: Exact was the lowest. The comparison comes done."""
-    payload = _breakdown(by="campaign", limit=1)
+    payload = _metrics_by_group(by="campaign", limit=1)
 
     assert payload["showing"] == 1
     assert payload["leaders"]["most_spend"] == {"group": "Camp A", "spend": 40.0}
@@ -142,14 +142,14 @@ def test_the_leaders_of_each_metric_cover_every_group_not_only_the_page():
 
 def test_a_list_by_a_criterion_comes_from_the_filters_complete_and_counted():
     """Listing «the terms with 4+ orders under 30%» by eye, the chat dropped one of the rows that met it."""
-    payload = _breakdown(by="campaign", filters={"min_orders": 1, "max_acos": 30})
+    payload = _metrics_by_group(by="campaign", filters={"min_orders": 1, "max_acos": 30})
 
     assert [row["group"] for row in payload["rows"]] == ["Camp B"]
     assert payload["total"] == 1
     assert payload["filters"] == {"min_orders": 1, "max_acos": 30}
     assert payload["totals"]["spend"] == 60.0
 
-    unsold = _breakdown(by="campaign", filters={"without_sales": True})
+    unsold = _metrics_by_group(by="campaign", filters={"without_sales": True})
     assert [row["group"] for row in unsold["rows"]] == ["Camp C"]
 
 
@@ -164,8 +164,8 @@ PRODUCT_ADS = [{"ad_group_id": "AG1", "asin": "B0HERO00001"},
                {"ad_group_id": "AG2", "asin": "B0VARIANT01"}, {"ad_group_id": "AG2", "asin": "B0VARIANT02"}]
 
 
-def test_an_asin_breakdown_attributes_each_term_to_its_ad_groups_asin_and_keeps_the_rest_apart():
-    payload = _breakdown(by="asin", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
+def test_an_asin_grouping_attributes_each_term_to_its_ad_groups_asin_and_keeps_the_rest_apart():
+    payload = _metrics_by_group(by="asin", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
 
     spend = {row["group"]: row["spend"] for row in payload["rows"]}
     assert spend == {"B0HERO00001": 50.0, "Varios ASINs en el ad group": 25.0, "B0NAMED001": 15.0,
@@ -177,7 +177,7 @@ def test_an_asin_breakdown_attributes_each_term_to_its_ad_groups_asin_and_keeps_
 def test_a_family_asin_in_the_campaign_name_takes_its_several_asin_ad_group_and_the_groups_still_add_up():
     terms = ASIN_TERMS + [_term("shaper shorts", "DG - B0FAMILY01 - Broad", cost=20.0, clicks=8, ad_group="AG2")]
 
-    payload = _breakdown(by="asin", terms=terms, product_ads=PRODUCT_ADS)
+    payload = _metrics_by_group(by="asin", terms=terms, product_ads=PRODUCT_ADS)
 
     spend = {row["group"]: row["spend"] for row in payload["rows"]}
     assert spend["B0FAMILY01"] == 20.0 and spend["Varios ASINs en el ad group"] == 25.0
@@ -186,25 +186,25 @@ def test_a_family_asin_in_the_campaign_name_takes_its_several_asin_ad_group_and_
 
 
 def test_the_asin_filter_leaves_only_that_asins_search_terms():
-    payload = _breakdown(by="search_term", asin="b0hero00001", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
+    payload = _metrics_by_group(by="search_term", asin="b0hero00001", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
 
     assert {row["group"] for row in payload["rows"]} == {"vitamin cream", "night cream"}
     assert payload["totals"]["spend"] == 50.0
 
 
 def test_an_asin_without_attributed_terms_says_so():
-    payload = _breakdown(by="search_term", asin="B0NOTHERE01", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
+    payload = _metrics_by_group(by="search_term", asin="B0NOTHERE01", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
 
     assert payload["rows"] == [] and "B0NOTHERE01" in payload["note"]
 
 
 def test_the_asin_filter_on_a_campaign_report_dimension_asks_for_the_search_terms():
     with pytest.raises(ValueError, match="source=search_terms"):
-        _breakdown(by="campaign", asin="B0HERO00001", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
+        _metrics_by_group(by="campaign", asin="B0HERO00001", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
 
 
-def test_a_campaign_breakdown_comes_from_the_campaign_reports_largest_spend_first():
-    payload = _breakdown(by="campaign")
+def test_a_campaign_grouping_comes_from_the_campaign_reports_largest_spend_first():
+    payload = _metrics_by_group(by="campaign")
 
     assert [row["group"] for row in payload["rows"]] == ["Camp A", "Camp C", "Camp B"]
     assert payload["rows"][0] == {"group": "Camp A", "campaign_id": "Camp A", "product": "SP", "portfolio": "Marca",
@@ -216,7 +216,7 @@ def test_a_campaign_breakdown_comes_from_the_campaign_reports_largest_spend_firs
 
 
 def test_the_totals_cover_every_group_so_a_share_of_the_whole_can_be_computed():
-    payload = _breakdown(by="campaign", limit=1)
+    payload = _metrics_by_group(by="campaign", limit=1)
 
     assert len(payload["rows"]) == 1 and payload["total"] == 3 and "note" in payload
     assert payload["totals"] == {"spend": 60.0, "sales": 140.0, "orders": 5, "clicks": 47, "impressions": 400,
@@ -224,11 +224,11 @@ def test_the_totals_cover_every_group_so_a_share_of_the_whole_can_be_computed():
                                  "orders_clicks": 5, "ctr": 11.75, "aov": 28.0}
 
 
-def test_a_product_breakdown_splits_the_spend_among_sp_sb_and_sd():
+def test_a_product_grouping_splits_the_spend_among_sp_sb_and_sd():
     campaigns = [*CAMPAIGNS, _campaign("Brand Video", product="SB", cost=25.0, clicks=10, sales=90.0, orders=3,
                                        sales_clicks=60.0, orders_clicks=2)]
 
-    rows = {row["group"]: row for row in _breakdown(by="product", campaigns=campaigns)["rows"]}
+    rows = {row["group"]: row for row in _metrics_by_group(by="product", campaigns=campaigns)["rows"]}
 
     assert {group: row["spend"] for group, row in rows.items()} == {"Sponsored Products": 60.0,
                                                                     "Sponsored Brands": 25.0}
@@ -238,31 +238,31 @@ def test_a_product_breakdown_splits_the_spend_among_sp_sb_and_sd():
 def test_a_product_narrows_the_campaign_groups_to_it():
     campaigns = [*CAMPAIGNS, _campaign("Brand Video", product="SB", cost=25.0, clicks=10)]
 
-    payload = _breakdown(by="campaign", product="SB", campaigns=campaigns)
+    payload = _metrics_by_group(by="campaign", product="SB", campaigns=campaigns)
 
     assert [row["group"] for row in payload["rows"]] == ["Brand Video"]
     assert payload["totals"]["spend"] == 25.0
 
 
-def test_a_match_type_breakdown_tells_auto_from_the_keyword_types_in_words_the_am_reads():
-    groups = {row["group"]: row["spend"] for row in _breakdown(by="match_type")["rows"]}
+def test_a_match_type_grouping_tells_auto_from_the_keyword_types_in_words_the_am_reads():
+    groups = {row["group"]: row["spend"] for row in _metrics_by_group(by="match_type")["rows"]}
 
     assert groups == {"Exact": 30.0, "Broad": 10.0, "Automática": 15.0, "Sin tipo": 5.0}
 
 
 def test_match_types_and_search_terms_exist_only_for_sponsored_products():
     with pytest.raises(ValueError, match="search terms"):
-        _breakdown(by="match_type", product="SB")
+        _metrics_by_group(by="match_type", product="SB")
 
 
-def test_a_portfolio_breakdown_names_the_spend_outside_any_portfolio():
-    groups = {row["group"]: row["spend"] for row in _breakdown(by="portfolio")["rows"]}
+def test_a_portfolio_grouping_names_the_spend_outside_any_portfolio():
+    groups = {row["group"]: row["spend"] for row in _metrics_by_group(by="portfolio")["rows"]}
 
     assert groups == {"Marca": 40.0, "Otro": 15.0, "Sin portfolio": 5.0}
 
 
-def test_a_search_term_breakdown_adds_up_the_same_term_across_campaigns():
-    rows = _breakdown(by="search_term")["rows"]
+def test_a_search_term_grouping_adds_up_the_same_term_across_campaigns():
+    rows = _metrics_by_group(by="search_term")["rows"]
 
     assert rows[0] == {"group": "zapatilla", "spend": 35.0, "sales": 140.0, "orders": 5, "clicks": 15,
                        "impressions": 200, "acos": 25.0, "cvr": 33.33, "roas": 4.0, "cpc": 2.33,
@@ -271,13 +271,13 @@ def test_a_search_term_breakdown_adds_up_the_same_term_across_campaigns():
 
 
 def test_any_metric_can_rank_the_groups():
-    assert [row["group"] for row in _breakdown(by="search_term", sort_by="clicks")["rows"]] == [
+    assert [row["group"] for row in _metrics_by_group(by="search_term", sort_by="clicks")["rows"]] == [
         "zapatilla roja", "zapatilla", "b0asin"]
 
 
 def test_ranking_by_acos_leaves_the_groups_that_never_sold_last():
     """Without sales there is no ACoS: those groups go last with a null, never with an invented number."""
-    ranked = [row["group"] for row in _breakdown(by="campaign", sort_by="acos")["rows"]]
+    ranked = [row["group"] for row in _metrics_by_group(by="campaign", sort_by="acos")["rows"]]
 
     assert ranked == ["Camp A", "Camp B", "Camp C"]
 
@@ -285,21 +285,21 @@ def test_ranking_by_acos_leaves_the_groups_that_never_sold_last():
 def test_a_vendor_account_reads_fourteen_day_orders():
     campaigns = [_campaign("Camp A", cost=10.0, clicks=10, sales=50.0, orders=1, orders_14d=3)]
 
-    payload = _breakdown(by="campaign", campaigns=campaigns, profile={**PROFILE, "account_type": "vendor"})
+    payload = _metrics_by_group(by="campaign", campaigns=campaigns, profile={**PROFILE, "account_type": "vendor"})
 
     assert payload["rows"][0]["orders"] == 3 and payload["attribution_days"] == 14
 
 
 def test_a_window_without_activity_says_so_instead_of_answering_an_empty_split():
     for by, empty in (("campaign", {"campaigns": []}), ("search_term", {"terms": []})):
-        payload = _breakdown(by=by, **empty)
+        payload = _metrics_by_group(by=by, **empty)
 
         assert payload["rows"] == [] and payload["totals"] is None and "note" in payload
 
 
-def test_each_breakdown_says_where_it_comes_from_and_which_window_it_covers():
-    by_campaign = _breakdown(by="campaign", days=7)
-    by_term = _breakdown(by="search_term", days=7)
+def test_each_grouping_says_where_it_comes_from_and_which_window_it_covers():
+    by_campaign = _metrics_by_group(by="campaign", days=7)
+    by_term = _metrics_by_group(by="search_term", days=7)
 
     assert "Sponsored Products, Brands y Display" in by_campaign["source"]
     assert "search terms" in by_term["source"] and "Brands" not in by_term["source"]
@@ -308,18 +308,19 @@ def test_each_breakdown_says_where_it_comes_from_and_which_window_it_covers():
 
 def test_an_unknown_dimension_is_refused_with_the_ones_that_exist():
     with pytest.raises(ValueError, match="campaign, portfolio, product, match_type, search_term"):
-        _breakdown(by="ad_group")
+        _metrics_by_group(by="ad_group")
 
 
 def test_an_unknown_ranking_metric_is_refused_too():
     with pytest.raises(ValueError, match="spend"):
-        _breakdown(by="campaign", sort_by="margen")
+        _metrics_by_group(by="campaign", sort_by="margen")
 
 
 def test_campaigns_can_still_be_split_from_the_search_terms_on_request():
     rest = _FakeRest(TERMS, CAMPAIGNS)
 
-    payload = breakdown_tool.breakdown(rest, profile_id="1111222233334444", by="campaign", source="search_terms")
+    payload = metrics_by_group_tool.metrics_by_group(rest, profile_id="1111222233334444", by="campaign",
+                                                     source="search_terms")
 
     assert [name for name, _ in rest.rpc_calls] == ["search_terms_between", "campaign_catalog"]
     assert payload["rows"][0] == {"group": "Camp A", "campaign_id": "Camp A", "product": "SP", "portfolio": "Marca",
@@ -331,13 +332,13 @@ def test_campaigns_can_still_be_split_from_the_search_terms_on_request():
 
 
 def test_portfolios_can_still_be_split_from_the_search_terms_on_request():
-    groups = {row["group"]: row["spend"] for row in _breakdown(by="portfolio", source="search_terms")["rows"]}
+    groups = {row["group"]: row["spend"] for row in _metrics_by_group(by="portfolio", source="search_terms")["rows"]}
 
     assert groups == {"Marca": 40.0, "Otro": 15.0, "Sin portfolio": 5.0}
 
 
 def test_the_campaign_split_tells_how_to_ask_for_the_search_term_one():
-    payload = _breakdown(by="campaign")
+    payload = _metrics_by_group(by="campaign")
 
     assert payload["data_source"] == "campaigns" and "source=search_terms" in payload["alternative"]
 
@@ -346,7 +347,8 @@ def test_the_product_split_from_the_search_terms_is_sponsored_products_alone():
     """The chat asked for it this way in production to compare SP between the two sources."""
     rest = _FakeRest(TERMS, CAMPAIGNS)
 
-    payload = breakdown_tool.breakdown(rest, profile_id="1111222233334444", by="product", source="search_terms")
+    payload = metrics_by_group_tool.metrics_by_group(rest, profile_id="1111222233334444", by="product",
+                                                     source="search_terms")
 
     assert [name for name, _ in rest.rpc_calls] == ["search_terms_between"]
     assert payload["rows"] == [{"group": "Sponsored Products", "spend": 60.0, "sales": 140.0, "orders": 5,
@@ -357,31 +359,31 @@ def test_the_product_split_from_the_search_terms_is_sponsored_products_alone():
 
 
 def test_the_product_split_tells_how_to_ask_for_sp_from_the_search_terms():
-    assert "source=search_terms" in _breakdown(by="product")["alternative"]
+    assert "source=search_terms" in _metrics_by_group(by="product")["alternative"]
 
 
 def test_a_split_that_exists_in_the_search_terms_only_offers_no_alternative():
-    by_match = _breakdown(by="match_type")
+    by_match = _metrics_by_group(by="match_type")
 
     assert "alternative" not in by_match and by_match["data_source"] == "search_terms"
 
 
 def test_a_split_asked_from_a_source_that_does_not_have_it_is_refused():
     with pytest.raises(ValueError, match="sólo sale de los search terms"):
-        _breakdown(by="match_type", source="campaigns")
+        _metrics_by_group(by="match_type", source="campaigns")
 
 
 def test_the_search_terms_refuse_brands_and_display():
     with pytest.raises(ValueError, match="Sponsored Products"):
-        _breakdown(by="campaign", product="SB", source="search_terms")
+        _metrics_by_group(by="campaign", product="SB", source="search_terms")
 
 
 def test_a_calendar_month_is_split_over_exactly_its_days_and_not_the_last_ones():
     """«Cómo le fue en agosto» needs August's totals, with the campaigns paused since then still in them."""
     rest = _FakeRest(TERMS, CAMPAIGNS)
 
-    payload = breakdown_tool.breakdown(rest, profile_id="1111222233334444", by="campaign",
-                                   date_from="2026-08-01", date_to="2026-08-31")
+    payload = metrics_by_group_tool.metrics_by_group(rest, profile_id="1111222233334444", by="campaign",
+                                                     date_from="2026-08-01", date_to="2026-08-31")
 
     [(name, args)] = [call for call in rest.rpc_calls if call[0] == "campaign_window_totals"]
     assert (args["p_from"], args["p_to"]) == ("2026-08-01", "2026-08-31")
@@ -392,25 +394,27 @@ def test_a_calendar_month_is_split_over_exactly_its_days_and_not_the_last_ones()
 def test_the_search_term_split_also_takes_an_exact_period():
     rest = _FakeRest(TERMS, CAMPAIGNS)
 
-    payload = breakdown_tool.breakdown(rest, profile_id="1111222233334444", by="search_term",
-                                   date_from="2026-09-01", date_to="2026-09-07")
+    payload = metrics_by_group_tool.metrics_by_group(rest, profile_id="1111222233334444", by="search_term",
+                                                     date_from="2026-09-01", date_to="2026-09-07")
 
-    assert rest.rpc_calls == [("search_terms_between", {"p_profile_id": "1111222233334444", "p_from": "2026-09-01",
-                                                         "p_to": "2026-09-07"})]
+    period = {"p_profile_id": "1111222233334444", "p_from": "2026-09-01", "p_to": "2026-09-07"}
+    assert rest.rpc_calls == [("search_terms_between", period),
+                              ("sp_structure_between", {**period, "p_entities": ["campaign", "keyword",
+                                                                                 "product_targeting"]})]
     assert payload["window"] == {"from": "2026-09-01", "to": "2026-09-07", "days": 7}
 
 
 def test_a_period_that_starts_before_the_synced_days_is_clipped_and_says_so():
-    payload = _breakdown(by="search_term", date_from="2026-07-20", date_to="2026-08-10")
+    payload = _metrics_by_group(by="search_term", date_from="2026-07-20", date_to="2026-08-10")
 
     assert payload["window"] == {"from": "2026-08-01", "to": "2026-08-10", "days": 10}
     assert "se recortó" in payload["window_note"]
 
 
 def test_the_chat_is_told_a_search_term_split_totals_sponsored_products_and_never_the_account():
-    description = {tool["name"]: tool for tool in server.build_tools(object())}["breakdown"]["description"]
+    description = {tool["name"]: tool for tool in server.build_tools(object())}["metrics_by_group"]["description"]
     prompt = (Path(__file__).resolve().parents[1] / "ai/agents/orchestrator/prompt.md").read_text(encoding="utf-8")
-    by_asin = _breakdown(by="asin", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
+    by_asin = _metrics_by_group(by="asin", terms=ASIN_TERMS, product_ads=PRODUCT_ADS)
 
     assert "su totals es el total de la cuenta" in description
     assert "su totals es el de Sponsored Products, no el de la cuenta" in description
@@ -421,14 +425,14 @@ def test_the_chat_is_told_a_search_term_split_totals_sponsored_products_and_neve
 def test_a_term_within_its_campaign_is_its_own_group_with_the_spend_it_made_without_selling():
     """Asked for the terms over $20 without sales by campaign, the chat summed each term across campaigns and found
     none: the one that bled did sell in another campaign."""
-    rows = _breakdown(by="campaign_search_term", filters={"without_sales": True})["rows"]
+    rows = _metrics_by_group(by="campaign_search_term", filters={"without_sales": True})["rows"]
 
     assert [(row["group"], row["campaign"], row["spend"], row["spend_without_sales"]) for row in rows] == [
         ("b0asin", "Camp C", 15.0, 15.0), ("zapatilla roja", "Camp A", 10.0, 10.0)]
 
 
 def test_each_group_says_its_share_of_the_whole_and_where_the_unsold_spend_sits():
-    payload = _breakdown(by="match_type")
+    payload = _metrics_by_group(by="match_type")
 
     assert payload["totals"]["spend_without_sales"] == 25.0
     assert sum(row["spend_without_sales"] for row in payload["rows"]) == 25.0
@@ -445,7 +449,7 @@ def test_a_comparison_puts_each_group_next_to_the_period_before():
     before = [_campaign("Camp A", cost=20.0, clicks=20, sales=100.0, orders=5, impressions=100),
               _campaign("Camp D", cost=8.0, clicks=4, portfolio="")]
 
-    payload = _breakdown(by="campaign", compare="previous", windows={PREVIOUS_WINDOW: (TERMS, before)})
+    payload = _metrics_by_group(by="campaign", compare="previous", windows={PREVIOUS_WINDOW: (TERMS, before)})
 
     rows = {row["group"]: row for row in payload["rows"]}
     assert payload["comparison"] == {"from": "2026-09-03", "to": "2026-09-09", "days": 7}
@@ -471,7 +475,7 @@ def test_a_campaign_that_served_nothing_is_no_row_and_one_that_stopped_serving_i
     before = [_campaign("Camp A", cost=20.0, clicks=20, sales=100.0, orders=5),
               _campaign("Camp D", cost=8.0, clicks=4, portfolio=""), idle]
 
-    payload = _breakdown(by="campaign", compare="previous", campaigns=[*CAMPAIGNS, stopped, idle],
+    payload = _metrics_by_group(by="campaign", compare="previous", campaigns=[*CAMPAIGNS, stopped, idle],
                          windows={PREVIOUS_WINDOW: (TERMS, before)})
 
     rows = {row["group"]: row for row in payload["rows"]}
@@ -484,17 +488,18 @@ def test_ordering_by_change_puts_the_biggest_rise_first_and_with_asc_the_biggest
               _campaign("Camp D", cost=8.0, clicks=4, portfolio="")]
     windows = {PREVIOUS_WINDOW: (TERMS, before)}
 
-    rising = _breakdown(by="campaign", compare="previous", order_by_change=True, windows=windows)
-    falling = _breakdown(by="campaign", compare="previous", order_by_change=True, sort_order="asc", windows=windows)
+    rising = _metrics_by_group(by="campaign", compare="previous", order_by_change=True, windows=windows)
+    falling = _metrics_by_group(by="campaign", compare="previous", order_by_change=True, sort_order="asc",
+                                windows=windows)
 
     assert [row["group"] for row in rising["rows"]] == ["Camp A", "Camp C", "Camp B", "Camp D"]
     assert falling["rows"][0]["group"] == "Camp D"
     with pytest.raises(ValueError, match="compare"):
-        _breakdown(by="campaign", order_by_change=True)
+        _metrics_by_group(by="campaign", order_by_change=True)
 
 
 def test_a_comparison_with_nothing_synced_before_says_so_instead_of_comparing_against_zero():
-    payload = _breakdown(by="campaign", compare_from="2026-01-01", compare_to="2026-01-07")
+    payload = _metrics_by_group(by="campaign", compare_from="2026-01-01", compare_to="2026-01-07")
 
     assert "No hay con qué comparar" in payload["comparison_note"] and "delta_spend" not in payload["rows"][0]
 
@@ -506,7 +511,7 @@ def test_a_series_by_week_draws_the_first_groups_and_says_whether_they_rose_betw
              ("2026-09-07", "2026-09-13"): ([], [_campaign("Camp A", cost=12.0, clicks=10, sales=30.0, orders=1)]),
              ("2026-09-14", "2026-09-16"): ([], [_campaign("Camp A", cost=3.0, clicks=2)])}
 
-    payload = _breakdown(by="campaign", days=21, by_period="week", series_groups=1, windows=weeks)
+    payload = _metrics_by_group(by="campaign", days=21, by_period="week", series_groups=1, windows=weeks)
 
     first, second = payload["rows"][0], payload["rows"][1]
     assert [(week["period_start"], week["complete"], week["spend"], week["acos"]) for week in first["series"]] == [
@@ -527,13 +532,13 @@ PT_TERMS = [*TERMS, _targeted("b0rival0001", "Camp PT", 'asin="B0RIVAL0001"', 7.
 
 
 def test_product_targeting_splits_by_asin_and_by_category_and_match_type_narrows_the_terms():
-    groups = {row["group"]: row["spend"] for row in _breakdown(by="match_type", terms=PT_TERMS)["rows"]}
-    asin_only = _breakdown(by="search_term", match_type="asin", terms=PT_TERMS)
+    groups = {row["group"]: row["spend"] for row in _metrics_by_group(by="match_type", terms=PT_TERMS)["rows"]}
+    asin_only = _metrics_by_group(by="search_term", match_type="asin", terms=PT_TERMS)
 
     assert groups["Product targeting · ASIN"] == 10.0 and groups["Product targeting · categoría"] == 4.0
     assert {row["group"] for row in asin_only["rows"]} == {"b0rival0001", "b0rival0002"}
     with pytest.raises(ValueError, match="search terms"):
-        _breakdown(by="campaign", match_type="exact")
+        _metrics_by_group(by="campaign", match_type="exact")
 
 
 AUTO_TERMS = [_term("crema", "Automática", cost=20.0, clicks=10, match_type="TARGETING_EXPRESSION_PREDEFINED",
@@ -546,20 +551,20 @@ AUTO_TERMS = [_term("crema", "Automática", cost=20.0, clicks=10, match_type="TA
 
 def test_a_group_says_how_many_campaigns_it_sums_and_an_exact_name_reads_that_campaign_alone():
     """#70 read the total of match type Automática, which summed 6 autos, as the one campaign of that name."""
-    whole = _breakdown(by="match_type", terms=AUTO_TERMS)
-    one = _breakdown(by="match_type", terms=AUTO_TERMS, campaign="automática")
-    part = _breakdown(by="match_type", terms=AUTO_TERMS, campaign="Automática -")
+    whole = _metrics_by_group(by="match_type", terms=AUTO_TERMS)
+    one = _metrics_by_group(by="match_type", terms=AUTO_TERMS, campaign="automática")
+    part = _metrics_by_group(by="match_type", terms=AUTO_TERMS, campaign="Automática -")
 
     assert (whole["rows"][0]["group"], whole["rows"][0]["spend"], whole["rows"][0]["campaigns"]) == (
         "Automática", 40.0, 3)
     assert (one["rows"][0]["spend"], one["rows"][0]["campaigns"], one["campaign_match"]) == (20.0, 1, "exacto")
     assert (part["rows"][0]["spend"], part["campaign_match"]) == (20.0, "contiene")
-    assert "«nada»" in _breakdown(by="match_type", terms=AUTO_TERMS, campaign="nada")["note"]
+    assert "«nada»" in _metrics_by_group(by="match_type", terms=AUTO_TERMS, campaign="nada")["note"]
 
 
 def test_a_term_within_its_campaign_says_its_ad_group_and_what_it_did_in_the_other_campaigns():
     """The row of a term in one campaign was read as the term's total."""
-    rows = _breakdown(by="campaign_search_term")["rows"]
+    rows = _metrics_by_group(by="campaign_search_term")["rows"]
 
     zapatilla = next(row for row in rows if row["group"] == "zapatilla" and row["campaign"] == "Camp A")
     assert (zapatilla["ad_group"], zapatilla["campaign_id"]) == ("ag", "Camp A")
@@ -581,7 +586,7 @@ def test_each_asin_says_how_it_was_attributed_where_it_is_advertised_and_what_no
                  _structure_row("product_ad", "C1", asin="B0HERO00001", entity_id="a1"),
                  _structure_row("product_ad", "C2", asin="B0HERO00001", entity_id="a2")]
 
-    payload = _breakdown(by="asin", terms=ASIN_TERMS, product_ads=PRODUCT_ADS, structure=structure)
+    payload = _metrics_by_group(by="asin", terms=ASIN_TERMS, product_ads=PRODUCT_ADS, structure=structure)
 
     rows = {row["group"]: row for row in payload["rows"]}
     assert rows["B0HERO00001"]["attributed_by"] == "single_asin_ad_group"
@@ -597,7 +602,7 @@ def test_brands_and_display_groups_carry_their_new_to_brand_figures_and_sp_none(
     campaigns = [*CAMPAIGNS, {**_campaign("Brand Video", product="SB", cost=25.0, clicks=10, sales=90.0, orders=3),
                               "new_to_brand_purchases": 2, "new_to_brand_sales": 45.0}]
 
-    rows = {row["group"]: row for row in _breakdown(by="product", campaigns=campaigns)["rows"]}
+    rows = {row["group"]: row for row in _metrics_by_group(by="product", campaigns=campaigns)["rows"]}
 
     brands = rows["Sponsored Brands"]
     assert (brands["ntb_orders"], brands["ntb_sales"], brands["ntb_sales_share"]) == (2, 45.0, 50.0)
@@ -605,7 +610,7 @@ def test_brands_and_display_groups_carry_their_new_to_brand_figures_and_sp_none(
 
 
 def test_filters_can_combine_any_and_sort_from_the_lowest():
-    payload = _breakdown(by="campaign", filters={"min_orders": 4, "without_sales": True, "combine": "any"},
+    payload = _metrics_by_group(by="campaign", filters={"min_orders": 4, "without_sales": True, "combine": "any"},
                          sort_by="spend", sort_order="asc")
 
     assert [row["group"] for row in payload["rows"]] == ["Camp C", "Camp A"]
@@ -614,6 +619,55 @@ def test_filters_can_combine_any_and_sort_from_the_lowest():
 def test_the_account_can_be_named_instead_of_its_profile_id():
     rest = _FakeRest(TERMS, CAMPAIGNS)
 
-    payload = breakdown_tool.breakdown(rest, account="marca demo", by="campaign")
+    payload = metrics_by_group_tool.metrics_by_group(rest, account="marca demo", by="campaign")
 
     assert payload["total"] == 3
+
+
+EXACT_STRUCTURE = [
+    _structure_row("campaign", "Camp A"),
+    _structure_row("campaign", "Camp B", state="PAUSED"),
+    _structure_row("keyword", "Camp A", entity_id="k1", target_text="zapatilla", match_type="EXACT"),
+    _structure_row("keyword", "Camp B", entity_id="k2", target_text="zapatilla roja", match_type="EXACT"),
+]
+
+
+def test_each_search_term_says_whether_the_account_already_runs_it_in_exact():
+    """Asked which selling terms were not in exact yet, the chat crossed 44 terms against the keywords in 7 calls."""
+    payload = _metrics_by_group(by="search_term", structure=EXACT_STRUCTURE)
+
+    rows = {row["group"]: row for row in payload["rows"]}
+    assert (rows["zapatilla"]["exact_in_account"], rows["zapatilla"]["exact_running_in"]) == ("corre", ["Camp A"])
+    assert rows["zapatilla roja"]["exact_in_account"] == "no corre"
+    assert rows["b0asin"]["exact_in_account"] == "no está"
+    assert payload["exact_in_account_counts"] == {"corre": 1, "no corre": 1, "no está": 1}
+
+
+def test_without_running_exact_keeps_the_terms_with_no_exact_that_runs_and_still_counts_every_term():
+    payload = _metrics_by_group(by="search_term", structure=EXACT_STRUCTURE, without_running_exact=True)
+
+    assert sorted(row["group"] for row in payload["rows"]) == ["b0asin", "zapatilla roja"]
+    assert payload["exact_in_account_counts"]["corre"] == 1
+
+
+def test_a_term_within_its_campaign_also_says_whether_the_account_runs_it_in_exact():
+    rows = _metrics_by_group(by="campaign_search_term", structure=EXACT_STRUCTURE)["rows"]
+
+    assert {row["exact_in_account"] for row in rows if row["group"] == "zapatilla"} == {"corre"}
+
+
+def test_without_running_exact_only_filters_search_terms():
+    with pytest.raises(ValueError, match="by=search_term"):
+        _metrics_by_group(by="campaign", without_running_exact=True)
+
+
+def test_without_running_exact_refuses_when_the_campaign_structure_was_never_listed():
+    with pytest.raises(ValueError, match="estructura"):
+        _metrics_by_group(by="search_term", without_running_exact=True)
+
+
+def test_search_terms_of_an_account_without_a_listed_structure_carry_no_exact_fields():
+    payload = _metrics_by_group(by="search_term")
+
+    assert "exact_in_account_counts" not in payload
+    assert all("exact_in_account" not in row for row in payload["rows"])

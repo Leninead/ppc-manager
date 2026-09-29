@@ -44,28 +44,33 @@ class Page:
         return payload
 
 
-def page(rows: list, *, offset: int = 0, limit: int = MAX_ROWS) -> Page:
+def page(rows: list, *, offset: int = 0, limit: int = MAX_ROWS, max_chars: int = MAX_ROWS_CHARS) -> Page:
     """Un tramo seguro de `rows`. El límite pedido nunca supera el techo del servidor, y las filas
-    nunca pasan de MAX_ROWS_CHARS caracteres: si una sola los pasa, va sola."""
+    nunca pasan de `max_chars` caracteres: si una sola los pasa, va sola."""
     total = len(rows)
     start = max(0, int(offset))
     size = max(1, min(int(limit), MAX_ROWS))
-    return Page(rows=_within_budget(rows[start:start + size]), total=total, offset=start)
+    return Page(rows=rows_within_chars(rows[start:start + size], max_chars), total=total, offset=start)
 
 
-def _within_budget(rows: list) -> list:
+def rows_within_chars(rows: list, max_chars: int = MAX_ROWS_CHARS) -> list:
+    """The leading rows that fit in `max_chars` as the MCP SDK writes them; a row that alone passes it goes alone."""
     kept, used = [], 0
     for row in rows:
         used += _serialized_size(row)
-        if kept and used > MAX_ROWS_CHARS:
+        if kept and used > max_chars:
             break
         kept.append(row)
     return kept
 
 
 def _serialized_size(row) -> int:
-    # Nested and indented the way the MCP SDK writes a tool result, so the count matches what the provider cuts.
-    return len(json.dumps({"rows": [row]}, ensure_ascii=False, indent=2, default=str))
+    return serialized_chars({"rows": [row]})
+
+
+def serialized_chars(value) -> int:
+    """How long `value` is as the MCP SDK writes a tool result: the length the provider cuts at."""
+    return len(json.dumps(value, ensure_ascii=False, indent=2, default=str))
 
 
 def clip_text(text: str, *, what: str = "texto") -> str:

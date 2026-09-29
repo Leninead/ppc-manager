@@ -24,7 +24,7 @@ ALREADY_EXACT_VALUE = "Ya en Exact activo"
 
 HARVEST_COLUMNS = ["Search Term", "Campaign", "Ad Group", "Clicks", "Orders", "ACoS", "CVR%", "Bid Sugerido",
                    "Regla", "Prioridad"]
-_HARVEST_SORT = {"Alta": 0, "Media": 1}
+HARVEST_PRIORITY_ORDER = {"Alta": 0, "Media": 1}
 _METRIC_COLUMNS = (("_spend", "spend"), ("_sales", "sales"), ("_orders", "orders"), ("_clicks", "clicks"),
                    ("_imps", "impressions"), ("_acos", "acos"), ("_ctr", "ctr"))
 
@@ -226,7 +226,7 @@ def sorted_harvest(harvest: pd.DataFrame) -> pd.DataFrame:
     """Priority first, then orders; stable so equal rows keep the frame order."""
     if harvest.empty:
         return harvest
-    order = harvest["Prioridad"].map(_HARVEST_SORT)
+    order = harvest["Prioridad"].map(HARVEST_PRIORITY_ORDER)
     return harvest.assign(_sort=order).sort_values(["_sort", "Orders"], ascending=[True, False],
                                                    kind="mergesort").drop(columns=["_sort"])
 

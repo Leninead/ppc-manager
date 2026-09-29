@@ -13,7 +13,7 @@ from pydantic import WithJsonSchema
 
 from ai.agents import make_ids
 from ai.agents.row_annotation import annotate_row_ids, replace_row_ids, row_labels
-from core.ai_analysis.store import AiAnalysisStore, StoredAnalysis
+from core.ai_analysis.store import CHAT_READ_MODULES, AiAnalysisStore, StoredAnalysis
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider, ReportReadError, account_labels
 from core.amazon_ads.sync_planner import profile_timezone
 from core.search_term.candidates import campaign_states, detect_columns
@@ -24,9 +24,8 @@ log = logging.getLogger(__name__)
 
 # Los módulos con análisis guardado. Espejo de ai_analysis_module_allowed (migraciones 011 y 014): si
 # se suma uno a la base y no acá, el índice lo ignora en silencio.
-MODULES = ("str", "bid_optimizer", "bulk_campaigns", "ppc_insights")
-MODULE_LABELS = {"str": "Search Term Report", "bid_optimizer": "Bid Optimizer", "bulk_campaigns": "Bulk Campañas",
-                 "ppc_insights": "PPC Insights"}
+MODULES = tuple(CHAT_READ_MODULES)
+MODULE_LABELS = CHAT_READ_MODULES
 # Cómo nombró el agente las filas de cada módulo: (grupo, prefijo del row_id, campo con el término).
 # Copia de ai/agents/*/context.py, que esta imagen no trae; un test las mantiene iguales.
 ROW_IDS = {

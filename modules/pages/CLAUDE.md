@@ -395,7 +395,7 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
 - Se comparte con el chat vía `app_chat.share_analysis` (con `profile_id`), y el chat lo lee por
   `list_analyses` / `get_analysis` del MCP.
 - **Chat en vivo**: `campaign_health` (MCP) devuelve las campañas habilitadas de una cuenta con diagnóstico, señales,
-  conteos, gasto a pausar y los parámetros con su origen. Ve lo que `breakdown` no: campañas sin clicks.
+  conteos, gasto a pausar y los parámetros con su origen. Ve lo que `metrics_by_group` no: campañas sin clicks.
 
 ### Fuente de datos (2026-09-17 — grano de campaña desde Amazon Ads API)
 - Los datos llegan de `render_campaign_source("bulk")` (`modules/pages/campaign_source.py`), que devuelve un
@@ -448,7 +448,7 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
   aparecer).
 - Un marketplace sin una función de SB (AU no tiene product targeting) responde 400 "do not have access" a
   `/sb/targets/list`: esa parte se lista vacía (`_unless_not_offered`) para no dejar a la cuenta sin sus campañas SB.
-- Chat (MCP): `daily_metrics`, `accounts_overview` y `breakdown` por campaña, portfolio o producto suman SP, SB y SD de
+- Chat (MCP): `daily_metrics`, `accounts_overview` y `metrics_by_group` por campaña, portfolio o producto suman SP, SB y SD de
   los reportes de campaña (`core/amazon_ads/campaign_totals.py`, RPC `campaign_daily_totals` / `campaign_window_totals`).
   Con `source="search_terms"` devuelven SP sumado de los search terms (`ReportProvider.daily_totals` /
   `search_terms`), lo que daban antes: pocas impresiones, porque sólo traen términos con clicks. Cada respuesta trae
@@ -475,7 +475,7 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
 ### Tests
 `tests/test_campaign_analyzer.py` (regla y señales), `tests/test_campaign_analysis_job.py` (spec, ventana y payload,
 también con SB/SD), `tests/test_mcp_campaign_health.py` (también `idle_targets`), `test_mcp_daily_metrics.py`,
-`test_mcp_breakdown.py`, `test_mcp_accounts_overview.py`, `tests/test_campaign_source.py` (página con fake de
+`test_mcp_metrics_by_group.py`, `test_mcp_accounts_overview.py`, `tests/test_campaign_source.py` (página con fake de
 PostgREST), `tests/test_amazon_ads_campaign_rows.py` / `test_amazon_ads_campaign_provider.py` y los de
 `product_provider`, `product_rows`, `ad_entities` y `report_fetcher` (v2).
 
@@ -927,7 +927,7 @@ Health score 0-100 por ASIN cruzando STR + SQP + BR + Campaign CSV. Identifica A
 
 ### El ASIN de cada search term (2026-09-21)
 El STR de la API no trae el ASIN anunciado. Orden (`resolve_asins` + `core/amazon_ads/advertised_asins.attribute_asins`,
-la misma función que usa `breakdown` por ASIN del MCP):
+la misma función que usa `metrics_by_group` por ASIN del MCP):
 1. La columna de ASIN del archivo, si existe (`Advertised ASIN`, o cualquiera que diga `ASIN`).
 2. Si el ad group anuncia un solo ASIN (`ads_product_ad`, de `/sp/productAds/list`), ese, diga lo que diga el nombre.
 3. Si anuncia varios, o el listado no vio el ad group: el ASIN del nombre de la campaña, **aunque el ad group no lo
@@ -962,7 +962,7 @@ Sin ningún ASIN queda la regla de siempre: una sola fila `ALL` con la cuenta en
   Amazon Ads: no incluye SQP, BR ni Campaign CSV, y la pestaña lo avisa.
 - **Archivo a mano: en memoria** (`ai_tab.resolve_analysis`, `auto_fire=False`), con los archivos opcionales en el payload.
 - Chat: con API, `app_chat.share_analysis` con `profile_id` y país; con archivo, `publish_analysis_to_chat`.
-  MCP: `list_analyses`/`get_analysis` incluyen `ppc_insights`, y `breakdown` agrupa por ASIN o filtra con `asin`.
+  MCP: `list_analyses`/`get_analysis` incluyen `ppc_insights`, y `metrics_by_group` agrupa por ASIN o filtra con `asin`.
 
 ### Inputs
 - Datos de Amazon Ads (cuenta + país + período) o STR subido a mano — requerido
@@ -972,7 +972,7 @@ Sin ningún ASIN queda la regla de siempre: una sola fila `ALL` con la cuenta en
 `tests/test_ppc_insights_asin_health.py` (atribución, cobertura, conteo de ASINs agrupados, métricas y score),
 `tests/test_ppc_insights_agent.py` (payload, huella, texto del chat), `tests/test_ppc_insights_page.py` (filas de la
 IA, KPI de gasto, firma de inputs, pestaña guardada con Recalcular), `tests/test_ppc_insights_analysis_job.py`
-(job, worker y migración), `tests/test_amazon_ads_advertised_asins.py` y `tests/test_mcp_breakdown.py` (por ASIN).
+(job, worker y migración), `tests/test_amazon_ads_advertised_asins.py` y `tests/test_mcp_metrics_by_group.py` (por ASIN).
 
 ### Anti-patterns
 - ❌ NO repartir el gasto de un ad group de varios ASINs entre sus ASINs: va entero a un ASIN o a su grupo sin ASIN.

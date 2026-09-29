@@ -33,11 +33,16 @@ STATUS_FAILED = "failed"
 TRIGGER_SCHEDULED = "scheduled"
 TRIGGER_MANUAL = "manual"
 
+# The modules whose saved analyses the chat reads, with the name the AM knows each one by.
+CHAT_READ_MODULES = {"str": "Search Term Report", "bid_optimizer": "Bid Optimizer",
+                     "bulk_campaigns": "Bulk Campañas", "ppc_insights": "PPC Insights"}
+
 _SUMMARY_COLUMNS = ("id,module,subject_id,window_start,window_end,lang,params,params_digest,input_digest,"
                     "agent_version,status,trigger,requested_by,job_id,source_last_success_at,result,model,"
                     "duration_ms,created_at,finished_at,negative_records,harvest_records")
 _LATEST_COLUMNS = "id,module,subject_id,window_start,window_end,lang,params,finished_at,synthesis:result->synthesis"
 _RECORDS_COLUMNS = "id,negative_records,harvest_records,records"
+_WINDOW_COLUMNS = "module,subject_id,window_start,window_end"
 _LATEST_ROWS_PER_SUBJECT = 4
 _ERROR_MAX_CHARS = 500
 
@@ -159,6 +164,16 @@ class NewAnalysis:
         }
 
 
+@dataclass(frozen=True)
+class SavedWindow:
+    """Which days the newest saved analysis of one module read, for one account."""
+
+    module: str
+    subject_id: str
+    window_start: date | None
+    window_end: date | None
+
+
 class AiAnalysisStore:
     def __init__(self, rest: _Rest):
         self._rest = rest
@@ -194,6 +209,22 @@ class AiAnalysisStore:
         if exclude_id is not None:
             params["id"] = f"neq.{exclude_id}"
         return [StoredAnalysis.from_row(row) for row in self._rest.select(ANALYSES_TABLE, params)]
+
+    def newest_windows(self, modules: Iterable[str], subject_ids: Iterable[str]) -> list[SavedWindow]:
+        """The window of the newest finished analysis of each module and subject, reading those columns alone."""
+        wanted = list(dict.fromkeys(str(subject_id) for subject_id in subject_ids))
+        if not wanted:
+            return []
+        rows = self._rest.select(ANALYSES_TABLE, {
+            "select": _WINDOW_COLUMNS, "module": _in_filter(list(modules)), "subject_id": _in_filter(wanted),
+            "status": f"eq.{STATUS_DONE}", "order": "finished_at.desc,id.desc",
+        })
+        newest: dict[tuple[str, str], SavedWindow] = {}
+        for row in rows:
+            newest.setdefault((row["module"], row["subject_id"]), SavedWindow(
+                module=row["module"], subject_id=row["subject_id"],
+                window_start=parse_date(row.get("window_start")), window_end=parse_date(row.get("window_end"))))
+        return list(newest.values())
 
     def latest_by_subject(self, module: str, subject_ids: Iterable[str]) -> list[StoredAnalysis]:
         """The newest finished analysis of each subject, with its synthesis and row records, in subject order.

@@ -31,11 +31,12 @@ from functools import partial
 
 from core.integrations.store import _Rest
 from services.mcp_server.tools import (
+    account_action_plan,
     amazon_ads,
     analyses,
-    breakdown,
     campaign_structure,
     daily_series,
+    metrics_by_group,
     module_results,
 )
 
@@ -85,6 +86,11 @@ def _constant_time_equals(a: str, b: str) -> bool:
 
 
 # Every per-account tool takes the account by name as well as by id: a question names a client, not a profile_id.
+ALL_ACCOUNTS_HINT = (" all_accounts=true la corre en todas las cuentas sincronizadas a la vez, cada una con sus "
+                     "parámetros guardados, y trae en by_currency las filas de todas rankeadas juntas, una lista por "
+                     "moneda, con la cuenta y el profile_id de cada fila; counts suma los conteos de todas y accounts "
+                     "dice cuáles tuvieron filas, cuáles no y cuáles no tienen datos. Es lo que contesta una pregunta "
+                     "sobre todas las cuentas en una llamada, sin recorrerlas una por una.")
 ACCOUNT_HINT = (" account, en lugar de profile_id, toma la cuenta por parte de su nombre; si nombra a varias, vuelve "
                 "candidates con el gasto de cada una para elegir.")
 
@@ -173,7 +179,7 @@ def build_tools(rest) -> list:
               "ventana. source=search_terms da la de Sponsored Products sumada del reporte de search terms, que sólo "
               "trae términos con clicks y por eso muchas menos impresiones." + ACCOUNT_HINT,
               partial(daily_series.daily_metrics, rest)),
-        _tool("breakdown",
+        _tool("metrics_by_group",
               "Los totales de una cuenta de Amazon Ads en los últimos días, o en un período exacto con date_from y "
               "date_to (AAAA-MM-DD, hasta 60 días), agrupados por campaña, portfolio, producto (SP, SB, SD), tipo de "
               "match, search term o ASIN: gasto, ventas, órdenes, clicks, ACoS, CVR, ROAS y CPC por grupo, ordenados "
@@ -186,6 +192,11 @@ def build_tools(rest) -> list:
               "search terms traen spend_without_sales: lo que gastaron sus términos que no vendieron nada en su "
               "campaña. campaign_search_term agrupa cada término dentro de su campaña y su ad group, y other_campaigns "
               "dice en cuántas otras corrió y cuánto gastó ahí; search_term suma el término en todas sus campañas. "
+              "Por search_term o campaign_search_term, cada término dice si la cuenta ya lo tiene en exact —una "
+              "keyword exact o, si es un ASIN, un product target asin=\"…\"— (exact_in_account: corre, no corre —ella "
+              "o su campaña están pausadas— o no está) y en qué campañas corre (exact_running_in); "
+              "exact_in_account_counts los cuenta sobre todos los términos, y without_running_exact deja sólo los que "
+              "no tienen una exact que corra. "
               "Tipo de match separa exact, phrase, broad, la automática y el product targeting por ASIN y por "
               "categoría. Campaña, portfolio y producto salen de los reportes de campaña de los tres productos, y su "
               "totals es el total de la cuenta en el período (con SB y SD, ntb_orders, ntb_sales y "
@@ -201,18 +212,19 @@ def build_tools(rest) -> list:
               "subieron entre los dos últimos períodos completos (trend). Con source=search_terms, campaña, portfolio "
               "y producto (un solo grupo, SP) también salen de ese reporte. Es lo que hace falta para repartir un "
               "total entre sus partes o rankear campañas, portfolios, productos, términos o ASINs, en una sola "
-              "llamada." + ACCOUNT_HINT,
-              partial(breakdown.breakdown, rest)),
+              "llamada." + ACCOUNT_HINT + ALL_ACCOUNTS_HINT,
+              partial(metrics_by_group.metrics_by_group, rest)),
         _tool("campaign_health",
               "Las campañas habilitadas de una cuenta de Amazon Ads (Sponsored Products, Brands y Display) en sus "
               "últimos días, cada una con su producto, el diagnóstico de Bulk Campañas (FANTASMA, PAUSAR, REVISAR, "
               "ESCALAR u OK), sus señales (sólo SP: Limitada por presupuesto, Nueva, Baja visibilidad), su estrategia "
               "de puja, su presupuesto y sus métricas, con ROAS y CPC; las de SB y SD, también ntb_orders, ntb_sales "
               "y ntb_sales_share. Sale de la foto de campañas, así que cuenta también las que no "
-              "tuvieron actividad, que breakdown no ve. Es lo que hace falta para contestar qué campañas pausar, "
+              "tuvieron actividad, que metrics_by_group no ve. Es lo que hace falta para contestar qué campañas "
+              "pausar, "
               "escalar o revisar, cuáles no entregan o cuáles se quedan sin presupuesto. No da el total de la cuenta: "
               "deja afuera las campañas pausadas o archivadas, que también gastaron en el período; ese total sale de "
-              "breakdown o daily_metrics. product acota todo a SP, SB "
+              "metrics_by_group o daily_metrics. product acota todo a SP, SB "
               "o SD; diagnosis y signal filtran filas; counts y totals cubren todas las habilitadas del alcance; "
               "parameters.rules dice la regla y los umbrales de cada diagnóstico, y parameters.signal_rules los de "
               "cada señal. Cada fila de SP trae budget_capped_days: los días en que gastó al menos el 95% de su "
@@ -222,8 +234,17 @@ def build_tools(rest) -> list:
               "diagnóstico por producto, todo antes de cualquier filtro. "
               "date_from y date_to (AAAA-MM-DD) piden el período exacto que el AM tiene en pantalla, y target_acos, "
               "spend_to_pause y min_orders_to_scale, sus umbrales." + CAMPAIGNS_HINT + _filters_hint()
-              + COMPARE_HINT + ACCOUNT_HINT,
+              + COMPARE_HINT + ACCOUNT_HINT + ALL_ACCOUNTS_HINT,
               partial(amazon_ads.campaign_health, rest)),
+        _tool("account_action_plan",
+              "Qué hacer en una cuenta, con las reglas de sus módulos, en una llamada: las "
+              "campañas a pausar (diagnóstico PAUSAR de Bulk Campañas, con el gasto en juego), las que venden dentro "
+              "del target y tocan su presupuesto (señal Limitada por presupuesto con diagnóstico ESCALAR u OK), los "
+              "negativos que entran al bulk del Search Term Report, los términos a cosechar sin una exact que corra y "
+              "las campañas habilitadas sin impresiones (FANTASMA). Cada acción trae count sobre toda la cuenta, sus "
+              "montos y sus primeros items; unavailable dice por qué una no se pudo leer. El orden no es una "
+              "prioridad. date_from y date_to (AAAA-MM-DD) piden el período exacto." + ACCOUNT_HINT,
+              partial(account_action_plan.account_action_plan, rest)),
         _tool("idle_targets",
               "Target Graduation de una cuenta de Amazon Ads: los keywords y targets habilitados, de campañas "
               "habilitadas de Sponsored Products, Brands y Display, que no tuvieron una impresión en los últimos "
@@ -270,7 +291,8 @@ def build_tools(rest) -> list:
               "cada uno (gap_terms), y los términos para cosechar como keyword, con su match type sugerido y si "
               "corren en alguna campaña activa (harvest). counts trae las tres listas y las órdenes y ventas de los "
               "search terms de campañas activas, de las pausadas o inexistentes y de todos. Para lo que el AM ve en "
-              "pantalla, usá su date_from, date_to, min_orders y match_type." + ACCOUNT_HINT,
+              "pantalla, usá su date_from, date_to, min_orders y match_type."
+              + ACCOUNT_HINT + ALL_ACCOUNTS_HINT,
               partial(module_results.funnel_coverage, rest)),
         _tool("search_term_candidates",
               "Los candidatos del Search Term Report de una cuenta de Amazon Ads, con las mismas reglas del módulo: "
@@ -288,7 +310,7 @@ def build_tools(rest) -> list:
               "cuenta, o de los valores por "
               "defecto del módulo si no guardó ninguno; price, harvest_price, harvest_target_acos, "
               "harvest_min_clicks y portfolios los reemplazan. Para lo que el AM ve en pantalla, usá sus fechas y "
-              "sus valores." + ACCOUNT_HINT,
+              "sus valores." + ACCOUNT_HINT + ALL_ACCOUNTS_HINT,
               partial(module_results.search_term_candidates, rest)),
         _tool("bid_suggestions",
               "El Bid Optimizer de una cuenta de Amazon Ads, con las mismas reglas del módulo: el bid sugerido de "
@@ -296,7 +318,7 @@ def build_tools(rest) -> list:
               "período, de mayor a menor gasto. target_acos reemplaza el guardado de la cuenta. compare_previous "
               "agrega a cada ASIN sus cifras del tramo anterior del mismo largo (*_previo, también el precio y el bid "
               "sugerido) y si subieron o bajaron (*_vs_previo): el bid se explica por cuál de CVR, precio o target "
-              "cambió." + ACCOUNT_HINT,
+              "cambió." + ACCOUNT_HINT + ALL_ACCOUNTS_HINT,
               partial(module_results.bid_suggestions, rest)),
         _tool("asin_health",
               "PPC Insights de una cuenta de Amazon Ads, con las mismas reglas del módulo: el health score (0-100) de "
@@ -306,7 +328,8 @@ def build_tools(rest) -> list:
               "groups de ese solo ASIN o del ASIN en el nombre de la campaña) y en cuántas campañas tiene un anuncio "
               "propio (advertised_in), y totals lo que no se pudo atribuir a ningún ASIN. Sin el SQP, el Business "
               "Report ni el Campaign CSV, que se suben a mano en el módulo: esas partes del score valen su punto "
-              "neutro. target_acos reemplaza el guardado de la cuenta." + ACCOUNT_HINT,
+              "neutro. target_acos reemplaza el guardado de la cuenta. sort_by=health_score los ordena del peor "
+              "health score al mejor." + ACCOUNT_HINT + ALL_ACCOUNTS_HINT,
               partial(module_results.asin_health, rest)),
     ]
 

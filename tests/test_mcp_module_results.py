@@ -18,7 +18,7 @@ from core.search_term.negatives import (
     RULE_NO_CONVERSION_CLICKS,
     RULE_NO_CONVERSION_SPEND,
 )
-from services.mcp_server.tools import amazon_ads, module_results
+from services.mcp_server.tools import amazon_ads, campaign_structure, module_results
 
 SEARCH_TERM_COLUMNS = ["campaign_id", "ad_group_id", "keyword_type", "keyword_id", "match_type", "targeting",
                        "search_term", "campaign_name", "campaign_status", "ad_group_name", "keyword_text",
@@ -250,8 +250,8 @@ class TestSearchTermCandidates:
         assert payload["counts"]["exact_corre"] == 1
 
     def test_the_exact_presence_of_a_term_is_not_running_when_its_campaign_is_paused(self):
-        exact = module_results.exact_keywords(FakeRest(), "111", amazon_ads.date(2026, 9, 1),
-                                              amazon_ads.date(2026, 9, 14))
+        exact = campaign_structure.exact_keywords(FakeRest(), "111", amazon_ads.date(2026, 9, 1),
+                                                  amazon_ads.date(2026, 9, 14))
 
         assert exact["cheap toy"] == {"running_in": [], "not_running": 1}
         assert exact["luna pajamas"]["running_in"] == ["Campaña 3001"]
@@ -275,8 +275,8 @@ class TestSearchTermCandidates:
 
     def test_an_asin_term_is_in_exact_when_the_account_targets_that_asin(self):
         """Asked which harvest terms were not in exact yet, the chat counted 7 of 10: the ASIN targets were missing."""
-        exact = module_results.exact_keywords(FakeRest(), "111", amazon_ads.date(2026, 9, 1),
-                                              amazon_ads.date(2026, 9, 14))
+        exact = campaign_structure.exact_keywords(FakeRest(), "111", amazon_ads.date(2026, 9, 1),
+                                                  amazon_ads.date(2026, 9, 14))
 
         assert exact["b0rival001"] == {"running_in": ["Campaña 3001"], "not_running": 0}
         assert "b0rival002" not in exact
@@ -329,6 +329,7 @@ class TestNegativesSayWhetherTheyGoIntoTheBulk:
                                                                                    "cheap toy": True}
         assert payload["totals_in_bulk"] == {"spend": 16, "clicks": 8, "impressions": 500}
         assert payload["totals"] == {"spend": 56, "clicks": 58, "impressions": 1000}
+        assert payload["counts"]["in_bulk"] == 1
 
     def test_harvest_has_no_bulk_verdict(self):
         payload = module_results.search_term_candidates(FakeRest(), profile_id="111", section="harvest")

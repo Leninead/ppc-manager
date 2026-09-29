@@ -101,3 +101,24 @@ def test_a_client_with_two_profiles_in_one_country_keeps_the_account_type_even_w
                 ProfileOption.from_row(_profile_row("3", "Luna", "MX"))]
 
     assert account_labels(profiles) == {"1": "Luna · US · seller", "2": "Luna · US · vendor", "3": "Luna · MX"}
+
+
+def test_the_newest_window_of_each_module_and_account_reads_the_dates_alone():
+    """The chat's account directory only needs which days each saved analysis read, not its rows."""
+    bulk = {**_stored(5, "111", "2026-09-13T10:00:00+00:00"), "module": "bulk_campaigns",
+            "window_start": "2026-09-07", "window_end": "2026-09-13"}
+    rest = _PostgrestFake([_stored(1, "111", "2026-09-10T10:00:00+00:00"), bulk,
+                           {**_stored(2, "111", "2026-09-14T10:00:00+00:00"), "window_start": "2026-09-08"},
+                           _stored(3, "222", "2026-09-15T10:00:00+00:00", status="failed")])
+
+    windows = AiAnalysisStore(rest).newest_windows(["str", "bulk_campaigns"], ["111", "222"])
+
+    assert {(w.module, w.subject_id, w.window_start.isoformat(), w.window_end.isoformat()) for w in windows} == {
+        ("str", "111", "2026-09-08", "2026-09-14"), ("bulk_campaigns", "111", "2026-09-07", "2026-09-13")}
+    assert [params["select"] for _, params in rest.reads] == ["module,subject_id,window_start,window_end"]
+
+
+def test_no_account_asks_for_no_window():
+    rest = _PostgrestFake([])
+
+    assert AiAnalysisStore(rest).newest_windows(["str"], []) == [] and rest.reads == []

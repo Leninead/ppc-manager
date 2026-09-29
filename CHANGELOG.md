@@ -6,6 +6,28 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — El chat contesta las preguntas generales sobre todas las cuentas, con el cruce ya hecho por el MCP (IT-57, 2026-09-28)
+
+**Por qué.** En Profundo, una pregunta del chat tardaba entre 81 y 304 s. En una pregunta general («¿qué campañas se
+quedan sin presupuesto?») el modelo paginaba `accounts_overview` y `list_analyses` para elegir cuentas, abría 3 a 7 de a
+una con la misma herramienta y armaba el ranking razonando, y terminaba diciendo «revisé 3 de las 52 cuentas».
+
+**Ahora.**
+- **`all_accounts=true`** en `campaign_health`, `search_term_candidates`, `metrics_by_group`, `funnel_coverage`,
+  `bid_suggestions` y `asin_health`: la herramienta corre en todas las cuentas sincronizadas, cada una con sus
+  parámetros guardados, y devuelve las filas rankeadas juntas, una lista por moneda, con los conteos sumados y qué
+  cuentas no tuvieron filas o no tienen datos. `asin_health` ordena también del peor health score al mejor.
+- **`breakdown` pasa a llamarse `metrics_by_group`** y, por search term, dice si la cuenta ya lo tiene en exact
+  (`exact_in_account`, `without_running_exact`): «términos que venden sin exact» sale en una llamada.
+- **`accounts_overview` trae un `summary`** de todas las cuentas: cuántas gastaron, cuántas subieron o bajaron contra
+  el período anterior, las que más se movieron y los totales de cada moneda. Las cuentas que gastaron van primero.
+- **`account_action_plan`**: qué hacer en una cuenta con las reglas de Bulk Campañas y del Search Term Report, en una
+  llamada.
+- **La conversación abre con el directorio de cuentas** y la ventana del último análisis guardado de cada módulo.
+- **El prompt** manda las preguntas generales a una sola llamada con `all_accounts`.
+- **Medido** (21 preguntas sugeridas, Profundo, una corrida cada una): 2798 → 1964 s (−30%), junto con los cambios del
+  provider; las respuestas generales cubren las 52 cuentas.
+
 ### Changed — PPC Forecast lee las ventas de ads de la cuenta de Amazon Ads, cuenta el fin de semana una vez y suma Análisis IA (IT-47, 2026-09-25)
 
 **Por qué.** El desglose orgánico vs paid y el spend estimado salían de un «Campaign CSV» subido a mano, que el AM tenía

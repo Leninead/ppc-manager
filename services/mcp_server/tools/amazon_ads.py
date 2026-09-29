@@ -62,10 +62,11 @@ from core.amazon_ads.sync_planner import (
     profile_timezone,
 )
 from core.integrations.sync_jobs import SyncJobStore
-from services.mcp_server.limits import page
+from services.mcp_server.limits import MAX_ROWS_CHARS, page, serialized_chars
 from services.mcp_server.tools.account_resolver import campaign_profile as _campaign_profile
 from services.mcp_server.tools.account_resolver import choose_account, matching_profiles, name_key
 from services.mcp_server.tools.account_resolver import profile_by_id as _profile
+from services.mcp_server.tools.all_accounts import answers_all_accounts, rank_by_sort_arguments
 from services.mcp_server.tools.campaign_selector import CampaignRequest, select_campaigns
 from services.mcp_server.tools.figures import (
     ATTRIBUTION_NOTE,
@@ -96,6 +97,7 @@ from services.mcp_server.tools.metric_filters import (
     sort_rows,
     with_sort_figure,
 )
+from services.mcp_server.tools.overview_summary import SUMMARY_NOTE, overview_summary
 from services.mcp_server.tools.period_comparison import (
     COMPARE_NOTE,
     Compare,
@@ -223,8 +225,12 @@ def accounts_overview(rest, *, days: int = DEFAULT_DAYS, date_from: str = "", da
             rows.append({"account": labels[profile.profile_id], "profile_id": profile.profile_id, **totals})
         elif profile.data_through is not None:
             without_campaigns.append(labels[profile.profile_id])
-    rows.sort(key=lambda row: row["account"])
-    payload = page(rows, offset=offset).as_payload(what="cuentas")
+    # The accounts that spent come first, so the first page is the one that matters; the rest still follow.
+    rows.sort(key=lambda row: (not (row.get("spend") or 0) > 0, row["account"]))
+    compared = bool(compare or compare_from or compare_to)
+    summary = None if offset else overview_summary(rows, compared=compared)
+    payload = page(rows, offset=offset,
+                   max_chars=MAX_ROWS_CHARS - (serialized_chars(summary) if summary else 0)).as_payload(what="cuentas")
     payload.update(_source_fields(source, alternative=product in ("", "SP")),
                    counts={"accounts": len(rows),
                            "spend_exceeds_sales": sum(1 for row in rows if row.get("spend_exceeds_sales")),
@@ -235,8 +241,10 @@ def accounts_overview(rest, *, days: int = DEFAULT_DAYS, date_from: str = "", da
                      "without_sales las que gastaron sin vender nada.")
     # The page's own note says there are more accounts and how to ask for them: it must survive this one.
     payload["note"] = f"{payload['note']} {currency_note}" if "note" in payload else currency_note
-    if compare or compare_from or compare_to:
+    if compared:
         payload["compare_note"] = COMPARE_NOTE
+    if summary:
+        payload.update(summary=summary, summary_note=SUMMARY_NOTE)
     if product in NEW_TO_BRAND_PRODUCTS:
         payload["new_to_brand_note"] = NEW_TO_BRAND_NOTE
     # Missing from the rows they would read as accounts that do not exist: they are named, with where their SP is.
@@ -248,6 +256,7 @@ def accounts_overview(rest, *, days: int = DEFAULT_DAYS, date_from: str = "", da
     return payload
 
 
+@answers_all_accounts(what="campañas", rank=rank_by_sort_arguments)
 def campaign_health(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS, date_from: str = "",
                     date_to: str = "", diagnosis: Diagnosis = "", signal: Signal = "", product: Product = "",
                     campaign: str = "", campaigns: tuple[str, ...] = (), portfolio: str = "",
@@ -261,7 +270,7 @@ def campaign_health(rest, *, profile_id: str = "", account: str = "", days: int 
     del día al menos esos días; `signal_counts` y `budget_capped` cruzan señales y topes con el diagnóstico.
 
     Parte de la foto de campañas, así que trae también las que no tuvieron actividad (las FANTASMA), que
-    `breakdown` por campaña no ve. Clasifica con los parámetros guardados de la cuenta en Bulk Campañas, o
+    `metrics_by_group` por campaña no ve. Clasifica con los parámetros guardados de la cuenta en Bulk Campañas, o
     con los de siempre, y dice cuáles usó; `target_acos`, `spend_to_pause` y `min_orders_to_scale` reemplazan
     los que se pasen (0 = no cambia). `product` acota todo a SP, SB o SD; `campaign`, `campaigns` y `portfolio`, a
     esas campañas; `diagnosis`, `signal` y `filters` sólo filtran filas: `counts` y `totals` cubren todas las

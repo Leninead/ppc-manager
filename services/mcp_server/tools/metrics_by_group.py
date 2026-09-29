@@ -1,5 +1,5 @@
-"""breakdown: an account's totals over a window, split by campaign, portfolio, product, match type, search term or
-ASIN and ranked, with each group compared against the period before or drawn week by week when asked.
+"""metrics_by_group: an account's totals over a window, split by campaign, portfolio, product, match type, search
+term or ASIN and ranked, with each group compared against the period before or drawn week by week when asked.
 
 Campaign, portfolio and product come from the campaign reports of SP, SB and SD; match type, search term and ASIN
 from the search terms, which are only SP. One grouping serves the window, the period it is compared with and each
@@ -21,6 +21,7 @@ from core.amazon_ads.report_provider import ReportProvider, _attribution_days
 from core.search_term import frame as canonical
 from services.mcp_server.limits import page
 from services.mcp_server.tools.account_resolver import campaign_profile, choose_account, profile_by_id
+from services.mcp_server.tools.all_accounts import answers_all_accounts, rank_by_sort_arguments
 from services.mcp_server.tools.analyses import NO_PREVIOUS, trend_between
 from services.mcp_server.tools.asin_attribution import ATTRIBUTION_NOTE, advertised_in, attribution_by_asin
 from services.mcp_server.tools.campaign_selector import (
@@ -30,6 +31,11 @@ from services.mcp_server.tools.campaign_selector import (
     merged_catalog,
     no_match_note,
     select_campaigns,
+)
+from services.mcp_server.tools.exact_coverage import (
+    coverage_counts,
+    mark_exact_coverage,
+    rows_without_running_exact,
 )
 from services.mcp_server.tools.figures import (
     NEW_TO_BRAND_NOTE,
@@ -72,6 +78,7 @@ from services.mcp_server.tools.windows import DEFAULT_DAYS, requested_window, wi
 Dimension = Literal["campaign", "portfolio", "product", "match_type", "search_term", "campaign_search_term", "asin"]
 DIMENSIONS = ("campaign", "portfolio", "product", "match_type", "search_term", "campaign_search_term", "asin")
 CAMPAIGN_DIMENSIONS = ("campaign", "portfolio", "product")
+SEARCH_TERM_DIMENSIONS = ("search_term", "campaign_search_term")
 # What the campaign reports and the search terms carry a row for, and so can filter by.
 GROUP_FILTER_METRICS = ("spend", "sales", "orders", "clicks", "impressions", "acos", "cvr", "roas", "cpc")
 MatchTypeFilter = Literal["", "exact", "phrase", "broad", "auto", "asin", "category"]
@@ -95,6 +102,8 @@ CAMPAIGNS_COUNT_NOTE = ("campaigns es cuántas campañas suma cada grupo: la cif
                         "campaña sola.")
 OTHER_CAMPAIGNS_NOTE = ("other_campaigns dice en cuántas otras campañas corrió el mismo término y cuánto gastó en ellas: "
                         "la fila es la del término en esta campaña y este ad group, no su total.")
+NO_EXACT_COVERAGE = ("without_running_exact necesita saber qué términos tiene la cuenta en exact, y su estructura "
+                     "de campañas no está listada todavía: pedilo sin ese filtro.")
 SERIES_NOTE = ("series trae, para los primeros grupos de la lista, su gasto y su ACoS en cada {period} de la ventana "
                "(la semana va de lunes a domingo); complete=false es un período que la ventana corta. trend compara "
                "los dos últimos períodos completos: subió, bajó o igual.")
@@ -110,20 +119,24 @@ class Grouping:
     extra_totals: dict
 
 
-def breakdown(rest, *, by: Dimension, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS,
-              date_from: str = "", date_to: str = "", product: Product = "", source: Source = "",
-              sort_by: SortMetric = "spend", sort_order: SortOrder = "desc", filters: FiltersParam = None,
-              campaign: str = "", campaigns: tuple[str, ...] = (), state: CampaignState = "",
-              portfolio: str = "",
-              asin: str = "", match_type: MatchTypeFilter = "", compare: Compare = "", compare_from: str = "",
-              compare_to: str = "", order_by_change: bool = False, by_period: Period = "", series_groups: int = 10,
-              offset: int = 0, limit: int = 50) -> dict:
+@answers_all_accounts(what="grupos", rank=rank_by_sort_arguments)
+def metrics_by_group(rest, *, by: Dimension, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS,
+                     date_from: str = "", date_to: str = "", product: Product = "", source: Source = "",
+                     sort_by: SortMetric = "spend", sort_order: SortOrder = "desc", filters: FiltersParam = None,
+                     campaign: str = "", campaigns: tuple[str, ...] = (), state: CampaignState = "",
+                     portfolio: str = "",
+                     asin: str = "", match_type: MatchTypeFilter = "", compare: Compare = "", compare_from: str = "",
+                     compare_to: str = "", order_by_change: bool = False, by_period: Period = "",
+                     series_groups: int = 10, without_running_exact: bool = False, offset: int = 0,
+                     limit: int = 50) -> dict:
     """Los totales de una cuenta en sus últimos `days` días o de `date_from` a `date_to`, agrupados por campaña,
     portfolio, producto, tipo de match, search term o ASIN, rankeados por `sort_by`.
 
     `filters` deja los grupos que cumplen sus cotas; `campaign`, `campaigns`, `state` y `portfolio` acotan las
     campañas que se suman, y `asin` y `match_type` los search terms. `compare` los pone al lado del período anterior y
-    `by_period` dibuja la serie de los primeros `series_groups` grupos por semana o por mes.
+    `by_period` dibuja la serie de los primeros `series_groups` grupos por semana o por mes. Por search term, cada
+    término dice si la cuenta ya lo tiene en exact, y `without_running_exact` deja los que no tienen una exact que
+    corra.
     """
     if by not in DIMENSIONS:
         raise ValueError(f"by tiene que ser uno de: {', '.join(DIMENSIONS)}")
@@ -136,6 +149,8 @@ def breakdown(rest, *, by: Dimension, profile_id: str = "", account: str = "", d
         raise ValueError("by_period tiene que ser week o month.")
     if order_by_change and not (compare or compare_from or compare_to):
         raise ValueError("order_by_change ordena por el cambio contra otro período: pedilo con compare.")
+    if without_running_exact and by not in SEARCH_TERM_DIMENSIONS:
+        raise ValueError("without_running_exact filtra search terms: pedilo con by=search_term o campaign_search_term.")
     row_filter = RowFilter.from_request(filters, metrics=GROUP_FILTER_METRICS)
     choice = choose_account(rest, profile_id, account, days=days, date_from=date_from, date_to=date_to)
     if choice.candidates:
@@ -182,6 +197,13 @@ def breakdown(rest, *, by: Dimension, profile_id: str = "", account: str = "", d
         totals = {**compared_totals(grouping.totals, previous_totals), **grouping.extra_totals}
         leaders.update(change_leaders(rows, sort_by))
         context.update(compared.payload(), compare_counts=status_counts(rows))
+    if by in SEARCH_TERM_DIMENSIONS:
+        if mark_exact_coverage(rows, rest, choice.profile_id, start, end, term_field="group"):
+            context["exact_in_account_counts"] = coverage_counts(rows)
+            if without_running_exact:
+                rows = rows_without_running_exact(rows)
+        elif without_running_exact:
+            raise ValueError(NO_EXACT_COVERAGE)
     rows = [row for row in rows if row_filter.keeps(row)]
     rows = sort_rows(rows, f"delta_{sort_by}" if order_by_change else sort_by, sort_order)
     if by_period:

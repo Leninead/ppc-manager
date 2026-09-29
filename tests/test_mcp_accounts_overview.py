@@ -222,3 +222,20 @@ def test_each_account_is_compared_with_its_own_period_before():
     assert (wamery["previous_spend"], wamery["delta_spend"], wamery["delta_spend_pct"]) == (30.0, 0.0, 0.0)
     harrick = next(row for row in payload["rows"] if row["account"] == "harrick · US")
     assert "status" not in harrick and harrick["delta_spend_pct"] is None
+
+
+def test_the_accounts_that_spent_come_first_and_the_quiet_ones_still_follow():
+    rows = _overview(days=2)[0]["rows"]
+
+    assert [row["account"] for row in rows] == ["wamery · MX", "wamery · US", "harrick · US"]
+
+
+def test_the_first_page_carries_a_summary_of_every_account_and_the_next_pages_do_not():
+    """Asked how all the accounts were doing, the chat paged four times and counted the rises in its reasoning."""
+    first, _ = _overview(days=2)
+    later, _ = _overview(days=2, offset=1)
+
+    assert (first["summary"]["accounts"], first["summary"]["with_spend"]) == (3, 2)
+    assert first["summary"]["without_spend"] == ["harrick · US"]
+    assert "summary_note" in first
+    assert "summary" not in later

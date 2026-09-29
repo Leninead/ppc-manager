@@ -19,7 +19,7 @@ import streamlit as st
 from ai import config as ai_config
 from ai import runtime as ai_runtime
 from core import navigation
-from core.chat import ads_scope, starter_questions, turns
+from core.chat import account_directory, ads_scope, starter_questions, turns
 from core.chat.panel import ChatTurn, floating_chat
 from core.chat.screen_selection import ScreenSelection, selections_note
 from core.ui import i18n
@@ -188,8 +188,9 @@ def chat_turn(page: str) -> ChatTurn:
     _finish_running_analyses()
     entries = dict(_entries())
     analyses = shared_analyses(entries)
+    directory = account_directory.directory_document()
     return ChatTurn(
-        documents=session_documents(analyses),
+        documents=[*session_documents(analyses), *([directory] if directory else [])],
         note=turn_note(page, entries, dict(_selections())),
         ads_scope=ads_scope.request_scope(
             _session_country_hint(session_key(analyses), page, entries)),

@@ -138,7 +138,8 @@ def test_a_general_question_is_answered_over_every_account_and_a_particular_one_
     assert "cada pregunta es general o particular" in rules
     assert "Se contesta sobre todas sus cuentas, sin preguntar cuál" in rules
     assert "Cerrá ofreciendo abrir en detalle la cuenta que más pesa, con su razón" in rules
-    assert "las que más pesan, hasta cinco: la lista entera es para cuando el AM abre esa cuenta" in rules
+    assert "las que más pesan, hasta cinco por moneda: la lista entera es para cuando el AM abre una cuenta" in rules
+    assert "No abras las cuentas una por una" in rules
     assert "nunca por el nombre de una herramienta" in rules
     assert "Si la pantalla o la conversación la traen" in rules and "sin preguntar" in rules
     assert "Nunca nombres cuentas sin decir por qué esas" in rules

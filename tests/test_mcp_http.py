@@ -36,9 +36,9 @@ def test_health_answers_without_a_token_so_docker_can_check_the_process(client):
 
 def test_health_lists_the_tools_so_a_deploy_can_be_verified_from_outside(client):
     assert set(client.get(HEALTH_PATH).json()["tools"]) == {
-        "list_accounts", "list_analyses", "get_analysis", "top_search_terms", "daily_metrics", "breakdown",
+        "list_accounts", "list_analyses", "get_analysis", "top_search_terms", "daily_metrics", "metrics_by_group",
         "accounts_overview", "campaign_health", "idle_targets", "campaign_structure", "funnel_coverage",
-        "search_term_candidates", "bid_suggestions", "asin_health"}
+        "search_term_candidates", "bid_suggestions", "asin_health", "account_action_plan"}
 
 
 def test_the_mcp_endpoint_without_a_token_is_rejected(client):
@@ -92,20 +92,20 @@ def test_the_account_tools_take_the_account_by_its_id_or_by_its_name():
     server = build_server(build_tools(object()))
     tools = {tool.name: tool.input_schema or {} for tool in asyncio.run(server.list_tools())}
 
-    for name in ("get_analysis", "top_search_terms", "daily_metrics", "breakdown", "campaign_health",
+    for name in ("get_analysis", "top_search_terms", "daily_metrics", "metrics_by_group", "campaign_health",
                  "idle_targets", "campaign_structure", "funnel_coverage", "search_term_candidates",
                  "bid_suggestions", "asin_health"):
         assert {"profile_id", "account"} <= set(tools[name]["properties"]), name
         assert "profile_id" not in tools[name].get("required", []), name
     assert tools["get_analysis"]["required"] == ["module"]
-    assert tools["breakdown"]["required"] == ["by"]
+    assert tools["metrics_by_group"]["required"] == ["by"]
     assert tools["list_accounts"].get("required", []) == []      # el punto de entrada no pide nada
 
 
-def test_the_breakdown_offers_its_dimensions_and_metrics_as_closed_lists():
+def test_metrics_by_group_offers_its_dimensions_and_metrics_as_closed_lists():
     """Un enum en el schema: el modelo elige entre lo que existe en vez de adivinar un nombre."""
     server = build_server(build_tools(object()))
-    schema = next(tool.input_schema for tool in asyncio.run(server.list_tools()) if tool.name == "breakdown")
+    schema = next(tool.input_schema for tool in asyncio.run(server.list_tools()) if tool.name == "metrics_by_group")
 
     assert schema["properties"]["by"]["enum"] == ["campaign", "portfolio", "product", "match_type", "search_term",
                                                   "campaign_search_term", "asin"]
@@ -118,7 +118,7 @@ def test_the_figure_tools_offer_both_sources_of_sponsored_products_as_a_closed_l
     server = build_server(build_tools(object()))
     schemas = {tool.name: tool.input_schema for tool in asyncio.run(server.list_tools())}
 
-    for name in ("accounts_overview", "daily_metrics", "breakdown"):
+    for name in ("accounts_overview", "daily_metrics", "metrics_by_group"):
         assert schemas[name]["properties"]["source"]["enum"] == ["", "campaigns", "search_terms"], name
         assert "source" not in schemas[name].get("required", []), name
 

@@ -53,6 +53,7 @@ from core.funnel.coverage import (
 from core.ppc_insights.asin_health import InsightsAnalysisParams, analyze_asins, resolve_asins
 from core.search_term import frame as canonical
 from core.search_term.candidates import (
+    HARVEST_PRIORITY_ORDER,
     StrAnalysisParams,
     add_metric_columns,
     campaign_states,
@@ -72,6 +73,7 @@ from core.search_term.negatives import (
 )
 from services.mcp_server.limits import page
 from services.mcp_server.tools.account_resolver import choose_account
+from services.mcp_server.tools.all_accounts import answers_all_accounts
 from services.mcp_server.tools.amazon_ads import (
     DEFAULT_DAYS,
     _campaign_profile,
@@ -86,7 +88,7 @@ from services.mcp_server.tools.asin_attribution import (
     advertised_in,
     attribution_by_asin,
 )
-from services.mcp_server.tools.campaign_structure import exact_keywords
+from services.mcp_server.tools.exact_coverage import mark_exact_coverage, rows_without_running_exact
 from services.mcp_server.tools.windows import clipped_window
 
 log = logging.getLogger(__name__)
@@ -125,8 +127,43 @@ PREVIOUS_BIDS_NOTE = ("Cada fila trae, con *_previo, sus cifras del tramo del mi
 _BID_ROW_KEYS = {"bid_base": "suggested_bid"}
 _PRIORITY_ORDER = {"Alta": 0, "Media": 1, "Revisar": 2}
 NEGATIVE_TOTALS = ("spend", "clicks", "impressions")
+# The figure each Análisis de Funnel list is ranked by, highest first.
+_FUNNEL_RANK = {"idle_campaigns": "daily_budget", "gap_terms": "spend", "harvest": "orders"}
+AsinOrder = Literal["spend", "health_score"]
 
 
+def _negative_order(row: dict) -> tuple:
+    return _PRIORITY_ORDER.get(row["priority"], len(_PRIORITY_ORDER)), -row["spend"]
+
+
+def _harvest_order(row: dict) -> tuple:
+    return HARVEST_PRIORITY_ORDER.get(row["priority"], len(HARVEST_PRIORITY_ORDER)), -(row["orders"] or 0)
+
+
+def _rank_candidates(rows: list[dict], call: dict) -> list[dict]:
+    return sorted(rows, key=_harvest_order if call.get("section") == "harvest" else _negative_order)
+
+
+def _rank_funnel(rows: list[dict], call: dict) -> list[dict]:
+    metric = _FUNNEL_RANK[call.get("section") or "idle_campaigns"]
+    return sorted(rows, key=lambda row: -(row.get(metric) or 0))
+
+
+def _rank_bids(rows: list[dict], call: dict) -> list[dict]:
+    return sorted(rows, key=lambda row: -row["spend"])
+
+
+def _asin_order(sort_by: str):
+    if sort_by == "health_score":
+        return lambda row: (row["health_score"], -row["spend"], row["asin"])
+    return lambda row: (-row["spend"], row["asin"])
+
+
+def _rank_asins(rows: list[dict], call: dict) -> list[dict]:
+    return sorted(rows, key=_asin_order(call.get("sort_by") or "spend"))
+
+
+@answers_all_accounts(what="filas del Análisis de Funnel", rank=_rank_funnel)
 def funnel_coverage(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS, date_from: str = "",
                     date_to: str = "", section: FunnelSection = "idle_campaigns",
                     min_orders: int = DEFAULT_MIN_ORDERS, match_type: MatchType = DEFAULT_MATCH_TYPE,
@@ -194,6 +231,7 @@ def funnel_coverage(rest, *, profile_id: str = "", account: str = "", days: int 
     return payload
 
 
+@answers_all_accounts(what="candidatos", rank=_rank_candidates)
 def search_term_candidates(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS,
                            date_from: str = "", date_to: str = "", section: CandidateSection = "negatives",
                            portfolios: tuple[str, ...] = (), price: float = 0, harvest_price: float = 0,
@@ -250,9 +288,10 @@ def search_term_candidates(rest, *, profile_id: str = "", account: str = "", day
         verdicts = _bulk_verdicts(candidates, source.frame)
         rows = sorted((_negative_row(row, candidate.campaign_status, verdict)
                        for candidate, row, verdict in zip(candidates, negative_candidate_rows(candidates), verdicts)),
-                      key=lambda row: (_PRIORITY_ORDER.get(row["priority"], 3), -row["spend"]))
+                      key=_negative_order)
         what = "candidatos a negativo"
-        counts = _counts(rows, "priority") | {f"action_{key}": value for key, value in _counts(rows, "action").items()}
+        counts = (_counts(rows, "priority") | {f"action_{key}": value for key, value in _counts(rows, "action").items()}
+                  | {"in_bulk": sum(1 for row in rows if row["in_bulk"])})
         missing = ("Sin precio del producto no corre la Regla 3 (gasto sin conversión)." if product_price is None
                    else "")
         totals = _totals(rows, NEGATIVE_TOTALS)
@@ -263,13 +302,13 @@ def search_term_candidates(rest, *, profile_id: str = "", account: str = "", day
                                                          target_acos=bid_target)) if columns["search_term"] else None)
         states = campaign_states(frame, columns)
         rows = [] if harvest is None else [_str_harvest_row(row, states) for row in harvest.to_dict("records")]
-        _add_exact_presence(rows, rest, profile_id, start, end)
+        covered = mark_exact_coverage(rows, rest, profile_id, start, end)
         what = "candidatos a harvest"
         counts = _counts(rows, "priority")
-        if rows and "exact_in_account" in rows[0]:
+        if covered:
             counts |= {f"exact_{key}": value for key, value in _counts(rows, "exact_in_account").items()}
             if without_running_exact:
-                rows = [row for row in rows if row["exact_in_account"] != "corre"]
+                rows = rows_without_running_exact(rows)
         missing = "Sin precio de harvest no hay bid sugerido." if bid_price is None else ""
         totals = _totals(rows, ("clicks", "orders"))
         bulk = {}
@@ -282,6 +321,7 @@ def search_term_candidates(rest, *, profile_id: str = "", account: str = "", day
     return payload
 
 
+@answers_all_accounts(what="ASINs", rank=_rank_bids)
 def bid_suggestions(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS, date_from: str = "",
                     date_to: str = "", target_acos: int = 0, compare_previous: bool = False, offset: int = 0,
                     limit: int = 50) -> dict:
@@ -319,8 +359,7 @@ def bid_suggestions(rest, *, profile_id: str = "", account: str = "", days: int 
     if asin_column is None:
         return {"rows": [], "total": 0, "showing": 0, "offset": 0, **context, "note": NO_ASIN_WARNING}
     by_asin = bids_by_asin(frame, columns, asin_column, target, {})
-    rows = sorted((_bid_row(row, columns, asin_column) for _, row in by_asin.iterrows()),
-                  key=lambda row: -row["spend"])
+    rows = _rank_bids([_bid_row(row, columns, asin_column) for _, row in by_asin.iterrows()], {})
     if compare_previous:
         rows = _with_previous_bids(rows, rest, profile, start, end, target, context)
     payload = page(rows, offset=offset, limit=limit).as_payload(what="ASINs")
@@ -344,13 +383,18 @@ def _with_previous_bids(rows: list[dict], rest, profile, start, end, target: int
     return _with_trends(compared)
 
 
+@answers_all_accounts(what="ASINs", rank=_rank_asins)
 def asin_health(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS, date_from: str = "",
-                date_to: str = "", target_acos: int = 0, offset: int = 0, limit: int = 50) -> dict:
+                date_to: str = "", target_acos: int = 0, sort_by: AsinOrder = "spend", offset: int = 0,
+                limit: int = 50) -> dict:
     """PPC Insights of an account: the health score (0-100) of each ASIN with its parts, spend, ACoS, CVR and the
-    spend of its terms that did not sell, the highest spend first.
+    spend of its terms that did not sell, the highest spend first, or the worst health first with
+    `sort_by`=health_score.
 
     Starts from the target ACoS saved for the account in PPC Insights, or its default; `target_acos` replaces it.
     """
+    if sort_by not in ("spend", "health_score"):
+        raise ValueError("sort_by tiene que ser spend o health_score.")
     choice = choose_account(rest, profile_id, account, days=days, date_from=date_from, date_to=date_to)
     if choice.candidates:
         return choice.as_payload()
@@ -374,7 +418,7 @@ def asin_health(rest, *, profile_id: str = "", account: str = "", days: int = DE
     asin_data = analyze_asins(resolved.frame.copy(), None, None, None, target, resolved.column)
     unsold_spend = _spend_without_sales(resolved.frame, resolved.column)
     rows = sorted((_asin_row(asin, metrics, resolved.grouped_asins.get(asin), unsold_spend.get(str(asin), 0.0))
-                   for asin, metrics in asin_data.items()), key=lambda row: (-row["spend"], row["asin"]))
+                   for asin, metrics in asin_data.items()), key=_asin_order(sort_by))
     totals = _add_attribution(rows, rest, profile, start, end, source, ad_group_asins)
     payload = page(rows, offset=offset, limit=limit).as_payload(what="ASINs")
     payload.update(unsold_spend_note=UNSOLD_SPEND_NOTE, totals=totals, attribution_note=ATTRIBUTION_NOTE)
@@ -429,7 +473,7 @@ def _idle_campaign_rows(idle) -> list[dict]:
              "portfolio": str(row.get(PORTFOLIO_NAME) or "").strip(), "daily_budget": _number(row.get(BUDGET_AMOUNT)),
              "impressions": _number(row.get(IMPRESSIONS)), "clicks": _number(row.get(CLICKS)),
              "spend": _number(row.get(TOTAL_COST))} for _, row in idle.iterrows()]
-    return sorted(rows, key=lambda row: -(row["daily_budget"] or 0))
+    return sorted(rows, key=lambda row: -(row[_FUNNEL_RANK["idle_campaigns"]] or 0))
 
 
 def _gap_term_row(row) -> dict:
@@ -520,24 +564,6 @@ def _mark_own_asins(rows: list[dict], rest, profile_id: str) -> bool:
     for row in rows:
         row["own_asin"] = str(row["search_term"]).strip().upper() in advertised
     return True
-
-
-def _add_exact_presence(rows: list[dict], rest, profile_id: str, start, end) -> None:
-    """Each harvest candidate gets whether the account already has its term as an exact keyword, and where it runs."""
-    if not rows:
-        return
-    try:
-        exact = exact_keywords(rest, profile_id, start, end)
-    except (ReportReadError, ValueError) as exc:
-        log.warning("exact keywords of profile %s could not be read for harvest: %s", profile_id, exc)
-        return
-    if not exact:
-        return
-    for row in rows:
-        entry = exact.get(str(row["search_term"]).strip().casefold())
-        row["exact_in_account"] = ("corre" if entry and entry["running_in"] else "no corre" if entry else "no está")
-        if entry and entry["running_in"]:
-            row["exact_running_in"] = entry["running_in"][:3]
 
 
 def _counts(rows: list[dict], key: str) -> dict:

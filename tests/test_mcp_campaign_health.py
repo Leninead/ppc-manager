@@ -1,6 +1,6 @@
 """campaign_health: the campaigns of an account as Bulk Campañas classifies them, for the chat.
 
-It must see what `breakdown` cannot (campaigns without a single click), classify exactly like the page, and
+It must see what `metrics_by_group` cannot (campaigns without a single click), classify exactly like the page, and
 read its window from the campaign sync rather than from the search-term one.
 """
 import csv

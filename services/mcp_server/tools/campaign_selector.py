@@ -62,7 +62,7 @@ class CampaignSelection:
 
 def no_match_note(request: CampaignRequest) -> str:
     """Why a tool answers no rows when no campaign answers to what it was asked."""
-    hint = " Los nombres exactos salen de breakdown por campaña o de campaign_structure."
+    hint = " Los nombres exactos salen de metrics_by_group por campaña o de campaign_structure."
     if request.campaign and not (request.campaigns or request.portfolio or request.state):
         return f"Ninguna campaña de la cuenta tiene «{request.campaign}» en el nombre ni ese id.{hint}"
     return f"Ninguna campaña de la cuenta coincide con lo pedido (campaign, campaigns, state o portfolio).{hint}"

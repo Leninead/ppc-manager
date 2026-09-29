@@ -165,6 +165,7 @@ class TestMount:
         monkeypatch.setattr(app_chat.ads_scope, "request_scope",
                             lambda country_hint=None: {"hint": country_hint})
         monkeypatch.setattr(app_chat.ai_config, "AI_ENABLED", True)
+        monkeypatch.setattr(app_chat.account_directory, "directory_document", lambda: None)
         return calls
 
     def test_the_chat_offers_the_questions_of_the_open_page_first(self, session, mounted):
@@ -192,6 +193,18 @@ class TestMount:
         assert call["session_key"]() == "str:111:8:5"
         assert [doc["title"] for doc in turn.documents] == ["str doc"]
         assert "«Search Query Performance»" in turn.note
+
+    def test_the_account_directory_opens_the_conversation_after_the_shared_analyses(self, session, mounted,
+                                                                                    monkeypatch):
+        """Before answering, the chat paged list_accounts and list_analyses to learn which accounts exist."""
+        directory = {"title": "Cuentas de la agencia", "content": "dermaglos · US | 1 | USD"}
+        monkeypatch.setattr(app_chat.account_directory, "directory_document", lambda: directory)
+        app_chat.share_analysis(_analysis("str", "str:1", profile_id="111"))
+
+        turn = app_chat.chat_turn("🏠 Inicio")
+
+        assert [doc["title"] for doc in turn.documents] == ["str doc", "Cuentas de la agencia"]
+        assert app_chat.chat_session_key() == "str:1"
 
     def test_the_mount_reads_nothing_until_the_am_asks(self, session, mounted, monkeypatch):
         """Mounted on every page: only the key is computed on a render, never the account."""
@@ -257,7 +270,7 @@ class TestMount:
 
 
 def _reply() -> runtime.ChatReply:
-    return runtime.ChatReply(text="Frenar N01", blocks=None, tool_calls=("mcp__ppc_manager__breakdown",),
+    return runtime.ChatReply(text="Frenar N01", blocks=None, tool_calls=("mcp__ppc_manager__metrics_by_group",),
                              session_id="s1", model="claude-opus-5", cost_usd=0.21)
 
 
@@ -273,7 +286,8 @@ class TestRecordTurn:
         assert (turn.username, turn.page, turn.question) == ("am.test", "📊 Search Term Report", "¿qué negativizo?")
         assert (turn.answer, turn.error) == ("Frenar N01 (toy box)", None)
         assert (turn.ads_profile_id, turn.ads_account) == ("279177258676903", "Dermaglós · US")
-        assert (turn.tools, turn.model, turn.cost_usd) == (("mcp__ppc_manager__breakdown",), "claude-opus-5", 0.21)
+        assert (turn.tools, turn.model, turn.cost_usd) == (
+            ("mcp__ppc_manager__metrics_by_group",), "claude-opus-5", 0.21)
 
     def test_the_account_is_only_the_one_on_the_page_the_am_asked_from(self, session, recorded):
         """The chat reaches every account; the row says which one the AM had open, and no other."""
@@ -359,10 +373,12 @@ def test_the_orchestrator_is_an_agent_with_the_three_tool_profiles():
     # pregunta por el CVR de un ASIN contra el tramo anterior, y el modelo negaba un dato que existía.
     assert "antes de decir que no existe" in system
     # Sin el desglose, un reparto por portfolio se contestaba "no lo tengo" o con 40 llamadas campaña por campaña.
-    assert "`breakdown`, en una sola llamada" in system
+    assert "`metrics_by_group`, en una sola llamada" in system
     # Nada de otras cuentas viaja pegado: se cruzan por el MCP, en una llamada y no cuenta por cuenta.
     assert "Últimos análisis" not in system and "Cuenta:" not in system
-    assert "`accounts_overview`" in system and "Nunca las consultes una por una" in system
+    assert "`all_accounts`=true" in system and "No recorras las cuentas una por una" in system
+    # The accounts and their saved analyses come in a document: paging list_accounts to place itself cost minutes.
+    assert app_chat.account_directory.TITLE in system
 
 
 def test_a_chat_turn_asks_the_provider_about_tools_only_when_the_am_sends(monkeypatch):
@@ -470,8 +486,8 @@ def _ask(app: AppTest, question: str) -> None:
 
 def test_the_chat_reports_each_finished_turn_once_with_what_the_am_read(monkeypatch):
     monkeypatch.setattr(runtime.client, "ask_stream", lambda **call: iter([
-        {"type": "result", "text": "Frenar N01", "session_id": "s1", "tool_calls": ["mcp__ppc_manager__breakdown"],
-         "total_cost_usd": 0.05}]))
+        {"type": "result", "text": "Frenar N01", "session_id": "s1",
+         "tool_calls": ["mcp__ppc_manager__metrics_by_group"], "total_cost_usd": 0.05}]))
     monkeypatch.setattr(runtime, "usable_tools", lambda slug, scope: [])
     monkeypatch.setattr(runtime.chat_skills, "enabled_payload", lambda: [])
     app = AppTest.from_string(_REPORTING_CHAT, default_timeout=30)
@@ -482,7 +498,7 @@ def test_the_chat_reports_each_finished_turn_once_with_what_the_am_read(monkeypa
     [(question, reply, shown)] = app.session_state["finished"]
     assert (question, shown) == ("¿qué negativizo?", "Frenar N01 (toy box)")
     assert (reply.tool_calls, reply.model, reply.cost_usd) == (
-        ("mcp__ppc_manager__breakdown",), "claude-opus-5-5", 0.05)
+        ("mcp__ppc_manager__metrics_by_group",), "claude-opus-5-5", 0.05)
 
 
 def test_a_turn_the_provider_could_not_answer_is_reported_with_the_error_the_am_read(monkeypatch):

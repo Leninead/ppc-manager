@@ -17,8 +17,9 @@ def test_the_server_exposes_the_read_tools_and_nothing_that_writes():
     names = set(_tools())
 
     assert names == {"list_accounts", "list_analyses", "get_analysis", "top_search_terms", "daily_metrics",
-                     "breakdown", "accounts_overview", "campaign_health", "idle_targets", "campaign_structure",
-                     "funnel_coverage", "search_term_candidates", "bid_suggestions", "asin_health"}
+                     "metrics_by_group", "accounts_overview", "campaign_health", "idle_targets", "campaign_structure",
+                     "funnel_coverage", "search_term_candidates", "bid_suggestions", "asin_health",
+                     "account_action_plan"}
     assert not any(word in name for name in names
                    for word in ("create", "update", "delete", "request", "save", "write"))
 
@@ -30,7 +31,7 @@ def test_every_tool_says_what_it_does_so_the_model_can_choose():
 
 def test_the_figure_tools_say_sponsored_products_also_comes_summed_from_the_search_terms():
     """Without it the model would only know one of the two SP figures, and read the other as an error."""
-    for name in ("accounts_overview", "daily_metrics", "breakdown"):
+    for name in ("accounts_overview", "daily_metrics", "metrics_by_group"):
         assert "source=search_terms" in _tools()[name]["description"], name
 
 
@@ -126,19 +127,32 @@ def test_every_new_field_and_filter_is_described_where_the_model_picks_its_calls
     """The model chooses its calls from these descriptions: a field it is not told about is a field it never asks."""
     described = {tool["name"]: tool["description"] for tool in server.build_tools(object())}
 
-    for name in ("get_analysis", "top_search_terms", "daily_metrics", "breakdown", "campaign_health", "idle_targets",
-                 "campaign_structure", "funnel_coverage", "search_term_candidates", "bid_suggestions", "asin_health"):
+    for name in ("get_analysis", "top_search_terms", "daily_metrics", "metrics_by_group", "campaign_health",
+                 "idle_targets", "campaign_structure", "funnel_coverage", "search_term_candidates", "bid_suggestions",
+                 "asin_health"):
         assert "account, en lugar de profile_id" in described[name], name
-    for name in ("breakdown", "campaign_health", "campaign_structure"):
+    for name in ("metrics_by_group", "campaign_health", "campaign_structure"):
         assert "filters recibe cotas por métrica" in described[name] and "sort_order=asc" in described[name], name
-    for name in ("breakdown", "campaign_health", "accounts_overview"):
+    for name in ("metrics_by_group", "campaign_health", "accounts_overview"):
         assert "compare=previous" in described[name] and "order_by_change" in described[name], name
     assert "granularity=week o month" in described["daily_metrics"] and "activity" in described["daily_metrics"]
-    assert "by_period=week o month" in described["breakdown"] and "other_campaigns" in described["breakdown"]
-    assert "attributed_by" in described["breakdown"] and "attributed_by" in described["asin_health"]
+    grouping = described["metrics_by_group"]
+    assert "by_period=week o month" in grouping and "other_campaigns" in grouping
+    assert "attributed_by" in described["metrics_by_group"] and "attributed_by" in described["asin_health"]
     assert "targets pregunta por una lista" in described["campaign_structure"]
     assert "bid_gap" in described["campaign_structure"] and "product=SB o SD" in described["campaign_structure"]
     assert "cost_type" in described["campaign_structure"]
     assert "where deja sólo las filas" in described["get_analysis"]
     assert "compare_previous" in described["bid_suggestions"]
     assert "spend_exceeds_sales" in described["accounts_overview"] and "ntb_orders" in described["accounts_overview"]
+
+
+def test_the_tools_that_answer_for_every_account_say_so_to_the_model():
+    """General questions opened the accounts one by one: the model has to know one call reads all of them."""
+    described = {tool["name"]: tool["description"] for tool in server.build_tools(object())}
+
+    for name in ("metrics_by_group", "campaign_health", "funnel_coverage", "search_term_candidates",
+                 "bid_suggestions", "asin_health"):
+        assert "all_accounts=true" in described[name] and "by_currency" in described[name]
+    assert "all_accounts" not in described["account_action_plan"]
+    assert "sort_by=health_score" in described["asin_health"]
