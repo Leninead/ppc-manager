@@ -42,7 +42,7 @@ Notas de fidelidad documentadas en el reporte de F3.2:
 from __future__ import annotations
 
 from datetime import date
-from io import BytesIO
+from io import BytesIO, StringIO
 import json
 import math
 import re
@@ -189,6 +189,9 @@ def _detect_sep(data: bytes) -> str:
     return ";" if first_line.count(";") > first_line.count(",") else ","
 
 
+_AWD_HEADER_WINDOW = 10
+
+
 # =====================================================================
 # B3 — 6 parsers cacheados (funciones puras, sin st.* adentro)
 # =====================================================================
@@ -217,18 +220,40 @@ def _parse_fee(data: bytes) -> pd.DataFrame:
     return pd.read_csv(BytesIO(data), encoding=encoding, sep=_detect_sep(data))
 
 
+def _awd_header_index(lines: list[str], sep: str) -> int | None:
+    """Índice de la primera línea (entre las primeras `_AWD_HEADER_WINDOW`) con un
+    campo igual a "SKU", sin distinguir mayúsculas, comillas, espacios ni BOM."""
+    for i, line in enumerate(lines[:_AWD_HEADER_WINDOW]):
+        campos = [c.strip().lstrip("﻿").strip().strip('"').strip().lower() for c in line.split(sep)]
+        if "sku" in campos:
+            return i
+    return None
+
+
 @st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_awd(data: bytes) -> pd.DataFrame:
     """CSV AWD (Amazon Warehousing & Distribution). Lectura cruda con pd.read_csv.
 
     sep ;/, autodetect + encoding de core.csv_io.encoding_csv. NO replica el
     parseCSV custom del HTML (trim/descarte/filtro) — divergencia conocida,
-    diferida a F3.3. El filtrado de filas metadata (Timestamp / Merchant ID) y la
-    conversión a lookup `{SKU: Available in AWD (units)}` que hace el HTML al
-    cargar también quedan para F3.3 (no hay builder de awd en el contrato de F3.2).
+    diferida a F3.3.
+
+    El export real trae arriba de los títulos las líneas `Timestamp,<fecha>`,
+    `Merchant ID,<id>` y una vacía: el encabezado es la primera línea (de las
+    primeras 10) con un campo "SKU". Si no aparece, la primera línea es el
+    encabezado, como antes. El HTML no las saltea: toma la línea 0 como header y
+    su lookup de AWD queda vacío con este formato.
+
+    La conversión a lookup `{SKU: Available in AWD (units)}` sigue pendiente para
+    F3.3 (no hay builder de awd en el contrato de F3.2).
     """
     encoding = encoding_csv(data)
-    return pd.read_csv(BytesIO(data), encoding=encoding, sep=_detect_sep(data))
+    sep = _detect_sep(data)
+    lines = data.decode(encoding).split("\n")
+    header_at = _awd_header_index(lines, sep)
+    if header_at is None:
+        return pd.read_csv(BytesIO(data), encoding=encoding, sep=sep)
+    return pd.read_csv(StringIO("\n".join(lines[header_at:])), sep=sep)
 
 
 @st.cache_data(max_entries=3, ttl=3600, show_spinner=False)

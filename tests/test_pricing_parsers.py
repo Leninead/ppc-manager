@@ -160,6 +160,22 @@ class TestParseAwd:
         assert list(df.columns) == ["SKU", "Available in AWD (units)"]
         assert df.iloc[0]["SKU"] == "ABC"
 
+    def test_saltea_lineas_de_metadata_antes_del_header(self):
+        # The real AWD export puts Timestamp / Merchant ID and a blank line above the headers.
+        data = _csv_bytes(
+            "Timestamp,01/02/26 10:00:00\n"
+            "Merchant ID,AXXXXXXXXXXXXX\n"
+            "\n"
+            "Product Name,SKU,FNSKU,ASIN,Available in AWD (units)\n"
+            "Producto A,ABC,X000000001,B000000001,50\n"
+            "Producto B,DEF,X000000002,B000000002,0\n"
+        )
+        df = _parse_awd(data)
+        assert "SKU" in df.columns
+        assert "Available in AWD (units)" in df.columns
+        assert len(df) == 2
+        assert list(df["SKU"]) == ["ABC", "DEF"]
+
 
 # =====================================================================
 # B3 — Divergencias CONOCIDAS HTML ↔ pandas (congeladas, NO son bugs a arreglar)
