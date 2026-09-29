@@ -17,6 +17,7 @@ import ai.client as ai_client
 import ai.runtime as ai_runtime
 import modules.pages.search_term_source as search_term_source
 from core import ai_tab
+from modules.pages import ad_account_block
 from modules.pages import ppc_forecast as forecast_page
 
 ACCOUNT = "Luna Kids"
@@ -244,7 +245,7 @@ def test_before_choosing_an_account_nothing_is_read_and_the_spend_estimate_is_un
     assert app.selectbox(key="forecast_src_account").value is None
     assert forecast_page.CHOOSE_ACCOUNT_NOTE in _text(app)
     assert _metric(app, "Spend estimado para objetivo") == "—"
-    assert f"Sin desglose: {forecast_page.MISSING_NOT_CHOSEN}." in _text(app)
+    assert f"Sin desglose: {ad_account_block.MISSING_NOT_CHOSEN}." in _text(app)
 
 
 def test_the_chosen_account_splits_the_report_with_its_sp_sb_and_sd_campaigns(monkeypatch):
@@ -287,7 +288,7 @@ def test_an_account_without_days_in_common_with_the_report_reads_nothing_and_say
 def test_an_account_whose_campaigns_never_synced_says_so_and_the_forecast_still_renders(monkeypatch):
     app = _choose_account(_generate(_page(monkeypatch, _FakeRest(synced_through=None))))
 
-    assert forecast_page.NO_CAMPAIGN_DATA_NOTE in _text(app)
+    assert ad_account_block.NO_CAMPAIGN_DATA_NOTE in _text(app)
     assert _metric(app, "Ventas proyectadas (14d)") == "$1,240.00"
     assert _metric(app, "Spend estimado para objetivo") == "—"
 
@@ -297,13 +298,13 @@ def test_an_account_loading_its_campaigns_for_the_first_time_says_so(monkeypatch
 
     assert forecast_page.FIRST_LOAD_NOTE in _text(app)
     assert _metric(app, "Spend estimado para objetivo") == "—"
-    assert f"Sin desglose: {forecast_page.MISSING_NOT_SYNCED}." in _text(app)
+    assert f"Sin desglose: {ad_account_block.MISSING_NOT_SYNCED}." in _text(app)
 
 
 def test_a_first_campaign_load_that_failed_says_so(monkeypatch):
     app = _choose_account(_generate(_page(monkeypatch, _FakeRest(synced_through=None, latest_status="failed"))))
 
-    assert any(forecast_page.FIRST_LOAD_FAILED_NOTE in str(error.value) for error in app.error)
+    assert any(ad_account_block.FIRST_LOAD_FAILED_NOTE in str(error.value) for error in app.error)
     assert _metric(app, "Spend estimado para objetivo") == "—"
 
 
@@ -319,7 +320,7 @@ def test_ads_that_cannot_be_read_say_so_and_the_forecast_still_renders(monkeypat
 
     assert any(forecast_page.UNREADABLE_NOTE in str(error.value) for error in app.error)
     assert _metric(app, "Ventas proyectadas (14d)") == "$1,240.00"
-    assert f"Sin desglose: {forecast_page.MISSING_UNREADABLE}." in _text(app)
+    assert f"Sin desglose: {ad_account_block.MISSING_UNREADABLE}." in _text(app)
 
 
 def test_more_ad_sales_than_report_sales_warns_that_the_account_may_not_be_the_reports(monkeypatch):

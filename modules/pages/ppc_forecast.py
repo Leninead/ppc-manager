@@ -4,77 +4,51 @@ The ad spend and ad sales behind the organic vs paid split come from the campaig
 the AM picks, over the Business Report's own days. The rules live in core/ppc_forecast/.
 """
 import hashlib
-import html
 import io
 import logging
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
 from functools import partial
-from typing import Any
 
 import pandas as pd
 import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from core.amazon_ads import campaign_totals
-from core.amazon_ads.campaign_provider import campaign_sync_view
-from core.amazon_ads.campaign_totals import ProductSeries
-from core.amazon_ads.report_provider import ProfileOption, ReportReadError
-from core.amazon_ads.sync_planner import PROFILE_NEEDS_REAUTH
+from core.business_report.paid_split import spend_for_target
 from core.chat import app_chat
 from core.currency_format import currency_symbol, money
-from core.date_labels import date_range_label, short_date
+from core.date_labels import date_range_label
 from core.helpers import kpi_card
 from core.ppc_forecast.analysis import ANALYSIS_MODULE, build_analysis_input
-from core.ppc_forecast.paid_split import PaidSplit, covered_window, paid_split, spend_for_target
 from core.ppc_forecast.projection import DATE, PROJECTED_SALES, SalesForecast, forecast_sales
-from core.ui import palette
-from modules.pages import campaign_source, search_term_source
-from modules.pages.search_term_source import (
-    NEEDS_REAUTH_MESSAGE,
-    STATE_FIRST_LOAD_FAILED,
-    country_labels,
-    group_by_label,
-    picker_key,
-    source_state,
+from modules.pages.ad_account_block import (
+    AccountAds,
+    AdAccountTexts,
+    ads_exceed_br_warning,
+    read_account_ads,
+    render_ad_account_block,
 )
 
 log = logging.getLogger(__name__)
 
 MODULE_LABEL = "PPC Forecast"
 KEY_PREFIX = "forecast"
-AD_TOTALS_TTL_SECONDS = 60 * 60
 _GENERATED_FOR_KEY = "forecast_generated_for"
 
 ADS_BLOCK_TITLE = "Ventas de ads de la cuenta"
-ADS_BLOCK_TAG = "Reportes de campañas de Amazon Ads"
-ACCOUNT_PLACEHOLDER = "Elegí la cuenta del BR"
 NO_ACCOUNTS_NOTE = ("No hay cuentas de Amazon Ads conectadas, así que no hay desglose orgánico vs paid ni spend "
                     "estimado. Se conectan en Sistema → Cuentas conectadas.")
 CHOOSE_ACCOUNT_NOTE = ("Elegí la cuenta y el país del BR para separar las ventas de ads de las orgánicas y estimar el "
                        "spend para el objetivo. El BR no dice de qué cuenta es, así que no hay una por defecto.")
-NO_CAMPAIGN_DATA_NOTE = "Todavía no hay métricas de campañas de esta cuenta: se sincronizan una vez por día."
 FIRST_LOAD_NOTE = "Estamos trayendo las campañas de esta cuenta por primera vez; cuando termine aparece el desglose."
-FIRST_LOAD_FAILED_NOTE = ("La primera carga de campañas de esta cuenta no se pudo completar. Si sigue así, avisale a "
-                          "un admin.")
 UNREADABLE_NOTE = "Sin desglose orgánico vs paid ni spend estimado."
-NO_DATABASE_MESSAGE = "No hay base de datos configurada para leer las campañas de Amazon Ads."
-ADS_EXCEED_BR_WARNING = ("Las ventas de ads ({ad_sales}) superan las del BR ({br_sales}) en los mismos días: revisá "
-                         "que la cuenta y el país sean los del BR.")
 SPLIT_CAPTION = ("{covered} de {total} días del BR tienen datos de ads ({window} · {products}). Sponsored Products "
                  "con atribución de {attribution} días; Sponsored Brands y Display como los cuenta Campaign Manager. "
                  "Las ventas de ads se atribuyen al día del click: las de los últimos días todavía pueden crecer.")
 BUDGET_HELP = ("Spend de ads ÷ ventas del BR (TACoS) en los días con datos de ads, aplicado a las ventas con el "
                "crecimiento objetivo. Supone que el TACoS no cambia al subir el spend.")
 
-# Why there are no ads figures: shown on the page and sent to the AI as is.
-MISSING_NO_ACCOUNTS = "no hay cuentas de Amazon Ads conectadas"
-MISSING_NOT_CHOSEN = "no se eligió la cuenta de Amazon Ads del BR"
-MISSING_NOT_SYNCED = "la cuenta todavía no tiene campañas sincronizadas"
-MISSING_UNREADABLE = "no se pudieron leer las campañas de la cuenta"
-MISSING_NO_SHARED_DAYS = ("el BR va del {first} al {last} y la cuenta tiene campañas sincronizadas del {synced_from} "
-                          "al {synced_through}: no hay días en común")
+_ADS_TEXTS = AdAccountTexts(title=ADS_BLOCK_TITLE, no_accounts=NO_ACCOUNTS_NOTE, choose_account=CHOOSE_ACCOUNT_NOTE,
+                            first_load=FIRST_LOAD_NOTE, unreadable=UNREADABLE_NOTE, without_ads="Sin desglose")
 
 _CONFIDENCE_COLORS = ("background-color:#EAF3DE;color:#173404", "background-color:#FAEEDA;color:#412402",
                       "background-color:#FFEBEE;color:#9C0006")
@@ -106,28 +80,6 @@ _AI_TEXTS = {
            "with_growth": "with +{growth}%: {amount}",
            "levels": {"alta": "High", "media": "Medium", "baja": "Low"}},
 }
-
-
-@dataclass(frozen=True)
-class AdAccountChoice:
-    """The account block's outcome: the chosen profile as the campaign sync sees it, or why there is none."""
-
-    profile: ProfileOption | None = None
-    info_line: Any = None  # the block's last line, filled in once the Business Report's days are known
-    no_ads_reason: str = ""
-
-
-@dataclass(frozen=True)
-class AdsReading:
-    """What the chosen account's campaign reports say about the Business Report's days."""
-
-    account: str = ""
-    profile_id: str = ""
-    country_code: str = ""
-    currency_code: str = ""
-    series: ProductSeries | None = None
-    split: PaidSplit | None = None
-    no_ads_reason: str = ""
 
 
 # ── Helpers numéricos ────────────────────────────────────────────────────────
@@ -324,7 +276,7 @@ def render():
         key="forecast_br",
         help="Business Report > By Date > Sales and Traffic. Mínimo 14 días.",
     )
-    ad_account = _render_ad_account()
+    ad_account = render_ad_account_block(KEY_PREFIX, _ADS_TEXTS)
 
     if not file_br:
         _render_empty_state()
@@ -358,7 +310,7 @@ def render():
         return
 
     forecast = forecast_sales(history, horizon, target_growth)
-    ads = _read_ads(ad_account, history)
+    ads = read_account_ads(ad_account, history, _ADS_TEXTS)
     forecast_tab, analysis_tab = st.tabs(["📈 Forecast", "🤖 Análisis IA"])
     with forecast_tab:
         _render_forecast(forecast, n_days, ads, history, client_name)
@@ -405,126 +357,7 @@ def _render_empty_state():
     )
 
 
-def _render_ad_account() -> AdAccountChoice:
-    """Mounts the account block; returns the chosen profile as the campaign sync sees it, or why there is none."""
-    search_term_source._keep_choices(KEY_PREFIX)
-    profiles = search_term_source._available_profiles()
-    if not profiles:
-        st.caption(NO_ACCOUNTS_NOTE)
-        return AdAccountChoice(no_ads_reason=MISSING_NO_ACCOUNTS)
-
-    groups = group_by_label(profiles)
-    card_key = picker_key(KEY_PREFIX, "card")
-    st.markdown(search_term_source._card_css(card_key), unsafe_allow_html=True)
-    with st.container(border=True, key=card_key):
-        header = st.empty()
-        account_col, country_col = st.columns([2.2, 1.3])
-        account = _choose_account(account_col, list(groups))
-        if account is None:
-            header.markdown(_block_header("idle", "Sin cuenta elegida"), unsafe_allow_html=True)
-            st.caption(CHOOSE_ACCOUNT_NOTE)
-            return AdAccountChoice(no_ads_reason=MISSING_NOT_CHOSEN)
-
-        countries = country_labels(groups[account])
-        profile_id = search_term_source._resolve_choice(KEY_PREFIX, "profile", list(countries), fallback=None)
-        country_col.segmented_control("País", options=list(countries), format_func=countries.get,
-                                      key=picker_key(KEY_PREFIX, "profile"))
-        option = next(profile for profile in groups[account] if profile.profile_id == profile_id)
-        now = datetime.now(timezone.utc)
-        try:
-            latest_job, completed = campaign_source._load_campaign_sync(option.profile_id)
-        except ReportReadError as exc:
-            log.warning("PPC Forecast: campaign sync unreadable for profile %s: %s", option.profile_id, exc)
-            header.markdown(_block_header("err", "No se pudo leer"), unsafe_allow_html=True)
-            st.error(f"{exc} {UNREADABLE_NOTE}")
-            return AdAccountChoice(no_ads_reason=MISSING_UNREADABLE)
-
-        synced = campaign_sync_view(option, completed)
-        header.markdown(_block_header(*campaign_source.campaign_pill(synced, latest_job, now)),
-                        unsafe_allow_html=True)
-        if option.status == PROFILE_NEEDS_REAUTH:
-            st.warning(NEEDS_REAUTH_MESSAGE)
-        if synced.data_through is None:
-            if latest_job is None:
-                st.info(NO_CAMPAIGN_DATA_NOTE)
-            elif source_state(synced, latest_job, now) == STATE_FIRST_LOAD_FAILED:
-                st.error(FIRST_LOAD_FAILED_NOTE)
-            else:
-                st.info(FIRST_LOAD_NOTE)
-            return AdAccountChoice(no_ads_reason=MISSING_NOT_SYNCED)
-        info_line = st.empty()
-        info_line.markdown(_synced_line(synced), unsafe_allow_html=True)
-    return AdAccountChoice(profile=synced, info_line=info_line)
-
-
-def _choose_account(column, accounts: list[str]) -> str | None:
-    """The chosen account, never a default one: the Business Report does not say whose it is."""
-    key = picker_key(KEY_PREFIX, "account")
-    if st.session_state.get(key) not in accounts:
-        st.session_state[key] = None
-    return column.selectbox("Cuenta", accounts, index=None, placeholder=ACCOUNT_PLACEHOLDER, key=key)
-
-
-def _block_header(kind: str, label: str) -> str:
-    return palette.band_header_html(title=ADS_BLOCK_TITLE, tag=ADS_BLOCK_TAG,
-                                    right=palette.status_pill_html(kind, html.escape(label)))
-
-
-def _account_label(option: ProfileOption) -> str:
-    return f"{option.label} · {option.country_code}" if option.country_code else option.label
-
-
-def _synced_line(profile: ProfileOption) -> str:
-    parts = [html.escape(f"Campañas sincronizadas: {date_range_label(profile.data_from, profile.data_through)}")]
-    if profile.currency_code:
-        parts.append(palette.marketplace_chip_html(html.escape(profile.currency_code)))
-    return search_term_source._muted_line_html(parts)
-
-
-def _covered_line(split: PaidSplit) -> str:
-    parts = [html.escape(date_range_label(split.start, split.end)),
-             html.escape(f"{split.covered_days} de {split.history_days} días del BR con datos de ads")]
-    if split.currency_code:
-        parts.append(palette.marketplace_chip_html(html.escape(split.currency_code)))
-    parts.append(html.escape(" · ".join(split.products) if split.products else "Sin campañas con actividad"))
-    return search_term_source._muted_line_html(parts)
-
-
-def _read_ads(choice: AdAccountChoice, history: pd.DataFrame) -> AdsReading:
-    """The chosen account's ads over the Business Report's days, or why there are none."""
-    profile = choice.profile
-    if profile is None:
-        return AdsReading(no_ads_reason=choice.no_ads_reason)
-    identity = dict(account=_account_label(profile), profile_id=profile.profile_id, country_code=profile.country_code)
-    first, last = history["_date"].min().date(), history["_date"].max().date()
-    window = covered_window(first, last, profile.data_from, profile.data_through)
-    if window is None:
-        reason = MISSING_NO_SHARED_DAYS.format(first=short_date(first), last=short_date(last),
-                                                synced_from=short_date(profile.data_from),
-                                                synced_through=short_date(profile.data_through))
-        choice.info_line.caption(f"Sin desglose: {reason}.")
-        return AdsReading(**identity, currency_code=profile.currency_code, no_ads_reason=reason)
-    try:
-        series = _load_ad_series(profile, *window)
-    except ReportReadError as exc:
-        log.warning("PPC Forecast: ad totals unreadable for profile %s: %s", profile.profile_id, exc)
-        choice.info_line.error(f"{exc} {UNREADABLE_NOTE}")
-        return AdsReading(**identity, currency_code=profile.currency_code, no_ads_reason=MISSING_UNREADABLE)
-    split = paid_split(history, series)
-    choice.info_line.markdown(_covered_line(split), unsafe_allow_html=True)
-    return AdsReading(**identity, currency_code=split.currency_code, series=series, split=split)
-
-
-# The profile carries its last campaign sync: a new sync is a new read, never an old one served again.
-@st.cache_data(ttl=AD_TOTALS_TTL_SECONDS, max_entries=16, show_spinner="Leyendo las ventas de ads de la cuenta…")
-def _load_ad_series(profile: ProfileOption, start: date, end: date) -> ProductSeries:
-    rest = search_term_source._open_rest()
-    if rest is None:
-        raise ReportReadError(NO_DATABASE_MESSAGE)
-    return campaign_totals.daily_totals(rest, profile, start, end)
-
-
-def _render_forecast(forecast: SalesForecast, n_days: int, ads: AdsReading, history: pd.DataFrame,
+def _render_forecast(forecast: SalesForecast, n_days: int, ads: AccountAds, history: pd.DataFrame,
                      client_name: str):
     show = partial(money, currency_code=ads.currency_code)
     trend = forecast.trend
@@ -616,16 +449,14 @@ def _render_forecast(forecast: SalesForecast, n_days: int, ads: AdsReading, hist
         st.error(f"Error al generar Excel: {e}")
 
 
-def _render_split(ads: AdsReading, show):
+def _render_split(ads: AccountAds, show):
     st.subheader("Desglose Orgánico vs Paid")
     split = ads.split
     if split is None:
         st.caption(f"Sin desglose: {ads.no_ads_reason}.")
         return
     if split.ads_exceed_br:
-        # Streamlit renders the text between two bare $ as LaTeX.
-        st.warning(ADS_EXCEED_BR_WARNING.format(ad_sales=show(split.ad_sales).replace("$", "\\$"),
-                                                br_sales=show(split.br_sales).replace("$", "\\$")))
+        st.warning(ads_exceed_br_warning(split))
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(kpi_card("Spend de ads", show(split.ad_spend)), unsafe_allow_html=True)
@@ -650,7 +481,7 @@ def _render_split(ads: AdsReading, show):
         st.dataframe(split_df, use_container_width=True, hide_index=True)
 
 
-def _render_ai_tab(history: pd.DataFrame, forecast: SalesForecast, ads: AdsReading, *, subject: str,
+def _render_ai_tab(history: pd.DataFrame, forecast: SalesForecast, ads: AccountAds, *, subject: str,
                    data_signature: str):
     from ai.agents.ppc_forecast import chat_document
     from ai.config import AI_ENABLED
@@ -681,7 +512,7 @@ def _render_ai_tab(history: pd.DataFrame, forecast: SalesForecast, ads: AdsReadi
         country_code=ads.country_code, profile_id=ads.profile_id)
 
 
-def _ai_records(forecast: SalesForecast, ads: AdsReading, labels: dict) -> list[dict]:
+def _ai_records(forecast: SalesForecast, ads: AccountAds, labels: dict) -> list[dict]:
     """The module's figures the AI reads, as the opinion table names them."""
     show = partial(money, currency_code=ads.currency_code)
     records = [{"tema": "PROYECCION", "item": labels["projection_item"].format(days=forecast.horizon),

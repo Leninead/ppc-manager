@@ -18,7 +18,7 @@ from openpyxl.utils import get_column_letter
 
 from core.amazon_ads.advertised_asins import FROM_AD_GROUP, FROM_CAMPAIGN_NAME, SEVERAL_ASINS, WITHOUT_ASIN
 from core.amazon_ads.report_provider import ReportProvider, ReportReadError
-from core.currency_format import ZERO_DECIMAL, currency_symbol, money
+from core.currency_format import currency_symbol, excel_money_format, money
 from core.helpers import kpi_card
 from core.integrations.store import StoreError
 from core.ppc_insights.analysis import ANALYSIS_MODULE, CANONICAL_LANG, build_analysis_input, insights_row_labels
@@ -149,12 +149,6 @@ def _autofit(ws, min_w=8, max_w=40):
         ws.column_dimensions[get_column_letter(col_cells[0].column)].width = best
 
 
-def _excel_money_format(currency_code):
-    code = (currency_code or "").strip().upper()
-    decimals = "" if code in ZERO_DECIMAL else ".00"
-    return f'"{currency_symbol(code)}"#,##0{decimals}'
-
-
 # ── Parsers ───────────────────────────────────────────────────────────────────
 @st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
 def _parse_str(file_bytes, fname):
@@ -221,7 +215,7 @@ def _parse_campaigns(file_bytes):
 # ── Excel export ──────────────────────────────────────────────────────────────
 def _build_insights_excel(asin_data, client_name, target_acos, currency_code=""):
     wb = Workbook()
-    money_fmt = _excel_money_format(currency_code)
+    money_fmt = excel_money_format(currency_code)
     show_money = partial(money, currency_code=currency_code)
 
     # ── Sheet 1: Resumen ──────────────────────────────────────────────────────

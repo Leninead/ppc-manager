@@ -35,3 +35,10 @@ def money(value: float | int | None, currency_code: str = "", decimals: int | No
     if not code or code in CURRENCY_SYMBOLS:
         return f"{sign}{currency_symbol(code)}{digits}"
     return f"{sign}{code} {digits}"
+
+
+def excel_money_format(currency_code: str = "") -> str:
+    """The Excel number format of an amount in the currency: '"MX$"#,##0.00', without decimals for JPY."""
+    code = (currency_code or "").strip().upper()
+    decimals = "" if code in ZERO_DECIMAL else ".00"
+    return f'"{currency_symbol(code)}"#,##0{decimals}'

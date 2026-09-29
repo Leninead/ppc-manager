@@ -6,6 +6,31 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Account Pulse y Weekly Client Report leen la publicidad de la cuenta de Amazon Ads y suman Análisis IA (IT-45, 2026-09-28)
+
+**Por qué.** Los dos pedían un «Campaign CSV» subido a mano. En Account Pulse el TACoS dividía el spend de ese CSV (el
+rango que exportara el AM, 14 días según la instrucción) por las ventas de los últimos 7 días del BR, y ni el ACoS ni el
+TACoS tenían semana anterior. En el Weekly el CSV era la única fuente de la hoja Advertising: sin él, la hoja salía vacía.
+
+**Ahora.**
+- **Cuenta en lugar de archivo.** Los dos montan el bloque de cuenta de PPC Forecast, ahora compartido
+  (`modules/pages/ad_account_block.py`): Cuenta y País sin valor por defecto (el BR no dice de quién es) y los reportes
+  de campaña sincronizados, SP, SB y SD como los cuenta Campaign Manager, sobre los días del BR diario. Si las ventas de
+  ads superan las del BR se avisa que la cuenta o el país no son los del BR.
+- **Account Pulse.** ACoS y TACoS de esta semana y de la anterior, cada uno sobre sus propios días del BR con datos de
+  ads, con variación en la tarjeta y en la hoja Resumen. La hoja Campañas sale de la cuenta, con la columna Producto, y
+  una campaña sin ventas muestra «—» en vez de un ACoS de 0%. Los montos van en la moneda de la cuenta.
+- **Weekly Client Report.** La hoja Advertising (KPIs, top 15 campañas, alarmas, portfolios) sale de la cuenta sobre los
+  días del BR diario, en su moneda y con una línea que dice de dónde salen las cifras. New-to-brand viene de Sponsored
+  Brands y Display, los productos cuyos reportes lo acreditan; las vistas de la página de detalle no se sincronizan y
+  quedan en «—». Las alarmas suman las campañas que gastaron sin vender. Sin BR diario, la hoja dice que falta.
+- **Análisis IA.** Pestañas nuevas con los agentes `account_pulse` y `weekly_report`: una lectura por tema (ventas,
+  tráfico y conversión, publicidad, Buy Box) con veredicto ACTUAR, VIGILAR u OK y la síntesis, sin recalcular cifras. El
+  del Weekly reemplaza al botón «Generar análisis IA» (`core.ai_analyze`) y escribe el borrador del resumen para el
+  cliente, que se copia o se descarga como antes. Corren sólo con «Analizar con IA» y se comparten con el chat.
+- `paid_split` pasó a `core/business_report/` y el formato de moneda del Excel a
+  `core.currency_format.excel_money_format`, sin cambios de comportamiento.
+
 ### Changed — El chat contesta las preguntas generales sobre todas las cuentas, con el cruce ya hecho por el MCP (IT-57, 2026-09-28)
 
 **Por qué.** En Profundo, una pregunta del chat tardaba entre 81 y 304 s. En una pregunta general («¿qué campañas se

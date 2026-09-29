@@ -789,7 +789,7 @@ salían de 14 días bajo el encabezado "esta semana", ~2× lo real.
 | 2 | BR by Child — esta semana | sí | sin fechas propias |
 | 3 | BR by Child — semana anterior | **no** | sin este archivo NO hay WoW por producto |
 | 4 | Atom 11 ASIN 14d | no | sí trae desglose diario: su split 7+7 es correcto |
-| 5 | Campaign CSV | no | |
+| 5 | Cuenta de Amazon Ads del BR | no | bloque compartido; lee la cuenta sobre los días del BR diario (IT-45) |
 
 ### Los dos modos
 `_es_modo_wow(period_child_tw, period_child_pw)` es la única fuente de verdad y la
@@ -842,10 +842,41 @@ _L_EXEC                           # textos del ejecutivo, a NIVEL DE MÓDULO (te
 - Calificar una métrica en aislamiento, o dar dos causas distintas al mismo hecho.
 - No validar date range — el by-Child debe cubrir el mismo rango que el BR diario
   (lo chequea `_chequear_coherencia_child`).
+- ❌ NO elegir una cuenta por defecto ni mezclar la publicidad de la cuenta en la fila CUENTA TOTAL (es de Atom 11).
+- ❌ NO mostrar ACoS 0% para una campaña sin ventas ni leer un NTB desconocido como 0.
+
+### Hoja Advertising: la cuenta de Amazon Ads, no el Campaign CSV (IT-45, 2026-09-28)
+- El uploader «Campaign CSV» salió. El 5º bloque es el de cuenta de PPC Forecast, compartido
+  (`modules/pages/ad_account_block.py`): Cuenta + País, **sin cuenta por defecto**, mismos estados.
+- La ventana son los días del BR diario (`daily_sales` de `_parse_br_daily_wow`) que la sincronización de campañas
+  guarda. **Sin BR diario no hay días que leer**: la hoja dice `MISSING_NO_DAILY_REPORT` (antes el CSV no dependía del
+  diario).
+- `core/weekly_report/advertising.advertising_summary` arma la hoja sobre `window_totals`: totales (CTR, CPC, ACoS),
+  top 15 campañas por spend (con Producto), alarmas (ACoS > 60% **o spend sin ventas**, que antes daba ACoS 0 y no
+  alarmaba) y portfolios («(Sin Portfolio)»). Una campaña sin ventas tiene ACoS «—».
+- **New-to-brand**: sólo Sponsored Brands y Display lo acreditan; suma SB+SD y su parte de las órdenes de SB+SD. Si una
+  fila SD es anterior a la migración 019 queda desconocido, «—», nunca 0. **DPV no se sincroniza**: «—».
+- Montos de la hoja en la moneda de la cuenta; el resto del reporte sigue en `MX$` (`REPORT_CURRENCY`, deuda aparte).
+  La fila 2 dice de dónde salen las cifras (cuenta, días, productos, atribución).
+- **Dos fuentes de publicidad**: la fila CUENTA TOTAL y las columnas de ads por ASIN salen de Atom 11; la hoja
+  Advertising, de la cuenta (SP+SB+SD). No coinciden, igual que antes con el CSV.
+- Si las ventas de ads superan las del BR, la pestaña Reporte lo avisa (cuenta o país equivocados).
+
+### Capa IA (IT-45 — consumidor de `core/ai_tab`, en memoria)
+- La pestaña «🤖 Análisis IA» reemplaza al botón «Generar análisis IA» (`core.ai_analyze._claude_analyze`, patrón
+  legacy). `auto_fire=False`; la firma son los archivos + la cuenta. El idioma es el del reporte (`wlang`), no el del
+  sidebar: el resumen es para el cliente.
+- Agente `ai/agents/weekly_report/`: Parámetros (semana y anterior, modo de productos, Atom 11, publicidad de la cuenta,
+  NTB), Productos (hasta 40), Campañas y Portfolios (con cuenta) y los «Cambios de la semana» del changelog.
+- Salida: `lecturas[]` (VENTAS, TRAFICO, PUBLICIDAD, BUYBOX con veredicto ACTUAR/VIGILAR/OK) + `synthesis` canónica +
+  `resumen_cliente` (situación, highlights, atención, próximos pasos), que `chat_document.client_message` escribe con
+  los encabezados del mensaje de antes para copiar o descargar (.txt).
+- Se comparte con el chat vía `publish_analysis_to_chat`, con el resumen para el cliente en la lectura.
 
 ### Tests
-`tests/test_m14_weekly_periodo.py` — 29 casos: dedup, contrato de período, WoW por
-producto, coherencia, narrativa y encabezado.
+`tests/test_m14_weekly_periodo.py` — dedup, contrato de período, WoW por producto, coherencia, narrativa y
+encabezado. `tests/test_weekly_report_advertising.py` (resumen y hoja), `tests/test_weekly_report_agent.py`,
+`tests/test_weekly_report_page.py` (AppTest con PostgREST en memoria y proveedor IA falso).
 
 ---
 
@@ -878,30 +909,62 @@ Monitorear ASINs de Amazon, alertar cambios precio/rating/stock/badges vs snapsh
 ---
 
 ## M17 — Account Pulse
-**Archivo:** modules/pages/account_pulse.py (~430 líneas)
+**Archivo:** modules/pages/account_pulse.py. Reglas en `core/account_pulse/` (`ads_by_week`, `campaigns`, `buybox`,
+`day_types`), payload IA en `core/account_pulse/analysis.py`, agente en `ai/agents/account_pulse/`.
 **Sección sidebar:** Intelligence
-**Session state prefix:** pulse_
+**Session state prefix:** `ap_` (uploaders `ap_br_daily`/`ap_br_child`, cuenta `ap_src_account`/`ap_src_profile`), IA
+`account_pulse_ai_*`
 
 ### Propósito
-Monitor de salud diaria: ventas, units, sessions, CVR, ACoS con deltas WoW. Festivos MX integrados.
+Monitor de salud de la cuenta: la semana actual del BR diario contra la anterior en ventas, unidades, sesiones, CVR,
+Buy Box, ACoS y TACoS, con fines de semana y festivos MX marcados.
 
 ### Arquitectura
-Upload BR diario + BR by Child + Campaign CSV → split PW/TW automático → Excel 4 hojas
+BR diario (requerido) + BR by Child (opcional) + cuenta de Amazon Ads del BR (opcional) → pestañas 📊 Pulse | 🤖 Análisis
+IA → Excel 4 hojas (Resumen Ejecutivo, Ventas Diarias, BuyBox & ASINs, Campañas).
+
+### ACoS, TACoS y campañas: la cuenta de Amazon Ads, no el Campaign CSV (IT-45, 2026-09-28)
+- El uploader «Campaign CSV» salió. El bloque «Publicidad de la cuenta» es el de PPC Forecast, compartido en
+  `modules/pages/ad_account_block.py`: Cuenta + País, **sin cuenta por defecto** (el BR no dice de quién es).
+- Lee `campaign_totals.daily_totals` (SP, SB y SD por día) y `window_totals` (una fila por campaña con actividad) sobre
+  los días del BR que la sincronización de campañas guarda.
+- **Cada semana sobre sus propios días** (`ads_by_week`): la semana actual son los últimos 7 días del BR y la anterior
+  los previos, como el parser; ACoS = spend / ventas de ads y TACoS = spend / ventas del BR de esos mismos días. Antes
+  el TACoS dividía el spend del CSV (14 días) por las ventas de los últimos 7, y ACoS y TACoS no tenían semana anterior.
+- Hoja Campañas: `window_totals` sobre los días del BR, con Producto. NUEVA/HEREDADA sigue saliendo del nombre
+  (`campaign_age`). Una campaña sin ventas muestra «—» (antes 0%, en verde). Sólo campañas con actividad.
+- Moneda de la cuenta en toda la página y el Excel (`money()`, `excel_money_format`); sin cuenta, `$` como antes.
+- Si las ventas de ads superan las del BR se avisa: la cuenta o el país no son los del BR.
+
+### Capa IA (IT-45 — consumidor de `core/ai_tab`, en memoria)
+- `auto_fire=False`. La firma son los dos BR + la cuenta; el target ACoS cambia el payload (banner y «Recalcular»).
+- Payload: Parámetros (las dos semanas, ACoS/TACoS de cada una con sus días, target ACoS), Días del BR (tipo de día y
+  ads del día), ASINs con Buy Box bajo 95% (con BR by Child) y Campañas con actividad (con cuenta).
+- Salida: `lecturas[]` (VENTAS, TRAFICO, PUBLICIDAD, BUYBOX: `razon` → `veredicto` ACTUAR/VIGILAR/OK → `advertencia`) +
+  la `synthesis` canónica. Nunca recalcula. Se comparte con el chat vía `publish_analysis_to_chat`.
 
 ### Reglas de negocio
-- Festivos MX hardcoded: Año Nuevo, Constitución, Juárez, Trabajo, Independencia, Muertos, Revolución, Navidad
-- Anomalía: caída >30% del promedio
-- BuyBox ordenado por impacto económico
-- Campañas: NUEVA (verde) vs HEREDADA (azul)
-- Portada naranja con KPIs + diagnóstico + mensaje Slack
+- Festivos MX hardcoded (`day_types.MX_HOLIDAYS`): Año Nuevo, Constitución, Juárez, Trabajo, Independencia, Muertos,
+  Revolución, Navidad.
+- BuyBox alerts (`buybox_alerts`): ASINs con sesiones y Buy Box < 95%, los de más ventas perdidas estimadas primero
+  (ventas × la parte sin Buy Box).
+- La doc previa hablaba de una anomalía «caída > 30% del promedio» y de un mensaje Slack: el código nunca los tuvo.
 
 ### Inputs
-- BR Daily (.csv/.xlsx) — mínimo 14 días
+- BR diario (.csv/.xlsx) — mínimo 7 fechas, 14 recomendado
 - BR by Child (.csv/.xlsx) — opcional
-- Campaign CSV (.csv) — opcional
+- Cuenta de Amazon Ads del BR — opcional
+
+### Tests
+`tests/test_account_pulse_rules.py`, `tests/test_account_pulse_ads_by_week.py`, `tests/test_account_pulse_agent.py`,
+`tests/test_account_pulse_page.py` (AppTest con PostgREST en memoria y proveedor IA falso).
 
 ### Anti-patterns
+- ❌ NO dividir el spend de un período por las ventas de otro: cada semana suma ads y BR sobre sus mismos días.
+- ❌ NO elegir una cuenta por defecto, ni mostrar ACoS 0% para una campaña sin ventas.
 - BuyBox con 0 sesiones → ignorar (falso positivo)
+- Deuda sin tocar: «Prior Week» son todos los días anteriores a los últimos 7. Con un BR de más de 14 días la semana
+  anterior es más larga y sus totales no comparan con los de esta (CVR, ACoS y TACoS sí, son cocientes).
 
 ---
 
@@ -993,7 +1056,9 @@ IA, KPI de gasto, firma de inputs, pestaña guardada con Recalcular), `tests/tes
 
 ## M19 — PPC Forecast
 **Archivo:** modules/pages/ppc_forecast.py. Proyección en `core/ppc_forecast/projection.py`, desglose en
-`core/ppc_forecast/paid_split.py`, payload IA en `core/ppc_forecast/analysis.py`, agente en `ai/agents/ppc_forecast/`.
+`core/business_report/paid_split.py`, payload IA en `core/ppc_forecast/analysis.py`, agente en `ai/agents/ppc_forecast/`.
+El bloque de cuenta y su lectura viven en `modules/pages/ad_account_block.py` desde IT-45 (compartidos con Account
+Pulse y Weekly Client Report), con los mismos textos y estados.
 **Sección sidebar:** Research
 **Session state prefix:** `forecast_` (uploader `forecast_br`, botón `forecast_run` y su firma `forecast_generated_for`,
 cuenta `forecast_src_account` / `forecast_src_profile`), IA `ppc_forecast_ai_*`
@@ -1054,7 +1119,7 @@ resultado desaparecía en cualquier rerun, y con él la pestaña IA.
 - Cuenta de Amazon Ads del BR: opcional
 
 ### Tests
-`tests/test_ppc_forecast_projection.py`, `tests/test_ppc_forecast_paid_split.py`, `tests/test_ppc_forecast_agent.py`,
+`tests/test_ppc_forecast_projection.py`, `tests/test_business_report_paid_split.py`, `tests/test_ppc_forecast_agent.py`,
 `tests/test_ppc_forecast_page.py` (AppTest con PostgREST en memoria y proveedor IA falso).
 
 ### Anti-patterns
@@ -1814,6 +1879,13 @@ Audit lo sacan del Bulk File) puede leer lo mismo sin tocar la ingesta.
 Es la única fuente del ASIN detrás de un search term: `ReportProvider(rest).advertised_asins(profile_id)` da
 ad group → ASINs y `core/amazon_ads/advertised_asins.attribute_asins` aplica la regla (ver M18). `asins_from_campaigns`
 (la regex del nombre de campaña que usa M9) vive ahí también.
+
+**La cuenta de un Business Report (IT-45, 2026-09-28).** Un módulo que parte de un BR subido a mano y necesita los ads
+de esa cuenta monta `render_ad_account_block(key_prefix, AdAccountTexts(...))` y lee con
+`read_account_ads(choice, history, texts, with_campaigns=...)` (`modules/pages/ad_account_block.py`): sin cuenta por
+defecto, sobre los días del BR que la sincronización de campañas guarda, con los estados de PPC Forecast y el aviso de
+ventas de ads por encima de las del BR (`ads_exceed_br_warning`). Lo usan PPC Forecast, Account Pulse y Weekly Client
+Report.
 
 **Grano de campaña (2026-09-17).** Dos solicitudes diarias más por perfil, desde las 03:00: `campaign_entities`
 (foto de `/sp/campaigns/list` en `ads_campaign`) y `sp_campaigns` (reporte `spCampaigns` reemplazado día por día en

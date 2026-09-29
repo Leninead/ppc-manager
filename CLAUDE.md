@@ -100,10 +100,10 @@ corre la suite entera sobre un checkout limpio.
 | 14 | 🔎 PPC Insights | Research | ✅ conectado 2026-03-27 (health score por ASIN, 824 líneas) |
 | 15 | 📈 PPC Forecast | Research | ✅ conectado 2026-03-27 (proyección ventas + estacionalidad); IT-47 2026-09-25: ventas de ads de la cuenta de Amazon Ads (SP+SB+SD) en lugar del Campaign CSV, fin de semana contado una vez + Análisis IA |
 | 16 | 🛡️ PPC Audit | Research | ✅ conectado 2026-03-27 (auditoría integral score 0-100) |
-| 17 | 📊 Account Pulse | Research | ✅ conectado 2026-03-27 (monitor salud diaria + festivos MX) |
+| 17 | 📊 Account Pulse | Research | ✅ conectado 2026-03-27 (monitor salud diaria + festivos MX); IT-45 2026-09-28: ACoS/TACoS de cada semana y campañas de la cuenta de Amazon Ads (SP+SB+SD) en lugar del Campaign CSV + Análisis IA |
 | 18 | 🔬 Reportes Atom 11 | Account | ✅ completo |
 | 19 | 🛡️ Reportes MerchanSpring | Account | ✅ completo |
-| 20 | 📊 Weekly Client Report | Account | ✅ completo |
+| 20 | 📊 Weekly Client Report | Account | ✅ completo; IT-45 2026-09-28: hoja Advertising de la cuenta de Amazon Ads (SP+SB+SD, NTB de SB y SD) en lugar del Campaign CSV + Análisis IA con el resumen para el cliente |
 | 21 | ⚙️ Atom11 Rules Builder | PPC | ✅ nuevo 2026-03-23 |
 | 22 | 📚 Knowledge Base | Knowledge | ✅ conectado 2026-03-27 (explorar + agregar notas .md) |
 | 23 | 👁️ Listing Monitor | Account Manager | ✅ nuevo 2026-04-09 |
@@ -305,11 +305,11 @@ _build_merchanspring_excel(data, client_name)
 | BR diario 14d | By Date → Sales and Traffic | CUENTA TOTAL PW/TW |
 | BR by Child | By ASIN → Child Item | Desglose por ASIN |
 | Atom 11 ASIN | ASIN → DateRange 14d | Ad Spend/Sales split 7+7 |
-| Campaign CSV | Campaign Manager → mismo date range | Impressions/CTR/DPV/NTB |
+| Cuenta de Amazon Ads (opcional, IT-45) | Bloque en la página: cuenta + país, sin export | Hoja Advertising sobre los días del BR diario: KPIs, campañas, portfolios, NTB de SB y SD (DPV no se sincroniza) |
 
 ### Output Excel 3 hojas
 - `📈 WoW Comparison` — fila azul CUENTA TOTAL + desglose por ASIN
-- `📣 Advertising` — PW vs TW + top 10 camps + alarmas ACoS>60% + portfolios
+- `📣 Advertising` — la cuenta de Amazon Ads sobre los días del BR diario: KPIs + top 15 campañas + alarmas ACoS>60% + portfolios + NTB
 - `📋 Reporte Ejecutivo` — análisis redactado, toggle ES/EN
 
 ### Funciones

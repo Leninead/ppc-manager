@@ -1,11 +1,90 @@
-import streamlit as st
-import pandas as pd
+"""Account Pulse (M17): the account's daily health, this week against the prior one.
+
+The ACoS, the TACoS and the campaigns come from the campaign reports of the Amazon Ads account the AM picks, over the
+Business Report's own days. The rules live in core/account_pulse/.
+"""
+import hashlib
 import io
+import logging
+from functools import partial
+
+import pandas as pd
+import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from datetime import date as _date
+
+from core.account_pulse.ads_by_week import AdWeeks, ads_by_week
+from core.account_pulse.analysis import ANALYSIS_MODULE, build_analysis_input
+from core.account_pulse.buybox import buybox_alerts
+from core.account_pulse.campaigns import campaign_rows
+from core.account_pulse.day_types import day_type
+from core.chat import app_chat
+from core.currency_format import excel_money_format, money
+from core.date_labels import date_range_label
 from core.helpers import kpi_card
+from modules.pages.ad_account_block import (
+    AccountAds,
+    AdAccountTexts,
+    ads_exceed_br_warning,
+    read_account_ads,
+    render_ad_account_block,
+)
+
+log = logging.getLogger(__name__)
+
+MODULE_LABEL = "Account Pulse"
+KEY_PREFIX = "ap"
+TOP_CAMPAIGNS_SHOWN = 15
+
+_ADS_TEXTS = AdAccountTexts(
+    title="Publicidad de la cuenta",
+    no_accounts=("No hay cuentas de Amazon Ads conectadas, así que no hay ACoS, TACoS ni campañas. Se conectan en "
+                 "Sistema → Cuentas conectadas."),
+    choose_account=("Elegí la cuenta y el país del BR para el ACoS y el TACoS de cada semana y sus campañas. El BR no "
+                    "dice de qué cuenta es, así que no hay una por defecto."),
+    first_load=("Estamos trayendo las campañas de esta cuenta por primera vez; cuando termine aparecen el ACoS, el "
+                "TACoS y las campañas."),
+    unreadable="Sin ACoS, TACoS ni campañas.",
+    without_ads="Sin ACoS, TACoS ni campañas",
+)
+WEEKS_CAPTION = ("ACoS y TACoS de cada semana sobre sus días del BR con datos de ads: esta semana {this_week}, la "
+                 "anterior {prior_week}. Sponsored Products con atribución de {attribution} días; Sponsored Brands y "
+                 "Display como los cuenta Campaign Manager. Las ventas de ads se atribuyen al día del click: las de los "
+                 "últimos días todavía pueden crecer.")
+
+_VERDICT_COLORS = ("background-color:#FFEBEE;color:#9C0006", "background-color:#FAEEDA;color:#412402",
+                   "background-color:#EAF3DE;color:#173404")
+_AI_TEXTS = {
+    "es": {"title": "Análisis IA",
+           "caption": "Lectura de la IA sobre las cifras que ya calculó el módulo: qué cambió esta semana contra la "
+                      "anterior, qué lo explica y si pide actuar",
+           "disabled": "Análisis IA deshabilitado (AI_ENABLED=0).",
+           "table_title": "Temas del módulo — lectura IA",
+           "col_item": "Tema", "col_diag": "Veredicto",
+           "counts": "{n} temas leídos",
+           "stale_body": "Cambió lo que el análisis leyó, por ejemplo el target ACoS o los datos de ads. Lo que se "
+                         "muestra abajo corresponde a los datos anteriores.",
+           "topics": {"VENTAS": "Ventas", "TRAFICO": "Tráfico y conversión", "PUBLICIDAD": "Publicidad",
+                      "BUYBOX": "Buy Box"},
+           "verdicts": {"ACTUAR": "Actuar", "VIGILAR": "Vigilar", "OK": "OK"},
+           "asins_below": "{n} ASINs bajo 95%",
+           "lost_sales": "pérdida est. {amount}"},
+    "en": {"title": "AI analysis",
+           "caption": "AI read on the figures the module already computed: what changed this week against the prior "
+                      "one, what explains it and whether it calls for action",
+           "disabled": "AI analysis disabled (AI_ENABLED=0).",
+           "table_title": "The module's topics — AI read",
+           "col_item": "Topic", "col_diag": "Verdict",
+           "counts": "{n} topics read",
+           "stale_body": "What the analysis read changed, for example the target ACoS or the ads data. What is shown "
+                         "below belongs to the previous data.",
+           "topics": {"VENTAS": "Sales", "TRAFICO": "Traffic and conversion", "PUBLICIDAD": "Advertising",
+                      "BUYBOX": "Buy Box"},
+           "verdicts": {"ACTUAR": "Act", "VIGILAR": "Watch", "OK": "OK"},
+           "asins_below": "{n} ASINs below 95%",
+           "lost_sales": "est. loss {amount}"},
+}
 
 # ── Paleta Capybaras ─────────────────────────────────────────────────
 _ORG  = "E84000";  _ORG2 = "FF6B00";  _ORG_P = "FFF3E0"
@@ -17,12 +96,6 @@ _DGRAY = "2D3748"; _MGRAY = "CBD5E0"; _LGRAY = "F7FAFC"
 _WHITE = "FFFFFF"
 _BLUE  = "1E3A8A"; _BLUE_L = "DBEAFE"
 _NAVY  = "0D1B3E"
-
-_FESTIVOS_MX = {
-    (1, 1): "Año Nuevo", (2, 3): "Constitución", (3, 17): "Juárez",
-    (5, 1): "Día del Trabajo", (9, 16): "Independencia",
-    (11, 2): "Día de Muertos", (11, 18): "Revolución", (12, 25): "Navidad",
-}
 
 
 # ── Helpers OpenPyXL ─────────────────────────────────────────────────
@@ -66,6 +139,13 @@ def _sec(ws, rn, text, ncols, bg=None, fg=None, h=16):
     ws.row_dimensions[rn].height = h
     return rn + 1
 
+def _note_row(ws, rn, text, ncols, h=30):
+    ws.merge_cells(start_row=rn, start_column=1, end_row=rn, end_column=ncols)
+    c = ws.cell(row=rn, column=1, value=f"  {text}")
+    c.font = _font(size=8, color="555555"); c.alignment = _al("left", wrap=True); c.border = _bd()
+    ws.row_dimensions[rn].height = h
+    return rn + 1
+
 
 # ── Parsers ──────────────────────────────────────────────────────────
 def _clean_numeric(series):
@@ -83,7 +163,7 @@ def _find_col(df, keyword):
 
 
 def _parse_br_daily(file):
-    """Parse BR diario 14d → dict con daily_rows + PW/TW aggregates."""
+    """Parse BR diario 14d → dict con daily_rows + PW/TW aggregates + el primer día de la semana actual."""
     fname = file.name if hasattr(file, "name") else ""
     df = pd.read_excel(file) if fname.endswith(".xlsx") else pd.read_csv(file)
 
@@ -139,7 +219,7 @@ def _parse_br_daily(file):
     agg["CVR_TW"] = round(agg["Units_TW"] / agg["Sessions_TW"] * 100, 2) if agg["Sessions_TW"] > 0 else 0
     agg["CVR_PW"] = round(agg["Units_PW"] / agg["Sessions_PW"] * 100, 2) if agg["Sessions_PW"] > 0 else 0
 
-    return {"daily": daily_rows, "agg": agg}
+    return {"daily": daily_rows, "agg": agg, "this_week_start": pd.Timestamp(split_date).date()}
 
 
 def _parse_br_child(file):
@@ -182,54 +262,6 @@ def _parse_br_child(file):
     return result
 
 
-def _parse_campaigns(file):
-    """Parse Campaign CSV → list of campaign dicts."""
-    df = pd.read_csv(file)
-
-    camp_col   = _find_col(df, "Campaign Name") or _find_col(df, "Campaign name")
-    imp_col    = _find_col(df, "Impressions")
-    click_col  = _find_col(df, "Clicks")
-    spend_col  = _find_col(df, "Spend") or _find_col(df, "Cost")
-    sales_col  = _find_col(df, "Sales")
-    orders_col = _find_col(df, "Orders") or _find_col(df, "Purchases")
-
-    if not camp_col:
-        raise ValueError("Campaign CSV: no se encontró columna Campaign Name")
-
-    for tag, col in [("_imp", imp_col), ("_click", click_col),
-                     ("_spend", spend_col), ("_sales", sales_col),
-                     ("_orders", orders_col)]:
-        if col:
-            df[tag] = _clean_numeric(df[col])
-
-    agg_map = {}
-    for tag in ["_imp", "_click", "_spend", "_sales", "_orders"]:
-        if tag in df:
-            agg_map[tag] = "sum"
-
-    if not agg_map:
-        return []
-
-    camp_df = df.groupby(camp_col, as_index=False).agg(agg_map)
-    camp_df = camp_df.sort_values("_spend", ascending=False) if "_spend" in camp_df else camp_df
-
-    result = []
-    for _, r in camp_df.iterrows():
-        imp  = int(r.get("_imp", 0))
-        clk  = int(r.get("_click", 0))
-        spd  = float(r.get("_spend", 0))
-        sal  = float(r.get("_sales", 0))
-        ords = int(r.get("_orders", 0))
-        acos = round(spd / sal * 100, 1) if sal > 0 else 0
-        result.append({
-            "Campaign": str(r[camp_col]),
-            "Impressions": imp, "Clicks": clk,
-            "Spend": round(spd, 2), "Sales": round(sal, 2),
-            "ACoS": acos, "Orders": ords,
-        })
-    return result
-
-
 # ── Helpers de cálculo ───────────────────────────────────────────────
 def _pct(tw, pw):
     try:
@@ -240,38 +272,34 @@ def _pct(tw, pw):
         return None
 
 
-def _day_type(dt):
-    """Returns (type_label, is_festivo_name_or_None) for a date."""
-    key = (dt.month, dt.day)
-    if key in _FESTIVOS_MX:
-        return "Festivo", _FESTIVOS_MX[key]
-    if dt.weekday() >= 5:
-        return "Finde", None
-    return "Laboral", None
+def _percent_text(value):
+    return f"{value:.1f}%" if value is not None else "—"
 
 
-def _detect_campaign_age(name):
-    """Detect NUEVA vs HEREDADA based on naming convention."""
-    import re
-    # Capybaras naming usually has structured format with date markers or SP/SD prefix
-    # Newer campaigns tend to have structured names like "[Product] - [ASIN] - SP - KW - ..."
-    patterns_new = [
-        r"\bSP\b.*\bKW\b",      # SP - KW pattern
-        r"\bSP\b.*\bPAT\b",     # SP - PAT pattern
-        r"\bSD\b.*\bRET\b",     # SD - RET pattern
-        r"202[5-9]",             # year in name
-    ]
-    for pat in patterns_new:
-        if re.search(pat, name, re.IGNORECASE):
-            return "NUEVA"
-    return "HEREDADA"
+def _week_acos_tacos(weeks: AdWeeks | None):
+    """(ACoS TW, ACoS PW, TACoS TW, TACoS PW), None where a week has no ads data."""
+    this_week = weeks.this_week if weeks is not None else None
+    prior_week = weeks.prior_week if weeks is not None else None
+    return (this_week.acos if this_week else None, prior_week.acos if prior_week else None,
+            this_week.tacos if this_week else None, prior_week.tacos if prior_week else None)
+
+
+def _weeks_caption(weeks: AdWeeks) -> str:
+    def covered(week):
+        return f"{week.covered_days} de {week.history_days} días" if week else "sin días con datos de ads"
+    attribution = next((week.attribution_days for week in (weeks.this_week, weeks.prior_week) if week), 7)
+    return WEEKS_CAPTION.format(this_week=covered(weeks.this_week), prior_week=covered(weeks.prior_week),
+                                attribution=attribution)
 
 
 # ── Excel builder ────────────────────────────────────────────────────
-def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
-                                target_acos=30.0):
+def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="", target_acos=30.0, *,
+                               weeks: AdWeeks | None = None, currency_code: str = "", ads_period: str = "",
+                               ads_note: str = ""):
     agg = daily_data["agg"]
     daily = daily_data["daily"]
+    show = partial(money, currency_code=currency_code)
+    money_fmt = excel_money_format(currency_code)
 
     wb = Workbook()
     wb.remove(wb.active)
@@ -341,8 +369,7 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
         ws1.row_dimensions[rn].height = 18
         rn += 1
 
-    _kpi_row("Sales", agg["Sales_TW"], agg["Sales_PW"],
-             lambda v: f"${v:,.2f}")
+    _kpi_row("Sales", agg["Sales_TW"], agg["Sales_PW"], show)
     _kpi_row("Units", agg["Units_TW"], agg["Units_PW"],
              lambda v: f"{int(v):,}")
     _kpi_row("Sessions", agg["Sessions_TW"], agg["Sessions_PW"],
@@ -350,22 +377,20 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
     _kpi_row("CVR %", agg["CVR_TW"], agg["CVR_PW"],
              lambda v: f"{v:.2f}%")
 
-    # ACoS & TACoS from campaigns
-    total_spend = sum(c["Spend"] for c in campaigns) if campaigns else 0
-    total_ad_sales = sum(c["Sales"] for c in campaigns) if campaigns else 0
-    g_acos = (total_spend / total_ad_sales * 100) if total_ad_sales > 0 else None
-    g_tacos = (total_spend / agg["Sales_TW"] * 100) if agg["Sales_TW"] > 0 and total_spend > 0 else None
-
-    if g_acos is not None:
-        _kpi_row("ACoS %", g_acos, None,
-                 lambda v: f"{v:.1f}%" if v else "—", inverse=True)
-    if g_tacos is not None:
-        _kpi_row("TACoS %", g_tacos, None,
-                 lambda v: f"{v:.1f}%" if v else "—", inverse=True)
+    # ACoS and TACoS of each week over its own days of the report.
+    acos_tw, acos_pw, tacos_tw, tacos_pw = _week_acos_tacos(weeks)
+    if weeks is not None:
+        _kpi_row("ACoS %", acos_tw, acos_pw, _percent_text, inverse=True)
+        _kpi_row("TACoS %", tacos_tw, tacos_pw, _percent_text, inverse=True)
 
     if agg.get("BuyBox_TW") is not None:
         _kpi_row("BuyBox %", agg["BuyBox_TW"], agg.get("BuyBox_PW"),
                  lambda v: f"{v:.1f}%" if v else "—")
+
+    if weeks is not None:
+        rn = _note_row(ws1, rn, _weeks_caption(weeks), NCOLS)
+    elif ads_note:
+        rn = _note_row(ws1, rn, f"Sin ACoS, TACoS ni campañas: {ads_note}.", NCOLS, h=18)
 
     rn += 1
 
@@ -386,10 +411,9 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
     cvr_d = _pct(agg["CVR_TW"], agg["CVR_PW"])
     if cvr_d is not None and cvr_d < -10:
         diag_lines.append(f"CVR bajó {cvr_d:.1f}% — revisar listings, precio y reviews.")
-    if g_acos is not None and g_acos > target_acos * 1.5:
-        diag_lines.append(f"ACoS {g_acos:.1f}% supera 1.5x target ({target_acos:.0f}%) — optimizar bids y negativos.")
-    bb_issues = [(a, d["BuyBox"]) for a, d in br_child.items()
-                 if d.get("BuyBox") is not None and d["BuyBox"] < 95 and d.get("Sessions", 0) > 0]
+    if acos_tw is not None and acos_tw > target_acos * 1.5:
+        diag_lines.append(f"ACoS {acos_tw:.1f}% supera 1.5x target ({target_acos:.0f}%) — optimizar bids y negativos.")
+    bb_issues = buybox_alerts(br_child)
     if bb_issues:
         diag_lines.append(f"{len(bb_issues)} ASINs con BuyBox < 95% — revisar pricing/stock.")
     if not diag_lines:
@@ -446,13 +470,13 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
         rn = 3 + ri
         dt = row["date"]
         day_name = DAYS_ES.get(dt.weekday(), "")
-        day_type, fest_name = _day_type(dt)
+        kind, fest_name = day_type(dt)
 
         # Color by type
         if fest_name:
             row_bg = _ORG_P
             type_label = f"Festivo ({fest_name})"
-        elif day_type == "Finde":
+        elif kind == "Finde":
             row_bg = _LGRAY
             type_label = "Fin de semana"
         else:
@@ -462,7 +486,7 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
         _cell(ws2, rn, 1, str(dt), bg=row_bg, left=True)
         _cell(ws2, rn, 2, day_name, bg=row_bg)
         _cell(ws2, rn, 3, type_label, bg=row_bg, left=True)
-        _cell(ws2, rn, 4, row["sales"], bg=row_bg, fmt='"$"#,##0.00')
+        _cell(ws2, rn, 4, row["sales"], bg=row_bg, fmt=money_fmt)
         _cell(ws2, rn, 5, row["units"], bg=row_bg, fmt="#,##0")
         _cell(ws2, rn, 6, row["sessions"], bg=row_bg, fmt="#,##0")
         ws2.row_dimensions[rn].height = 16
@@ -510,7 +534,7 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
 
         _cell(ws3, rn, 1, row["asin"], bg=row_bg, left=True)
         _cell(ws3, rn, 2, row["title"], bg=row_bg, left=True)
-        _cell(ws3, rn, 3, row["sales"], bg=row_bg, fmt='"$"#,##0.00')
+        _cell(ws3, rn, 3, row["sales"], bg=row_bg, fmt=money_fmt)
 
         bb_val = row["bb"]
         if bb_val is not None:
@@ -525,9 +549,9 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
             _cell(ws3, rn, 4, "—", bg=row_bg)
 
         if row["lost"] > 0:
-            _cell(ws3, rn, 5, row["lost"], bg=_RED_L, fg=_RED, fmt='"$"#,##0.00', bold=True)
+            _cell(ws3, rn, 5, row["lost"], bg=_RED_L, fg=_RED, fmt=money_fmt, bold=True)
         else:
-            _cell(ws3, rn, 5, "$0.00", bg=row_bg)
+            _cell(ws3, rn, 5, show(0), bg=row_bg)
 
         ws3.row_dimensions[rn].height = 16
 
@@ -537,7 +561,7 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
         rn = 3 + len(bb_rows) + 1
         ws3.merge_cells(start_row=rn, start_column=1, end_row=rn, end_column=4)
         _cell(ws3, rn, 1, "TOTAL VENTAS PERDIDAS ESTIMADAS", bg=_RED_L, fg=_RED, bold=True, left=True)
-        _cell(ws3, rn, 5, total_lost, bg=_RED_L, fg=_RED, fmt='"$"#,##0.00', bold=True)
+        _cell(ws3, rn, 5, total_lost, bg=_RED_L, fg=_RED, fmt=money_fmt, bold=True)
         ws3.row_dimensions[rn].height = 20
 
     ws3.freeze_panes = "A3"
@@ -545,51 +569,61 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="",
     # ── HOJA 4: Campañas ─────────────────────────────────────────
     ws4 = wb.create_sheet("Campañas")
     ws4.sheet_view.showGridLines = False
+    CAMP_COLS = 9
 
-    ws4.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
-    c = ws4.cell(row=1, column=1, value=f"{client_name} — Campañas")
+    ws4.merge_cells(start_row=1, start_column=1, end_row=1, end_column=CAMP_COLS)
+    title = f"{client_name} — Campañas" + (f" · {ads_period}" if ads_period else "")
+    c = ws4.cell(row=1, column=1, value=title)
     c.fill = _fill(_ORG); c.font = _font(True, _WHITE, 14)
     c.alignment = _al("left"); c.border = _bd()
     ws4.row_dimensions[1].height = 26
 
-    camp_hdrs = ["Campaign", "Tipo", "Impressions", "Clicks", "Spend", "Sales", "ACoS %", "Orders"]
+    camp_hdrs = ["Campaign", "Producto", "Tipo", "Impressions", "Clicks", "Spend", "Sales", "ACoS %", "Orders"]
     _hdr(ws4, 2, camp_hdrs)
 
     ws4.column_dimensions["A"].width = 55
-    ws4.column_dimensions["B"].width = 12
-    for ci in range(3, 9):
+    ws4.column_dimensions["B"].width = 10
+    ws4.column_dimensions["C"].width = 12
+    for ci in range(4, CAMP_COLS + 1):
         ws4.column_dimensions[get_column_letter(ci)].width = 14
 
     for ri, camp in enumerate(campaigns):
         rn = 3 + ri
         row_bg = _WHITE if ri % 2 == 0 else _LGRAY
-        age = _detect_campaign_age(camp["Campaign"])
 
         _cell(ws4, rn, 1, camp["Campaign"][:60], bg=row_bg, left=True)
+        _cell(ws4, rn, 2, camp["Product"], bg=row_bg)
 
         # Type color: NUEVA = green, HEREDADA = blue
-        if age == "NUEVA":
-            _cell(ws4, rn, 2, "NUEVA", bg=_GRN_L, fg=_GRN, bold=True)
+        if camp["Age"] == "NUEVA":
+            _cell(ws4, rn, 3, "NUEVA", bg=_GRN_L, fg=_GRN, bold=True)
         else:
-            _cell(ws4, rn, 2, "HEREDADA", bg=_BLUE_L, fg=_BLUE, bold=True)
+            _cell(ws4, rn, 3, "HEREDADA", bg=_BLUE_L, fg=_BLUE, bold=True)
 
-        _cell(ws4, rn, 3, camp["Impressions"], bg=row_bg, fmt="#,##0")
-        _cell(ws4, rn, 4, camp["Clicks"], bg=row_bg, fmt="#,##0")
-        _cell(ws4, rn, 5, camp["Spend"], bg=row_bg, fmt='"$"#,##0.00')
-        _cell(ws4, rn, 6, camp["Sales"], bg=row_bg, fmt='"$"#,##0.00')
+        _cell(ws4, rn, 4, camp["Impressions"], bg=row_bg, fmt="#,##0")
+        _cell(ws4, rn, 5, camp["Clicks"], bg=row_bg, fmt="#,##0")
+        _cell(ws4, rn, 6, camp["Spend"], bg=row_bg, fmt=money_fmt)
+        _cell(ws4, rn, 7, camp["Sales"], bg=row_bg, fmt=money_fmt)
 
-        # ACoS semáforo
+        # ACoS semáforo; a campaign that sold nothing has no ACoS
         acos_v = camp["ACoS"]
-        if acos_v <= target_acos:
-            a_bg, a_fg = _GRN_L, _GRN
-        elif acos_v <= target_acos * 1.5:
-            a_bg, a_fg = _YEL_L, _YEL
+        if acos_v is None:
+            _cell(ws4, rn, 8, "—", bg=row_bg)
         else:
-            a_bg, a_fg = _RED_L, _RED
-        _cell(ws4, rn, 7, f"{acos_v:.1f}%", bg=a_bg, fg=a_fg, bold=True)
+            if acos_v <= target_acos:
+                a_bg, a_fg = _GRN_L, _GRN
+            elif acos_v <= target_acos * 1.5:
+                a_bg, a_fg = _YEL_L, _YEL
+            else:
+                a_bg, a_fg = _RED_L, _RED
+            _cell(ws4, rn, 8, f"{acos_v:.1f}%", bg=a_bg, fg=a_fg, bold=True)
 
-        _cell(ws4, rn, 8, camp["Orders"], bg=row_bg, fmt="#,##0")
+        _cell(ws4, rn, 9, camp["Orders"], bg=row_bg, fmt="#,##0")
         ws4.row_dimensions[rn].height = 16
+
+    if not campaigns:
+        reason = ads_note or "ninguna campaña tuvo actividad en esos días"
+        _note_row(ws4, 3, f"Sin campañas: {reason}.", CAMP_COLS, h=18)
 
     ws4.freeze_panes = "A3"
 
@@ -607,31 +641,14 @@ def render():
         "<span style='font-size:2rem;'>📊</span>"
         "<div>"
         "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>Account Pulse</div>"
-        "<div style='font-size:0.82rem;color:#888;'>Monitor de salud diaria: BR diario 14d + BR by Child + Campaign CSV → Excel 4 hojas</div>"
+        "<div style='font-size:0.82rem;color:#888;'>Monitor de salud diaria: BR diario 14d + BR by Child + cuenta de "
+        "Amazon Ads → Excel 4 hojas</div>"
         "</div>"
         "</div>",
         unsafe_allow_html=True,
     )
     st.divider()
-
-    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown("**🎯 Para qué sirve**")
-            st.caption("Monitor de salud diaria con deltas WoW: ventas, units, sessions, CVR, ACoS. Detecta anomalías >30% y festivos MX.")
-        with col2:
-            st.markdown("**📂 Archivos necesarios**")
-            st.caption("BR diario 14d (By Date) requerido. BR by Child + Campaign CSV opcionales. Todos con mismo date range.")
-        with col3:
-            st.markdown("**➡️ Siguiente paso**")
-            st.caption("Weekly Client Report (M14) para reporte formal o copiar mensaje Slack para comunicación rápida.")
-        st.markdown("**▶️ Pasos:**")
-        st.markdown(
-            "1. Ingresá nombre del cliente + Target ACoS\n"
-            "2. Subí BR diario 14d (requerido) + BR by Child + Campaign CSV\n"
-            "3. Revisá portada naranja con KPIs + diagnóstico + mensaje Slack copiable\n"
-            "4. Descargá el Excel con 4 hojas (Resumen + Ventas Diarias + BuyBox + Campañas)"
-        )
+    _how_to_use()
 
     client_name = st.text_input("Nombre del cliente", placeholder="Ej: Love To Dream MX",
                                  key="ap_client")
@@ -647,137 +664,299 @@ def render():
     br_child_file = st.file_uploader("BR by Child Item (.csv/.xlsx)",
                                       type=["csv", "xlsx"], key="ap_br_child")
 
-    st.markdown("#### 3 Campaign Report")
-    st.caption("Campaign Manager → mismo date range de 14 días")
-    camp_file = st.file_uploader("Campaign CSV (.csv)", type=["csv"], key="ap_campaign")
+    st.markdown("#### 3 Publicidad — cuenta de Amazon Ads")
+    ad_account = render_ad_account_block(KEY_PREFIX, _ADS_TEXTS)
 
-    if br_daily_file or br_child_file or camp_file:
-        st.divider()
-        try:
-            daily_data = _parse_br_daily(br_daily_file) if br_daily_file else None
-            br_child   = _parse_br_child(br_child_file) if br_child_file else {}
-            campaigns  = _parse_campaigns(camp_file) if camp_file else []
+    if not br_daily_file and not br_child_file:
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
 
-            # Status messages
-            msgs = []
-            if daily_data:
-                msgs.append(f"BR diario: {len(daily_data['daily'])} días")
-            if br_child:
-                msgs.append(f"{len(br_child)} ASINs")
-            if campaigns:
-                msgs.append(f"{len(campaigns)} campañas")
-            st.success(" · ".join(msgs))
+    st.divider()
+    try:
+        daily_data = _parse_br_daily(br_daily_file) if br_daily_file else None
+        br_child = _parse_br_child(br_child_file) if br_child_file else {}
+    except Exception as exc:  # an unreadable report must end in a message, not a traceback
+        log.warning("Account Pulse: business report unreadable: %s", exc)
+        st.error(f"No se pudo leer el Business Report: {exc}")
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
 
-            # ── KPI cards ────────────────────────────────────────
-            if daily_data:
-                agg = daily_data["agg"]
-                def _dp(tw, pw):
-                    if not pw or pw == 0:
-                        return None
-                    return (tw - pw) / pw * 100
+    if daily_data is None:
+        st.success(f"{len(br_child)} ASINs")
+        profile = ad_account.profile
+        _render_buybox_alerts(br_child, partial(money, currency_code=profile.currency_code if profile else ""))
+        _render_empty_state()
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
 
-                d_sales = _dp(agg["Sales_TW"], agg["Sales_PW"])
-                d_units = _dp(agg["Units_TW"], agg["Units_PW"])
-                d_sess  = _dp(agg["Sessions_TW"], agg["Sessions_PW"])
+    history = _history(daily_data)
+    ads = read_account_ads(ad_account, history, _ADS_TEXTS, with_campaigns=True)
+    weeks = ads_by_week(history, ads.series, daily_data["this_week_start"]) if ads.series is not None else None
+    campaigns = campaign_rows(ads.campaigns) if ads.campaigns is not None else []
 
-                total_spend = sum(c["Spend"] for c in campaigns) if campaigns else 0
-                total_ad_sales = sum(c["Sales"] for c in campaigns) if campaigns else 0
-                g_acos = (total_spend / total_ad_sales * 100) if total_ad_sales > 0 else None
+    loaded = [f"BR diario: {len(daily_data['daily'])} días"]
+    if br_child:
+        loaded.append(f"{len(br_child)} ASINs")
+    if ads.campaigns is not None:
+        loaded.append(f"{len(campaigns)} campañas con actividad")
+    st.success(" · ".join(loaded))
 
-                c1, c2, c3, c4, c5 = st.columns(5)
-                with c1:
-                    st.markdown(kpi_card("Sales TW", f"${agg['Sales_TW']:,.0f}", delta=d_sales), unsafe_allow_html=True)
-                with c2:
-                    st.markdown(kpi_card("Units TW", f"{int(agg['Units_TW']):,}", delta=d_units), unsafe_allow_html=True)
-                with c3:
-                    st.markdown(kpi_card("Sessions TW", f"{int(agg['Sessions_TW']):,}", delta=d_sess), unsafe_allow_html=True)
-                with c4:
-                    st.markdown(kpi_card("CVR TW", f"{agg['CVR_TW']:.2f}%"), unsafe_allow_html=True)
-                with c5:
-                    st.markdown(kpi_card("ACoS", f"{g_acos:.1f}%" if g_acos else "—"), unsafe_allow_html=True)
+    pulse_tab, analysis_tab = st.tabs(["📊 Pulse", "🤖 Análisis IA"])
+    with pulse_tab:
+        _render_pulse(daily_data, br_child, ads, weeks, campaigns, client_name, target_acos)
+    with analysis_tab:
+        _render_ai_tab(daily_data, br_child if br_child_file else None, ads, weeks, campaigns, target_acos,
+                       subject=ads.account or client_name.strip() or br_daily_file.name,
+                       data_signature=_data_signature(br_daily_file, br_child_file, ads.profile_id))
 
-            # ── Daily table preview ──────────────────────────────
-            if daily_data:
-                st.markdown("##### Ventas Diarias")
-                daily_preview = []
-                for row in daily_data["daily"]:
-                    dt = row["date"]
-                    day_type, fest = _day_type(dt)
-                    tipo = f"Festivo ({fest})" if fest else ("Finde" if day_type == "Finde" else "Laboral")
-                    daily_preview.append({
-                        "Fecha": str(dt),
-                        "Día": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"][dt.weekday()],
-                        "Tipo": tipo,
-                        "Sales": f"${row['sales']:,.2f}",
-                        "Units": row["units"],
-                        "Sessions": row["sessions"],
-                    })
-                st.dataframe(pd.DataFrame(daily_preview), use_container_width=True, hide_index=True)
 
-            # ── BuyBox issues ────────────────────────────────────
-            if br_child:
-                bb_issues = [(a, d) for a, d in br_child.items()
-                             if d.get("BuyBox") is not None and d["BuyBox"] < 95
-                             and d.get("Sessions", 0) > 0]
-                if bb_issues:
-                    st.markdown(f"##### BuyBox Alerts ({len(bb_issues)} ASINs < 95%)")
-                    bb_preview = []
-                    for asin, d in sorted(bb_issues, key=lambda x: x[1].get("Sales", 0), reverse=True):
-                        lost = d["Sales"] * (1 - d["BuyBox"] / 100)
-                        bb_preview.append({
-                            "ASIN": asin,
-                            "Título": d["Title"][:40],
-                            "Sales": f"${d['Sales']:,.2f}",
-                            "BuyBox %": f"{d['BuyBox']:.1f}%",
-                            "Ventas Perdidas": f"${lost:,.2f}",
-                        })
-                    st.dataframe(pd.DataFrame(bb_preview), use_container_width=True, hide_index=True)
+def _how_to_use():
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Monitor de salud diaria con deltas WoW: ventas, units, sessions, CVR, ACoS y TACoS. Marca "
+                       "fines de semana y festivos MX.")
+        with col2:
+            st.markdown("**📂 De dónde salen los datos**")
+            st.caption("BR diario 14d (By Date) requerido y BR by Child opcional. La cuenta de Amazon Ads del BR "
+                       "(opcional) trae el ACoS, el TACoS y las campañas de los mismos días.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("Weekly Client Report (M14) para reporte formal o copiar mensaje Slack para comunicación rápida.")
+        st.markdown("**▶️ Pasos:**")
+        st.markdown(
+            "1. Ingresá nombre del cliente + Target ACoS\n"
+            "2. Subí BR diario 14d (requerido) + BR by Child\n"
+            "3. Elegí la cuenta y el país del BR para el ACoS, el TACoS y las campañas (opcional)\n"
+            "4. Revisá los KPIs de la semana contra la anterior y el Análisis IA\n"
+            "5. Descargá el Excel con 4 hojas (Resumen + Ventas Diarias + BuyBox + Campañas)"
+        )
 
-            # ── Top campaigns preview ────────────────────────────
-            if campaigns:
-                st.markdown(f"##### Top Campañas ({len(campaigns)} total)")
-                camp_preview = []
-                for camp in campaigns[:15]:
-                    camp_preview.append({
-                        "Campaign": camp["Campaign"][:50],
-                        "Spend": f"${camp['Spend']:,.2f}",
-                        "Sales": f"${camp['Sales']:,.2f}",
-                        "ACoS %": f"{camp['ACoS']:.1f}%",
-                        "Orders": camp["Orders"],
-                    })
-                st.dataframe(pd.DataFrame(camp_preview), use_container_width=True, hide_index=True)
 
-            # ── Download button ──────────────────────────────────
-            st.divider()
-            if daily_data:
-                excel_buf = _build_account_pulse_excel(
-                    daily_data=daily_data,
-                    br_child=br_child,
-                    campaigns=campaigns,
-                    client_name=client_name or "Client",
-                    target_acos=target_acos,
-                )
-                safe_n = (client_name or "report").replace(" ", "_")[:30]
-                st.download_button(
-                    label="Descargar Account Pulse (.xlsx)",
-                    data=excel_buf.getvalue(),
-                    file_name=f"account_pulse_{safe_n}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True, key="ap_dl",
-                )
-            else:
-                st.markdown(
-                    "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
-                    "border-radius:12px;margin:1rem 0;'>"
-                    "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
-                    "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Cargá al menos el BR diario para generar el Excel.</div>"
-                    "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
-                    "Arrastrá o hacé click en el uploader de arriba</div>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
+def _render_empty_state():
+    st.markdown(
+        "<div style='text-align:center;padding:3rem 1rem;border:2px dashed #DDD;"
+        "border-radius:12px;margin:1rem 0;'>"
+        "<div style='font-size:2.5rem;margin-bottom:0.5rem;'>📂</div>"
+        "<div style='font-size:0.95rem;color:#666;font-weight:600;'>Cargá al menos el BR diario para generar el Excel.</div>"
+        "<div style='font-size:0.78rem;color:#999;margin-top:0.3rem;'>"
+        "Arrastrá o hacé click en el uploader de arriba</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
-        except Exception as e:
-            st.error(f"Error: {e}")
-            import traceback
-            st.code(traceback.format_exc())
+
+def _history(daily_data) -> pd.DataFrame:
+    """The daily report as the ads reads take it: one row per day with `_date` and `_sales`."""
+    rows = daily_data["daily"]
+    return pd.DataFrame({"_date": pd.to_datetime([row["date"] for row in rows]),
+                         "_sales": [row["sales"] for row in rows]})
+
+
+def _render_pulse(daily_data, br_child, ads: AccountAds, weeks: AdWeeks | None, campaigns, client_name,
+                  target_acos):
+    show = partial(money, currency_code=ads.currency_code)
+    agg = daily_data["agg"]
+    acos_tw, acos_pw, tacos_tw, tacos_pw = _week_acos_tacos(weeks)
+
+    # ── KPI cards ────────────────────────────────────────
+    cards = st.columns(6)
+    with cards[0]:
+        st.markdown(kpi_card("Sales TW", money(agg["Sales_TW"], ads.currency_code, decimals=0),
+                             delta=_pct(agg["Sales_TW"], agg["Sales_PW"])), unsafe_allow_html=True)
+    with cards[1]:
+        st.markdown(kpi_card("Units TW", f"{int(agg['Units_TW']):,}", delta=_pct(agg["Units_TW"], agg["Units_PW"])),
+                    unsafe_allow_html=True)
+    with cards[2]:
+        st.markdown(kpi_card("Sessions TW", f"{int(agg['Sessions_TW']):,}",
+                             delta=_pct(agg["Sessions_TW"], agg["Sessions_PW"])), unsafe_allow_html=True)
+    with cards[3]:
+        st.markdown(kpi_card("CVR TW", f"{agg['CVR_TW']:.2f}%"), unsafe_allow_html=True)
+    with cards[4]:
+        st.markdown(kpi_card("ACoS TW", _percent_text(acos_tw), delta=_pct(acos_tw, acos_pw), delta_good=False),
+                    unsafe_allow_html=True)
+    with cards[5]:
+        st.markdown(kpi_card("TACoS TW", _percent_text(tacos_tw), delta=_pct(tacos_tw, tacos_pw), delta_good=False),
+                    unsafe_allow_html=True)
+    if weeks is not None:
+        st.caption(_weeks_caption(weeks))
+    else:
+        st.caption(f"Sin ACoS, TACoS ni campañas: {ads.no_ads_reason}.")
+    if ads.split is not None and ads.split.ads_exceed_br:
+        st.warning(ads_exceed_br_warning(ads.split))
+
+    # ── Daily table preview ──────────────────────────────
+    st.markdown("##### Ventas Diarias")
+    daily_preview = []
+    for row in daily_data["daily"]:
+        dt = row["date"]
+        kind, fest = day_type(dt)
+        daily_preview.append({
+            "Fecha": str(dt),
+            "Día": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"][dt.weekday()],
+            "Tipo": f"Festivo ({fest})" if fest else ("Finde" if kind == "Finde" else "Laboral"),
+            "Sales": show(row["sales"]),
+            "Units": row["units"],
+            "Sessions": row["sessions"],
+        })
+    st.dataframe(pd.DataFrame(daily_preview), use_container_width=True, hide_index=True)
+
+    _render_buybox_alerts(br_child, show)
+
+    # ── Top campaigns preview ────────────────────────────
+    if campaigns:
+        period = date_range_label(ads.split.start, ads.split.end)
+        st.markdown(f"##### Top Campañas ({len(campaigns)} con actividad · {period})")
+        st.dataframe(pd.DataFrame([{
+            "Campaign": camp["Campaign"][:50],
+            "Producto": camp["Product"],
+            "Tipo": camp["Age"],
+            "Spend": show(camp["Spend"]),
+            "Sales": show(camp["Sales"]),
+            "ACoS %": _percent_text(camp["ACoS"]),
+            "Orders": camp["Orders"],
+        } for camp in campaigns[:TOP_CAMPAIGNS_SHOWN]]), use_container_width=True, hide_index=True)
+
+    # ── Download button ──────────────────────────────────
+    st.divider()
+    excel_buf = _build_account_pulse_excel(
+        daily_data=daily_data,
+        br_child=br_child,
+        campaigns=campaigns,
+        client_name=client_name or "Client",
+        target_acos=target_acos,
+        weeks=weeks,
+        currency_code=ads.currency_code,
+        ads_period=date_range_label(ads.split.start, ads.split.end) if ads.split is not None else "",
+        ads_note=ads.no_ads_reason,
+    )
+    safe_n = (client_name or "report").replace(" ", "_")[:30]
+    st.download_button(
+        label="Descargar Account Pulse (.xlsx)",
+        data=excel_buf.getvalue(),
+        file_name=f"account_pulse_{safe_n}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True, key="ap_dl",
+    )
+
+
+def _render_buybox_alerts(br_child, show):
+    alerts = buybox_alerts(br_child)
+    if not alerts:
+        return
+    st.markdown(f"##### BuyBox Alerts ({len(alerts)} ASINs < 95%)")
+    st.dataframe(pd.DataFrame([{
+        "ASIN": alert["asin"],
+        "Título": alert["title"][:40],
+        "Sales": show(alert["sales"]),
+        "BuyBox %": f"{alert['buybox']:.1f}%",
+        "Ventas Perdidas": show(alert["lost_sales"]),
+    } for alert in alerts]), use_container_width=True, hide_index=True)
+
+
+def _render_ai_tab(daily_data, br_child, ads: AccountAds, weeks: AdWeeks | None, campaigns, target_acos, *,
+                   subject: str, data_signature: str):
+    from ai.agents.account_pulse import chat_document
+    from ai.config import AI_ENABLED
+    from core import ai_tab
+
+    lang = ai_tab.app_language()
+    texts = _AI_TEXTS.get(lang, _AI_TEXTS["es"])
+    st.subheader(texts["title"])
+    st.caption(texts["caption"])
+    if not AI_ENABLED:
+        st.caption(texts["disabled"])
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
+    payload = build_analysis_input(daily_data, br_child, weeks=weeks, split=ads.split, series=ads.series,
+                                   campaigns=campaigns, account=ads.account, ads_note=ads.no_ads_reason,
+                                   currency_code=ads.currency_code, target_acos=target_acos, lang=lang)
+    labels = ai_tab.ai_labels(lang, texts)
+    st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
+    analysis = ai_tab.resolve_analysis(slug=ANALYSIS_MODULE, payload=payload, file_signature=data_signature,
+                                       labels=labels, auto_fire=False)
+    if analysis is not None:
+        # A stale analysis read other figures: its rows show the ones it read.
+        records = ai_tab.records_for_render(ANALYSIS_MODULE, analysis, payload,
+                                            _ai_records(daily_data, br_child, ads, weeks, labels))
+        ai_tab.render_analysis(analysis, slug=ANALYSIS_MODULE, labels=labels,
+                               render_result=partial(_render_ai_result, records=records, labels=labels))
+    ai_tab.publish_analysis_to_chat(
+        ANALYSIS_MODULE, analysis, payload, module_label=MODULE_LABEL, subject=subject,
+        reading=lambda finished: chat_document.reading_text(finished.result),
+        country_code=ads.country_code, profile_id=ads.profile_id)
+
+
+def _ai_records(daily_data, br_child, ads: AccountAds, weeks: AdWeeks | None, labels: dict) -> list[dict]:
+    """The module's figures behind each topic the AI reads, as the opinion table names them."""
+    show = partial(money, currency_code=ads.currency_code)
+    agg, topics = daily_data["agg"], labels["topics"]
+    sales_change = _pct(agg["Sales_TW"], agg["Sales_PW"])
+    records = [
+        {"tema": "VENTAS", "item": topics["VENTAS"],
+         "metrics": [f"Sales TW {show(agg['Sales_TW'])}", f"PW {show(agg['Sales_PW'])}"]
+                    + ([f"{sales_change:+.1f}%"] if sales_change is not None else [])},
+        {"tema": "TRAFICO", "item": topics["TRAFICO"],
+         "metrics": [f"Sessions TW {int(agg['Sessions_TW']):,}", f"PW {int(agg['Sessions_PW']):,}",
+                     f"CVR TW {agg['CVR_TW']:.2f}%", f"PW {agg['CVR_PW']:.2f}%"]},
+    ]
+    if weeks is not None:
+        acos_tw, acos_pw, tacos_tw, tacos_pw = _week_acos_tacos(weeks)
+        records.append({"tema": "PUBLICIDAD", "item": topics["PUBLICIDAD"],
+                        "metrics": [f"ACoS TW {_percent_text(acos_tw)}", f"PW {_percent_text(acos_pw)}",
+                                    f"TACoS TW {_percent_text(tacos_tw)}", f"PW {_percent_text(tacos_pw)}"]})
+    alerts = buybox_alerts(br_child) if br_child else []
+    buybox_metrics = [f"BuyBox TW {agg['BuyBox_TW']:.1f}%"] if agg.get("BuyBox_TW") is not None else []
+    if alerts:
+        buybox_metrics += [labels["asins_below"].format(n=len(alerts)),
+                           labels["lost_sales"].format(amount=show(sum(alert["lost_sales"] for alert in alerts)))]
+    if buybox_metrics:
+        records.append({"tema": "BUYBOX", "item": topics["BUYBOX"], "metrics": buybox_metrics})
+    return records
+
+
+def _render_ai_result(result, analysis, *, records, labels):
+    from core import ai_tab
+
+    rows = pulse_ai_rows(result.get("lecturas") or [], records, labels)
+    warnings = sum(1 for row in rows if row["warning"])
+    st.markdown(ai_tab.ai_chips_html(warnings, labels["counts"].format(n=len(rows)), analysis.elapsed, labels),
+                unsafe_allow_html=True)
+    st.markdown(ai_tab.synthesis_html(result.get("synthesis") or {}, labels), unsafe_allow_html=True)
+    if rows:
+        st.markdown(ai_tab.opinion_table_html(rows, labels["table_title"], labels, _verdict_colors(labels)),
+                    unsafe_allow_html=True)
+
+
+def pulse_ai_rows(readings: list, records: list, labels: dict) -> list[dict]:
+    """Display rows for the opinion table: the topic, the module's figures behind it and the AI's verdict."""
+    by_topic = {record["tema"]: record for record in records}
+    rows = []
+    for reading in readings:
+        record = by_topic.get(reading.get("tema"))
+        if record is None:
+            continue
+        verdict = str(reading.get("veredicto", "")).upper()
+        rows.append({
+            "item": record["item"],
+            "metrics": record["metrics"],
+            "badges": [labels["verdicts"].get(verdict, verdict)],
+            "warning": reading.get("advertencia") or "",
+            "reasoning": reading.get("razon", ""),
+        })
+    return rows
+
+
+def _verdict_colors(labels: dict) -> dict:
+    return dict(zip((labels["verdicts"][verdict] for verdict in ("ACTUAR", "VIGILAR", "OK")), _VERDICT_COLORS))
+
+
+def _digest(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()[:16]
+
+
+def _data_signature(br_daily_file, br_child_file, profile_id: str) -> str:
+    """What changes when a report or the account under the analysis do, not when the target ACoS does."""
+    child = _digest(br_child_file.getvalue()) if br_child_file else ""
+    return f"{_digest(br_daily_file.getvalue())}|{child}|{profile_id}"

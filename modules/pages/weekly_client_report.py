@@ -1,12 +1,48 @@
+import hashlib
+import logging
 import streamlit as st
 import pandas as pd
 import io
 import re
 from datetime import datetime
+from functools import partial
 import openpyxl
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+from core.chat import app_chat
+from core.currency_format import excel_money_format, money
+from core.weekly_report.advertising import advertising_summary
+from core.weekly_report.analysis import ANALYSIS_MODULE, build_analysis_input
+from modules.pages.ad_account_block import (
+    AccountAds,
+    AdAccountChoice,
+    AdAccountTexts,
+    ads_exceed_br_warning,
+    read_account_ads,
+    render_ad_account_block,
+)
+
+log = logging.getLogger(__name__)
+
+MODULE_LABEL = "Weekly Client Report"
+KEY_PREFIX = "wcr"
+# The currency the rest of the report is written in; the Advertising sheet and the AI tab follow the account's.
+REPORT_CURRENCY = "MXN"
+MISSING_NO_DAILY_REPORT = "falta el BR diario: sin él no se sabe qué días leer"
+_ADS_TEXTS = AdAccountTexts(
+    title="Publicidad de la cuenta",
+    no_accounts=("No hay cuentas de Amazon Ads conectadas, así que la hoja Advertising sale sin datos. Se conectan en "
+                 "Sistema → Cuentas conectadas."),
+    choose_account=("Elegí la cuenta y el país del BR para la hoja Advertising: KPIs, campañas, portfolios y "
+                    "new-to-brand de los días del BR diario. El BR no dice de qué cuenta es, así que no hay una por "
+                    "defecto."),
+    first_load=("Estamos trayendo las campañas de esta cuenta por primera vez; cuando termine se completa la hoja "
+                "Advertising."),
+    unreadable="La hoja Advertising sale sin datos.",
+    without_ads="Sin hoja Advertising",
+)
 
 
 # ── Helpers BR — detección tolerante a variantes Amazon (dashes unicode, splits, B2B) ──
@@ -435,6 +471,8 @@ def _parse_br_daily_wow(file):
     def _cvr(units, sessions):
         return round(units / sessions * 100, 2) if sessions else 0
 
+    daily_sales = df.assign(_day_sales=_clean(df[sales_col])).groupby("_date")["_day_sales"].sum()
+
     return {
         "Sales_TW":    _s(tw_df, sales_col), "Sales_PW":    _s(pw_df, sales_col),
         "Units_TW":    _u_tw,                "Units_PW":    _u_pw,
@@ -448,6 +486,8 @@ def _parse_br_daily_wow(file):
         # decidir si puede rotular una columna como semanal.
         "period_pw": _periodo([str(d.date()) for d in sorted(pw_df["_date"].unique())]),
         "period_tw": _periodo([str(d.date()) for d in sorted(tw_df["_date"].unique())]),
+        # Each day's sales: what the account's ads are compared against, over the same days.
+        "daily_sales": {str(day.date()): round(float(sales), 2) for day, sales in daily_sales.items()},
     }
 
 
@@ -587,106 +627,6 @@ def _parse_atom11_wow(file):
     return result
 
 
-def _parse_campaign_csv(file):
-    """Parse Campaign Manager CSV → dict con métricas agregadas + lista de campañas."""
-    df = pd.read_csv(file)
-
-    def _n(col):
-        for c in df.columns:
-            if col.lower() in c.lower():
-                return c
-        return None
-
-    def _to_float(series):
-        return pd.to_numeric(
-            series.astype(str).str.replace(r"[MX$,%]", "", regex=True).str.replace(",", ""),
-            errors="coerce").fillna(0)
-
-    imp_col   = _n("Impressions")
-    click_col = _n("Clicks")
-    ctr_col   = _n("Click-Through Rate") or _n("CTR")
-    spend_col = _n("Spend") or _n("Total cost") or _n("Cost")
-    sales_col = _n("Sales") or _n("Total Sales")
-    orders_col = _n("Orders") or _n("Purchases")
-    acos_col  = _n("ACOS") or _n("ACoS")
-    camp_col  = _n("Campaign Name") or _n("Campaign name")
-    port_col  = _n("Portfolio name") or _n("Portfolio")
-    dpv_col   = _n("Detail Page View") or _n("DPV")
-    ntb_orders_col = _n("New-to-brand orders") or _n("NTB orders")
-    ntb_sales_col  = _n("New-to-brand sales") or _n("NTB sales")
-
-    if imp_col:   df["_imp"]   = _to_float(df[imp_col])
-    if click_col: df["_click"] = _to_float(df[click_col])
-    if spend_col: df["_spend"] = _to_float(df[spend_col])
-    if sales_col: df["_sales"] = _to_float(df[sales_col])
-    if orders_col: df["_orders"] = _to_float(df[orders_col])
-    if dpv_col:   df["_dpv"]   = _to_float(df[dpv_col])
-    if ntb_orders_col: df["_ntb_orders"] = _to_float(df[ntb_orders_col])
-    if ntb_sales_col:  df["_ntb_sales"]  = _to_float(df[ntb_sales_col])
-
-    totals = {
-        "Impressions": df["_imp"].sum()   if "_imp"   in df else 0,
-        "Clicks":      df["_click"].sum() if "_click" in df else 0,
-        "Spend":       df["_spend"].sum() if "_spend" in df else 0,
-        "Sales":       df["_sales"].sum() if "_sales" in df else 0,
-        "Orders":      df["_orders"].sum() if "_orders" in df else 0,
-        "DPV":         df["_dpv"].sum()   if "_dpv"   in df else 0,
-        "NTB_Orders":  df["_ntb_orders"].sum() if "_ntb_orders" in df else 0,
-        "NTB_Sales":   df["_ntb_sales"].sum()  if "_ntb_sales"  in df else 0,
-    }
-    totals["CTR"] = (totals["Clicks"] / totals["Impressions"] * 100) if totals["Impressions"] > 0 else 0
-    totals["ACoS"] = (totals["Spend"] / totals["Sales"] * 100) if totals["Sales"] > 0 else 0
-    totals["CPC"] = (totals["Spend"] / totals["Clicks"]) if totals["Clicks"] > 0 else 0
-    totals["NTB_Pct"] = (totals["NTB_Orders"] / totals["Orders"] * 100) if totals["Orders"] > 0 and totals["NTB_Orders"] > 0 else 0
-
-    # Top campaigns by spend
-    campaigns = []
-    if camp_col and "_spend" in df:
-        grp_cols = [camp_col]
-        agg_map = {"_spend": "sum"}
-        if "_imp"    in df: agg_map["_imp"]    = "sum"
-        if "_click"  in df: agg_map["_click"]  = "sum"
-        if "_sales"  in df: agg_map["_sales"]  = "sum"
-        if "_orders" in df: agg_map["_orders"] = "sum"
-        camp_df = df.groupby(camp_col, as_index=False).agg(agg_map)
-        camp_df = camp_df.sort_values("_spend", ascending=False).head(15)
-        for _, r in camp_df.iterrows():
-            imp_v = r.get("_imp", 0)
-            clk_v = r.get("_click", 0)
-            sal_v = r.get("_sales", 0)
-            spd_v = r.get("_spend", 0)
-            campaigns.append({
-                "Campaign": str(r[camp_col])[:60],
-                "Impressions": int(imp_v),
-                "Clicks": int(clk_v),
-                "CTR": round(clk_v / imp_v * 100, 2) if imp_v > 0 else 0,
-                "Spend": round(spd_v, 2),
-                "Sales": round(sal_v, 2),
-                "ACoS": round(spd_v / sal_v * 100, 1) if sal_v > 0 else 0,
-                "Orders": int(r.get("_orders", 0)),
-            })
-
-    # Portfolios
-    portfolios = []
-    if port_col and "_spend" in df:
-        port_df = df.groupby(port_col, as_index=False).agg(agg_map)
-        port_df = port_df.sort_values("_spend", ascending=False)
-        for _, r in port_df.iterrows():
-            pname = str(r[port_col]).strip()
-            if not pname or pname in ("nan", "None", ""): pname = "(Sin Portfolio)"
-            imp_v = r.get("_imp", 0)
-            sal_v = r.get("_sales", 0)
-            spd_v = r.get("_spend", 0)
-            portfolios.append({
-                "Portfolio": pname[:40],
-                "Spend": round(spd_v, 2),
-                "Sales": round(sal_v, 2),
-                "ACoS": round(spd_v / sal_v * 100, 1) if sal_v > 0 else 0,
-            })
-
-    return {"totals": totals, "campaigns": campaigns, "portfolios": portfolios}
-
-
 # Textos del Reporte Ejecutivo. A nivel de modulo para que la narrativa sea
 # testeable sin tener que generar el Excel entero.
 _L_EXEC = {
@@ -728,6 +668,14 @@ _L_EXEC = {
         "act_pos": "mantener estrategia y escalar campa\u00f1as top.",
         "act_neg": "revisar keywords de bajo rendimiento, ajustar bids y verificar stock.",
         "act_flat": "monitorear conversi\u00f3n y explorar nuevas keywords.",
+        "ads_source": ("Fuente: {account} · {period} · {covered} de {total} días del BR con datos de ads · "
+                       "{products}. Sponsored Products con atribución de {attribution} días; Sponsored Brands y "
+                       "Display como los cuenta Campaign Manager."),
+        "ads_ntb": "New-to-brand (SB y SD): {orders} órdenes ({share}) · ventas {sales}",
+        "ads_ntb_unknown": "New-to-brand (SB y SD): —",
+        "ads_dpv": "Vistas de la página de detalle: — (no se sincronizan)",
+        "ads_no_sales": "sin ventas",
+        "ads_missing": "⚠️ Sin datos de Amazon Ads: {reason}.",
     },
     "en": {
         "title_wow": "Weekly WoW Report", "product": "Product", "asin": "ASIN",
@@ -767,12 +715,24 @@ _L_EXEC = {
         "act_pos": "maintain current strategy and scale top campaigns.",
         "act_neg": "review low-performing keywords, adjust bids, and check stock.",
         "act_flat": "monitor conversion metrics and explore new keywords.",
+        "ads_source": ("Source: {account} · {period} · {covered} of {total} BR days with ads data · {products}. "
+                       "Sponsored Products with {attribution}-day attribution; Sponsored Brands and Display as "
+                       "Campaign Manager counts them."),
+        "ads_ntb": "New-to-brand (SB and SD): {orders} orders ({share}) · sales {sales}",
+        "ads_ntb_unknown": "New-to-brand (SB and SD): —",
+        "ads_dpv": "Detail page views: — (not synced)",
+        "ads_no_sales": "no sales",
+        "ads_missing": "⚠️ No Amazon Ads data: {reason}.",
     },
 }
 
-def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es", br_daily=None, camp_data=None, changelog_text="",
-                        period_child_tw=None, period_child_pw=None):
+def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es", br_daily=None, advertising=None,
+                        changelog_text="", period_child_tw=None, period_child_pw=None, *, ads_currency="",
+                        ads_source="", ads_note=""):
     """
+    advertising: la publicidad de la cuenta de Amazon Ads (core.weekly_report.advertising) sobre los dias del BR
+    diario, en `ads_currency`; `ads_source` dice de donde sale y `ads_note` por que falta.
+
     period_child_tw / period_child_pw: periodo DECLARADO de los archivos by-Child.
 
     El export by-Child de Amazon no trae columna de fecha (es un agregado del
@@ -1125,9 +1085,11 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     # ── SHEET 2: Advertising ──────────────────────────────────
     ws_ad = wb_out.create_sheet("\U0001f4e3 Advertising")
     ws_ad.sheet_view.showGridLines = False
-    if camp_data:
-        ct = camp_data["totals"]
-        AD_COLS = 8
+    if advertising:
+        ct = advertising.totals
+        show = partial(money, currency_code=ads_currency)
+        money_fmt = excel_money_format(ads_currency)
+        AD_COLS = 9
         # Title
         ws_ad.merge_cells(start_row=1, start_column=1, end_row=1, end_column=AD_COLS)
         c = ws_ad.cell(row=1, column=1, value=f"{client_name} — Advertising Overview")
@@ -1135,91 +1097,112 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         c.alignment = _al("left"); c.border = _bd()
         ws_ad.row_dimensions[1].height = 28
 
+        # Where the figures come from: the account, its days and the attribution
+        ws_ad.merge_cells(start_row=2, start_column=1, end_row=2, end_column=AD_COLS)
+        c = ws_ad.cell(row=2, column=1, value=ads_source)
+        c.fill = _fill(LGRAY); c.font = _font(False, "555555", 8)
+        c.alignment = _al("left", wrap=True); c.border = _bd()
+        ws_ad.row_dimensions[2].height = 28
+
         # KPI cards row
         ad_kpis = [
             ("Impressions", f"{ct['Impressions']:,.0f}"),
             ("Clicks", f"{ct['Clicks']:,.0f}"),
-            ("CTR", f"{ct['CTR']:.2f}%"),
-            ("CPC", f"${ct['CPC']:.2f}"),
-            ("Spend", f"${ct['Spend']:,.2f}"),
-            ("Sales", f"${ct['Sales']:,.2f}"),
-            ("ACoS", f"{ct['ACoS']:.1f}%"),
+            ("CTR", f"{ct['CTR']:.2f}%" if ct["CTR"] is not None else "\u2014"),
+            ("CPC", show(ct["CPC"])),
+            ("Spend", show(ct["Spend"])),
+            ("Sales", show(ct["Sales"])),
+            ("ACoS", f"{ct['ACoS']:.1f}%" if ct["ACoS"] is not None else "\u2014"),
             ("Orders", f"{ct['Orders']:,.0f}"),
         ]
         for ki, (kn, kv) in enumerate(ad_kpis, 1):
-            _cell(ws_ad, 2, ki, kn, bg=DGRAY, fg=WHITE, bold=True, size=8)
-            _cell(ws_ad, 3, ki, kv, bg=LGRAY, bold=True, size=9)
-        ws_ad.row_dimensions[2].height = 14
-        ws_ad.row_dimensions[3].height = 18
+            _cell(ws_ad, 3, ki, kn, bg=DGRAY, fg=WHITE, bold=True, size=8)
+            _cell(ws_ad, 4, ki, kv, bg=LGRAY, bold=True, size=9)
+        ws_ad.row_dimensions[3].height = 14
+        ws_ad.row_dimensions[4].height = 18
 
-        # NTB row if available
-        ad_rn = 4
-        if ct.get("NTB_Orders", 0) > 0 or ct.get("DPV", 0) > 0:
-            ws_ad.merge_cells(start_row=ad_rn, start_column=1, end_row=ad_rn, end_column=AD_COLS)
-            ntb_txt = []
-            if ct["DPV"] > 0: ntb_txt.append(f"DPV: {ct['DPV']:,.0f}")
-            if ct["NTB_Orders"] > 0: ntb_txt.append(f"NTB Orders: {ct['NTB_Orders']:,.0f} ({ct['NTB_Pct']:.1f}%)")
-            if ct["NTB_Sales"] > 0: ntb_txt.append(f"NTB Sales: ${ct['NTB_Sales']:,.2f}")
-            c = ws_ad.cell(row=ad_rn, column=1, value="  ".join(ntb_txt))
-            c.fill = _fill(BLUE_L); c.font = _font(True, BLUE_D, 9)
-            c.alignment = _al("left"); c.border = _bd()
-            ad_rn += 1
+        # New-to-brand, credited by SB and SD only, and detail page views, which are not synced
+        ad_rn = 5
+        ntb = advertising.new_to_brand
+        if ntb is not None:
+            share = advertising.new_to_brand_share
+            ntb_txt = t["ads_ntb"].format(orders=f"{ntb.orders:,}", sales=show(ntb.sales),
+                                          share=f"{share:.1f}%" if share is not None else "\u2014")
+        else:
+            ntb_txt = t["ads_ntb_unknown"]
+        ws_ad.merge_cells(start_row=ad_rn, start_column=1, end_row=ad_rn, end_column=AD_COLS)
+        c = ws_ad.cell(row=ad_rn, column=1, value=f"{ntb_txt}  |  {t['ads_dpv']}")
+        c.fill = _fill(BLUE_L); c.font = _font(True, BLUE_D, 9)
+        c.alignment = _al("left"); c.border = _bd()
+        ad_rn += 1
 
         # Top campaigns
         ad_rn += 1
-        camps = camp_data.get("campaigns", [])
+        camps = advertising.campaigns
         if camps:
             ad_rn = _sec(ws_ad, ad_rn, f"TOP {len(camps)} CAMPAIGNS BY SPEND", AD_COLS, bg=ORG_L, fg=ORG_D)
-            camp_hdrs = ["Campaign", "Impressions", "Clicks", "CTR%", "Spend", "Sales", "ACoS%", "Orders"]
+            camp_hdrs = ["Campaign", "Product", "Impressions", "Clicks", "CTR%", "Spend", "Sales", "ACoS%", "Orders"]
             _hdr(ws_ad, ad_rn, camp_hdrs)
             ad_rn += 1
             for ci_c, camp in enumerate(camps):
                 row_bg = WHITE if ci_c % 2 == 0 else LGRAY
-                _cell(ws_ad, ad_rn, 1, camp["Campaign"], bg=row_bg, left=True)
-                _cell(ws_ad, ad_rn, 2, camp["Impressions"], bg=row_bg, fmt="#,##0")
-                _cell(ws_ad, ad_rn, 3, camp["Clicks"], bg=row_bg, fmt="#,##0")
-                _cell(ws_ad, ad_rn, 4, camp["CTR"], bg=row_bg, fmt="0.00")
-                _cell(ws_ad, ad_rn, 5, camp["Spend"], bg=row_bg, fmt='"$"#,##0.00')
-                _cell(ws_ad, ad_rn, 6, camp["Sales"], bg=row_bg, fmt='"$"#,##0.00')
+                _cell(ws_ad, ad_rn, 1, camp["Campaign"][:60], bg=row_bg, left=True)
+                _cell(ws_ad, ad_rn, 2, camp["Product"], bg=row_bg)
+                _cell(ws_ad, ad_rn, 3, camp["Impressions"], bg=row_bg, fmt="#,##0")
+                _cell(ws_ad, ad_rn, 4, camp["Clicks"], bg=row_bg, fmt="#,##0")
+                if camp["CTR"] is not None:
+                    _cell(ws_ad, ad_rn, 5, camp["CTR"], bg=row_bg, fmt="0.00")
+                else:
+                    _cell(ws_ad, ad_rn, 5, "\u2014", bg=row_bg)
+                _cell(ws_ad, ad_rn, 6, camp["Spend"], bg=row_bg, fmt=money_fmt)
+                _cell(ws_ad, ad_rn, 7, camp["Sales"], bg=row_bg, fmt=money_fmt)
                 acos_v = camp["ACoS"]
-                bg_a = GRN_L if acos_v < 30 else (YEL_L if acos_v < 60 else RED_L)
-                fg_a = GRN_D if acos_v < 30 else (YEL_D if acos_v < 60 else RED_D)
-                _cell(ws_ad, ad_rn, 7, acos_v, bg=bg_a, fg=fg_a, fmt="0.0")
-                _cell(ws_ad, ad_rn, 8, camp["Orders"], bg=row_bg, fmt="#,##0")
+                if acos_v is None:
+                    # A campaign that sold nothing has no ACoS: 0% would read as the best one.
+                    _cell(ws_ad, ad_rn, 8, "\u2014", bg=row_bg)
+                else:
+                    bg_a = GRN_L if acos_v < 30 else (YEL_L if acos_v < 60 else RED_L)
+                    fg_a = GRN_D if acos_v < 30 else (YEL_D if acos_v < 60 else RED_D)
+                    _cell(ws_ad, ad_rn, 8, acos_v, bg=bg_a, fg=fg_a, fmt="0.0")
+                _cell(ws_ad, ad_rn, 9, camp["Orders"], bg=row_bg, fmt="#,##0")
                 ws_ad.row_dimensions[ad_rn].height = 16
                 ad_rn += 1
 
-            # Alarmas ACoS > 60%
-            alarm_camps = [c for c in camps if c["ACoS"] > 60 and c["Spend"] > 0]
+            # Alarmas ACoS > 60%, and campaigns that spent without selling
+            alarm_camps = advertising.alarms
             if alarm_camps:
                 ad_rn += 1
                 ad_rn = _sec(ws_ad, ad_rn, f"\u26a0\ufe0f ALARMAS — {len(alarm_camps)} CAMPAÑAS CON ACoS > 60%", AD_COLS, bg=RED_L, fg=RED_D)
                 for ac in alarm_camps:
+                    acos_txt = f"ACoS {ac['ACoS']:.1f}%" if ac["ACoS"] is not None else t["ads_no_sales"]
                     ws_ad.merge_cells(start_row=ad_rn, start_column=1, end_row=ad_rn, end_column=AD_COLS)
                     c = ws_ad.cell(row=ad_rn, column=1,
-                                   value=f"  {ac['Campaign']} — ACoS {ac['ACoS']:.1f}% | Spend ${ac['Spend']:,.2f} | Sales ${ac['Sales']:,.2f}")
+                                   value=f"  {ac['Campaign']} — {acos_txt} | Spend {show(ac['Spend'])} | Sales {show(ac['Sales'])}")
                     c.fill = _fill(RED_L); c.font = _font(False, RED_D, 9)
                     c.alignment = _al("left"); c.border = _bd()
                     ws_ad.row_dimensions[ad_rn].height = 16
                     ad_rn += 1
 
         # Portfolios
-        ports = camp_data.get("portfolios", [])
+        ports = advertising.portfolios
         if ports:
             ad_rn += 1
             ad_rn = _sec(ws_ad, ad_rn, "PORTFOLIOS", AD_COLS, bg=DGRAY, fg=WHITE)
-            port_hdrs = ["Portfolio", "Spend", "Sales", "ACoS%", "", "", "", ""]
+            port_hdrs = ["Portfolio", "Spend", "Sales", "ACoS%"] + [""] * (AD_COLS - 4)
             _hdr(ws_ad, ad_rn, port_hdrs)
             ad_rn += 1
             for pi, port in enumerate(ports):
                 row_bg = WHITE if pi % 2 == 0 else LGRAY
-                _cell(ws_ad, ad_rn, 1, port["Portfolio"], bg=row_bg, left=True)
-                _cell(ws_ad, ad_rn, 2, port["Spend"], bg=row_bg, fmt='"$"#,##0.00')
-                _cell(ws_ad, ad_rn, 3, port["Sales"], bg=row_bg, fmt='"$"#,##0.00')
+                _cell(ws_ad, ad_rn, 1, port["Portfolio"][:40], bg=row_bg, left=True)
+                _cell(ws_ad, ad_rn, 2, port["Spend"], bg=row_bg, fmt=money_fmt)
+                _cell(ws_ad, ad_rn, 3, port["Sales"], bg=row_bg, fmt=money_fmt)
                 pa = port["ACoS"]
-                bg_p = GRN_L if pa < 30 else (YEL_L if pa < 60 else RED_L)
-                fg_p = GRN_D if pa < 30 else (YEL_D if pa < 60 else RED_D)
-                _cell(ws_ad, ad_rn, 4, pa, bg=bg_p, fg=fg_p, fmt="0.0")
+                if pa is None:
+                    _cell(ws_ad, ad_rn, 4, "\u2014", bg=row_bg)
+                else:
+                    bg_p = GRN_L if pa < 30 else (YEL_L if pa < 60 else RED_L)
+                    fg_p = GRN_D if pa < 30 else (YEL_D if pa < 60 else RED_D)
+                    _cell(ws_ad, ad_rn, 4, pa, bg=bg_p, fg=fg_p, fmt="0.0")
                 ws_ad.row_dimensions[ad_rn].height = 16
                 ad_rn += 1
 
@@ -1227,9 +1210,9 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         for ci_w in range(2, AD_COLS + 1):
             ws_ad.column_dimensions[get_column_letter(ci_w)].width = 14
     else:
-        # No campaign data — show placeholder
+        # No advertising data — say why
         ws_ad.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
-        c = ws_ad.cell(row=1, column=1, value="⚠️ No se cargó Campaign CSV — sube el archivo para ver métricas de Advertising")
+        c = ws_ad.cell(row=1, column=1, value=t["ads_missing"].format(reason=ads_note or "\u2014"))
         c.fill = _fill(YEL_L); c.font = _font(True, YEL_D, 11)
         c.alignment = _al("left"); c.border = _bd()
         ws_ad.column_dimensions["A"].width = 80
@@ -1415,8 +1398,9 @@ def render():
     lang_w = "es" if wlang == "Espa\u00f1ol" else "en"
 
     st.header("\U0001f4ca Weekly Client Report")
-    st.caption("BR diario + BR by Child (1 o 2 semanas) + Atom 11 ASIN + Campaign CSV → Excel 3 hojas" if lang_w == "es"
-               else "Daily BR + BR by Child (1 or 2 weeks) + Atom 11 ASIN + Campaign CSV → 3-sheet Excel")
+    st.caption("BR diario + BR by Child (1 o 2 semanas) + Atom 11 ASIN + cuenta de Amazon Ads → Excel 3 hojas"
+               if lang_w == "es"
+               else "Daily BR + BR by Child (1 or 2 weeks) + Atom 11 ASIN + Amazon Ads account → 3-sheet Excel")
     st.divider()
 
     with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
@@ -1427,8 +1411,9 @@ def render():
         with col2:
             st.markdown("**📂 Archivos necesarios**")
             st.caption("BR diario 14d (By Date) + BR by Child de esta semana + BR by Child de la "
-                       "semana anterior (opcional) + Atom 11 ASIN 14d + Campaign CSV. "
-                       "Todos con el mismo date range.")
+                       "semana anterior (opcional) + Atom 11 ASIN 14d, todos con el mismo date range. "
+                       "La cuenta de Amazon Ads del BR (opcional) completa la hoja Advertising con los "
+                       "días del BR diario.")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Enviar al cliente vía Slack/email. Usar el botón de changelog para comunicación técnica.")
@@ -1439,8 +1424,10 @@ def render():
             "3. Para tener comparación semanal POR PRODUCTO, subí también el by-Child de la "
             "semana anterior (3º uploader). Sin ese archivo el reporte sale igual, pero los "
             "montos por ASIN van etiquetados como período completo\n"
-            "4. Agregá changelog técnico opcional (se suma como hoja extra)\n"
-            "5. Descargá el Excel con 3 hojas: WoW Comparison + Advertising + Reporte Ejecutivo"
+            "4. Elegí la cuenta y el país del BR para la hoja Advertising (opcional)\n"
+            "5. Agregá changelog técnico opcional (se suma como hoja extra)\n"
+            "6. Descargá el Excel con 3 hojas: WoW Comparison + Advertising + Reporte Ejecutivo\n"
+            "7. Análisis IA: la lectura de la semana y el borrador del resumen para el cliente"
         )
 
     client_w = st.text_input("Nombre del cliente / Client name",
@@ -1489,9 +1476,9 @@ def render():
     st.caption("Atom 11 \u2192 ASIN \u2192 DateRange 14 d\u00edas. Split autom\u00e1tico 7+7.")
     atom_file = st.file_uploader("Atom 11 ASIN (.xlsx)", type=["xlsx"], key="atom_wow")
 
-    st.markdown("#### 5\ufe0f\u20e3 Campaign Report")
-    st.caption("Campaign Manager \u2192 Advertising \u2192 Campaign Manager \u2192 mismo date range de 14 d\u00edas")
-    camp_file = st.file_uploader("Campaign CSV (.csv)", type=["csv"], key="wcr_campaign")
+    st.markdown("#### 5\ufe0f\u20e3 " + ("Publicidad — cuenta de Amazon Ads" if lang_w == "es"
+                                          else "Advertising — Amazon Ads account"))
+    ad_account = render_ad_account_block(KEY_PREFIX, _ADS_TEXTS)
 
     st.markdown("#### 📝 Changelog (opcional)")
     st.caption("Cambios técnicos realizados esta semana — se agrega como hoja extra al Excel.")
@@ -1514,30 +1501,38 @@ def render():
         st.code(slack_msg, language=None)
         st.caption("👆 Hacé click en el ícono de copiar arriba a la derecha del bloque para copiarlo.")
 
-    if br_daily_file or br_child_file or br_child_pw_file or atom_file or camp_file:
-        st.divider()
-        try:
-            br_daily_data    = _parse_br_daily_wow(br_daily_file) if br_daily_file else None
-            br_child_data    = _parse_br_wow(br_child_file)       if br_child_file else {}
-            br_child_pw_data = _parse_br_wow(br_child_pw_file)    if br_child_pw_file else {}
-            atom_data     = _parse_atom11_wow(atom_file)        if atom_file     else {}
-            camp_data     = _parse_campaign_csv(camp_file)      if camp_file     else None
+    uploads = [br_daily_file, br_child_file, br_child_pw_file, atom_file]
+    if not any(uploads):
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
 
-            # El by-Child no trae fechas: los periodos se DERIVAN del BR diario
-            # (ver _derivar_periodos, extraido y testeado directo).
-            period_child_tw, period_child_pw = _derivar_periodos(
-                br_daily_data, hay_child_pw=bool(br_child_pw_data)
-            )
+    st.divider()
+    try:
+        br_daily_data    = _parse_br_daily_wow(br_daily_file) if br_daily_file else None
+        br_child_data    = _parse_br_wow(br_child_file)       if br_child_file else {}
+        br_child_pw_data = _parse_br_wow(br_child_pw_file)    if br_child_pw_file else {}
+        atom_data     = _parse_atom11_wow(atom_file)        if atom_file     else {}
+        ads = _read_ads(ad_account, br_daily_data)
+        advertising = advertising_summary(ads.campaigns) if ads.campaigns is not None else None
 
-            # El PW solo se usa si el modo lo habilita. Preguntarle al MODO y no al
-            # conteo de fechas cubre tambien el diario de 21 fechas, que apagaba
-            # modo_wow en silencio porque 21 no es < 14.
+        # El by-Child no trae fechas: los periodos se DERIVAN del BR diario
+        # (ver _derivar_periodos, extraido y testeado directo).
+        period_child_tw, period_child_pw = _derivar_periodos(
+            br_daily_data, hay_child_pw=bool(br_child_pw_data)
+        )
 
+        # El PW solo se usa si el modo lo habilita. Preguntarle al MODO y no al
+        # conteo de fechas cubre tambien el diario de 21 fechas, que apagaba
+        # modo_wow en silencio porque 21 no es < 14.
+
+        report_tab, analysis_tab = st.tabs(["\U0001f4ca Reporte", "\U0001f916 Análisis IA"] if lang_w == "es"
+                                           else ["\U0001f4ca Report", "\U0001f916 AI analysis"])
+        with report_tab:
             msgs = []
             if br_daily_data: msgs.append(f"BR diario \u2713 TW={br_daily_data['dates_tw'][-1]}")
             if br_child_data: msgs.append(f"{len(br_child_data)} ASINs BR child \u2713")
             if atom_data:     msgs.append(f"{len(atom_data)} ASINs Atom 11 \u2713")
-            if camp_data:     msgs.append(f"{len(camp_data.get('campaigns',[]))} camps · {camp_data['totals']['Impressions']:,.0f} imps \u2713")
+            if advertising:   msgs.append(f"{advertising.campaign_count} campañas · {advertising.totals['Impressions']:,.0f} imps \u2713")
             _pw_usable = _es_modo_wow(period_child_tw, period_child_pw)
             if _pw_usable:
                 msgs.append(f"{len(br_child_pw_data)} ASINs BR child PW ✓")
@@ -1553,6 +1548,8 @@ def render():
                     "descarta. Subí el BR diario con un rango de 14 días."
                 )
             st.success("\u2705 " + " \u00b7 ".join(msgs))
+            if ads.split is not None and ads.split.ads_exceed_br:
+                st.warning(ads_exceed_br_warning(ads.split))
 
             # Aviso de consolidacion: Amazon repite el mismo child ASIN bajo parents
             # distintos, y el AM tiene que saber que esas filas se sumaron.
@@ -1666,10 +1663,13 @@ def render():
                 atom_tw=atom_data, atom_pw={},
                 client_name=client_w or "Client",
                 lang=lang_w, br_daily=br_daily_data,
-                camp_data=camp_data,
+                advertising=advertising,
                 changelog_text=changelog_input,
                 period_child_tw=period_child_tw,
                 period_child_pw=period_child_pw,
+                ads_currency=ads.currency_code,
+                ads_source=_ads_source(ads, lang_w) if advertising else "",
+                ads_note=ads.no_ads_reason,
             )
             safe_n = (client_w or "report").replace(" ", "_")[:30]
             st.download_button(
@@ -1680,133 +1680,211 @@ def render():
                 use_container_width=True, key="weekly_dl",
             )
 
-            # ── Análisis IA ────────────────────────────────────────
-            st.divider()
-            if st.button("🤖 Generar análisis IA", key="btn_weekly_ai", use_container_width=True):
-                if not (client_w or "").strip():
-                    st.warning("Ingresá el nombre del cliente primero.")
-                elif not br_daily_data:
-                    st.warning("Cargá al menos el BR diario para generar el análisis.")
-                else:
-                    with st.spinner("Analizando con Claude..."):
-                        from core.ai_analyze import _claude_analyze
+        with analysis_tab:
+            _render_ai_tab(br_daily_data, br_child_data, br_child_pw_data, atom_data, advertising=advertising, ads=ads,
+                           period_child_tw=period_child_tw, period_child_pw=period_child_pw, client=client_w or "",
+                           changelog=changelog_input or "", lang=lang_w,
+                           report_name=br_daily_file.name if br_daily_file else "",
+                           data_signature=_data_signature(uploads, ads.profile_id))
 
-                        # Métricas cuenta total
-                        sales_tw = br_daily_data.get("Sales_TW", 0)
-                        sales_pw = br_daily_data.get("Sales_PW", 0)
-                        sessions_tw = br_daily_data.get("Sessions_TW", 0)
-                        sessions_pw = br_daily_data.get("Sessions_PW", 0)
-                        cvr_tw = br_daily_data.get("CVR_TW", 0)
-                        cvr_pw = br_daily_data.get("CVR_PW", 0)
-                        buybox_tw = br_daily_data.get("BuyBox_TW", None)
+    except Exception as e:
+        st.error(f"Error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
-                        sales_wow = ((sales_tw - sales_pw) / sales_pw * 100) if sales_pw else 0
-                        sessions_wow = ((sessions_tw - sessions_pw) / sessions_pw * 100) if sessions_pw else 0
-                        cvr_wow = ((cvr_tw - cvr_pw) / cvr_pw * 100) if cvr_pw else 0
 
-                        # Ad metrics
-                        spend_tw = sum(v.get("Spend_TW", 0) for v in atom_data.values()) if atom_data else 0
-                        spend_pw = sum(v.get("Spend_PW", 0) for v in atom_data.values()) if atom_data else 0
-                        ad_sales_tw = sum(v.get("Sales_TW", 0) for v in atom_data.values()) if atom_data else 0
-                        ad_sales_pw = sum(v.get("Sales_PW", 0) for v in atom_data.values()) if atom_data else 0
-                        acos_tw = (spend_tw / ad_sales_tw * 100) if ad_sales_tw else 0
-                        tacos_tw = (spend_tw / sales_tw * 100) if sales_tw else 0
+_VERDICT_COLORS = ("background-color:#FFEBEE;color:#9C0006", "background-color:#FAEEDA;color:#412402",
+                   "background-color:#EAF3DE;color:#173404")
+_AI_TEXTS = {
+    "es": {"title": "Análisis IA",
+           "caption": "Lectura de la IA sobre las cifras que ya calculó el módulo: qué cambió esta semana, si pide "
+                      "actuar y el borrador del resumen para el cliente",
+           "disabled": "Análisis IA deshabilitado (AI_ENABLED=0).",
+           "needs_daily": "Subí el BR diario para el análisis IA: es el que dice qué días son esta semana y la anterior.",
+           "table_title": "Temas del reporte — lectura IA",
+           "col_item": "Tema", "col_diag": "Veredicto",
+           "counts": "{n} temas leídos",
+           "stale_body": "Cambió lo que el análisis leyó, por ejemplo el nombre del cliente, el changelog o los datos "
+                         "de ads. Lo que se muestra abajo corresponde a los datos anteriores.",
+           "topics": {"VENTAS": "Ventas", "TRAFICO": "Tráfico y conversión", "PUBLICIDAD": "Publicidad",
+                      "BUYBOX": "Buy Box"},
+           "verdicts": {"ACTUAR": "Actuar", "VIGILAR": "Vigilar", "OK": "OK"},
+           "client_title": "Resumen para el cliente",
+           "client_caption": "Borrador de la IA: revisalo antes de mandarlo. Se copia con el botón del bloque.",
+           "download_summary": "⬇️ Descargar resumen (.txt)"},
+    "en": {"title": "AI analysis",
+           "caption": "AI read on the figures the module already computed: what changed this week, whether it calls "
+                      "for action and a draft of the summary for the client",
+           "disabled": "AI analysis disabled (AI_ENABLED=0).",
+           "needs_daily": "Upload the daily BR for the AI analysis: it says which days are this week and the prior one.",
+           "table_title": "The report's topics — AI read",
+           "col_item": "Topic", "col_diag": "Verdict",
+           "counts": "{n} topics read",
+           "stale_body": "What the analysis read changed, for example the client's name, the changelog or the ads "
+                         "data. What is shown below belongs to the previous data.",
+           "topics": {"VENTAS": "Sales", "TRAFICO": "Traffic and conversion", "PUBLICIDAD": "Advertising",
+                      "BUYBOX": "Buy Box"},
+           "verdicts": {"ACTUAR": "Act", "VIGILAR": "Watch", "OK": "OK"},
+           "client_title": "Summary for the client",
+           "client_caption": "AI draft: review it before sending it. The block's button copies it.",
+           "download_summary": "⬇️ Download summary (.txt)"},
+}
 
-                        # Alarmas de campañas
-                        alarmas = []
-                        if camp_data:
-                            for camp in camp_data.get("campaigns", []):
-                                if camp.get("ACoS", 0) > 60:
-                                    alarmas.append(f"{camp.get('Campaign', '')} — ACoS {camp.get('ACoS', 0):.1f}%")
-                        alarmas_txt = "\n".join(alarmas[:5]) if alarmas else "Sin alarmas críticas"
 
-                        # Contexto que el modelo no puede deducir de los numeros:
-                        # en que periodo esta parado y como leer trafico vs conversion.
-                        _p_tw = (br_daily_data or {}).get("period_tw") or {}
-                        _p_pw = (br_daily_data or {}).get("period_pw") or {}
-                        _rango = (f"{_p_pw.get('start', '?')} a {_p_tw.get('end', '?')}"
-                                  if _p_tw or _p_pw else "sin fechas declaradas")
-                        if modo_wow_ui:
-                            _ctx_periodo = (
-                                f"PERIODO: comparacion semanal real ({_rango}). "
-                                "Los numeros por producto son de 7 dias contra los 7 previos."
-                            )
-                        else:
-                            _ctx_periodo = (
-                                f"PERIODO: {_rango}. ATENCION: este reporte NO trae comparacion "
-                                "semanal por producto: los montos por ASIN cubren el periodo completo. "
-                                "Los totales de cuenta si tienen comparacion semanal. "
-                                "NO escribas variaciones semanales por ASIN: no existen en estos datos."
-                            )
+def _read_ads(choice: AdAccountChoice, br_daily_data) -> AccountAds:
+    """The chosen account's ads over the daily report's days; without the daily report there are no days to read."""
+    if br_daily_data is None:
+        if choice.profile is None:
+            return AccountAds(no_ads_reason=choice.no_ads_reason)
+        choice.info_line.caption(f"{_ADS_TEXTS.without_ads}: {MISSING_NO_DAILY_REPORT}.")
+        return AccountAds(no_ads_reason=MISSING_NO_DAILY_REPORT)
+    return read_account_ads(choice, _history(br_daily_data), _ADS_TEXTS, with_campaigns=True)
 
-                        _ctx_lectura = (
-                            "COMO INTERPRETAR: si las sesiones suben y el CVR baja, NO es un logro — "
-                            "es un problema de calidad de trafico (terminos de busqueda, targeting) "
-                            "o del listing, y se reporta como tal. Las sesiones son un input, "
-                            "no un resultado: no las presentes como exito si no se tradujeron en ventas."
-                        )
 
-                        prompt = f"""Sos un experto senior en Amazon PPC redactando el reporte semanal de {client_w}.
+def _history(br_daily_data) -> pd.DataFrame:
+    """The daily report as the ads reads take it: one row per day with `_date` and `_sales`."""
+    daily = br_daily_data["daily_sales"]
+    return pd.DataFrame({"_date": pd.to_datetime(list(daily)), "_sales": list(daily.values())})
 
-{_ctx_periodo}
 
-{_ctx_lectura}
+def _ads_source(ads: AccountAds, lang: str) -> str:
+    """The Advertising sheet's line on where its figures come from: the account, its days and the attribution."""
+    split = ads.split
+    period = _rango_legible({"start": split.start.isoformat(), "end": split.end.isoformat()}, lang)
+    return _L_EXEC.get(lang, _L_EXEC["es"])["ads_source"].format(
+        account=ads.account, period=f"{period} {split.end.year}", covered=split.covered_days,
+        total=split.history_days, products=" · ".join(split.products) or "—", attribution=split.attribution_days)
 
-MÉTRICAS CUENTA TOTAL (PW vs TW):
-- Ventas TW: ${sales_tw:,.2f} | PW: ${sales_pw:,.2f} | WoW: {sales_wow:+.1f}%
-- Sesiones TW: {sessions_tw:,} | PW: {sessions_pw:,} | WoW: {sessions_wow:+.1f}%
-- CVR TW: {cvr_tw:.2f}% | PW: {cvr_pw:.2f}% | WoW: {cvr_wow:+.1f}%
-- BuyBox TW: {f"{buybox_tw:.1f}%" if buybox_tw else "—"}
 
-PUBLICIDAD:
-- Ad Spend TW: ${spend_tw:,.2f} | PW: ${spend_pw:,.2f}
-- Ad Sales TW: ${ad_sales_tw:,.2f} | PW: ${ad_sales_pw:,.2f}
-- ACoS TW: {acos_tw:.1f}%
-- TACoS TW: {tacos_tw:.1f}%
+def _render_ai_tab(br_daily_data, br_child_data, br_child_pw_data, atom_data, *, advertising, ads: AccountAds,
+                   period_child_tw, period_child_pw, client: str, changelog: str, lang: str, report_name: str,
+                   data_signature: str):
+    from ai.agents.weekly_report import chat_document
+    from ai.config import AI_ENABLED
+    from core import ai_tab
 
-ALARMAS DE CAMPAÑAS (ACoS > 60%):
-{alarmas_txt}
+    texts = _AI_TEXTS.get(lang, _AI_TEXTS["es"])
+    st.subheader(texts["title"])
+    st.caption(texts["caption"])
+    if not AI_ENABLED:
+        st.caption(texts["disabled"])
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
+    if br_daily_data is None:
+        st.info(texts["needs_daily"])
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
+    weekly_products = _es_modo_wow(period_child_tw, period_child_pw)
+    payload = build_analysis_input(
+        br_daily_data, br_child_data, br_child_pw_data, atom_data, weekly_products=weekly_products,
+        product_days=(period_child_tw or {}).get("days"), advertising=advertising, split=ads.split,
+        account=ads.account, ads_note=ads.no_ads_reason, currency_code=ads.currency_code, client=client,
+        changelog=changelog, lang=lang)
+    labels = ai_tab.ai_labels(lang, texts)
+    st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
+    analysis = ai_tab.resolve_analysis(slug=ANALYSIS_MODULE, payload=payload, file_signature=data_signature,
+                                       labels=labels, auto_fire=False)
+    if analysis is not None:
+        # A stale analysis read other figures: its rows show the ones it read.
+        records = ai_tab.records_for_render(ANALYSIS_MODULE, analysis, payload,
+                                            _ai_records(br_daily_data, atom_data, advertising, ads, labels))
+        ai_tab.render_analysis(analysis, slug=ANALYSIS_MODULE, labels=labels,
+                               render_result=partial(_render_ai_result, records=records, labels=labels,
+                                                     client=client.strip(), lang=lang))
+    ai_tab.publish_analysis_to_chat(
+        ANALYSIS_MODULE, analysis, payload, module_label=MODULE_LABEL,
+        subject=ads.account or client.strip() or report_name,
+        reading=lambda finished: chat_document.reading_text(finished.result, client=client.strip(), lang=lang),
+        country_code=ads.country_code, profile_id=ads.profile_id)
 
-Redactá un resumen ejecutivo semanal en español para enviar al cliente.
-Formato exacto:
 
-📊 RESUMEN SEMANAL — {client_w}
+def _ai_records(br_daily, atom, advertising, ads: AccountAds, labels: dict) -> list[dict]:
+    """The report's figures behind each topic the AI reads, as the opinion table names them."""
+    show = partial(money, currency_code=ads.currency_code or REPORT_CURRENCY)
+    topics = labels["topics"]
+    sales_change = _change(br_daily["Sales_TW"], br_daily["Sales_PW"])
+    records = [
+        {"tema": "VENTAS", "item": topics["VENTAS"],
+         "metrics": [f"Sales TW {show(br_daily['Sales_TW'])}", f"PW {show(br_daily['Sales_PW'])}"]
+                    + ([f"{sales_change:+.1f}%"] if sales_change is not None else [])},
+        {"tema": "TRAFICO", "item": topics["TRAFICO"],
+         "metrics": [f"Sessions TW {int(br_daily['Sessions_TW']):,}", f"PW {int(br_daily['Sessions_PW']):,}",
+                     f"CVR TW {br_daily['CVR_TW']:.2f}%", f"PW {br_daily['CVR_PW']:.2f}%"]},
+    ]
+    ads_metrics = []
+    if advertising is not None:
+        ads_metrics += [f"ACoS {_percent_text(advertising.totals['ACoS'])}",
+                        f"TACoS {_percent_text(ads.split.tacos if ads.split is not None else None)}",
+                        f"Spend {show(advertising.totals['Spend'])}"]
+    if atom:
+        spend_tw = sum(row.get("Spend_TW", 0) for row in atom.values())
+        sales_tw = sum(row.get("Sales_TW", 0) for row in atom.values())
+        ads_metrics.append(f"Atom 11 ACoS TW {_percent_text(spend_tw / sales_tw * 100 if sales_tw > 0 else None)}")
+    if ads_metrics:
+        records.append({"tema": "PUBLICIDAD", "item": topics["PUBLICIDAD"], "metrics": ads_metrics})
+    if br_daily.get("BuyBox_TW") is not None:
+        records.append({"tema": "BUYBOX", "item": topics["BUYBOX"], "metrics": [f"BuyBox TW {br_daily['BuyBox_TW']:.1f}%"]})
+    return records
 
-📍 SITUACIÓN GENERAL
-[2-3 líneas con el estado de la semana — si fue buena/mala y el driver principal]
 
-📈 HIGHLIGHTS
-[2-3 bullets con los logros más importantes de la semana]
+def _render_ai_result(result, analysis, *, records, labels, client: str, lang: str):
+    from ai.agents.weekly_report import chat_document
+    from core import ai_tab
 
-⚠️ ATENCIÓN
-[1-2 bullets con alertas o acciones que el cliente debe conocer]
+    rows = weekly_ai_rows(result.get("lecturas") or [], records, labels)
+    warnings = sum(1 for row in rows if row["warning"])
+    st.markdown(ai_tab.ai_chips_html(warnings, labels["counts"].format(n=len(rows)), analysis.elapsed, labels),
+                unsafe_allow_html=True)
+    st.markdown(ai_tab.synthesis_html(result.get("synthesis") or {}, labels), unsafe_allow_html=True)
+    if rows:
+        st.markdown(ai_tab.opinion_table_html(rows, labels["table_title"], labels, _verdict_colors(labels)),
+                    unsafe_allow_html=True)
+    message = chat_document.client_message(result, client, lang)
+    st.markdown(ai_tab.synthesis_section_title(labels["client_title"]), unsafe_allow_html=True)
+    st.caption(labels["client_caption"])
+    st.code(message, language=None, wrap_lines=True)
+    st.download_button(labels["download_summary"], data=message,
+                       file_name=f"resumen_semanal_{(client or 'report').replace(' ', '_')[:30]}.txt",
+                       mime="text/plain", use_container_width=True, key="weekly_ai_summary_dl")
 
-🎯 PRÓXIMOS PASOS
-[2-3 acciones concretas que el equipo va a ejecutar la semana que viene]
 
-Tono: profesional pero cercano. Máximo 200 palabras.
-Usá los números reales. No inventes métricas ni variaciones que no estén arriba.
-"""
-                        analisis = _claude_analyze(prompt)
+def weekly_ai_rows(readings: list, records: list, labels: dict) -> list[dict]:
+    """Display rows for the opinion table: the topic, the report's figures behind it and the AI's verdict."""
+    by_topic = {record["tema"]: record for record in records}
+    rows = []
+    for reading in readings:
+        record = by_topic.get(reading.get("tema"))
+        if record is None:
+            continue
+        verdict = str(reading.get("veredicto", "")).upper()
+        rows.append({
+            "item": record["item"],
+            "metrics": record["metrics"],
+            "badges": [labels["verdicts"].get(verdict, verdict)],
+            "warning": reading.get("advertencia") or "",
+            "reasoning": reading.get("razon", ""),
+        })
+    return rows
 
-                    st.markdown("---")
-                    st.markdown(analisis)
-                    st.markdown("---")
 
-                    wai_a, wai_b = st.columns(2)
-                    with wai_a:
-                        st.download_button(
-                            "⬇️ Descargar resumen (.txt)",
-                            data=analisis,
-                            file_name=f"resumen_semanal_{(client_w or 'report').replace(' ', '_')}.txt",
-                            mime="text/plain",
-                            use_container_width=True, key="dl_weekly_ai",
-                        )
-                    with wai_b:
-                        st.markdown("**📋 Copiar para Slack:**")
-                        st.code(analisis, language=None)
+def _verdict_colors(labels: dict) -> dict:
+    return dict(zip((labels["verdicts"][verdict] for verdict in ("ACTUAR", "VIGILAR", "OK")), _VERDICT_COLORS))
 
-        except Exception as e:
-            st.error(f"Error: {e}")
-            import traceback
-            st.code(traceback.format_exc())
+
+def _percent_text(value) -> str:
+    return f"{value:.1f}%" if value is not None else "\u2014"
+
+
+def _change(this_week, prior_week) -> float | None:
+    try:
+        if not prior_week or float(prior_week) == 0:
+            return None
+        return (float(this_week) - float(prior_week)) / float(prior_week) * 100
+    except (TypeError, ValueError):
+        return None
+
+
+def _data_signature(uploads, profile_id: str) -> str:
+    """What changes when a report or the account under the analysis do, not when the client's name does."""
+    digests = [hashlib.sha256(upload.getvalue()).hexdigest()[:16] if upload else "" for upload in uploads]
+    return "|".join([*digests, profile_id])

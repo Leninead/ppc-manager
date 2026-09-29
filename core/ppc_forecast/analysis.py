@@ -5,7 +5,7 @@ import pandas as pd
 
 from ai.agents.ppc_forecast.context import ForecastData
 from core.amazon_ads.campaign_totals import ProductSeries
-from core.ppc_forecast.paid_split import PaidSplit, spend_for_target
+from core.business_report.paid_split import PaidSplit, spend_for_target
 from core.ppc_forecast.projection import DATE, PROJECTED_SALES, SalesForecast
 
 ANALYSIS_MODULE = "ppc_forecast"

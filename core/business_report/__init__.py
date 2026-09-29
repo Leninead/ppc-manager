@@ -1,1 +1,1 @@
-"""Business Report: the Parent-Child ASIN map and the Business Report files loaded at startup."""
+"""Business Report: the Parent-Child ASIN map, the files loaded at startup and its sales against the account's ads."""

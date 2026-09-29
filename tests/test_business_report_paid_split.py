@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from core.amazon_ads.campaign_totals import ProductDay, ProductSeries, Totals
-from core.ppc_forecast.paid_split import covered_window, paid_split, spend_for_target
+from core.business_report.paid_split import covered_window, paid_split, spend_for_target
 
 FIRST, LAST = date(2026, 8, 3), date(2026, 8, 30)
 

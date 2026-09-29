@@ -8,7 +8,7 @@ from ai.agents.ppc_forecast.chat_document import reading_text
 from ai.agents.ppc_forecast.context import MAX_HISTORY_DAYS, OUTPUT_SCHEMA, TOPICS, build_context
 from core.amazon_ads.campaign_totals import ProductDay, ProductSeries, Totals
 from core.ppc_forecast.analysis import ANALYSIS_MODULE, build_analysis_input
-from core.ppc_forecast.paid_split import paid_split
+from core.business_report.paid_split import paid_split
 from core.ppc_forecast.projection import forecast_sales
 
 FIRST, LAST = date(2026, 8, 3), date(2026, 8, 30)

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.currency_format import CURRENCY_SYMBOLS, ZERO_DECIMAL, currency_symbol, money
+from core.currency_format import CURRENCY_SYMBOLS, ZERO_DECIMAL, currency_symbol, excel_money_format, money
 
 
 def test_empty_code_keeps_todays_dollar_format():
@@ -76,3 +76,10 @@ def test_currency_symbol_for_every_known_code():
 
 def test_currency_symbol_for_unknown_code_is_the_code():
     assert currency_symbol("sek") == "SEK"
+
+
+def test_the_excel_money_format_carries_the_account_symbol_and_its_decimals():
+    assert excel_money_format("") == '"$"#,##0.00'
+    assert excel_money_format(" mxn ") == '"MX$"#,##0.00'
+    assert excel_money_format("JPY") == '"¥"#,##0'
+    assert excel_money_format("SEK") == '"SEK"#,##0.00'

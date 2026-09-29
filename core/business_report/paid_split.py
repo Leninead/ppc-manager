@@ -1,7 +1,7 @@
 """How much of the Business Report's sales came from ads, over the days the account's campaign reports also cover.
 
 The ads side is the account's synced campaign reports (Sponsored Products, Brands and Display, counted as Campaign
-Manager counts them): what the Campaign CSV the module used to ask for carried. Both sides sum the same days.
+Manager counts them): what the Campaign CSV the modules used to ask for carried. Both sides sum the same days.
 """
 from __future__ import annotations
 
