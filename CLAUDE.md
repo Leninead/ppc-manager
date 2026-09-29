@@ -116,6 +116,7 @@ corre la suite entera sobre un checkout limpio.
 | 31 | 📈 Revenue Forecast | Account Manager | ✅ M31 Revenue Forecast — MVP F1→F5 + persistencia Supabase encendida (local). PROD pendiente de flag `AGENCY_OS_FORECAST_BACKEND` en Secrets. UI crear cliente ✅. **F6 iniciado (2026-07-09): F6.1a parser snapshot por-ASIN** (`_parse_asin_report` + `_is_asin_report`, Detail Page by Child). Deuda: RLS se reactiva sola. |
 | 32 | 📋 Case Study Studio | Sales Director | ✅ M32 v1 — 3 modos (Pegar JSON/Generar/Biblioteca) + exports. Persistencia Supabase verificada en prod ✅ |
 | 36 | 🛒 Mercado Libre | Marketplaces | M36 Mercado Libre - 3 features (Listing Change Tracker, Sugerencia de stock, Alertas de Ads). Multi-cuenta, carga manual de Excel, sin API. Persistencia via core/persistence.py con AREA=marketplaces; schemas meli-rendimiento/meli-publicaciones/meli-ads v1. Sin tests propios del modulo. |
+| 37 | 📦 Órdenes de Compra | Supply Chain | ✅ M37 punto 1: alta, estados y lead time medido por OC; 2026-09-29: recepción desde planilla (plantilla con las líneas de la OC, acumulado por SKU, vista previa con rechazos y lead time; cruce en `core/supply/recepcion_import.py`) |
 
 **Account Health — 3 herramientas, todas ports de HTML de Marcos vía `html-to-streamlit-porter`:**
 - M27 Flat File Migrator (`flat_file_migrator.py`)

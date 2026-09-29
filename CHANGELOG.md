@@ -6,6 +6,28 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Órdenes de Compra recibe una OC desde planilla (2026-09-29)
+
+**Por qué.** Fede tiene una OC Emitida de 109 líneas y la recepción manual pide cargarlas de a una.
+
+**Ahora.**
+- En el detalle de una OC Emitida o Recibida parcial, «📄 Cargar desde planilla» baja una plantilla con las líneas de
+  la OC: `SKU | Pedidas | Ya recibidas | Cantidad recibida (acumulado)`. Solo la última columna dice «cantidad», así
+  el lector no toma lo pedido como recibido.
+- La planilla trae el total ACUMULADO por SKU, igual que la pantalla manual: subirla dos veces no duplica nada. Lo
+  que no llegó se deja vacío y no aparece como error.
+- Se lee con el mismo motor que el alta masiva (`core/supply/oc_import.py`, sin cambios). El cruce contra la OC vive
+  en `core/supply/recepcion_import.py`, capa pura.
+- Un SKU que no está en la OC se rechaza con motivo y no se agrega. Uno que difiere solo en mayúsculas se rechaza y
+  muestra el SKU de la OC. Un SKU repetido dentro de la OC se rechaza por ambiguo. Las líneas que no vienen en la
+  planilla no se tocan.
+- Recibir más de lo pedido se registra con aviso. Bajar lo ya recibido también, marcado en la vista previa.
+- Vista previa antes de registrar: qué se aplica (pedidas, antes, después), qué se rechaza y por qué, las filas que
+  no se pudieron leer, y el lead time que va a quedar con el mismo bloqueo de fecha anterior a la emisión.
+- Una sola fecha para toda la carga. Si la planilla trae una fecha, se propone; si trae varias, se avisa.
+- La casilla «Recepción completa» viene tildada cuando con la planilla llega todo. Si se tilda con faltantes, avisa
+  que la OC se cierra igual.
+
 ### Added — Weekly Client Report muestra el stock por ASIN del último snapshot del Pricing Dashboard (2026-09-29)
 
 **Por qué.** Punto 3 del pedido de Supply (Freddy): el reporte semanal no mostraba stock, y la única fuente de stock

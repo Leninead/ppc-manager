@@ -49,6 +49,14 @@ from core.supply.oc_import import (
     detectar_columnas,
     parsear_lineas,
 )
+from core.supply.recepcion_import import (
+    DESTINO_CERRADA,
+    DESTINO_PARCIAL,
+    cruzar_recepcion,
+    fechas_planilla,
+    filas_plantilla,
+    sin_cantidad_vacia,
+)
 from core.supply.persistence import (
     ESTADOS_OC,
     get_oc,
@@ -139,6 +147,16 @@ _KEY_IMPORT_FLASH = "supply_oc_import_flash"
 """Mensaje de exito para el run siguiente. El st.rerun() que refresca la lista
 se lleva puesto cualquier st.success escrito antes de llamarlo."""
 
+_KEY_RECEP = "supply_oc_recep_planilla"
+"""Planillas de recepcion ya parseadas, por oc_id. Se guardan las lineas
+leidas, no el cruce: el cruce se rehace en cada run contra la OC actual, asi
+que un cambio en la OC entre la subida y la confirmacion nunca queda viejo."""
+
+_KEY_RECEP_NONCE = "supply_oc_recep_nonce"
+"""Contador en la key del uploader de recepcion. Mismo motivo que
+_KEY_IMPORT_NONCE: sin key nueva el archivo sigue cargado y la vista previa
+vuelve sola despues de descartarla."""
+
 _SOP_MD = """
 Aca se registran las ordenes de compra y se las hace avanzar por sus estados:
 **Propuesta → Aprobada → OK Finanzas → Emitida → Recibida (parcial) → Cerrada**.
@@ -152,6 +170,11 @@ declarado. La diferencia entre los dos es el punto de todo esto.
 
 Cuando la OC esta **Emitida** o **Recibida parcial**, el detalle habilita cargar
 cuanto llego de cada linea. El total acumulado es lo que alimenta el fill rate.
+
+Para una OC larga, **Cargar desde planilla** baja una plantilla con las lineas
+de la OC. Completá la columna *Cantidad recibida (acumulado)* con el total que
+llego de cada SKU y dejá vacío lo que no llego. Antes de registrar se ve que se
+aplica, que se rechaza y por que, y el lead time que va a quedar.
 """
 
 
@@ -364,6 +387,7 @@ def _cerrar_dialogos() -> None:
     estado de sus widgets: la proxima apertura arranca limpia."""
     st.session_state.pop(_KEY_OC_ABIERTA, None)
     st.session_state.pop(_KEY_ALTA_ABIERTA, None)
+    st.session_state.pop(_KEY_RECEP, None)
     st.rerun()
 
 
@@ -595,15 +619,51 @@ def _preview_lead_time(oc: dict, fecha: date) -> dict:
     return pv
 
 
-def _bloque_recepcion(oc: dict) -> None:
-    """Carga de lo recibido + transicion.
+def _registrar_recepcion(oc: dict, lineas: list[dict], destino: str, fecha: date) -> None:
+    """Guarda las cantidades y avanza el estado.
 
     Dos escrituras a proposito: primero se guardan las cantidades, despues
     cambiar_estado_oc relee, guarda el estado y escribe el evento en el log.
     """
     oc_id = str(oc.get("id") or "")
+    if not lineas:
+        st.error("La OC no tiene lineas para recibir.")
+        return
+    try:
+        save_oc({**oc, "lineas": lineas})
+    except ValueError as e:
+        st.error(str(e))
+        return
 
+    try:
+        cambiar_estado_oc(oc_id, destino, quien=_quien(), fecha=fecha.isoformat())
+    except ValueError as e:
+        # Las cantidades ya quedaron guardadas; solo fallo el avance de estado.
+        st.error(f"Cantidades guardadas, pero el estado no avanzo: {e}")
+        return
+
+    st.success(
+        f"Recepcion registrada. OC {oc_id} → "
+        f"{_ETIQUETA_ESTADO.get(destino, destino)}."
+    )
+    _cerrar_dialogos()
+
+
+def _bloque_recepcion(oc: dict) -> None:
+    """Recepcion de la OC: desde planilla si hay una subida, si no a mano."""
     st.markdown("**Registrar recepcion**")
+    leida = (st.session_state.get(_KEY_RECEP) or {}).get(str(oc.get("id") or ""))
+    if leida:
+        _recepcion_planilla(oc, leida)
+    else:
+        _recepcion_planilla_subir(oc)
+        _recepcion_manual(oc)
+
+
+def _recepcion_manual(oc: dict) -> None:
+    """Carga de lo recibido linea por linea + transicion."""
+    oc_id = str(oc.get("id") or "")
+
     st.caption(
         "Cargá el total acumulado que llego de cada linea, no solo lo de esta tanda."
     )
@@ -650,28 +710,234 @@ def _bloque_recepcion(oc: dict) -> None:
         use_container_width=True,
         disabled=pv["bloquear"],
     ):
-        if not nuevas:
-            st.error("La OC no tiene lineas para recibir.")
+        _registrar_recepcion(
+            oc, nuevas, DESTINO_CERRADA if completa else DESTINO_PARCIAL, fecha
+        )
+
+
+# ── Recepcion desde planilla ────────────────────────────────────────────
+
+
+def _plantilla_recepcion_xlsx(oc: dict) -> bytes:
+    """Plantilla de recepcion con las lineas de la OC, como .xlsx."""
+    filas = filas_plantilla(oc.get("lineas") or [])
+    df = pd.DataFrame(filas[1:], columns=filas[0], dtype=object)
+    buffer = BytesIO()
+    df.to_excel(buffer, index=False, sheet_name="Recepcion")
+    return buffer.getvalue()
+
+
+def _leer_recepcion(data: bytes, nombre: str) -> dict:
+    """Archivo subido -> lineas acumuladas por SKU, listas para cruzar.
+
+    Raises:
+        ValueError: con el mensaje para el AM si no se puede leer o no tiene
+            las columnas de SKU y cantidad.
+    """
+    filas = _leer_planilla(data, nombre)
+    columnas = detectar_columnas(filas)
+    if columnas is None:
+        raise ValueError(
+            "No encontre las columnas de SKU y cantidad en las primeras 6 filas "
+            "de la planilla. Usá la plantilla de esta OC, o revisá que el "
+            "encabezado diga 'SKU' y 'Cantidad recibida'."
+        )
+    lineas, descartadas = parsear_lineas(sin_cantidad_vacia(filas, columnas), columnas)
+    lineas, avisos = consolidar_duplicados(lineas)
+    return {
+        "lineas": lineas,
+        "descartadas": descartadas,
+        "avisos": avisos,
+        "archivo": nombre,
+        "columna_cantidad": str(filas[columnas["fila_header"]][columnas["qty"]]),
+    }
+
+
+def _descartar_recepcion(oc_id: str) -> None:
+    """Saca la planilla de esta OC y renueva la key del uploader."""
+    (st.session_state.get(_KEY_RECEP) or {}).pop(oc_id, None)
+    st.session_state[_KEY_RECEP_NONCE] = (
+        int(st.session_state.get(_KEY_RECEP_NONCE, 0)) + 1
+    )
+
+
+def _recepcion_planilla_subir(oc: dict) -> None:
+    """Plantilla descargable + uploader. Deja las lineas leidas en session_state."""
+    oc_id = str(oc.get("id") or "")
+    with st.expander("📄 Cargar desde planilla", expanded=False):
+        st.caption(
+            "Bajá la plantilla con las lineas de esta OC, completá "
+            "*Cantidad recibida (acumulado)* con el total que llego de cada SKU "
+            "y dejá vacío lo que no llego."
+        )
+        st.download_button(
+            "⬇️ Plantilla de recepcion",
+            data=_plantilla_recepcion_xlsx(oc),
+            file_name=f"recepcion_{oc_id}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"supply_oc_recep_plantilla_{oc_id}",
+            use_container_width=True,
+        )
+        nonce = int(st.session_state.get(_KEY_RECEP_NONCE, 0))
+        archivo = st.file_uploader(
+            "Planilla de recepcion",
+            type=["csv", "xlsx"],
+            key=f"supply_oc_recep_file_{oc_id}_{nonce}",
+        )
+        if archivo is None:
             return
         try:
-            save_oc({**oc, "lineas": nuevas})
+            leida = _leer_recepcion(archivo.getvalue(), archivo.name)
         except ValueError as e:
             st.error(str(e))
             return
+        st.session_state.setdefault(_KEY_RECEP, {})[oc_id] = leida
+        st.rerun()
 
-        destino = "CERRADA" if completa else "RECIBIDA_PARCIAL"
-        try:
-            cambiar_estado_oc(oc_id, destino, quien=_quien(), fecha=fecha.isoformat())
-        except ValueError as e:
-            # Las cantidades ya quedaron guardadas; solo fallo el avance de estado.
-            st.error(f"Cantidades guardadas, pero el estado no avanzo: {e}")
-            return
 
-        st.success(
-            f"Recepcion registrada. OC {oc_id} → "
-            f"{_ETIQUETA_ESTADO.get(destino, destino)}."
+def _tabla_aplicadas(aplicadas: list[dict]) -> list[dict]:
+    """Lineas que se actualizan, listas para st.dataframe. Todo string."""
+    filas = []
+    for a in aplicadas:
+        if a.get("excede"):
+            aviso = "⚠️ más que lo pedido"
+        elif a.get("baja"):
+            aviso = "⚠️ baja lo ya recibido"
+        elif a.get("antes") == a.get("despues"):
+            aviso = "sin cambio"
+        else:
+            aviso = ""
+        filas.append(
+            {
+                "SKU": str(a.get("sku") or ""),
+                "Pedidas": _fmt_num(a.get("pedidas")) or "0",
+                "Antes": _fmt_num(a.get("antes")) or "0",
+                "Después": _fmt_num(a.get("despues")) or "0",
+                "Aviso": aviso,
+            }
         )
-        _cerrar_dialogos()
+    return filas
+
+
+def _tabla_rechazadas(rechazadas: list[dict]) -> list[dict]:
+    """SKUs de la planilla que no se aplican, con el motivo. Todo string."""
+    return [
+        {
+            "SKU": str(r.get("sku") or ""),
+            "Motivo": str(r.get("motivo") or ""),
+            "En la OC": str(r.get("sugerido") or "—"),
+        }
+        for r in rechazadas
+    ]
+
+
+def _fecha_propuesta(lineas: list[dict]) -> date:
+    """La fecha de la planilla si trae una sola y es legible; si no, hoy."""
+    fechas = fechas_planilla(lineas)
+    if len(fechas) > 1:
+        st.warning(
+            "La planilla trae varias fechas ("
+            + ", ".join(fechas)
+            + "). La recepcion registra una sola: elegila abajo."
+        )
+    elif len(fechas) == 1:
+        try:
+            return date.fromisoformat(fechas[0])
+        except ValueError:
+            st.warning(
+                f"No pude leer la fecha de la planilla ({fechas[0]}): elegila abajo."
+            )
+    return date.today()
+
+
+def _recepcion_planilla(oc: dict, leida: dict) -> None:
+    """Vista previa de la planilla contra la OC y confirmacion."""
+    oc_id = str(oc.get("id") or "")
+    cruce = cruzar_recepcion(oc.get("lineas") or [], leida.get("lineas") or [])
+    aplicadas = cruce["aplicadas"]
+    rechazadas = cruce["rechazadas"]
+    descartadas = leida.get("descartadas") or []
+
+    st.caption(
+        f"Archivo: {leida.get('archivo') or '—'} · cantidades leidas de la "
+        f"columna «{leida.get('columna_cantidad') or '—'}»"
+    )
+    unidades = sum(_num(a.get("despues")) - _num(a.get("antes")) for a in aplicadas)
+    plural = len(aplicadas) != 1
+    st.markdown(
+        f"**{len(aplicadas)} linea{'s' if plural else ''} se "
+        f"actualiza{'n' if plural else ''}** · "
+        f"{_fmt_num(unidades) or '0'} unidades de diferencia · "
+        f"{cruce['sin_tocar']} de la OC no vienen en la planilla y no se tocan"
+    )
+
+    if aplicadas:
+        st.dataframe(_tabla_aplicadas(aplicadas), use_container_width=True, hide_index=True)
+    excedidas = sum(1 for a in aplicadas if a.get("excede"))
+    if excedidas:
+        st.warning(
+            f"{excedidas} linea{'s' if excedidas != 1 else ''} recibe"
+            f"{'n' if excedidas != 1 else ''} más de lo pedido. Se registra igual; "
+            "el fill rate la cuenta como completa."
+        )
+
+    if rechazadas:
+        st.warning(
+            f"{len(rechazadas)} SKU de la planilla no se aplica"
+            f"{'n' if len(rechazadas) != 1 else ''}:"
+        )
+        st.dataframe(_tabla_rechazadas(rechazadas), use_container_width=True, hide_index=True)
+
+    if descartadas:
+        st.warning(
+            f"{len(descartadas)} fila{'s' if len(descartadas) != 1 else ''} de "
+            "la planilla no se pudo leer:"
+        )
+        st.dataframe(_tabla_descartadas(descartadas), use_container_width=True, hide_index=True)
+
+    _import_avisos(leida.get("avisos") or [])
+
+    sugerido = cruce["destino"]
+    completa = st.checkbox(
+        "Recepcion completa — cerrar la OC", value=sugerido == DESTINO_CERRADA
+    )
+    if sugerido == DESTINO_CERRADA:
+        st.caption("Con esta planilla llega todo lo pedido: se sugiere cerrar la OC.")
+    elif completa:
+        st.warning(
+            "Faltan unidades y la OC se va a cerrar igual: lo que no llego queda "
+            "en el fill rate del proveedor."
+        )
+
+    fecha = st.date_input(
+        "Fecha de la recepcion",
+        value=_fecha_propuesta(leida.get("lineas") or []),
+        help="Fecha de negocio de la llegada. Cierra la ventana del lead time medido.",
+    )
+
+    pv = _preview_lead_time(oc, fecha)
+
+    if not aplicadas:
+        st.error("Ningun SKU de la planilla coincide con la OC: no hay nada para registrar.")
+
+    col_ok, col_cancelar = st.columns(2)
+    if col_ok.button(
+        "📥 Registrar recepcion",
+        key=f"supply_oc_recep_planilla_ok_{oc_id}",
+        type="primary",
+        use_container_width=True,
+        disabled=pv["bloquear"] or not aplicadas,
+    ):
+        _registrar_recepcion(
+            oc, cruce["lineas"], DESTINO_CERRADA if completa else DESTINO_PARCIAL, fecha
+        )
+    if col_cancelar.button(
+        "Descartar planilla",
+        key=f"supply_oc_recep_planilla_cancelar_{oc_id}",
+        use_container_width=True,
+    ):
+        _descartar_recepcion(oc_id)
+        st.rerun()
 
 
 @st.dialog("Detalle de la orden")

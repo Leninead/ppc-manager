@@ -33,7 +33,13 @@ import openpyxl
 import pytest
 
 from core.supply.oc_import import detectar_columnas, parsear_lineas
-from modules.pages.supply_ordenes import _leer_planilla
+from modules.pages.supply_ordenes import (
+    _leer_planilla,
+    _leer_recepcion,
+    _plantilla_recepcion_xlsx,
+    _tabla_aplicadas,
+    _tabla_rechazadas,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -274,4 +280,106 @@ class TestIntegracionConElMotor:
         ]
         assert [(d["fila"], d["valor"], d["motivo"]) for d in descartadas] == [
             (4, "HAT-EJ", "fila de ejemplo")
+        ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Recepcion desde planilla
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _oc_recepcion() -> dict:
+    return {
+        "id": "OC-TST-1",
+        "proveedor_id": "prov-1",
+        "estado": "EMITIDA",
+        "lineas": [
+            {"sku": "001", "qty": 10, "recibido": 0, "eta": ""},
+            {"sku": "HAT-002", "qty": 5, "recibido": 2, "eta": ""},
+            {"sku": "HAT-003", "qty": 3, "recibido": 0, "eta": ""},
+        ],
+    }
+
+
+def _completar_plantilla(data: bytes, cantidades: dict[str, object]) -> bytes:
+    """Carga la columna de cantidad de la plantilla bajada, como haría el AM."""
+    wb = openpyxl.load_workbook(BytesIO(data))
+    hoja = wb.active
+    for fila in hoja.iter_rows(min_row=2):
+        sku = fila[0].value
+        if sku in cantidades:
+            fila[3].value = cantidades[sku]
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+class TestRecepcionDesdePlanilla:
+    def test_plantilla_vuelve_a_entrar_con_la_cantidad_en_la_ultima_columna(self):
+        filas = _leer_planilla(_plantilla_recepcion_xlsx(_oc_recepcion()), "r.xlsx")
+        assert filas[0] == ["SKU", "Pedidas", "Ya recibidas", "Cantidad recibida (acumulado)"]
+        assert detectar_columnas(filas) == {"fila_header": 0, "sku": 0, "qty": 3, "fecha": None}
+
+    def test_plantilla_conserva_el_sku_con_ceros_adelante(self):
+        filas = _leer_planilla(_plantilla_recepcion_xlsx(_oc_recepcion()), "r.xlsx")
+        assert filas[1][0] == "001"
+
+    def test_plantilla_trae_pedidas_y_ya_recibidas(self):
+        filas = _leer_planilla(_plantilla_recepcion_xlsx(_oc_recepcion()), "r.xlsx")
+        assert [(f[1], f[2]) for f in filas[1:]] == [(10, 0), (5, 2), (3, 0)]
+
+    def test_leer_recepcion_de_la_plantilla_completada(self):
+        data = _completar_plantilla(
+            _plantilla_recepcion_xlsx(_oc_recepcion()), {"001": 10, "HAT-002": 4}
+        )
+        leida = _leer_recepcion(data, "recepcion.xlsx")
+        assert leida["lineas"] == [
+            {"sku": "001", "qty": 10, "eta": ""},
+            {"sku": "HAT-002", "qty": 4, "eta": ""},
+        ]
+        # HAT-003 quedó vacía: no llegó, y no aparece como descarte.
+        assert leida["descartadas"] == []
+        assert leida["columna_cantidad"] == "Cantidad recibida (acumulado)"
+        assert leida["archivo"] == "recepcion.xlsx"
+
+    def test_leer_recepcion_consolida_skus_repetidos(self):
+        data = _xlsx([["SKU", "Cantidad"], ["A", 2], ["A", 3]])
+        leida = _leer_recepcion(data, "r.xlsx")
+        assert leida["lineas"] == [{"sku": "A", "qty": 5, "eta": ""}]
+        assert leida["avisos"][0]["tipo"] == "duplicado"
+
+    def test_leer_recepcion_sin_header_avisa_con_mensaje(self):
+        with pytest.raises(ValueError, match="columnas de SKU y cantidad"):
+            _leer_recepcion(_xlsx([["Producto", "Unidades"], ["A", 1]]), "r.xlsx")
+
+    def test_tabla_aplicadas_marca_exceso_baja_y_sin_cambio(self):
+        filas = _tabla_aplicadas(
+            [
+                {"sku": "A", "pedidas": 10, "antes": 0, "despues": 12, "excede": True, "baja": False},
+                {"sku": "B", "pedidas": 10, "antes": 8, "despues": 5, "excede": False, "baja": True},
+                {"sku": "C", "pedidas": 10, "antes": 4, "despues": 4, "excede": False, "baja": False},
+                {"sku": "D", "pedidas": 10, "antes": 0, "despues": 6, "excede": False, "baja": False},
+            ]
+        )
+        assert [f["Aviso"] for f in filas] == [
+            "⚠️ más que lo pedido",
+            "⚠️ baja lo ya recibido",
+            "sin cambio",
+            "",
+        ]
+        assert filas[0] == {
+            "SKU": "A", "Pedidas": "10", "Antes": "0", "Después": "12",
+            "Aviso": "⚠️ más que lo pedido",
+        }
+
+    def test_tabla_rechazadas_muestra_el_sku_de_la_oc(self):
+        filas = _tabla_rechazadas(
+            [
+                {"sku": "abc", "motivo": "m1", "sugerido": "ABC"},
+                {"sku": "Z", "motivo": "m2", "sugerido": ""},
+            ]
+        )
+        assert filas == [
+            {"SKU": "abc", "Motivo": "m1", "En la OC": "ABC"},
+            {"SKU": "Z", "Motivo": "m2", "En la OC": "—"},
         ]
