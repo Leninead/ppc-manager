@@ -279,7 +279,8 @@ Analizar el mercado total desde Brand Analytics: impression share, click share, 
 
 ### Reglas de negocio
 - read_sqp() con skiprows=1
-- Brand extraída con extract_sqp_brand() desde row 0 (frágil en CSV: puede devolver None)
+- Brand extraída con extract_sqp_brand() de la primera celda de la fila de metadata, en CSV y XLSX; sin `Brand=[...]`
+  devuelve None. Hasta 2026-09-29 nunca la leía en CSV (tomaba el nombre de columna `0`) y el error quedaba tragado.
 - IS > 30% = Dominando | 10-30% = Competitivo | <10% = Oportunidad
 - Gap: Total Impressions > 1000 AND Brand Impressions = 0
 - CVR en las señales IA = purchases/impressions (≠ CVR por clicks del STR); purchases con ventana de atribución 24h

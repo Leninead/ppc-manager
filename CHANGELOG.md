@@ -6,6 +6,14 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Fixed — La marca del SQP se detecta también en los CSV (2026-09-29)
+
+`extract_sqp_brand` nunca leía la marca de un SQP en CSV: tomaba el nombre de la primera columna, que con
+`header=None` es el número 0, y el error quedaba tragado. Search Query Performance, Análisis Cruzado y SBH
+Recommendation pedían la marca a mano (o seguían sin ella) aunque el archivo la traía en `Brand=[...]`. Ahora lee la
+primera celda de la fila de metadata en CSV y XLSX, deja el archivo al principio para que `read_sqp` lea el header, y
+un archivo que no se puede leer queda en el log en vez de pasar en silencio.
+
 ### Changed — Account Pulse y Weekly Client Report leen la publicidad de la cuenta de Amazon Ads y suman Análisis IA (IT-45, 2026-09-28)
 
 **Por qué.** Los dos pedían un «Campaign CSV» subido a mano. En Account Pulse el TACoS dividía el spend de ese CSV (el
