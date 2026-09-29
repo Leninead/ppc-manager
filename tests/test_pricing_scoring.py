@@ -375,6 +375,27 @@ class TestRunAnalysis:
         assert res[0]["score"] == -20
 
     # --- _enrich_record directo: campos derivados ---
+    def test_enrich_ppc_estimado_por_subcat_aunque_las_fees_sean_reales(self):
+        # The Fee Preview brings real fulfillment and referral fees but never PPC per unit.
+        raw = _fba(sku="P1", **{"sales-price": 20})
+        ctx = _lk(
+            maestro={"p1": {"Subcategoria": "Gorro"}},
+            fee={"P1": {"fulfillment_fee": 4.0, "referral_fee": 3.0,
+                        "ppc_fee": None, "units_sold_week": 0.0}},
+            cogs={"P1": 5.0},
+        )
+        ctx.update({"subcat_avg": {}, "model_avg": {}, "snapshot_date": "2026-06-01",
+                    "subcat_fee_avg": {"Gorro": {"ff": 9.0, "rf": 9.0, "ppc": 0.5}}})
+        rec = _enrich_record(raw, ctx)
+        assert rec["fulfillment_fee"] == 4.0
+        assert rec["referral_fee"] == 3.0
+        assert not rec.get("fulfillment_fee_est")
+        assert not rec.get("referral_fee_est")
+        assert rec["ppc_fee"] == 0.5
+        assert rec["ppc_fee_est"] is True
+        assert rec["gross_margin"] == 40.0             # (20-5-4-3)/20
+        assert rec["net_margin"] == 37.5               # 40 - 0.5/20*100
+
     def test_enrich_campos_derivados(self):
         raw = _fba(sku="E1", **{"available": 10, "units-shipped-t30": 30,
                                 "units-shipped-t90": 90, "days-of-supply": 20})

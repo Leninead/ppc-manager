@@ -228,7 +228,7 @@ def _parse_fee(data: bytes) -> pd.DataFrame:
 
 def _clean_fee_header(name) -> str:
     """Header sin BOM, sin "?" inicial y sin comillas ni espacios en los extremos."""
-    text = str(name).lstrip("﻿").strip()
+    text = str(name).lstrip("\ufeff").strip()
     return text.removeprefix("?").strip().strip('"').strip()
 
 
@@ -236,7 +236,7 @@ def _awd_header_index(lines: list[str], sep: str) -> int | None:
     """Índice de la primera línea (entre las primeras `_AWD_HEADER_WINDOW`) con un
     campo igual a "SKU", sin distinguir mayúsculas, comillas, espacios ni BOM."""
     for i, line in enumerate(lines[:_AWD_HEADER_WINDOW]):
-        campos = [c.strip().lstrip("﻿").strip().strip('"').strip().lower() for c in line.split(sep)]
+        campos = [c.strip().lstrip("\ufeff").strip().strip('"').strip().lower() for c in line.split(sep)]
         if "sku" in campos:
             return i
     return None
@@ -941,6 +941,15 @@ def _enrich_record(raw: dict, lookups: dict) -> dict:
                 and rec["fulfillment_fee"] is not None and rec["referral_fee"] is not None):
             rec["gross_margin"] = (rec["price"] - rec["cogs"] - rec["fulfillment_fee"] - rec["referral_fee"]) / rec["price"] * 100
             rec["net_margin"] = rec["gross_margin"] - ((rec["ppc_fee"] or 0) / rec["price"] * 100)
+
+    # The Fee Preview has real fulfillment and referral fees but never PPC, so PPC falls back on its own.
+    if rec["ppc_fee"] is None:
+        avg_ppc = (lookups.get("subcat_fee_avg", {}).get(rec["Subcategoria"]) or {}).get("ppc")
+        if avg_ppc is not None:
+            rec["ppc_fee"] = avg_ppc
+            rec["ppc_fee_est"] = True
+            if rec["gross_margin"] is not None:
+                rec["net_margin"] = rec["gross_margin"] - (avg_ppc / rec["price"] * 100)
 
     return rec
 
