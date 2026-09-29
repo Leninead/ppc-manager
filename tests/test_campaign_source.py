@@ -16,8 +16,10 @@ from streamlit.testing.v1.element_tree import ButtonGroup
 
 import modules.pages.campaign_source as campaign_picker
 import modules.pages.search_term_source as search_term_source
+from core.amazon_ads.campaign_status import StatusFilter
 from core.amazon_ads.report_provider import ProfileOption
 from core.integrations.sync_jobs import SyncJob
+from modules.pages.bulk_campanas import screen_selection
 
 _PROFILE_TZ = "America/Los_Angeles"
 RPC_HEADER = ["campaign_id", "name", "state", "targeting_type", "start_date", "budget_amount", "budget_type",
@@ -411,6 +413,53 @@ class TestBulkCampanasOnApiData:
         assert (metrics["Total Spend"], metrics["Total Sales"]) == ("MX$40.00", "MX$100.00")
         assert metrics["💰 Spend recuperable"] == "MX$30.00"
         assert "Spend mínimo para PAUSAR (MX$)" in [number.label for number in app.number_input]
+
+
+class TestBulkCampanasStatusFilter:
+    CAMPAIGNS = [
+        _campaign("2", "Bleeder", impressions=900, clicks=30, cost=30.0),
+        _campaign("3", "Winner", impressions=2000, clicks=40, cost=10.0, purchases=4, sales=100.0),
+        _campaign("4", "Paused bleeder", state="PAUSED", impressions=500, clicks=20, cost=50.0),
+        _campaign("5", "Archived old", state="ARCHIVED", impressions=300, clicks=9, cost=12.0),
+    ]
+
+    def _run(self, monkeypatch) -> AppTest:
+        app = _app(monkeypatch, _FakeRest([_profile_row()], self.CAMPAIGNS, jobs=[_job_row()]), script=_M6_SCRIPT)
+        app.run()
+        assert not app.exception
+        return app
+
+    @staticmethod
+    def _overview(app: AppTest) -> list[str]:
+        return list(app.dataframe[0].value["Campaign name"])
+
+    def test_the_overview_opens_on_the_active_campaigns(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        assert app.selectbox(key="bulk_status").value == StatusFilter.ENABLED
+        assert self._overview(app) == ["Bleeder", "Winner"]
+
+    def test_all_brings_the_paused_and_the_archived_ones_while_only_active_ones_are_diagnosed(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        app.selectbox(key="bulk_status").set_value(StatusFilter.ALL).run()
+
+        assert self._overview(app) == ["Bleeder", "Paused bleeder", "Winner", "Archived old"]
+        assert {metric.label: metric.value for metric in app.metric}["Campañas analizadas"] == "2"
+
+    def test_archived_ones_leave_the_analyzer_with_nothing_to_diagnose_and_it_says_why(self, monkeypatch):
+        app = self._run(monkeypatch)
+
+        app.selectbox(key="bulk_status").set_value(StatusFilter.ARCHIVED).run()
+
+        assert self._overview(app) == ["Archived old"]
+        assert ("El Campaign Analyzer diagnostica sólo campañas activas y el estado elegido es «Archivadas»"
+                in _text(app))
+
+    def test_the_chat_reads_the_status_on_screen(self):
+        selection = screen_selection(None, product_choice="Todos", params=None, status=StatusFilter.PAUSED)
+
+        assert ("estado de campaña", "Pausadas") in selection.values
 
 
 def _with_signals(row, *, capped="0", share="25.0", start=None):

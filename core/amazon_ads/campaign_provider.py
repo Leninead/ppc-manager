@@ -92,6 +92,8 @@ class CampaignSource:
     attribution_days: int
     # One row per campaign of `frame`, keyed by Campaign ID; None when the database has no signal columns.
     signal_inputs: pd.DataFrame | None = None
+    # The archived campaigns, in `frame`'s columns: kept apart so the analyzer, the AI and the chat never see them.
+    archived: pd.DataFrame | None = None
 
 
 def campaign_sync_view(option: ProfileOption, completed) -> ProfileOption:
@@ -129,8 +131,9 @@ class CampaignProvider:
 
         attribution_days = _attribution_days(option.account_type)
         frame = campaign_frame(totals, attribution_days)
-        log.info("amazon ads campaigns read: profile %s %s..%s, %d campaigns, %dd attribution",
-                 option.profile_id, start, end, len(frame), attribution_days)
+        archived = archived_campaign_frame(totals, attribution_days)
+        log.info("amazon ads campaigns read: profile %s %s..%s, %d campaigns and %d archived, %dd attribution",
+                 option.profile_id, start, end, len(frame), len(archived), attribution_days)
         return CampaignSource(
             frame=frame,
             currency_code=option.currency_code or _single_currency(totals),
@@ -140,30 +143,41 @@ class CampaignProvider:
             window_end=end,
             attribution_days=attribution_days,
             signal_inputs=signal_inputs_frame(totals),
+            archived=archived,
         )
 
 
 def campaign_frame(totals: pd.DataFrame, attribution_days: int) -> pd.DataFrame:
-    """The Campaign Manager export shape; ratios are fractions, the way the export writes them."""
+    """The Campaign Manager export shape of the campaigns that are not archived; ratios are fractions, the way the
+    export writes them."""
+    return _export_frame(_live_campaigns(totals), attribution_days)
+
+
+def archived_campaign_frame(totals: pd.DataFrame, attribution_days: int) -> pd.DataFrame:
+    """`campaign_frame` of the archived campaigns, which Campaign Manager only shows when asked for."""
+    return _export_frame(_archived_campaigns(totals), attribution_days)
+
+
+def _export_frame(campaigns: pd.DataFrame, attribution_days: int) -> pd.DataFrame:
     sales_field, purchases_field = _ATTRIBUTION_FIELDS[attribution_days]
-    live = _live_campaigns(totals)
-    cost, sales, clicks, impressions = live["cost"], live[sales_field], live["clicks"], live["impressions"]
+    cost, sales = campaigns["cost"], campaigns[sales_field]
+    clicks, impressions = campaigns["clicks"], campaigns["impressions"]
     return pd.DataFrame({
-        CAMPAIGN_NAME: live["name"],
-        CAMPAIGN_ID: live["campaign_id"],
-        STATE: live["state"].str.strip().str.upper(),
+        CAMPAIGN_NAME: campaigns["name"],
+        CAMPAIGN_ID: campaigns["campaign_id"],
+        STATE: campaigns["state"].str.strip().str.upper(),
         TYPE: SPONSORED_PRODUCTS,
         PORTFOLIO_NAME: [_portfolio_label(portfolio_id, name) for portfolio_id, name
-                         in zip(live["portfolio_id"], live["portfolio_name"])],
-        START_DATE: live["start_date"],
-        BID_STRATEGY: live["bidding_strategy"].map(lambda code: BID_STRATEGY_LABELS.get(code.strip(), code)),
-        BUDGET_AMOUNT: live["budget_amount"],
+                         in zip(campaigns["portfolio_id"], campaigns["portfolio_name"])],
+        START_DATE: campaigns["start_date"],
+        BID_STRATEGY: campaigns["bidding_strategy"].map(lambda code: BID_STRATEGY_LABELS.get(code.strip(), code)),
+        BUDGET_AMOUNT: campaigns["budget_amount"],
         IMPRESSIONS: impressions,
         CLICKS: clicks,
         CTR: clicks / impressions.where(impressions > 0),
         TOTAL_COST: cost,
         CPC: cost / clicks.where(clicks > 0),
-        PURCHASES: live[purchases_field],
+        PURCHASES: campaigns[purchases_field],
         SALES: sales,
         ACOS: cost / sales.where(sales > 0),
         ROAS: sales / cost.where(cost > 0),
@@ -186,8 +200,15 @@ def signal_inputs_frame(totals: pd.DataFrame) -> pd.DataFrame | None:
 
 
 def _live_campaigns(totals: pd.DataFrame) -> pd.DataFrame:
-    live = totals[totals["state"].str.strip().str.upper() != ARCHIVED_STATE]
-    return live.sort_values(["name", "campaign_id"], kind="mergesort").reset_index(drop=True)
+    return _in_name_order(totals[totals["state"].str.strip().str.upper() != ARCHIVED_STATE])
+
+
+def _archived_campaigns(totals: pd.DataFrame) -> pd.DataFrame:
+    return _in_name_order(totals[totals["state"].str.strip().str.upper() == ARCHIVED_STATE])
+
+
+def _in_name_order(campaigns: pd.DataFrame) -> pd.DataFrame:
+    return campaigns.sort_values(["name", "campaign_id"], kind="mergesort").reset_index(drop=True)
 
 
 def _read_campaigns(csv_bytes: bytes) -> pd.DataFrame:

@@ -29,6 +29,7 @@ from core.integrations.sync_jobs import SyncJobStore
 from core.currency_format import currency_symbol, money
 from core.excel_text import force_text_cells
 from core.ui.kpi_grid import Kpi, render_kpi_grid
+from core.ui.ranking import RankingRow, render_ranking
 from core.search_term.analysis import ANALYSIS_MODULE, CANONICAL_LANG, CANONICAL_WINDOW_DAYS, build_analysis_input
 from core.search_term.candidates import (
     DEFAULT_HARVEST_MIN_CLICKS,
@@ -63,6 +64,7 @@ from core.chat.screen_selection import (
     account_window,
 )
 from modules.pages import search_term_source
+from modules.pages.campaign_status_filter import filter_search_terms_by_status, no_campaigns_text
 from modules.pages.keyword_listing_source import listing_moment, load_keyword_listing, profile_option
 from modules.pages.search_term_source import DISPLAY_TIMEZONE, date_range_label, render_source_picker, shows_older_data
 
@@ -75,6 +77,7 @@ RELEASED_RANKING_KEY = "neg_released_ranking"
 LIBERAR_COLUMN = "Liberar"
 # Big accounts reach hundreds of thousands of terms: draw and chart a slice, build their files only on request.
 TABLE_ROW_LIMIT = 1_000
+TOP_SPEND_LIMIT = 5
 SCATTER_POINT_LIMIT = 2_000
 EAGER_EXPORT_ROW_LIMIT = 5_000
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -234,6 +237,22 @@ def _is_brand_campaign(name):
     """Detect if a campaign name suggests brand/defensive."""
     n = str(name).lower()
     return any(kw in n for kw in ["branded", "brand", "defense", "defensive"])
+
+
+def _top_spend_rows(campaigns, currency_code, limit=TOP_SPEND_LIMIT):
+    """The campaigns that spent the most, with their share of the spend of `campaigns` and their ACoS.
+
+    `campaigns` has one row per campaign with Campaign, Spend and Sales. A campaign that spent nothing is left out,
+    and one that sold nothing reads «Sin ventas»: an ACoS of 0% would read as the best campaign.
+    """
+    spending = campaigns[campaigns["Spend"] > 0].sort_values(
+        ["Spend", "Campaign"], ascending=[False, True], kind="mergesort")
+    total_spend = spending["Spend"].sum()
+    return [
+        RankingRow(name=str(name), amount=money(spend, currency_code), share=spend / total_spend * 100,
+                   note=f"ACoS {spend / sales * 100:.1f}%" if sales > 0 else "Sin ventas")
+        for name, spend, sales in spending[["Campaign", "Spend", "Sales"]].head(limit).itertuples(index=False)
+    ]
 
 
 def _build_str_excel(df_f, df_original, kpi_dict, brand_terms):
@@ -1117,18 +1136,23 @@ def render():
 
         # ── Filtros interactivos ────────────────────────────────
         st.markdown("#### Filtros")
-        fc1, fc2, fc3, fc4 = st.columns(4)
         camp_col = cols["campaign"]
         match_col = cols["match_type"]
 
-        with fc1:
+        fs1, fs2 = st.columns(2)
+        with fs1:
+            df_status = filter_search_terms_by_status(source, df, key="str_f_status")
+        with fs2:
             camp_options = ["Todas"]
-            if camp_col and camp_col in df.columns:
-                camp_options += sorted(df[camp_col].dropna().astype(str).unique())
+            if camp_col and camp_col in df_status.columns:
+                camp_options += sorted(df_status[camp_col].dropna().astype(str).unique())
             # A kept campaign that is not in this data would make Streamlit fail to draw the filter.
             if st.session_state.get("str_f_camp") not in camp_options:
                 st.session_state["str_f_camp"] = "Todas"
             selected_camp = st.selectbox("Campana", camp_options, key="str_f_camp")
+        if df_status.empty:
+            st.info(no_campaigns_text())
+        fc2, fc3, fc4 = st.columns(3)
         with fc2:
             match_options = []
             if match_col and match_col in df.columns:
@@ -1152,7 +1176,7 @@ def render():
         )
 
         # ── Apply filters ──────────────────────────────────────
-        df_f = df.copy()
+        df_f = df_status.copy()
         if selected_camp != "Todas" and camp_col:
             df_f = df_f[df_f[camp_col].astype(str) == selected_camp]
         if selected_match and match_col:
@@ -1737,11 +1761,15 @@ def render():
         st.caption("Metricas agregadas desde el STR por campana. Clasificacion Brand/No Brand automatica.")
 
         camp_col = cols["campaign"]
-        if not camp_col or camp_col not in df.columns:
+        has_campaigns = bool(camp_col) and camp_col in df.columns
+        df_campaigns = filter_search_terms_by_status(source, df, key="str_camp_status") if has_campaigns else df
+        if not has_campaigns:
             st.warning("No se encontro columna de campana en el archivo.")
+        elif df_campaigns.empty:
+            st.info(no_campaigns_text())
         else:
             # ── Aggregate by campaign ──────────────────────────
-            df_camp = df.groupby(camp_col).agg(
+            df_camp = df_campaigns.groupby(camp_col).agg(
                 Impressions=("_imps", "sum"),
                 Clicks=("_clicks", "sum"),
                 Spend=("_spend", "sum"),
@@ -1774,16 +1802,22 @@ def render():
             total_camps = len(df_camp)
             brand_camps = (df_camp["Tipo"] == "Brand").sum()
             nobrand_camps = total_camps - brand_camps
-            top_spend_camp = df_camp.loc[df_camp["Spend"].idxmax(), "Campaign"] if len(df_camp) > 0 else "—"
-            # Truncate long name
-            top_spend_display = top_spend_camp[:35] + "..." if len(top_spend_camp) > 35 else top_spend_camp
 
             render_kpi_grid([
                 Kpi("Total Campanas", total_camps),
                 Kpi("Brand", brand_camps),
                 Kpi("No Brand", nobrand_camps),
-                Kpi("Mayor Spend", top_spend_display),
             ])
+
+            st.markdown("**Top campañas por gasto**")
+            top_spend = _top_spend_rows(df_camp, currency_code)
+            if top_spend:
+                st.caption("La que más gastó, con su parte del gasto de las campañas de esta vista."
+                           if len(top_spend) == 1 else
+                           f"Las {len(top_spend)} que más gastaron, con su parte del gasto de las campañas de esta vista.")
+                render_ranking(top_spend)
+            else:
+                st.caption("Ninguna campaña gastó en este período.")
 
             st.markdown("")
 
@@ -1820,12 +1854,13 @@ def render():
 
             # ── Term type distribution by campaign ────────────
             st_col = cols["search_term"]
-            if brand_terms and st_col and st_col in df.columns:
+            if brand_terms and st_col and st_col in df_campaigns.columns:
                 st.markdown("---")
                 st.markdown("**Distribucion Brand/Generic/Long-tail por campana**")
 
-                df["_term_type_camp"] = df[st_col].apply(lambda t: _classify_term_type(t, brand_terms))
-                tt_camp = df.groupby([camp_col, "_term_type_camp"]).agg(
+                df_campaigns["_term_type_camp"] = df_campaigns[st_col].apply(
+                    lambda t: _classify_term_type(t, brand_terms))
+                tt_camp = df_campaigns.groupby([camp_col, "_term_type_camp"]).agg(
                     Spend=("_spend", "sum"),
                 ).reset_index()
                 tt_pivot = tt_camp.pivot_table(

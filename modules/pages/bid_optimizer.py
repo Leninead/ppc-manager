@@ -35,6 +35,7 @@ from core.chat.screen_selection import (
 from core.currency_format import currency_symbol, money
 from core.search_term.frame import SOURCE_FILE
 from core.ui.kpi_grid import Kpi, render_kpi_grid
+from modules.pages.campaign_status_filter import filter_search_terms_by_status, no_campaigns_text
 from modules.pages.search_term_source import date_range_label, render_source_picker, shows_older_data
 
 MODULE_LABEL = "Bid Optimizer"
@@ -385,10 +386,14 @@ def render():
             _empty_state("Este reporte no trae nombre de campaña, así que no se pueden sugerir "
                          "placements.")
         else:
+            placement_terms = filter_search_terms_by_status(source, df, key="bid_opt_pl_status")
+            shown_rows = campaign_placements(placement_terms, cols)
             if not camp_rows:
                 _empty_state("No hay campañas con datos en este período.")
+            elif not shown_rows:
+                _empty_state(no_campaigns_text())
             else:
-                df_camp_pl = pd.DataFrame(camp_rows)
+                df_camp_pl = pd.DataFrame(shown_rows)
                 render_kpi_grid([
                     Kpi("Campañas analizadas", len(df_camp_pl)),
                     Kpi("Con ToS modifier", int((df_camp_pl["ToS %"] > 0).sum())),
@@ -409,7 +414,7 @@ def render():
 
                 st.markdown("---")
                 st.markdown("#### 💵 Budget diario estimado")
-                total_budget = sum(budget_midpoint(row["Tipo Detectado"]) for row in camp_rows)
+                total_budget = sum(budget_midpoint(row["Tipo Detectado"]) for row in shown_rows)
                 render_kpi_grid([Kpi("Budget diario total estimado",
                                      f"{money(total_budget, currency_code)}/día")])
                 st.caption("Punto medio del rango sugerido por el SOP para cada tipo de campaña. "

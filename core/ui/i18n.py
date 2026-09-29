@@ -3,8 +3,9 @@
 The application is Spanish-first: Spanish is the source language, written by
 hand in the modules, and every English string here is a translation of it.
 Only a handful of surfaces have been migrated — the shell (login, sidebar,
-search, footer), the navigation labels, and the Sistema screens (Cuentas
-conectadas, Integraciones and Registro de solicitudes). Every other page still
+search, footer), the navigation labels, the Sistema screens (Cuentas
+conectadas, Integraciones and Registro de solicitudes) and the campaign status
+filter that several pages share. Every other page still
 carries its Spanish literals inline and is unaffected by the language toggle.
 
 That partial coverage is deliberate and visible: `t()` falls back to Spanish
@@ -816,6 +817,30 @@ estado está, cuántas veces se intentó y cuántas filas guardó.
     "home.count.areas_other": "{n} áreas",
     "home.count.modules_one": "{n} módulo",
     "home.count.modules_other": "{n} módulos",
+    # ── Filtro «Estado de campaña» (componente compartido) ────────────────
+    "campaign_status.label": "Estado de campaña",
+    "campaign_status.help": (
+        "El estado de la campaña en la última sincronización, como en Campaign Manager: «{enabled}» son las "
+        "habilitadas, aunque no estén entregando. Las métricas son las del período."
+    ),
+    "campaign_status.option.all": "Todas",
+    "campaign_status.option.all_but_archived": "Todas menos archivadas",
+    "campaign_status.option.enabled": "Activas",
+    "campaign_status.option.paused": "Pausadas",
+    "campaign_status.option.archived": "Archivadas",
+    "campaign_status.unavailable.hand_upload": (
+        "El archivo subido a mano no trae el estado de las campañas: se muestran todas."
+    ),
+    "campaign_status.no_campaigns": "Ninguna campaña con el estado elegido en este período.",
+    # ── Bulk Campañas (M6) ────────────────────────────────────────────────
+    "bulk_campaigns.status_filter.no_state_column": (
+        "El archivo no trae la columna State: se muestran todas las campañas."
+    ),
+    "bulk_campaigns.analyzer.status_without_enabled": (
+        "El Campaign Analyzer diagnostica sólo campañas activas y el estado elegido es «{status}»: no hay "
+        "ninguna para diagnosticar. Elegí «{enabled}» en {filter} para verlas."
+    ),
+    "bulk_campaigns.analyzer.without_enabled": "No hay campañas activas para diagnosticar en este período.",
 }
 
 
@@ -1581,6 +1606,28 @@ many times it was tried and how many rows it saved.
     "home.count.areas_other": "{n} areas",
     "home.count.modules_one": "{n} module",
     "home.count.modules_other": "{n} modules",
+    # ── Campaign status filter (shared component) ─────────────────────────
+    "campaign_status.label": "Active status",
+    "campaign_status.help": (
+        "The campaign's status at the last sync, as in Campaign Manager: «{enabled}» campaigns are switched on, "
+        "even if they are not delivering. Metrics cover the selected period."
+    ),
+    "campaign_status.option.all": "All",
+    "campaign_status.option.all_but_archived": "All but archived",
+    "campaign_status.option.enabled": "Enabled",
+    "campaign_status.option.paused": "Paused",
+    "campaign_status.option.archived": "Archived",
+    "campaign_status.unavailable.hand_upload": (
+        "A hand-uploaded report carries no campaign status: every campaign is shown."
+    ),
+    "campaign_status.no_campaigns": "No campaign has the selected status in this period.",
+    # ── Bulk Campañas (M6) ────────────────────────────────────────────────
+    "bulk_campaigns.status_filter.no_state_column": "The file has no State column: every campaign is shown.",
+    "bulk_campaigns.analyzer.status_without_enabled": (
+        "The Campaign Analyzer only diagnoses enabled campaigns, and the selected status is «{status}»: there "
+        "are none to diagnose. Choose «{enabled}» in {filter} to see them."
+    ),
+    "bulk_campaigns.analyzer.without_enabled": "There are no enabled campaigns to diagnose in this period.",
 }
 
 _CATALOG: dict[str, dict[str, str]] = {"es": _ES, "en": _EN}

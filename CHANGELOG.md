@@ -6,6 +6,51 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Filtro «Estado de campaña» en Search Term Report, Bulk Campañas y Bid Optimizer (2026-09-29)
+
+**Por qué.** Pedido de Lenin: el selector de campaña del Search Term Report traía todas las campañas del período, en
+cualquier estado, y no había forma de quedarse con las activas, las pausadas o las archivadas, como con el filtro
+Active status de Campaign Manager. Bulk Campañas tenía reglas fijas (escondía las archivadas) y el Bid Optimizer sugería
+placements y budget a cualquier campaña del período.
+
+**Qué cambia.**
+- Un solo filtro reusable: la regla en `core/amazon_ads/campaign_status.py` (`StatusFilter`, `status_mask`,
+  `filter_by_status`) y el selector en `modules/pages/campaign_status_filter.py`. Opciones: Todas, Todas menos
+  archivadas, Activas, Pausadas y Archivadas. **Arranca en Activas** en todos los módulos.
+- **En los dos idiomas:** sus textos están en `core/ui/i18n.py` (`campaign_status.*` y, para los mensajes de Bulk
+  Campañas, `bulk_campaigns.*`); en inglés usa los nombres de Campaign Manager (Active status, All, All but archived,
+  Enabled, Paused, Archived). La elección se mantiene al cambiar de idioma. El resto de esas páginas sigue sólo en
+  español: nunca se migraron al catálogo.
+- **Search Term Report:** en Vista General → Filtros, antes del selector de campaña (lo recorta junto con la tabla), y
+  en Por Campana (su tabla, sus KPIs, la distribución por tipo de término y el Excel). Cada pestaña tiene su propio filtro.
+- **Bulk Campañas:** al lado de Producto, sobre Vista General y el Campaign Analyzer, que sigue diagnosticando sólo las
+  activas y ahora dice por qué queda vacío. Las campañas SP archivadas llegan aparte en `CampaignSource.archived` (de la
+  misma lectura) y se suman sólo cuando el filtro las pide. El chat se entera del estado elegido, como del producto.
+- **Bid Optimizer:** arriba de «Placements sugeridos por campaña»: la lista, sus KPIs, el budget estimado y el export.
+- El estado de un search term es el `_campaign_status` que ya trae el reporte sincronizado (el mismo que usa el bulk de
+  negativos); en Bulk Campañas, el `State` de las campañas. Con un STR subido a mano el filtro queda deshabilitado y lo
+  dice; un Campaign CSV subido a mano sí lo usa, con su columna State.
+
+**Qué no cambia.** Los análisis IA (del Search Term Report, de Bulk Campañas y del Bid Optimizer), las herramientas del
+chat y los KPIs de arriba de Vista General del Search Term Report leen lo mismo que antes: el filtro sólo recorta lo que
+se lista, así un análisis guardado sigue encontrándose por su huella.
+
+**Límites.** En Sponsored Brands y Display no hay archivadas: el sync lista sólo habilitadas y pausadas. El estado es
+el de la última sincronización y las métricas son las del período: una campaña archivada ayer aparece con su gasto de
+la semana.
+
+**Verificación de la fuente del estado.** En producción (29/09, últimos 30 días de search terms) el estado del reporte
+coincide con el del último listado de campañas en las 4.399 campañas: 4.348 habilitadas, 50 pausadas y 1 archivada.
+
+### Changed — Search Term Report → Por Campana: top de campañas por gasto en lugar de la card «Mayor Spend» (2026-09-29)
+
+La card «Mayor Spend» mostraba el nombre de la campaña de más gasto cortado a 35 caracteres, y los nombres de la
+naming convention pasan de 80 (la de Dermaglós US del 15 al 21/09 tiene 85). La pestaña queda con 3 cards (Total,
+Brand, No Brand) y un bloque «Top campañas por gasto»: hasta 5 campañas con gasto, con el nombre completo, el monto, su
+parte del gasto de las campañas de la vista (con una barra a escala) y el ACoS, o «Sin ventas» si no vendió. Lo dibuja
+un componente nuevo y reusable, `core/ui/ranking.py` (`RankingRow`, `render_ranking`), con los colores de las cards;
+en un teléfono el monto baja debajo del nombre. Respeta el filtro «Estado de campaña» de la pestaña.
+
 ### Fixed — La marca del SQP se detecta también en los CSV (2026-09-29)
 
 `extract_sqp_brand` nunca leía la marca de un SQP en CSV: tomaba el nombre de la primera columna, que con

@@ -130,6 +130,20 @@ def test_archived_campaigns_stay_out_like_in_campaign_manager():
     assert list(frame["State"]) == ["ENABLED", "PAUSED"]
 
 
+def test_the_archived_campaigns_come_apart_in_the_same_columns_for_the_status_filter():
+    rest = _FakeRest(csv_bytes=_csv(_rpc_row(campaign_id="1", name="A"),
+                                    _rpc_row(campaign_id="4", name="Z old", state="ARCHIVED"),
+                                    _rpc_row(campaign_id="2", name="B old", state="archived", cost="7.5")))
+
+    source = CampaignProvider(rest).campaigns(_option(), START, END)
+
+    assert list(source.frame["Campaign ID"]) == ["1"]
+    assert list(source.archived.columns) == list(FRAME_COLUMNS)
+    assert list(source.archived["Campaign ID"]) == ["2", "4"]
+    assert list(source.archived["State"]) == ["ARCHIVED", "ARCHIVED"]
+    assert source.archived.loc[0, "Total cost"] == 7.5
+
+
 def test_a_portfolio_without_a_name_is_still_named_instead_of_left_blank():
     frame, _ = _frame(_rpc_row(portfolio_id="555", portfolio_name=""),
                       _rpc_row(campaign_id="2", name="Z", portfolio_id="", portfolio_name=""))

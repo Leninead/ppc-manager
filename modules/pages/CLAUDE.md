@@ -204,6 +204,21 @@ Analizar search terms de campañas SP: negativizar, harvestear, clasificar por t
 - Estados del picker: primera carga en curso, **primera carga fallida** (pill rojo, detalle saneado y botón «Subir archivo manualmente»; nunca apunta al Registro, que es admin), reintentando, al día y desactualizada. Si una lectura falla después de haber cargado datos del mismo perfil, muestra el error y deja los últimos datos buenos a la vista.
 - Las elecciones (cuenta, país, período, cuenta del archivo) y los inputs de M2 sobreviven a un rerun donde el widget no se dibuja (`_park_inputs` / `_restore_parked_inputs`). El uploader de anti-canibalización de Tab 3 es la excepción: Streamlit no deja restaurar un `file_uploader`.
 
+### Filtro «Estado de campaña» (2026-09-29)
+- Dos filtros independientes del componente compartido (ver «Filtro «Estado de campaña»» al final): Vista General →
+  Filtros (`str_f_status`, antes del selector de campaña: recorta su lista y la tabla) y Por Campana (`str_camp_status`:
+  la tabla, sus KPIs, la distribución Brand/Generic/Long-tail y el Excel). Arrancan en Activas. No van en `_INPUT_KEYS`:
+  el componente guarda su elección, y el parking escribiría la clave del widget por la API de sesión.
+- El estado es el `_campaign_status` del reporte sincronizado. Con archivo manual quedan deshabilitados y lo dicen.
+- Los KPIs de arriba de Vista General, los negativos, el harvest y el análisis IA no se filtran por estado.
+
+### Por Campana: top de campañas por gasto (2026-09-29)
+- 3 cards (Total Campanas, Brand, No Brand) y «Top campañas por gasto»: `_top_spend_rows(df_camp, currency_code)`
+  arma hasta `TOP_SPEND_LIMIT` (5) campañas con gasto > 0, por gasto y nombre, con su parte del gasto de las
+  campañas de la vista y el ACoS (o «Sin ventas»); `core/ui/ranking.py` las dibuja (nombre completo, monto, barra a
+  escala). Reemplaza la card «Mayor Spend», que cortaba el nombre a 35 caracteres.
+- ❌ NO volver a poner un nombre de campaña en una KPI card: la card es para números y el nombre se corta.
+
 ### Capa IA (2026-09-01 — consumidor de `core/ai_tab`; análisis guardados desde 2026-09-15)
 - **Un solo constructor del payload**: `core/search_term/analysis.build_analysis_input(frame, cols, params, currency_code, lang)` arma `StrData` y los records, y lo usan M2 y el worker de análisis. Mismos datos + mismos parámetros → misma huella (`ai/agent_call.build_agent_call(...).input_digest`). Por eso el payload no lleva la fecha ni el Target ACoS de la pestaña 1, los brand terms van normalizados (minúsculas, sin repetidos, ordenados) y el proveedor desempata el orden de filas por IDs. `agent_version` (prompt, schema, modelo) va aparte: un cambio de prompt no invalida análisis de los mismos datos. Las tablas del payload se escriben con fin de línea `\n` fijo (`to_csv(lineterminator="\n")`): con el de pandas por defecto, la misma cuenta daba otra huella en Windows que en Linux.
 - **Datos de Amazon Ads: análisis guardado** (`ai_analyses`, migración 010). El worker `ads-ai-worker` (`core/ai_analysis/`) lo genera solo para los últimos 30 días con los parámetros de la cuenta (`ai_analysis_settings`) cuando cambian los datos o los parámetros, y nunca paga dos veces la misma huella. La pestaña 4 busca el análisis de exactamente lo que está en pantalla: si existe lo muestra con SUS records y SUS brand terms; si se está generando muestra el estado y nunca un análisis anterior; si falló, el error y "Reintentar"; si no hay, "Generar análisis IA" (manual). Pedirlo guarda los parámetros como parámetros de la cuenta (`save_ai_analysis_settings`) y encola con `request_ai_analysis`. Al abrir una cuenta, los inputs se cargan con sus parámetros guardados (o los default de su moneda). El análisis cubre todos los portfolios aunque haya filtro, e ignora el Campaign CSV de anti-canibalización (es un archivo manual).
@@ -427,7 +442,9 @@ Visualizar el bulk de campañas y diagnosticar con semáforo automático (PAUSAR
 Análisis IA (análisis guardado de la cuenta, agente `ai/agents/bulk_campaigns`).
 
 ### Reglas de negocio
-- Filtro por State == "ENABLED"
+- Filtro «Estado de campaña» (`bulk_status`, componente compartido) al lado de Producto, sobre Vista General y el
+  Campaign Analyzer; arranca en Activas. Con un archivo sin columna State queda deshabilitado.
+- El Campaign Analyzer diagnostica sólo State == "ENABLED": con «Pausadas» o «Archivadas» queda vacío y lo dice.
 - PAUSAR: spend > threshold AND orders = 0
 - REVISAR: ACoS > target × 2
 - ESCALAR: ACoS < target × 0.5 con órdenes
@@ -475,7 +492,9 @@ Columna «Señales» del Campaign Analyzer, aparte del diagnóstico (que no camb
   (migración 013): arranca en `ads_campaign` (la foto de `/sp/campaigns/list`) y suma `ads_campaign_daily` (reporte
   `spCampaigns` por día: 65 días en la carga inicial, después la última semana cada noche y 60 días los domingos) por
   left join, así que una campaña sin actividad es una fila en cero. Las archivadas
-  quedan afuera. Sin cuentas, sin base o con "Subir archivo manualmente": el uploader de siempre (Bulk o Campaign CSV).
+  quedan afuera de `frame` y llegan aparte en `CampaignSource.archived` (misma lectura, mismas columnas):
+  M6 las suma sólo cuando el filtro de estado las pide (Todas o Archivadas), y el analyzer, la IA y el MCP
+  siguen leyendo `frame`. Sin cuentas, sin base o con "Subir archivo manualmente": el uploader de siempre (Bulk o Campaign CSV).
 - **Frescura**: sale de las solicitudes `sp_campaigns` (la última y la última completada), nunca de `ads_profile_sync`,
   que es del STR. El pill reusa `freshness_pill` del STR (día y hora); el encabezado se refresca cada 30 s mientras hay
   una solicitud abierta y redibuja la página cuando se cierra.
@@ -647,6 +666,10 @@ Calcular bid óptimo por ASIN: bid = CVR × precio × target_ACoS. Export bulk c
 
 ### Arquitectura
 3 tabs: Bid Calculator (semáforo por CVR) | Placements & Budget (referencia SOP) | Análisis IA
+
+Filtro «Estado de campaña» (`bid_opt_pl_status`, 2026-09-29) arriba de «Placements sugeridos por campaña»: la
+lista, sus KPIs, el budget estimado y el export salen de los search terms que el filtro deja (`campaign_placements`
+sobre ellos). `camp_rows`, lo que lee la IA, sigue sobre todas las campañas.
 (capa `core/ai_tab` + agente `ai/agents/bid_optimizer`).
 
 ### Fuente de datos (2026-09-17 — ingesta desde Amazon Ads API)
@@ -2231,3 +2254,39 @@ inicial de 65 días (la retención de `spSearchTerm`) apenas aparece una cuenta,
 El crudo de cada reporte queda en el volumen `ads_raw` 180 días y se borra sólo desde `ads_report_requests` (excepción
 documentada a "sin borrados automáticos": son copias secundarias; los datos normalizados nunca se borran solos).
 Deploy, puente con la VPS y runbook: `deploy/integrations/DEPLOY.md`.
+
+---
+
+## Filtro «Estado de campaña» (componente compartido, 2026-09-29)
+
+El filtro Active status de Campaign Manager, hecho una vez: lo usan M2 (dos veces), M6 y M9.
+
+- **Regla** (`core/amazon_ads/campaign_status.py`, pura): `StatusFilter` (Todas, Todas menos archivadas, Activas,
+  Pausadas, Archivadas), `status_mask(states, filtro)` y `filter_by_status(frame, columna, filtro)`, que devuelve un
+  frame nuevo (una página le puede sumar columnas). No distingue mayúsculas ni espacios. Un estado desconocido sólo
+  entra en Todas y Todas menos archivadas: nada dice que esté archivado, ni que esté activo.
+- **Selector** (`modules/pages/campaign_status_filter.py`): `render_campaign_status_filter(key, unavailable_reason=)`
+  arranca en Activas (`DEFAULT_STATUS`) y devuelve el `StatusFilter`; con un motivo se dibuja deshabilitado, muestra el
+  motivo y devuelve None. `filter_search_terms_by_status(source, frame, key=)` es la llamada de las páginas que leen
+  search terms: filtra por `_campaign_status` y, con un STR subido a mano, lo deshabilita y deja todos los términos.
+- **Idioma** (2026-09-29): todos sus textos son claves `campaign_status.*` de `core/ui/i18n.py` (es/en, los nombres
+  de Campaign Manager en inglés: Active status, All, All but archived, Enabled, Paused, Archived); las páginas los leen
+  con `filter_label()`, `status_label(status)` y `no_campaigns_text()`. Los mensajes propios de M6 son `bulk_campaigns.*`.
+  Streamlit 1.43 distingue un selectbox también por su etiqueta y sus opciones, así que otro idioma crea otro widget: el
+  componente guarda la elección en `<key>_choice` y la vuelve a escribir antes de dibujarse. Sin eso, cambiar de idioma
+  lo devolvía a Todas; los filtros de Registro de solicitudes todavía se reinician así.
+- **De dónde sale el estado.** Search terms: el `_campaign_status` del reporte sincronizado, el mismo que usa el bulk de
+  negativos. Medido en producción el 29/09 (últimos 30 días): coincide con el último listado de campañas en las 4.399
+  campañas con search terms. Campañas (M6): el `State` del listado.
+- **Cada página decide qué recorta**: sólo lo que lista. Los análisis IA, sus payloads y las herramientas del chat no se
+  filtran, así las huellas de los análisis guardados no cambian.
+- Tests: `tests/test_campaign_status.py` (regla), `tests/test_campaign_status_filter.py` (selector en AppTest), y los de
+  cada página en `tests/test_campaign_source.py` (M6) y `tests/test_search_term_source.py` (M2).
+
+**Anti-patterns.**
+- ❌ NO copiar la regla en una página: se importa de `core/amazon_ads/campaign_status.py`.
+- ❌ NO escribir los textos del filtro en una página: van al catálogo (`core/ui/i18n.py`), en los dos idiomas.
+- ❌ NO pasarle `index=` al selector: entra en la identidad del widget y cada elección nueva perdería la siguiente.
+- ❌ NO filtrar por estado un payload de IA ni un total que se compara con otro período: cambia la huella del análisis
+  guardado, y el gasto de una campaña archivada ayer es gasto de la semana.
+- ❌ NO leer un estado vacío como activo ni como archivado.

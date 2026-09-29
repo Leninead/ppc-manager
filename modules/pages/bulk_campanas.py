@@ -20,7 +20,8 @@ from core.amazon_ads.campaign_analyzer import (
     with_diagnosis,
     with_signals,
 )
-from core.amazon_ads.campaign_provider import CAMPAIGN_ID, CAMPAIGN_NAME, TYPE
+from core.amazon_ads.campaign_provider import CAMPAIGN_ID, CAMPAIGN_NAME, STATE, TYPE
+from core.amazon_ads.campaign_status import StatusFilter, filter_by_status
 from core.amazon_ads.product_provider import (
     PRODUCT_CODES,
     PRODUCT_TYPES,
@@ -42,7 +43,14 @@ from core.chat.screen_selection import (
 )
 from core.currency_format import currency_symbol, money
 from core.integrations.store import StoreError
+from core.ui import i18n
 from modules.pages.campaign_source import render_campaign_source
+from modules.pages.campaign_status_filter import (
+    filter_label,
+    no_campaigns_text,
+    render_campaign_status_filter,
+    status_label,
+)
 
 log = logging.getLogger(__name__)
 
@@ -152,7 +160,7 @@ def render():
 
     campaign_input = render_campaign_source("bulk")
     if campaign_input is not None:
-        df_bulk_raw, product_choice = _campaigns_to_show(campaign_input)
+        df_bulk_raw, product_choice, status_choice = _campaigns_to_show(campaign_input)
         without_metrics = campaign_input.products.without_metrics if campaign_input.products is not None else frozenset()
         currency = campaign_input.currency_code
         st.success(f"✅ {len(df_bulk_raw)} filas cargadas")
@@ -166,7 +174,10 @@ def render():
         # TAB 1 — Vista General (raw)
         # ══════════════════════════════════════════════════════════════════
         with bulk_tab1:
-            st.dataframe(df_bulk_raw, use_container_width=True)
+            if df_bulk_raw.empty and status_choice is not None:
+                st.info(no_campaigns_text())
+            else:
+                st.dataframe(df_bulk_raw, use_container_width=True)
 
         # ══════════════════════════════════════════════════════════════════
         # TAB 2 — Campaign Analyzer (Auditoría PPC)
@@ -222,6 +233,8 @@ def render():
                                                          int(min_orders_escalar))
 
                 st.markdown("---")
+                if analyzer.campaigns.empty:
+                    st.info(_empty_analyzer_note(status_choice))
 
                 # ── Diagnóstico y señales ─────────────────────────────────
                 df_ca = with_signals(
@@ -406,17 +419,20 @@ def render():
         # ══════════════════════════════════════════════════════════════════
         with bulk_tab3:
             _render_ai_tab(source, analysis_params, campaign_input.products)
-        app_chat.share_selection(screen_selection(source, product_choice=product_choice, params=analysis_params))
+        app_chat.share_selection(screen_selection(source, product_choice=product_choice, params=analysis_params,
+                                                  status=status_choice))
     else:
         app_chat.withdraw_selection()
 
 
-def screen_selection(source, *, product_choice: str, params) -> ScreenSelection:
+def screen_selection(source, *, product_choice: str, params, status: StatusFilter | None = None) -> ScreenSelection:
     """What the chat reads about this screen: the account, the days, the thresholds and the calls behind them.
 
     `params` is None when the campaigns carry no metrics, and then there is no diagnosis to reproduce.
     """
     values = [("producto", product_choice)]
+    if status is not None:
+        values.append(("estado de campaña", status_label(status)))
     if params is not None:
         values += [("target ACoS", f"{params.target_acos:g}%"),
                    ("gasto mínimo para PAUSAR", f"{params.spend_to_pause:g}"),
@@ -436,19 +452,43 @@ def screen_selection(source, *, product_choice: str, params) -> ScreenSelection:
                                   ToolCall("idle_targets", window + product)))
 
 
-def _campaigns_to_show(campaign_input) -> tuple[pd.DataFrame, str]:
-    """(las campañas a mostrar, el producto elegido). Con SB o SD sincronizadas, un filtro por producto;
-    el análisis IA cubre los tres productos sin importar el filtro."""
+def _campaigns_to_show(campaign_input) -> tuple[pd.DataFrame, str, StatusFilter | None]:
+    """(campaigns to show, chosen product, chosen status or None when the campaigns carry no state). With SB or SD
+    synced there is a product filter too; the AI analysis covers the three products and every campaign that is not
+    archived, whatever the filters say."""
+    status_column, product_column = st.columns([2, 3])
+    with status_column:
+        status = render_campaign_status_filter("bulk_status", unavailable_reason=(
+            "" if STATE in campaign_input.frame.columns else i18n.t("bulk_campaigns.status_filter.no_state_column")))
+    campaigns = _with_archived(campaign_input)
     products = campaign_input.products
-    if products is None or products.frame.empty:
-        return campaign_input.frame, _ALL_PRODUCTS
-    combined = all_campaigns(campaign_input.frame, products)
-    present = [name for name in PRODUCT_TYPES.values() if (combined[TYPE] == name).any()]
-    choice = st.segmented_control("Producto", options=[_ALL_PRODUCTS, *present], default=_ALL_PRODUCTS,
-                                  key="bulk_product", help=_PRODUCT_HELP) or _ALL_PRODUCTS
-    if choice == _ALL_PRODUCTS:
-        return combined, choice
-    return combined[combined[TYPE] == choice].reset_index(drop=True), choice
+    choice = _ALL_PRODUCTS
+    if products is not None and not products.frame.empty:
+        campaigns = all_campaigns(campaigns, products)
+        present = [name for name in PRODUCT_TYPES.values() if (campaigns[TYPE] == name).any()]
+        with product_column:
+            choice = st.segmented_control("Producto", options=[_ALL_PRODUCTS, *present], default=_ALL_PRODUCTS,
+                                          key="bulk_product", help=_PRODUCT_HELP) or _ALL_PRODUCTS
+        if choice != _ALL_PRODUCTS:
+            campaigns = campaigns[campaigns[TYPE] == choice]
+    if status is not None:
+        campaigns = filter_by_status(campaigns, STATE, status)
+    return campaigns.reset_index(drop=True), choice, status
+
+
+def _with_archived(campaign_input) -> pd.DataFrame:
+    """The SP campaigns plus the archived ones the synced read keeps apart; a file brings every state already."""
+    archived = campaign_input.source.archived if campaign_input.source is not None else None
+    if archived is None or archived.empty:
+        return campaign_input.frame
+    return pd.concat([campaign_input.frame, archived], ignore_index=True)
+
+
+def _empty_analyzer_note(status: StatusFilter | None) -> str:
+    if status in (StatusFilter.PAUSED, StatusFilter.ARCHIVED):
+        return i18n.t("bulk_campaigns.analyzer.status_without_enabled", status=status_label(status),
+                      enabled=status_label(StatusFilter.ENABLED), filter=filter_label())
+    return i18n.t("bulk_campaigns.analyzer.without_enabled")
 
 
 def _render_without_metrics(campaigns: pd.DataFrame) -> None:

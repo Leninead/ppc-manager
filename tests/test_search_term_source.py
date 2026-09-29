@@ -22,6 +22,7 @@ import modules.pages.search_term_source as picker
 from ai.agents.str.context import StrData, build_context
 from core.chat import ads_scope
 from ai.agent_call import build_agent_call
+from core.amazon_ads.campaign_status import StatusFilter
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider
 from core.amazon_ads.structure_provider import ROW_COLUMNS as STRUCTURE_ROW_COLUMNS
 from core.search_term.analysis import build_analysis_input, canonical_analysis_window
@@ -965,6 +966,47 @@ search_term_report.render()
         assert self._negative_actions(app)["b0abcdefgh"] == "Negativo"
         assert "Quedaron afuera del bulk (1)" in _markdown(app)
 
+    def test_the_status_filters_narrow_the_campaigns_of_the_overview_and_of_the_campaign_tab(self, monkeypatch):
+        paused = {**_term_row("toy chest", match_type="BROAD", clicks=5, orders=1, cost=3.0, sales=20.0,
+                              keyword_text="toy chest"),
+                  "campaign_id": "3002", "campaign_name": "LK - Paused", "campaign_status": "PAUSED"}
+        app = self._page_app(monkeypatch, _FakeRest([_profile_row(currency_code="USD", country_code="US")],
+                                                     [_completed_job_row()],
+                                                     search_term_rows=[*_SEARCH_TERM_ROWS, paused]))
+
+        def by_campaign():
+            (table,) = [frame.value for frame in app.dataframe if {"Campaign", "Tipo"} <= set(frame.value.columns)]
+            return list(table["Campaign"])
+
+        app.run()
+        assert not app.exception
+        assert app.selectbox(key="str_f_camp").options == ["Todas", "LK - SP - KW"]
+        assert by_campaign() == ["LK - SP - KW"]
+
+        app.selectbox(key="str_f_status").set_value(StatusFilter.PAUSED).run()
+        assert app.selectbox(key="str_f_camp").options == ["Todas", "LK - Paused"]
+        assert by_campaign() == ["LK - SP - KW"]
+
+        app.selectbox(key="str_camp_status").set_value(StatusFilter.ALL).run()
+        assert by_campaign() == ["LK - SP - KW", "LK - Paused"]
+
+    def test_the_campaign_tab_ranks_the_campaigns_by_spend_instead_of_a_card_that_cut_the_name(self, monkeypatch):
+        paused = {**_term_row("toy chest", match_type="BROAD", clicks=5, orders=1, cost=3.0, sales=20.0,
+                              keyword_text="toy chest"),
+                  "campaign_id": "3002", "campaign_name": "LK - Paused", "campaign_status": "PAUSED"}
+        app = self._page_app(monkeypatch, _FakeRest([_profile_row(currency_code="USD", country_code="US")],
+                                                     [_completed_job_row()],
+                                                     search_term_rows=[*_SEARCH_TERM_ROWS, paused]))
+        app.run()
+        app.selectbox(key="str_camp_status").set_value(StatusFilter.ALL).run()
+        assert not app.exception
+
+        (ranking,) = [markdown.value for markdown in app.markdown if "cap-ranking" in markdown.value]
+        assert ranking.index("LK - SP - KW") < ranking.index("LK - Paused")
+        assert "$56.00 · 94.9%" in ranking and "ACoS 56.0%" in ranking
+        assert "$3.00 · 5.1%" in ranking and "ACoS 15.0%" in ranking
+        assert not any("Mayor Spend" in markdown.value for markdown in app.markdown)
+
     def test_data_without_orders_uses_a_reference_cvr_and_tells_the_ai_the_measured_one(self, monkeypatch):
         rows = [_term_row("cheap toy box", match_type="BROAD", clicks=40, orders=0, cost=25.0, sales=0.0,
                           keyword_text="toy box"),
@@ -1191,7 +1233,7 @@ search_term_report.render()
             assert [cell.coordinate for cell in cells if cell.data_type == "f"] == [], label
             assert any(cell.value == "=1+1" for cell in cells), label
 
-    def test_currency_code_and_campaign_names_reach_the_kpi_cards_escaped(self, monkeypatch):
+    def test_currency_code_and_campaign_names_reach_the_kpi_cards_and_the_spend_ranking_escaped(self, monkeypatch):
         rows = [dict(row, campaign_name="<img src=x onerror=alert(1)>") for row in _SEARCH_TERM_ROWS]
         fake = _FakeRest([_profile_row(currency_code="USD", country_code="US")], [_completed_job_row()],
                          search_term_rows=rows)
@@ -1204,7 +1246,11 @@ search_term_report.render()
         cards = [str(element.value) for element in app.markdown if "font-size:1.4rem" in str(element.value)]
         assert not [card for card in cards if "<B>US</B>" in card or "<img" in card]
         assert any("&lt;B&gt;US&lt;/B&gt;" in card for card in cards)
-        assert any("&lt;img src=x onerror=alert(1)&gt;" in card for card in cards)
+        # The campaign name left the cards with the Mayor Spend card; the spend ranking draws it now.
+        (ranking,) = [str(element.value) for element in app.markdown if "cap-ranking" in str(element.value)]
+        assert "<img" not in ranking and "<B>US</B>" not in ranking
+        assert "&lt;img src=x onerror=alert(1)&gt;" in ranking
+        assert "&lt;B&gt;US&lt;/B&gt;" in ranking
 
     def test_large_account_draws_capped_tables_and_builds_big_files_on_request(self, monkeypatch):
         # 30,000 terms put the analysis table past pandas Styler's 262,144 cells, as real accounts do.

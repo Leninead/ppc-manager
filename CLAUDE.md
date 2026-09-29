@@ -85,14 +85,14 @@ corre la suite entera sobre un checkout limpio.
 | # | Página | Sección | Estado |
 |---|--------|---------|--------|
 | 1 | 🏠 Inicio | — | ✅ rediseñado 2026-03-27 (3 cards + flujo guiado + changelog) |
-| 2 | 📊 Search Term Report | PPC | ✅ completo |
+| 2 | 📊 Search Term Report | PPC | ✅ completo; 2026-09-29: filtro «Estado de campaña» (Activas por defecto) en Vista General y Por Campana; top 5 de campañas por gasto en Por Campana |
 | 3 | 🔍 Search Query Performance | PPC | ✅ completo |
 | 4 | 🔗 Análisis Cruzado STR vs SQP | PPC | ✅ + Plan de Acción 2026-03-21; IT-51 2026-09-28: search terms, Exact habilitadas y ASIN de la cuenta de Amazon Ads (sin Bulk File), plan para Campaign Builder + Análisis IA |
 | 5 | 📈 Tendencia Multi-Semana | PPC | ✅ completo |
-| 6 | 📁 Bulk Campañas | PPC | ✅ + Campaign Analyzer 2026-03-21 |
+| 6 | 📁 Bulk Campañas | PPC | ✅ + Campaign Analyzer 2026-03-21; 2026-09-29: filtro «Estado de campaña» al lado de Producto, con las SP archivadas |
 | 7 | 💰 Business Report | PPC | ✅ completo |
 | 8 | 🔻 Análisis de Funnel | PPC | ✅ completo |
-| 9 | 🧠 Bid Optimizer | PPC | ✅ nuevo 2026-03-21 |
+| 9 | 🧠 Bid Optimizer | PPC | ✅ nuevo 2026-03-21; 2026-09-29: filtro «Estado de campaña» en Placements sugeridos por campaña |
 | 10 | 🚀 Campaign Builder | PPC | ✅ nuevo 2026-03-21 |
 | 11 | 🧲 DataDive Analyzer | Research | ✅ conectado 2026-03-27 (4 tabs: MKL, Competitors, Rank Radar, Volatility) |
 | 12 | 🧲 Helium 10 Analyzer | Research | ✅ conectado 2026-03-27 (3 tabs: Cerebro, KW Research, Competitor Gap) |
@@ -188,7 +188,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 
 - **STR:** ACoS = `Spend / Sales * 100`. Columnas auto-detectadas por nombre.
 - **SQP:** `read_sqp()` con `skiprows=1`. Marca extraída con `extract_sqp_brand()`.
-- **Bulk:** Dataframe raw. Filtro por `State == "ENABLED"`.
+- **Bulk:** Dataframe raw con el filtro «Estado de campaña» (Activas por defecto). El Campaign Analyzer diagnostica sólo `State == "ENABLED"`.
 - **Business Report:** Dataframe raw de ventas y sesiones.
 - **Análisis Cruzado STR vs SQP** (`modules/pages/analisis_cruzado.py`, reglas en `core/cross_analysis/`): cruza los search terms de la cuenta de Amazon Ads (búsqueda paga) con el SQP de la marca (mercado) para keyword discovery + clasificación automática. Desde IT-51 (2026-09-28) no pide el Bulk File: search terms del picker, keywords Exact habilitadas del listado SP de la cuenta y ASIN de cada ad group de sus product ads. Detalle en `modules/pages/CLAUDE.md` (M4).
   - **Tab 1 Cruce:** oportunidades marca/genéricas + gasto por origen del término (Exact/Phrase/Broad/Auto/Product Targeting). Opportunity Score = min-max de impresiones + clicks + purchase rate.
