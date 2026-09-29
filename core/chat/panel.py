@@ -431,6 +431,7 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
     start_key = f"{panel}_start"
     ideas_key = f"{panel}_ideas"
     pick_key = f"aichat_{chat_id}_pick"
+    effort_key = f"{panel}_effort"
     hist_key = f"aichat_{chat_id}_hist"
     sid_key = f"aichat_{chat_id}_sid"
     context_key_key = f"aichat_{chat_id}_context"
@@ -475,8 +476,58 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
            below had room. Same 10px on all four sides. */
         [data-testid="stPopoverBody"]:has(.st-key-{panel}) > div {{padding: 0 !important;}}
         .st-key-{panel} iframe {{display: block;}}
-        .st-key-{panel} [data-testid="stForm"] {{border: none; padding: 0;}}
-        .st-key-{panel}_enter {{display: none;}}
+        /* The box and its bar read as one card: the text on top, the effort chip
+           and the send button in a 60px strip along its bottom edge. */
+        .st-key-{panel} [data-testid="stForm"] {{border: 1px solid #E4E0D8; border-radius: 14px;
+                                                 padding: 4px 8px 60px; background: #fff;
+                                                 position: relative;}}
+        .st-key-{panel} [data-testid="stForm"]:focus-within {{border-color: #B4B2A9;}}
+        .st-key-{panel} [data-testid="stForm"] [data-baseweb="textarea"],
+        .st-key-{panel} [data-testid="stForm"] [data-baseweb="textarea"] div {{border: none;
+                                                 background: transparent;}}
+        .st-key-{panel} [data-testid="stForm"] textarea {{padding: 8px 4px;}}
+        /* Streamlit positions every block, so the button would anchor to its own wrapper. */
+        .st-key-{panel} [data-testid="stForm"] [data-testid="stVerticalBlock"] {{position: static;}}
+        .st-key-{panel} [data-testid="stForm"] [data-testid="stElementContainer"]:has([data-testid="stFormSubmitButton"]) {{
+            position: absolute; right: 8px; bottom: 8px; left: 152px; width: auto !important;}}
+        /* The tooltip wrapper that help= adds sets an inline width: auto. */
+        .st-key-{panel} [data-testid="stFormSubmitButton"] [data-testid="stTooltipHoverTarget"] {{width: 100% !important;}}
+        /* Send is the one action of the box: it fills the bar up to the effort chip,
+           which is held at its widest label so that edge never moves. */
+        .st-key-{panel} [data-testid="stFormSubmitButton"] button {{min-height: 44px; height: 44px;
+                                                 width: 100%; padding: 0 22px; border-radius: 22px;}}
+        /* Every other arrow of the app points on from the right of its label. */
+        .st-key-{panel} [data-testid="stFormSubmitButton"] button {{flex-direction: row-reverse; gap: 8px;}}
+        .st-key-{panel} [data-testid="stFormSubmitButton"] button > span {{margin: 0;}}
+        .st-key-{panel} [data-testid="stFormSubmitButton"] button p {{font-size: 15px; font-weight: 500;}}
+        .st-key-{panel} [data-testid="stFormSubmitButton"] button span {{font-size: 20px;}}
+        [data-testid="stVerticalBlockBorderWrapper"]:has(> div > .st-key-{panel}_enter) {{display: none;}}
+        /* The effort chip sits on the card's bottom strip, left of send. Its
+           wrapper takes no room, so the panel still ends at the card.
+           Label text off, its "?" kept, so the explanation stays one tap away. */
+        [data-testid="stVerticalBlockBorderWrapper"]:has(> div > .st-key-{effort_key}) {{
+            height: 0; margin-top: -1rem;}}
+        .st-key-{effort_key} {{position: relative; top: -52px; margin-left: 8px;
+                               width: fit-content !important; z-index: 1;}}
+        .st-key-{effort_key} [data-testid="stSelectbox"] {{display: flex; flex-direction: row-reverse;
+                                                         align-items: center; gap: 2px;}}
+        .st-key-{effort_key} [data-testid="stWidgetLabel"] {{margin: 0; min-height: 0;}}
+        .st-key-{effort_key} [data-testid="stWidgetLabel"] [data-testid="stMarkdownContainer"] {{display: none;}}
+        .st-key-{effort_key} [data-baseweb="select"] > div {{min-height: 44px; border: none;
+                                                  background: transparent; cursor: pointer;
+                                                  border-radius: 10px; padding-left: 4px;
+                                                  min-width: 118px;}}
+        .st-key-{effort_key} [data-baseweb="select"] > div:hover {{background: #F3F0EA;}}
+        .st-key-{effort_key} [data-baseweb="select"] > div > div:first-child {{padding-right: 0;}}
+        /* The value sits at the top of its box; centered, it lines up with the chevron. */
+        .st-key-{effort_key} [data-baseweb="select"] > div > div:first-child > div:first-child {{
+            display: flex; align-items: center;}}
+        .st-key-{effort_key} [data-baseweb="select"] * {{font-size: 13px; color: #5F5B53;}}
+        .st-key-{effort_key} input {{width: 0 !important;}}
+        /* The menu takes the chip's width and would cut "Equilibrado"; widened only while this chip is open. */
+        body:has(.st-key-{effort_key} input[aria-expanded="true"]) [data-baseweb="popover"]:has(> div [data-testid="stSelectboxVirtualDropdown"]):not(:has([data-testid="stPopoverBody"])),
+        body:has(.st-key-{effort_key} input[aria-expanded="true"]) [data-baseweb="popover"]:has(> div [data-testid="stSelectboxVirtualDropdown"]):not(:has([data-testid="stPopoverBody"])) :is(div, ul, li) {{
+            min-width: 160px;}}
         /* The opening screen takes the stage the thread will fill, at its height. */
         .st-key-{start_key} {{height: {_STAGE_HEIGHT}; min-height: 140px; flex: none; overflow-y: auto;
                               overflow-x: hidden; gap: 8px; background: #FAF8F4; border-radius: 12px;
@@ -529,10 +580,6 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                     stage.markdown(_thread_box(history, L, pending), unsafe_allow_html=True)
                 else:
                     _start_screen(stage, L, starters() if starters else [], start_key, ideas_key, pick_key)
-                effort = st.selectbox(
-                    L["effort"], EFFORT_LEVELS, index=EFFORT_LEVELS.index(DEFAULT_EFFORT),
-                    format_func=L["efforts"].get, key=f"aichat_{chat_id}_effort",
-                    help=L["effort_help"])
                 # A form, not st.chat_input. Inside a popover that also holds a
                 # fragment, chat_input renders and accepts text but its submit
                 # never arrives — typed or pasted, the box keeps the text and
@@ -551,9 +598,16 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                         L["placeholder"], key=f"aichat_{chat_id}_q_{len(history)}",
                         placeholder=L["placeholder"], height=72,
                         label_visibility="collapsed")
-                    sent = st.form_submit_button(L["send"], use_container_width=True,
+                    sent = st.form_submit_button(L["send"], icon=":material/arrow_upward:",
                                                  type="primary", help=L["send_hint"])
                 _enter_sends(panel)
+                # Outside the form so a starter question also runs at the level on screen;
+                # the CSS lays it over the composer's bar, left of the send button.
+                with st.container(key=effort_key):
+                    effort = st.selectbox(
+                        L["effort"], EFFORT_LEVELS, index=EFFORT_LEVELS.index(DEFAULT_EFFORT),
+                        format_func=L["efforts"].get, key=f"aichat_{chat_id}_effort",
+                        help=L["effort_help"])
                 question = (question or "").strip() if sent else picked
                 if question:
                     _sync_session()
