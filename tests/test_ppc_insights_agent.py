@@ -11,7 +11,9 @@ from core.ppc_insights.analysis import (
     insights_row_labels,
 )
 from core.ppc_insights.asin_health import MAX_POINTS, NEUTRAL_POINTS, InsightsAnalysisParams
+from core.ppc_insights.campaign_coverage import FileCampaigns
 from core.search_term.frame import console_columns
+from tests.ppc_insights_campaigns_data import campaign, keyword, listed_campaigns, product_ad
 
 ATTRIBUTION_DAYS = 7
 
@@ -59,7 +61,8 @@ def test_without_the_optional_files_the_parameters_say_which_parts_are_neutral()
     parameters = docs[0]["content"]
 
     assert "SIN DATO: BuyBox, Funnel, Impression Share" in parameters
-    assert "SQP no; Business Report no; Campaign CSV no" in parameters
+    assert "SQP no; Business Report no; campañas no" in parameters
+    assert "Campañas:" not in parameters
     assert f"CVR {MAX_POINTS['cvr']} · {NEUTRAL_POINTS['cvr']:g}" in parameters
     assert "Precio promedio del producto: 15.00" in parameters
 
@@ -80,13 +83,31 @@ def test_the_optional_files_add_their_columns_and_leave_the_neutral_list():
                        "Featured Offer (Buy Box) Percentage": ["90%"], "Units Ordered": ["50"]})
     camp = pd.DataFrame({"Campaign Name": ["DG - B0CYLMJJJC - SP - AUTO"], "State": ["enabled"]})
 
-    analysis_input = _input(br_df=br, camp_df=camp)
+    analysis_input = _input(br_df=br, campaigns=FileCampaigns(camp))
     _, docs, _ = build_context(analysis_input.data)
     hero = next(record for record in analysis_input.records if record["asin"] == "B0CYLMJJJC")
 
     assert (hero["sessions"], hero["buybox"], hero["cvr_br"]) == (1000.0, 90.0, 5.0)
     assert hero["campanas"] == 1 and hero["funnel"] == "parcial"
     assert "SIN DATO: Impression Share valen" in docs[0]["content"]
+    assert "Campañas: un Campaign CSV subido a mano" in docs[0]["content"]
+
+
+def test_the_account_listing_gives_every_row_its_campaigns_and_the_parameters_say_where_they_come_from():
+    campaigns = listed_campaigns(
+        campaign("1", "DG - SP - Auto", targeting="AUTO"), product_ad("1", "10", "B0CYLMJJJC"),
+        campaign("2", "DG - SP - KW"), product_ad("2", "20", "B0CYLMJJJC"), keyword("2", "20", "cream", "EXACT"),
+        product_ad("2", "21", "B0CYLM4L23"), keyword("2", "21", "lotion", "BROAD"))
+
+    analysis_input = _input(campaigns=campaigns)
+    _, docs, _ = build_context(analysis_input.data)
+    by_asin = {record["asin"]: record for record in analysis_input.records}
+
+    assert (by_asin["B0CYLMJJJC"]["campanas"], by_asin["B0CYLMJJJC"]["tipos_campana"],
+            by_asin["B0CYLMJJJC"]["funnel"]) == (2, "Auto, Exact", "completo")
+    assert (by_asin["B0CYLM4L23"]["campanas"], by_asin["B0CYLM4L23"]["funnel"]) == (1, "parcial")
+    assert "campañas sí" in docs[0]["content"] and "Funnel" not in docs[0]["content"].split("SIN DATO")[1]
+    assert "Campañas: el último listado de Sponsored Products de la cuenta" in docs[0]["content"]
 
 
 def test_the_share_of_spend_without_an_asin_reaches_the_parameters():

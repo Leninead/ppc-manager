@@ -450,6 +450,27 @@ class TestAsinHealth:
         # The listing has no product ads: where each ASIN is advertised is unknown, so it is not said.
         assert "advertised_in" not in rows["B0CYLMJJJC"]
 
+    def test_each_asin_carries_the_campaign_structure_the_page_scores(self):
+        structure = [{**_structure_row("campaign", "3001", "3001"), "targeting_type": "MANUAL"},
+                     {**_structure_row("keyword", "3001", "k1", text="luna pajamas", match_type="EXACT"),
+                      "ad_group_id": "4001"},
+                     {**_structure_row("product_ad", "3001", "a1"), "ad_group_id": "4001", "asin": "B0CYLMJJJC"}]
+
+        payload = module_results.asin_health(FakeRest(structure=structure), profile_id="111")
+
+        rows = {row["asin"]: row for row in payload["rows"]}
+        assert rows["B0CYLMJJJC"]["campaign_structure"] == {"campaigns": 1, "types": "Exact", "funnel": "parcial"}
+        assert rows["B0CYLMJJJC"]["health_parts"]["funnel"] == 8
+        assert rows["B0CYLM4L23"]["campaign_structure"] == {"campaigns": 0, "types": "—", "funnel": "parcial"}
+        assert "campaign_structure_note" not in payload
+
+    def test_without_a_listing_of_product_ads_the_structure_is_neutral_and_says_why(self):
+        payload = module_results.asin_health(FakeRest(), profile_id="111")
+
+        assert all("campaign_structure" not in row for row in payload["rows"])
+        assert payload["rows"][0]["health_parts"]["funnel"] == 7
+        assert "Todavía no se listaron los anuncios" in payload["campaign_structure_note"]
+
     def test_each_asin_scores_with_the_target_saved_for_the_account(self):
         payload = module_results.asin_health(FakeRest(), profile_id="111")
 

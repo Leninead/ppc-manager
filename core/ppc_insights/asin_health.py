@@ -175,7 +175,8 @@ def health_score(acos, target_acos, cvr, buybox, funnel_complete, imp_share) -> 
     return round(sum(health_score_parts(acos, target_acos, cvr, buybox, funnel_complete, imp_share).values()))
 
 
-def analyze_asins(str_df, sqp_df, br_df, camp_df, target_acos, asin_column=None):
+def analyze_asins(str_df, sqp_df, br_df, campaigns, target_acos, asin_column=None):
+    """`campaigns` answers for_asin (core/ppc_insights/campaign_coverage.py), or is None without them."""
     asin_data = {}
 
     # Detect STR columns
@@ -313,51 +314,11 @@ def analyze_asins(str_df, sqp_df, br_df, camp_df, target_acos, asin_column=None)
                     br_units = units
                     br_cvr = (units / sessions * 100)
 
-        # Campaign coverage
-        n_campaigns    = None
-        campaign_types = None
-        funnel_complete = None
-
-        if camp_df is not None:
-            col_cname  = find_column(camp_df, "Campaign Name") or find_column(camp_df, "Campaign")
-            col_state  = find_column(camp_df, "State") or find_column(camp_df, "Status")
-            col_target = find_column(camp_df, "Targeting Type") or find_column(camp_df, "Campaign Type")
-
-            if col_cname:
-                cdf = camp_df.copy()
-                if col_state:
-                    cdf = cdf[cdf[col_state].astype(str).str.lower() == "enabled"]
-
-                if asin != WHOLE_ACCOUNT:
-                    mask = cdf[col_cname].astype(str).str.lower().str.contains(asin.lower(), na=False)
-                    cdf = cdf[mask]
-
-                n_campaigns = len(cdf)
-                types_found = set()
-                for cname in cdf[col_cname].astype(str):
-                    nl = cname.lower()
-                    if "auto" in nl or "discovery" in nl:
-                        types_found.add("Auto")
-                    if "broad" in nl:
-                        types_found.add("Broad")
-                    if "phrase" in nl:
-                        types_found.add("Phrase")
-                    if "exact" in nl:
-                        types_found.add("Exact")
-                    if "pat" in nl or "asin" in nl or "conq" in nl or "competitor" in nl:
-                        types_found.add("PAT")
-
-                if col_target:
-                    for ttype in cdf[col_target].astype(str):
-                        tl = ttype.lower()
-                        if "auto" in tl:
-                            types_found.add("Auto")
-                        if "manual" in tl:
-                            types_found.add("Manual")
-
-                campaign_types = ", ".join(sorted(types_found)) if types_found else "—"
-                funnel_complete = ("Auto" in types_found and "Exact" in types_found) or \
-                                  ("Auto" in types_found and "Broad" in types_found and "Exact" in types_found)
+        # Campaign coverage: the account's SP listing or a Campaign CSV; without either the funnel part is neutral.
+        coverage = campaigns.for_asin(asin) if campaigns is not None else None
+        n_campaigns = coverage.campaigns if coverage is not None else None
+        campaign_types = coverage.kinds_label if coverage is not None else None
+        funnel_complete = coverage.funnel_complete if coverage is not None else None
 
         parts = health_score_parts(
             acos=acos,

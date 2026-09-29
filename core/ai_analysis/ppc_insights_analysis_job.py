@@ -1,8 +1,9 @@
 """PPC Insights analyses: asked for from the page, never planned by the worker.
 
 The same skeleton as M2 and M9 over analysis_runner, with two differences: nobody plans them, so an
-account costs nothing until the AM asks, and the payload carries only what Amazon Ads syncs. The SQP,
-the Business Report and the Campaign CSV are files the worker never sees.
+account costs nothing until the AM asks, and the payload carries only what Amazon Ads syncs: the search
+terms and the account's SP listing of campaigns. The SQP, the Business Report and a Campaign CSV are
+files the worker never sees.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from core.amazon_ads.report_provider import ProfileOption
 from core.date_labels import date_range_label
 from core.ppc_insights.analysis import ANALYSIS_MODULE, CANONICAL_LANG, build_analysis_input, canonical_analysis_window
 from core.ppc_insights.asin_health import InsightsAnalysisParams
+from core.ppc_insights.campaign_coverage import read_campaign_listing
 
 JOB_KIND = analysis_job_kind(ANALYSIS_MODULE)
 DATA_CHANGED_ERROR = ("Los datos de la cuenta cambiaron desde que se pidió el análisis. Cargá los datos nuevos en "
@@ -45,10 +47,12 @@ class PpcInsightsAnalysisSpec:
     @staticmethod
     def prepare(reports, profile, params, window_start, window_end, lang) -> PreparedAnalysis | None:
         source = reports.search_terms(profile, window_start, window_end)
+        # The page reads the same listing: without it the digest it asked for is never reproduced.
+        listing = read_campaign_listing(reports.rest, profile, window_end)
         analysis_input = build_analysis_input(
             source.frame, params=params, account_label=source.label,
             period_label=date_range_label(window_start, window_end), currency_code=source.currency_code,
-            lang=lang, ad_group_asins=reports.advertised_asins(profile.profile_id))
+            lang=lang, ad_group_asins=reports.advertised_asins(profile.profile_id), campaigns=listing.campaigns)
         if analysis_input.data is None:
             return None
         return PreparedAnalysis(

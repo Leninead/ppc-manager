@@ -14,6 +14,7 @@ from core.helpers import kpi_card
 from core.ppc_insights.analysis import build_analysis_input
 from core.ppc_insights.asin_health import InsightsAnalysisParams
 from core.ppc_insights.asin_health import ATTRIBUTED, FROM_FILE, NO_ASINS
+from core.ppc_insights.campaign_coverage import FileCampaigns
 from core.search_term.file import SearchTermFileError
 from core.search_term.frame import SOURCE_FILE, console_columns
 from modules.pages import ppc_insights, search_term_source
@@ -44,7 +45,7 @@ def _records():
     camp = pd.DataFrame({"Campaign Name": ["DG - B0CYLMJJJC - SP - AUTO"], "State": ["enabled"]})
     return build_analysis_input(frame, params=InsightsAnalysisParams(25, 15.0), account_label="dg", period_label="",
                                 currency_code="MXN", ad_group_asins={"AG1": frozenset({"B0CYLMJJJC"})},
-                                br_df=br, camp_df=camp).records
+                                br_df=br, campaigns=FileCampaigns(camp)).records
 
 
 # ── the AI table ─────────────────────────────────────────────────────────────

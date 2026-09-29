@@ -41,18 +41,19 @@ def canonical_analysis_window(data_from: date | None, data_through: date) -> tup
 
 def build_analysis_input(frame, *, params: InsightsAnalysisParams, account_label: str, period_label: str,
                          currency_code: str, lang: str = CANONICAL_LANG, ad_group_asins: dict | None = None,
-                         sqp_df=None, br_df=None, camp_df=None) -> InsightsAnalysisInput:
-    """The agent's payload from a Search Term Report frame and the optional files the AM loaded."""
+                         sqp_df=None, br_df=None, campaigns=None) -> InsightsAnalysisInput:
+    """The agent's payload from a Search Term Report frame, the account's campaigns (its SP listing or a Campaign
+    CSV, see campaign_coverage) and the optional files the AM loaded."""
     if frame is None or frame.empty:
         return InsightsAnalysisInput(None, [])
     resolved = resolve_asins(frame.copy(), ad_group_asins)
-    asin_data = analyze_asins(resolved.frame.copy(), _copy(sqp_df), _copy(br_df), _copy(camp_df),
-                              params.target_acos, resolved.column)
+    asin_data = analyze_asins(resolved.frame.copy(), _copy(sqp_df), _copy(br_df), campaigns, params.target_acos,
+                              resolved.column)
     if not asin_data:
         return InsightsAnalysisInput(None, [])
 
     ordered = sorted(asin_data, key=lambda asin: (-asin_data[asin]["spend"], str(asin)))
-    sources = {"sqp": sqp_df is not None, "br": br_df is not None, "campaigns": camp_df is not None}
+    sources = {"sqp": sqp_df is not None, "br": br_df is not None, "campaigns": campaigns is not None}
     records = [_record(asin, asin_data[asin], sources, resolved.grouped_asins.get(asin))
                for asin in ordered[:MAX_ASINS]]
     return InsightsAnalysisInput(
@@ -72,6 +73,7 @@ def build_analysis_input(frame, *, params: InsightsAnalysisParams, account_label
             total_asins=len(asin_data),
             asins=records,
             idioma=lang,
+            campaigns_origin=campaigns.origin if campaigns is not None else "",
         ),
         records,
     )

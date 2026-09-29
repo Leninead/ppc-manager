@@ -65,4 +65,4 @@ def test_the_ppc_insights_payload_keeps_its_digest():
 
     assert params.digest == "064e985e022207cd8ecd433e484dfc24891419c4e2262a851150a80e6b22af01"
     assert build_agent_call("ppc_insights", built.data).input_digest == (
-        "6f6d72bf6cb5b58fb2927654904b0dfda6ae5452a58849ecfbf9942f00ac227b")
+        "d566d772048ab0ca54275557e7b71f60756ae93e7fe2e1f2107a02c731d18fd4")

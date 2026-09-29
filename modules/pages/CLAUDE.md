@@ -1064,21 +1064,23 @@ IA → Excel 4 hojas (Resumen Ejecutivo, Ventas Diarias, BuyBox & ASINs, Campañ
 ---
 
 ## M18 — PPC Insights Engine
-**Archivo:** modules/pages/ppc_insights.py (~1.000 líneas). Reglas en `core/ppc_insights/` (`asin_health`, `analysis`).
+**Archivo:** modules/pages/ppc_insights.py (~1.000 líneas) y modules/pages/insights_campaign_source.py (el bloque de
+campañas). Reglas en `core/ppc_insights/` (`asin_health`, `campaign_coverage`, `analysis`).
 **Sección sidebar:** Research
-**Session state prefix:** insights_ (picker `insights_src_*`, IA en memoria `ppc_insights_ai_*`)
+**Session state prefix:** insights_ (picker `insights_src_*`, bloque de campañas `insights_campaigns_src_*`, uploader
+`insights_camp`, IA en memoria `ppc_insights_ai_*`)
 
 ### Propósito
-Health score 0-100 por ASIN cruzando STR + SQP + BR + Campaign CSV. Identifica ASINs problemáticos.
+Health score 0-100 por ASIN cruzando STR + campañas + SQP + BR. Identifica ASINs problemáticos.
 
 ### Fuente de datos (2026-09-21 — picker de Amazon Ads)
 - El STR llega de `render_source_picker(key_prefix="insights", manual_reader=_read_manual_str)`: datos sincronizados
   de Amazon Ads o un archivo subido a mano, que se lee con el parser propio del módulo (`_parse_str`) y no con el
   lector del picker. `manual_reader` es un parámetro del picker para los módulos que conservan su parser.
-- SQP, BR by ASIN y Campaign CSV siguen siendo uploaders opcionales, sin cambios.
-- "Generar Insights" guarda la firma de los inputs (`_inputs_signature`: firma del STR, target y digest de cada
-  archivo) y los resultados quedan en pantalla mientras no cambie; el cálculo por ASIN se memoriza por esa firma
-  (`_insights_for`), así los reruns de la pestaña IA no recalculan.
+- SQP y BR by ASIN siguen siendo uploaders opcionales. Las campañas, ver abajo.
+- "Generar Insights" guarda la firma de los inputs (`_inputs_signature`: firma del STR, target, la de las campañas
+  —hora del listado o digest del CSV— y digest de cada archivo) y los resultados quedan en pantalla mientras no cambie;
+  el cálculo por ASIN se memoriza por esa firma (`_insights_for`), así los reruns de la pestaña IA no recalculan.
 - Montos en la moneda de la cuenta (`money()`, `_excel_money_format`). Target ACoS y precio promedio: con datos de
   API se cargan de los parámetros guardados de la cuenta (`ai_analysis_settings`, módulo `ppc_insights`); el precio
   tiene un input por moneda y arranca vacío fuera de USD.
@@ -1102,6 +1104,28 @@ Sin ningún ASIN queda la regla de siempre: una sola fila `ALL` con la cuenta en
   es la etiqueta de una familia, no un producto solo. El agente lo recibe como `asins_agrupados`.
 - Una fila con ASIN de familia no cruza con el BR por `(Child) ASIN`: BuyBox y sesiones quedan en el neutro.
 
+### Campañas: el listado SP de la cuenta, no el Campaign CSV (2026-09-29)
+- Con datos de Amazon Ads, `render_campaigns_block(source)` (`insights_campaign_source.py`) lee debajo del picker el
+  listado de la **misma cuenta** (`read_campaign_listing` → `ListedCampaigns`, cache 15 min): `sp_structure_between` con
+  campaign, ad_group, keyword, product_targeting y product_ad, un solo día (el listado es el último, sea cual sea la
+  ventana). Conocido cuando se listaron campañas, anuncios y targets (keywords o product targets, que vienen del mismo
+  listado); si no, el motivo (sin listar, rechazado por Amazon con su aviso, sin la 018) y el uploader.
+- **La regla** (`core/ppc_insights/campaign_coverage.py`): un ad group corre si su campaña está habilitada, no está
+  listado como pausado (uno nunca listado cuenta como habilitado) y tiene un anuncio habilitado. Cubre un ASIN si uno de
+  esos anuncios lo anuncia o si el nombre de su campaña lo lleva (la etiqueta de familia, como en la atribución de los
+  search terms). Tipos: Auto en una campaña automática; si no, Broad/Phrase/Exact de sus keywords habilitados y PAT si
+  tiene product targets habilitados. Campañas = campañas distintas de esos ad groups. Funnel completo = Auto y Exact.
+- **Campaign CSV a mano** (`FileCampaigns`, la regla de siempre por nombre y «Targeting Type»): con «Subir Campaign CSV a
+  mano» (flag `insights_campaigns_src_manual`, «Volver a datos de Amazon Ads»), directo cuando no hay listado o no se
+  pudo leer, y como uploader en la fila de archivos cuando el STR se subió a mano. En modo manual el listado se sigue
+  leyendo: lo usa el análisis guardado.
+- La pestaña «Campañas» de cada ASIN dice de dónde salieron (`CAMPAIGNS_ORIGIN_CAPTIONS`) o por qué no hay.
+- Medido el 29/09 en la base local (últimos 7 días, 5 cuentas con search terms): por nombre y por listado el funnel
+  difiere en 8 de 27 ASINs (26% del gasto de las cards) y 7 ASINs tenían 0 campañas por nombre. En Tattoo Care US las
+  tres campañas habilitadas de B0CXTRC44X con «EXACT» en el nombre no tienen keywords habilitados.
+- Chat: `asin_health` (MCP) lee el mismo listado (`campaign_structure` por ASIN, o `campaign_structure_note` con el
+  motivo). No confundir con `advertised_in`, que cuenta sólo anuncios.
+
 ### Reglas de negocio (sin cambios; movidas a `core/ppc_insights/asin_health.py`)
 - Health Score (0-100): CVR 25 + BuyBox 20 + ACoS vs target 25 + Funnel 15 + Impression Share 15. Sin su fuente,
   cada parte vale su neutro (`NEUTRAL_POINTS`: 12 / 10 / 12 / 7 / 7) — `health_score_parts`.
@@ -1118,20 +1142,27 @@ Sin ningún ASIN queda la regla de siempre: una sola fila `ALL` con la cuenta en
   muestra el análisis de exactamente estos datos o, si no hay, el último de la cuenta con «Recalcular»
   (`stored_tab.render_recalculable_analysis`). Si los datos son los mismos pero el análisis es de una versión
   anterior del prompt, «Recalcular» lo pide con `p_agent_version` (migración 017). El guardado usa sólo datos de
-  Amazon Ads: no incluye SQP, BR ni Campaign CSV, y la pestaña lo avisa.
+  Amazon Ads: search terms y el listado de campañas (el worker lo lee con los grants de la migración 022), nunca SQP,
+  BR ni un Campaign CSV, y la pestaña lo avisa. La página arma su huella con el mismo listado aunque las cards usen un
+  CSV. Parámetros le dice al agente de dónde salen las campañas (`campaigns_origin`: listado o CSV).
 - **Archivo a mano: en memoria** (`ai_tab.resolve_analysis`, `auto_fire=False`), con los archivos opcionales en el payload.
 - Chat: con API, `app_chat.share_analysis` con `profile_id` y país; con archivo, `publish_analysis_to_chat`.
   MCP: `list_analyses`/`get_analysis` incluyen `ppc_insights`, y `metrics_by_group` agrupa por ASIN o filtra con `asin`.
 
 ### Inputs
 - Datos de Amazon Ads (cuenta + país + período) o STR subido a mano — requerido
-- SQP (.xlsx, .csv), BR by ASIN (.xlsx, .csv) y Campaign CSV (.csv) — opcionales
+- Campañas: el listado SP de la misma cuenta, o un Campaign CSV (.csv) a mano
+- SQP (.xlsx, .csv) y BR by ASIN (.xlsx, .csv) — opcionales
 
 ### Tests
 `tests/test_ppc_insights_asin_health.py` (atribución, cobertura, conteo de ASINs agrupados, métricas y score),
 `tests/test_ppc_insights_agent.py` (payload, huella, texto del chat), `tests/test_ppc_insights_page.py` (filas de la
 IA, KPI de gasto, firma de inputs, pestaña guardada con Recalcular), `tests/test_ppc_insights_analysis_job.py`
-(job, worker y migración), `tests/test_amazon_ads_advertised_asins.py` y `tests/test_mcp_metrics_by_group.py` (por ASIN).
+(job, worker, migración y grants de la 022 contra las tablas de `sp_structure_between`),
+`tests/test_ppc_insights_campaign_coverage.py` (la regla, la lectura del listado y el CSV),
+`tests/test_ppc_insights_campaigns_page.py` (AppTest con PostgREST en memoria: bloque, estados, CSV a mano),
+`tests/test_amazon_ads_advertised_asins.py` y `tests/test_mcp_metrics_by_group.py` (por ASIN). Datos sintéticos por el
+provider real: `tests/ppc_insights_campaigns_data.py`.
 
 ### Anti-patterns
 - ❌ NO repartir el gasto de un ad group de varios ASINs entre sus ASINs: va entero a un ASIN o a su grupo sin ASIN.
@@ -1139,6 +1170,10 @@ IA, KPI de gasto, firma de inputs, pestaña guardada con Recalcular), `tests/tes
 - ❌ NO borrar filas de `ads_product_ad`: sólo upserts, los search terms viejos necesitan el ASIN de anuncios archivados.
 - ❌ NO planificar el análisis de PPC Insights en el worker: es a pedido.
 - ❌ NO leer una card con «agrupa N ASINs» como un producto: es la etiqueta de la campaña para una familia.
+- ❌ NO contar campañas o tipos por el nombre cuando hay listado: el nombre no dice qué corre.
+- ❌ NO armar el payload del análisis guardado con el Campaign CSV: el worker sólo tiene el listado y la huella no
+  coincidiría.
+- ❌ NO elegir la cuenta de las campañas aparte: es la del picker del STR.
 - Cargar STR sin SQP — pierde contexto de mercado en score
 
 ### Pendiente (tickets aparte, recomendados por el panel del 21/09)
@@ -2195,8 +2230,10 @@ lista no tiene ninguna fila de `spTargeting` en 60 días (el 98,9% de los pausad
   sí). Las etiquetas de bulk de Placement. Y un consumidor: Atom11 (IT-42) todavía no la lee, es su ticket. La leen
   SBH Recommendation (IT-49), para las keywords que ya corren en SP (`core/amazon_ads/active_keywords.py`, ver M23),
   desde IT-51 Análisis Cruzado (las Exact habilitadas de INV-11.2) y el bulk de negativos de M2 (Exact habilitadas,
-  keywords propias y estado de cada ad group), y PPC Audit Pro (IT-44), la estructura entera sin negativos, con los
-  placements y los targets sin tráfico (`core/ppc_audit/synced_reads.py`, ver M20).
+  keywords propias y estado de cada ad group), PPC Audit Pro (IT-44), la estructura entera sin negativos, con los
+  placements y los targets sin tráfico (`core/ppc_audit/synced_reads.py`, ver M20), y PPC Insights (2026-09-29), las
+  campañas que corren por ASIN (`core/ppc_insights/campaign_coverage.py`, ver M18), también desde el worker de análisis
+  (`ai_worker`, migración 022).
 - **Cuándo se puede leer.** `core/amazon_ads/structure_listing.py`: `family_listing` dice cuándo se listó una familia
   (su fila más nueva, o un pedido completado sin filas) o por qué no (el aviso de un listado que Amazon rechazó), y
   `read_keyword_listing` arma `KeywordListing` (campañas, ad groups y keywords): conocido cuando se listaron campañas y

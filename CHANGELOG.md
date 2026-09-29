@@ -6,6 +6,30 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — PPC Insights lee las campañas del listado de Sponsored Products de la cuenta en lugar del Campaign CSV (2026-09-29)
+
+**Por qué.** La parte «estructura de campañas» del health score (15 de 100 puntos) salía de un Campaign CSV subido a
+mano: contaba las campañas habilitadas cuyo nombre contenía el ASIN y adivinaba los tipos por palabras del nombre
+(«auto», «exact»…). Una cuenta que no pone el ASIN en el nombre daba 0 campañas y funnel incompleto aunque tuviera Auto y
+Exact, y un nombre con «EXACT» contaba como Exact aunque la campaña no tuviera keywords. Medido en la base local sobre los
+últimos 7 días de 5 cuentas: la regla por nombre y la del listado discrepan en el funnel de 8 de 27 ASINs (26% del gasto
+de las cards), y 7 ASINs tenían 0 campañas por nombre. En Tattoo Care US, las tres campañas habilitadas de B0CXTRC44X con
+«EXACT» en el nombre no tienen ningún keyword habilitado.
+
+**Ahora.**
+- Con datos de Amazon Ads, el bloque «Campañas de la cuenta» lee el listado diario de Sponsored Products de la misma
+  cuenta del picker. Una campaña cuenta para un ASIN si está habilitada y tiene un ad group habilitado con un anuncio
+  habilitado de ese ASIN, o si su nombre lo lleva (la etiqueta de familia, como la atribución de los search terms). Los
+  tipos salen de lo que corre: Auto por el tipo de targeting, Broad/Phrase/Exact por sus keywords habilitados y PAT por
+  sus product targets.
+- El Campaign CSV sigue: «Subir Campaign CSV a mano» (y «Volver a datos de Amazon Ads»), o directo cuando la cuenta no
+  está listada, Amazon rechazó el listado o no se pudo leer. Con un STR subido a mano, el uploader de siempre. Con el CSV
+  la regla es la de antes, por nombre.
+- El análisis IA guardado y la herramienta `asin_health` del chat leen el mismo listado, así la pantalla, la IA y el chat
+  dan el mismo score (`campaign_structure` en el chat, o `campaign_structure_note` con el motivo si no hay listado).
+- Migración 022: el worker de análisis (`ai_worker`) puede leer `sp_structure_between` y las tablas que nombra. Los
+  análisis guardados de PPC Insights cambian de huella y ofrecen «Recalcular».
+
 ### Added — Filtro «Estado de campaña» en Search Term Report, Bulk Campañas y Bid Optimizer (2026-09-29)
 
 **Por qué.** Pedido de Lenin: el selector de campaña del Search Term Report traía todas las campañas del período, en

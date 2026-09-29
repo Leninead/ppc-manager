@@ -16,7 +16,16 @@ FOCUS_VALUES = ("DESPERDICIO", "ACOS", "CONVERSION", "BUYBOX", "FUNNEL", "ESCALA
 
 _PART_NAMES = {"cvr": "CVR", "buybox": "BuyBox", "acos": "ACoS", "funnel": "Funnel", "imp_share": "Impression Share"}
 _SOURCE_OF_PART = {"buybox": "br", "funnel": "campaigns", "imp_share": "sqp"}
-_SOURCE_NAMES = {"sqp": "SQP", "br": "Business Report", "campaigns": "Campaign CSV"}
+_SOURCE_NAMES = {"sqp": "SQP", "br": "Business Report", "campaigns": "campañas"}
+_CAMPAIGN_ORIGINS = {
+    "listing": ("el último listado de Sponsored Products de la cuenta: lo que corría cuando se listó, no lo que "
+                "corrió en el período. campanas cuenta las campañas habilitadas con un ad group habilitado que "
+                "anuncia el ASIN o cuyo nombre de campaña lo lleva; tipos_campana es Auto por el tipo de targeting "
+                "de la campaña, y Broad, Phrase y Exact por sus keywords habilitados, PAT por sus product targets "
+                "habilitados"),
+    "file": ("un Campaign CSV subido a mano, que sólo trae nombres. campanas cuenta las campañas habilitadas cuyo "
+             "nombre lleva el ASIN; tipos_campana sale de palabras del nombre y del tipo de targeting"),
+}
 _ORIGIN_NAMES = {"file": "columna de ASIN del archivo", "ad_group": "producto anunciado del ad group",
                  "campaign_name": "nombre de la campaña",
                  "several_asins": "ad group con varios ASINs y sin ASIN en el nombre", "without_asin": "sin ASIN"}
@@ -38,6 +47,7 @@ class InsightsData:
     total_asins: int        # rows before the MAX_ASINS cap
     asins: list             # capped records, in row_id order
     idioma: str = "es"
+    campaigns_origin: str = ""  # listing | file, or "" without campaigns
 
 
 # razon before foco on purpose: autoregressive generation conditions the focus on the reasoning written.
@@ -122,6 +132,7 @@ def build_context(d: InsightsData) -> tuple[str, list, dict]:
         + ", ".join(f"{_PART_NAMES[part]} {top:g} · {neutral:g}" for part, (top, neutral) in d.score_scale.items())
         + "\n"
         + _missing_parts_line(d)
+        + _campaigns_line(d)
         + _module_rules_line(d)
         + _brand_sqp_line(d.brand_sqp)
         + f"ASINs tras agrupar: {d.total_asins}; el documento trae {len(records)}, los de mayor gasto.\n"
@@ -180,6 +191,13 @@ def _missing_parts_line(d: InsightsData) -> str:
         return ""
     return (f"SIN DATO: {', '.join(missing)} valen el neutro en todas las filas porque no se cargó su fuente. "
             "Esos puntos no dicen nada del ASIN: no los leas como salud buena ni mala.\n")
+
+
+def _campaigns_line(d: InsightsData) -> str:
+    if not d.sources.get("campaigns"):
+        return ""
+    origin = _CAMPAIGN_ORIGINS.get(d.campaigns_origin, "no informado")
+    return f"Campañas: {origin}. funnel completo = el ASIN tiene Auto y Exact.\n"
 
 
 def _module_rules_line(d: InsightsData) -> str:

@@ -1,4 +1,5 @@
 """PPC Insights analyses on the worker: asked for from the page, never planned, and never paid twice per version."""
+import re
 from datetime import date, timedelta
 
 import pandas as pd
@@ -11,6 +12,7 @@ from core.integrations.sync_jobs import SyncJob, SyncJobStore
 from core.ppc_insights.analysis import ANALYSIS_MODULE, build_analysis_input
 from core.ppc_insights.asin_health import InsightsAnalysisParams
 from core.search_term.frame import SOURCE_API, SearchTermSource, console_columns
+from tests.ppc_insights_campaigns_data import ListingRest, campaign, keyword, listed_campaigns, product_ad
 from tests.test_str_analysis_job import NOW, FakeRest, _profile
 
 WINDOW = (date(2026, 9, 8), date(2026, 9, 14))
@@ -18,6 +20,9 @@ MAPPING = {"AG1": frozenset({"B0CYLMJJJC"})}
 RESULT = {"asins": [], "synthesis": {"situation": "s", "week_actions": [], "mid_term": [], "risks": [],
                                      "executive_summary": "e"}}
 PARAMS = {"target_acos": 25, "price": 15.0}
+LISTING = (campaign("1", "DG - SP - Auto", targeting="AUTO"), product_ad("1", "AG1", "B0CYLMJJJC"),
+           campaign("2", "DG - SP - KW"), product_ad("2", "AG2", "B0CYLMJJJC"),
+           keyword("2", "AG2", "vitamin a cream", "EXACT"))
 
 
 def _search_frame():
@@ -31,8 +36,9 @@ def _search_frame():
 
 
 class FakeReports:
-    def __init__(self, profiles):
+    def __init__(self, profiles, rest=None):
         self._profiles = profiles
+        self.rest = rest if rest is not None else ListingRest(LISTING)
 
     def profiles(self):
         return list(self._profiles)
@@ -46,17 +52,18 @@ class FakeReports:
         return dict(MAPPING)
 
 
-def _page_call(params=PARAMS):
+def _page_call(params=PARAMS, listing=LISTING):
     """The agent call the page builds for the same data: the digest the worker must reproduce."""
     source = FakeReports([_profile()]).search_terms(_profile(), *WINDOW)
     analysis_input = build_analysis_input(
         source.frame, params=InsightsAnalysisParams.from_dict(params, "USD"), account_label=source.label,
-        period_label="8 – 14 sep 2026", currency_code="USD", ad_group_asins=MAPPING)
+        period_label="8 – 14 sep 2026", currency_code="USD", ad_group_asins=MAPPING,
+        campaigns=listed_campaigns(*listing) if listing else None)
     return agent_call.build_agent_call(ANALYSIS_MODULE, analysis_input.data)
 
 
-def _job(fake, job_id=9, agent_version=""):
-    params = {"lang": "es", "input_digest": _page_call().input_digest, "params": dict(PARAMS)}
+def _job(fake, job_id=9, agent_version="", listing=LISTING):
+    params = {"lang": "es", "input_digest": _page_call(listing=listing).input_digest, "params": dict(PARAMS)}
     if agent_version:
         params["agent_version"] = agent_version
     row = {"id": job_id, "integration_slug": "amazon_ads", "job_kind": JOB_KIND, "trigger": "manual",
@@ -67,12 +74,12 @@ def _job(fake, job_id=9, agent_version=""):
     return SyncJob.from_row(row)
 
 
-def _runner(fake, calls):
+def _runner(fake, calls, reports=None):
     def ask(**call):
         calls.append(call)
         return {"structured_output": RESULT, "session_id": "s", "request_id": "r", "usage": {}}
     return PpcInsightsAnalysisJob(store=AiAnalysisStore(fake), jobs=SyncJobStore(fake),
-                                  reports=FakeReports([_profile()]), ask=ask, clock=lambda: NOW)
+                                  reports=reports or FakeReports([_profile()]), ask=ask, clock=lambda: NOW)
 
 
 def test_the_job_kind_names_the_module_and_the_worker_dispatches_it():
@@ -98,6 +105,33 @@ def test_the_worker_builds_the_digest_the_page_asked_for_and_stores_its_rows():
     assert len(calls) == 1 and outcome.analysis_id == stored["id"]
     assert stored["input_digest"] == _page_call().input_digest
     assert stored["records"][0]["asin"] == "B0CYLMJJJC"
+    assert (stored["records"][0]["campanas"], stored["records"][0]["funnel"]) == (2, "completo")
+
+
+def test_a_listing_it_cannot_read_fails_the_job_before_calling_the_ai():
+    fake, calls = FakeRest(), []
+
+    _runner(fake, calls, FakeReports([_profile()], ListingRest(fail=True))).execute(_job(fake))
+
+    assert calls == [] and fake.tables["ai_analyses"] == []
+
+
+def test_an_account_never_listed_is_analyzed_without_campaigns_as_the_page_showed_it():
+    fake, calls = FakeRest(), []
+
+    _runner(fake, calls, FakeReports([_profile()], ListingRest())).execute(_job(fake, listing=()))
+
+    stored = fake.tables["ai_analyses"][0]
+    assert len(calls) == 1 and "campanas" not in stored["records"][0]
+
+
+def test_a_listing_that_changed_since_the_page_asked_is_changed_data():
+    fake, calls = FakeRest(), []
+
+    _runner(fake, calls, FakeReports([_profile()], ListingRest())).execute(_job(fake))
+
+    assert calls == [] and fake.tables["ai_analyses"] == []
+    assert "cambiaron desde que se pidió" in fake.tables["integration_sync_jobs"][0]["error_message"]
 
 
 def test_data_already_analyzed_by_this_version_is_not_paid_again():
@@ -163,3 +197,32 @@ def test_the_store_names_the_prompt_version_only_when_the_page_asks_for_it():
 
     assert "p_agent_version" not in fake.calls[0]
     assert fake.calls[1]["p_agent_version"] == "v-now"
+
+
+MIGRATIONS = sorted(__import__("pathlib").Path("deploy/db/migrations").glob("*.sql"))
+
+
+def _structure_function_tables() -> set[str]:
+    text = next(path for path in MIGRATIONS if path.name.startswith("018_")).read_text(encoding="utf-8")
+    body = text.split("create or replace function sp_structure_between", 1)[1].split("$$;", 1)[0]
+    return set(re.findall(r"\b(?:from|join)\s+(ads_[a-z_]+)", body))
+
+
+def _granted_to_ai_worker() -> tuple[set[str], str]:
+    tables, grants = set(), ""
+    for path in MIGRATIONS:
+        for statement in path.read_text(encoding="utf-8").split(";"):
+            flat = " ".join(statement.split())
+            if " to " in flat and "ai_worker" in flat.split(" to ", 1)[1]:
+                grants += flat + ";"
+                select = re.search(r"grant select(?:, [a-z]+)* on (.+?) to ", flat)
+                if select:
+                    tables |= {name.strip() for name in select.group(1).split(",")}
+    return tables, grants
+
+
+def test_the_analysis_worker_can_read_every_table_the_structure_function_names():
+    tables, grants = _granted_to_ai_worker()
+
+    assert _structure_function_tables() - tables == set()
+    assert "grant execute on function sp_structure_between(text, date, date, text[], text[]) to ai_worker;" in grants

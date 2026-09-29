@@ -1,7 +1,9 @@
-"""PPC Insights: health score por ASIN desde el Search Term Report, con SQP, BR y Campaign CSV opcionales.
+"""PPC Insights: health score por ASIN desde el Search Term Report y las campañas, con SQP y BR opcionales.
 
 El STR llega del picker de Amazon Ads o de un archivo subido a mano, que se lee con el parser propio del
-módulo. Las reglas por ASIN viven en core/ppc_insights: el worker de análisis arma con ellas el mismo payload.
+módulo. Las campañas, del listado de Sponsored Products de esa misma cuenta o de un Campaign CSV subido a mano
+(insights_campaign_source). Las reglas por ASIN viven en core/ppc_insights: el worker de análisis arma con ellas
+el mismo payload.
 """
 import hashlib
 import io
@@ -29,6 +31,7 @@ from core.ppc_insights.asin_health import (
     asin_coverage_caption,
     resolve_asins,
 )
+from core.ppc_insights.campaign_coverage import FILE_ORIGIN, LISTING_ORIGIN, FileCampaigns
 from core.search_term.candidates import uses_dollar_price
 from core.search_term.file import SearchTermFileError
 from core.chat.screen_selection import (
@@ -42,6 +45,13 @@ from core.chat.screen_selection import (
 )
 from core.search_term.frame import SOURCE_FILE
 from modules.pages import search_term_source
+from modules.pages.insights_campaign_source import (
+    UPLOAD_LABEL,
+    UPLOADER_KEY,
+    CampaignsInput,
+    file_campaigns,
+    render_campaigns_block,
+)
 from modules.pages.search_term_source import date_range_label, render_source_picker, shows_older_data
 
 log = logging.getLogger(__name__)
@@ -65,6 +75,11 @@ _SEEDED_ACCOUNT_KEY = "insights_seeded_account"
 
 _NO_ASIN_CAUSES = {SEVERAL_ASINS: "ad groups que anuncian varios ASINs",
                    WITHOUT_ASIN: "ad groups que el listado de productos anunciados no vio"}
+CAMPAIGNS_ORIGIN_CAPTIONS = {
+    LISTING_ORIGIN: "Del último listado de Sponsored Products de la cuenta: lo que corre, con el ASIN que anuncia cada "
+                  "ad group o que lleva el nombre de su campaña.",
+    FILE_ORIGIN: "Del Campaign CSV subido a mano: el ASIN y los tipos salen del nombre de cada campaña.",
+}
 NO_ASIN_FROM_FILE = ("El archivo no trae la columna de ASIN y ningún nombre de campaña lleva uno. Se muestra la "
                      "cuenta entera como una sola fila (ALL).")
 ADVERTISED_ASINS_UNREADABLE = ("No se pudieron leer los productos anunciados de la cuenta: el ASIN sale sólo del "
@@ -80,10 +95,13 @@ class InsightsResult:
     spend_share: dict
     sqp_df: pd.DataFrame | None
     br_df: pd.DataFrame | None
-    camp_df: pd.DataFrame | None
+    # ListedCampaigns or FileCampaigns (core/ppc_insights/campaign_coverage.py); None without campaigns.
+    campaigns: object | None
     file_warnings: tuple = ()
     report_spend: float = 0.0
     grouped_asins: dict = field(default_factory=dict)
+    # Why there are no campaigns, for the Campañas tab.
+    campaigns_note: str = ""
 
 
 # ── OpenPyXL helpers ─────────────────────────────────────────────────────────
@@ -419,14 +437,14 @@ def _file_digest(uploaded):
     return hashlib.sha256(uploaded.getvalue()).hexdigest()[:16] if uploaded is not None else ""
 
 
-def _inputs_signature(source, uploads, target_acos):
+def _inputs_signature(source, uploads, target_acos, campaigns_signature=""):
     """What the insights on screen were computed from; "Generar Insights" keeps them until it changes."""
-    parts = [source.signature, str(int(target_acos))] + [f"{name}:{_file_digest(upload)}"
-                                                         for name, upload in sorted(uploads.items())]
+    parts = [source.signature, str(int(target_acos)), campaigns_signature] + [
+        f"{name}:{_file_digest(upload)}" for name, upload in sorted(uploads.items())]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
-def _compute_insights(source, ad_group_asins, f_sqp, f_br, f_camp, target_acos):
+def _compute_insights(source, ad_group_asins, f_sqp, f_br, campaigns_input: CampaignsInput, target_acos):
     warnings = []
     sqp_df = None
     if f_sqp:
@@ -442,28 +460,29 @@ def _compute_insights(source, ad_group_asins, f_sqp, f_br, f_camp, target_acos):
             warnings.append(f"No se pudo leer el BR: {br_err}")
             br_df = None
 
-    camp_df = None
-    if f_camp:
-        camp_df, camp_err = _parse_campaigns(f_camp.getvalue())
+    campaigns, campaigns_note = campaigns_input.listing, campaigns_input.missing_reason
+    if campaigns_input.upload is not None:
+        camp_df, camp_err = _parse_campaigns(campaigns_input.upload.getvalue())
         if camp_err:
             warnings.append(f"No se pudo leer el Campaign CSV: {camp_err}")
-            camp_df = None
+            campaigns, campaigns_note = None, f"No se pudo leer el Campaign CSV: {camp_err}"
+        else:
+            campaigns = FileCampaigns(camp_df.copy())
 
     resolved = resolve_asins(source.frame.copy(), ad_group_asins)
     asin_data = analyze_asins(resolved.frame.copy(), None if sqp_df is None else sqp_df.copy(),
-                              None if br_df is None else br_df.copy(), None if camp_df is None else camp_df.copy(),
-                              target_acos, resolved.column)
-    return InsightsResult(asin_data, resolved.source, resolved.spend_share, sqp_df, br_df, camp_df, tuple(warnings),
-                          resolved.report_spend, resolved.grouped_asins)
+                              None if br_df is None else br_df.copy(), campaigns, target_acos, resolved.column)
+    return InsightsResult(asin_data, resolved.source, resolved.spend_share, sqp_df, br_df, campaigns, tuple(warnings),
+                          resolved.report_spend, resolved.grouped_asins, campaigns_note)
 
 
-def _insights_for(signature, source, f_sqp, f_br, f_camp, target_acos):
+def _insights_for(signature, source, f_sqp, f_br, campaigns_input, target_acos):
     """The insights of these inputs, computed once: the AI tab's reruns must not recompute every ASIN."""
     kept = st.session_state.get(_RESULT_KEY)
     if kept is not None and kept[0] == signature:
         return kept[1]
     with st.spinner("Procesando archivos..."):
-        result = _compute_insights(source, _ad_group_asins(source), f_sqp, f_br, f_camp, target_acos)
+        result = _compute_insights(source, _ad_group_asins(source), f_sqp, f_br, campaigns_input, target_acos)
     st.session_state[_RESULT_KEY] = (signature, result)
     return result
 
@@ -691,8 +710,11 @@ def _profile_country(profile_id):
     return ""
 
 
-def _render_stored_analysis(source, params, labels, currency_code, uploaded_files):
-    """Amazon Ads data: the analysis the worker stored, or the account's latest, with Recalcular."""
+def _render_stored_analysis(source, params, labels, currency_code, uploaded_files, listed_campaigns):
+    """Amazon Ads data: the analysis the worker stored, or the account's latest, with Recalcular.
+
+    It reads the account's campaign listing, never a Campaign CSV: the worker only has the listing.
+    """
     from ai.agent_call import build_agent_call
     from core import ai_tab
     from core.ai_analysis import stored_tab
@@ -700,7 +722,8 @@ def _render_stored_analysis(source, params, labels, currency_code, uploaded_file
 
     analysis_input = build_analysis_input(
         source.frame, params=params, account_label=source.label, period_label=_period_label(source),
-        currency_code=currency_code, lang=CANONICAL_LANG, ad_group_asins=_ad_group_asins(source))
+        currency_code=currency_code, lang=CANONICAL_LANG, ad_group_asins=_ad_group_asins(source),
+        campaigns=listed_campaigns)
     if analysis_input.data is None:
         st.info(labels["no_rows"])
         app_chat.withdraw_analysis(ANALYSIS_MODULE)
@@ -751,7 +774,7 @@ def _render_file_analysis(source, params, labels, currency_code, insights, signa
 
     analysis_input = build_analysis_input(
         source.frame, params=params, account_label=source.label, period_label="", currency_code=currency_code,
-        lang=lang, sqp_df=insights.sqp_df, br_df=insights.br_df, camp_df=insights.camp_df)
+        lang=lang, sqp_df=insights.sqp_df, br_df=insights.br_df, campaigns=insights.campaigns)
     if analysis_input.data is None:
         from core.chat import app_chat
 
@@ -775,7 +798,7 @@ def _render_file_analysis(source, params, labels, currency_code, insights, signa
         annotate=partial(ai_tab.annotate_row_ids, labels_by_id=insights_row_labels(records)))
 
 
-def _render_ai_tab(source, params, currency_code, insights, signature, uploaded_files):
+def _render_ai_tab(source, params, currency_code, insights, signature, uploaded_files, listed_campaigns):
     from ai.config import AI_ENABLED
     from core import ai_tab
     from core.chat import app_chat
@@ -793,7 +816,7 @@ def _render_ai_tab(source, params, currency_code, insights, signature, uploaded_
     if source.source == SOURCE_FILE:
         _render_file_analysis(source, params, labels, currency_code, insights, signature, lang)
     else:
-        _render_stored_analysis(source, params, labels, currency_code, uploaded_files)
+        _render_stored_analysis(source, params, labels, currency_code, uploaded_files, listed_campaigns)
 
 
 # ── render ────────────────────────────────────────────────────────────────────
@@ -819,14 +842,14 @@ def render():
             st.caption("Health score 0-100 por ASIN cruzando STR + SQP + BR + Campañas. Detecta wasted spend y bleeders.")
         with col2:
             st.markdown("**📂 De dónde salen los datos**")
-            st.caption("STR de la cuenta conectada de Amazon Ads o subido a mano (requerido). SQP + BR by ASIN + "
-                       "Campaign CSV (opcionales — mínimo 2 fuentes para score confiable).")
+            st.caption("STR y campañas de la cuenta conectada de Amazon Ads, o subidos a mano (el Campaign CSV). "
+                       "SQP + BR by ASIN opcionales — mínimo 2 fuentes para score confiable.")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("PPC Audit (M20) para auditoría estructural o Bid Optimizer (M9) para ajustar bids.")
         st.markdown("**▶️ Pasos:**")
         st.markdown(
-            "1. Elegí la cuenta y el período (o subí el STR a mano)\n"
+            "1. Elegí la cuenta y el período (o subí el STR a mano): las campañas salen de la misma cuenta\n"
             "2. Configurá Target ACoS, precio promedio y nombre del cliente\n"
             "3. Sumá los archivos opcionales que tengas y tocá Generar Insights\n"
             "4. Revisá los cards por ASIN — score 🟢 ≥70 / 🟡 40-69 / 🔴 <40\n"
@@ -836,7 +859,9 @@ def render():
 
     source = render_source_picker(key_prefix="insights", module_label="PPC Insights", manual_reader=_read_manual_str)
     currency_code = source.currency_code if source is not None else ""
-    if source is not None and source.source != SOURCE_FILE and source.profile_id:
+    from_account = source is not None and source.source != SOURCE_FILE and bool(source.profile_id)
+    campaigns_input = render_campaigns_block(source) if from_account else None
+    if from_account:
         _seed_account_parameters(source)
 
     # ── Global inputs ─────────────────────────────────────────────────────────
@@ -857,13 +882,14 @@ def render():
 
     # ── File uploaders ────────────────────────────────────────────────────────
     st.markdown("**Archivos opcionales**")
-    c1, c2, c3 = st.columns(3)
-    with c1:
+    upload_columns = st.columns(2 if from_account else 3)
+    with upload_columns[0]:
         f_sqp  = st.file_uploader("Search Query Performance (opcional)", type=["xlsx", "csv"], key="insights_sqp")
-    with c2:
+    with upload_columns[1]:
         f_br   = st.file_uploader("Business Report by ASIN (opcional)", type=["csv", "xlsx"], key="insights_br")
-    with c3:
-        f_camp = st.file_uploader("Campaign CSV (opcional)", type=["csv"], key="insights_camp")
+    if not from_account:
+        with upload_columns[2]:
+            campaigns_input = file_campaigns(st.file_uploader(UPLOAD_LABEL, type=["csv"], key=UPLOADER_KEY))
 
     if source is None:
         _empty_state()
@@ -871,8 +897,8 @@ def render():
         app_chat.withdraw_selection()
         return
 
-    uploads = {"sqp": f_sqp, "br": f_br, "camp": f_camp}
-    signature = _inputs_signature(source, uploads, target_acos)
+    uploads = {"sqp": f_sqp, "br": f_br, "camp": campaigns_input.upload}
+    signature = _inputs_signature(source, uploads, target_acos, campaigns_input.signature)
     if st.button("Generar Insights", type="primary", key="insights_run"):
         st.session_state[_GENERATED_FOR_KEY] = signature
     if st.session_state.get(_GENERATED_FOR_KEY) != signature:
@@ -881,7 +907,7 @@ def render():
         return
 
     try:
-        insights = _insights_for(signature, source, f_sqp, f_br, f_camp, target_acos)
+        insights = _insights_for(signature, source, f_sqp, f_br, campaigns_input, target_acos)
     except Exception as e:  # a malformed optional file must end in a message, not a traceback
         log.exception("ppc insights could not be computed")
         st.error(f"Error durante el análisis: {e}")
@@ -1008,17 +1034,19 @@ def render():
                         ))
 
                 with tab_camp:
-                    if insights.camp_df is None:
-                        st.info("No se subio el Campaign CSV.")
+                    if insights.campaigns is None:
+                        st.info(insights.campaigns_note)
                     else:
                         dc1, dc2 = st.columns(2)
-                        dc1.metric("Campañas (ENABLED)", str(d["n_campaigns"]) if d["n_campaigns"] is not None else "—")
-                        dc2.metric("Tipos detectados", d["campaign_types"] or "—")
+                        dc1.metric("Campañas habilitadas",
+                                   str(d["n_campaigns"]) if d["n_campaigns"] is not None else "—")
+                        dc2.metric("Tipos", d["campaign_types"] or "—")
                         if d["funnel_complete"] is not None:
                             if d["funnel_complete"]:
                                 st.success("Funnel completo detectado (Auto + Exact presentes).")
                             else:
                                 st.warning("Funnel incompleto — revisar cobertura de match types.")
+                        st.caption(CAMPAIGNS_ORIGIN_CAPTIONS[insights.campaigns.origin])
 
             st.divider()
 
@@ -1039,4 +1067,4 @@ def render():
 
     with tab_ai:
         uploaded_files = any(upload is not None for upload in uploads.values())
-        _render_ai_tab(source, params, currency_code, insights, signature, uploaded_files)
+        _render_ai_tab(source, params, currency_code, insights, signature, uploaded_files, campaigns_input.listing)

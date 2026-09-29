@@ -52,6 +52,7 @@ from core.funnel.coverage import (
     suggested_campaigns,
 )
 from core.ppc_insights.asin_health import InsightsAnalysisParams, analyze_asins, resolve_asins
+from core.ppc_insights.campaign_coverage import CampaignListing, read_campaign_listing
 from core.search_term import frame as canonical
 from core.search_term.candidates import (
     HARVEST_PRIORITY_ORDER,
@@ -110,9 +111,14 @@ CANDIDATES_SOURCE = ("Sólo Sponsored Products, del reporte de search terms. Las
 BIDS_SOURCE = ("Del reporte de search terms: el ASIN sale del nombre de la campaña y el precio es el ticket promedio "
                "del período. El Inventory Report, con el precio de lista, se sube a mano en el Bid Optimizer y acá "
                "no está.")
-ASIN_HEALTH_SOURCE = ("Del reporte de search terms, con el ASIN de cada término como en PPC Insights. El SQP, el "
-                      "Business Report y el Campaign CSV se suben a mano en el módulo y acá no están: Buy Box, "
-                      "estructura de campañas y visibilidad valen su punto neutro.")
+ASIN_HEALTH_SOURCE = ("Del reporte de search terms, con el ASIN de cada término como en PPC Insights. "
+                      "campaign_structure sale del último listado de Sponsored Products de la cuenta, como en la "
+                      "pantalla: las campañas habilitadas con un ad group habilitado que anuncia el ASIN o cuyo nombre "
+                      "lo lleva, sus tipos y si tiene Auto y Exact (funnel); advertised_in cuenta sólo los anuncios "
+                      "del ASIN. El SQP y el Business Report se suben a mano en el módulo y acá no están: Buy Box y "
+                      "visibilidad valen su punto neutro.")
+CAMPAIGN_STRUCTURE_UNKNOWN_NOTE = ("Sin campaign_structure: {reason} La estructura de campañas vale su punto "
+                                   "neutro.")
 UNSOLD_SPEND_NOTE = ("spend_without_sales es lo que gastaron todos los search terms del ASIN que no tuvieron ninguna "
                      "orden, cada término sumado en todas sus campañas. top_unsold_terms_spend es sólo la parte de "
                      "sus 10 términos sin órdenes de más gasto, de más de 5 cada uno: los que PPC Insights marca "
@@ -388,9 +394,9 @@ def _with_previous_bids(rows: list[dict], rest, profile, start, end, target: int
 def asin_health(rest, *, profile_id: str = "", account: str = "", days: int = DEFAULT_DAYS, date_from: str = "",
                 date_to: str = "", target_acos: int = 0, sort_by: AsinOrder = "spend", offset: int = 0,
                 limit: int = 50) -> dict:
-    """PPC Insights of an account: the health score (0-100) of each ASIN with its parts, spend, ACoS, CVR and the
-    spend of its terms that did not sell, the highest spend first, or the worst health first with
-    `sort_by`=health_score.
+    """PPC Insights of an account: the health score (0-100) of each ASIN with its parts, spend, ACoS, CVR, the
+    spend of its terms that did not sell and the SP campaigns that run for it (how many, their kinds and whether
+    it has Auto and Exact), the highest spend first, or the worst health first with `sort_by`=health_score.
 
     Starts from the target ACoS saved for the account in PPC Insights, or its default; `target_acos` replaces it.
     """
@@ -415,8 +421,9 @@ def asin_health(rest, *, profile_id: str = "", account: str = "", days: int = DE
     saved = (InsightsAnalysisParams.from_dict(settings.params, source.currency_code) if settings
              else InsightsAnalysisParams.defaults(source.currency_code))
     target = target_acos or saved.target_acos
+    listing = _campaign_listing(rest, profile, end)
     resolved = resolve_asins(source.frame.copy(), ad_group_asins)
-    asin_data = analyze_asins(resolved.frame.copy(), None, None, None, target, resolved.column)
+    asin_data = analyze_asins(resolved.frame.copy(), None, None, listing.campaigns, target, resolved.column)
     unsold_spend = _spend_without_sales(resolved.frame, resolved.column)
     rows = sorted((_asin_row(asin, metrics, resolved.grouped_asins.get(asin), unsold_spend.get(str(asin), 0.0))
                    for asin, metrics in asin_data.items()), key=_asin_order(sort_by))
@@ -434,6 +441,8 @@ def asin_health(rest, *, profile_id: str = "", account: str = "", days: int = DE
         payload["window_note"] = window_note
     if notes:
         payload["asin_note"] = " ".join(notes)
+    if listing.campaigns is None:
+        payload["campaign_structure_note"] = CAMPAIGN_STRUCTURE_UNKNOWN_NOTE.format(reason=listing.missing_reason)
     return payload
 
 
@@ -531,9 +540,21 @@ def _asin_row(asin, metrics: dict, grouped_asins: int | None, spend_without_sale
            "spend_without_sales": _number(spend_without_sales),
            "top_unsold_terms_spend": _number(metrics["wasted_spend"]),
            "top_search_terms": [] if top_terms.empty else top_terms["Search Term"].astype(str).tolist()}
+    if metrics["n_campaigns"] is not None:
+        row["campaign_structure"] = {"campaigns": metrics["n_campaigns"], "types": metrics["campaign_types"],
+                                     "funnel": "completo" if metrics["funnel_complete"] else "parcial"}
     if grouped_asins:
         row["grouped_asins"] = grouped_asins
     return row
+
+
+def _campaign_listing(rest, profile, day) -> CampaignListing:
+    """The account's SP campaigns as PPC Insights reads them; unknown, with the reason, when they cannot be read."""
+    try:
+        return read_campaign_listing(rest, profile, day)
+    except (ReportReadError, ValueError) as exc:
+        log.warning("SP campaign listing of profile %s could not be read for asin_health: %s", profile.profile_id, exc)
+        return CampaignListing(missing_reason="No se pudo leer el listado de campañas de la cuenta.")
 
 
 def _keyword_listing(rest, profile, day) -> KeywordListing | None:
