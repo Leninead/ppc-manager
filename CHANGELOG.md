@@ -6,6 +6,52 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — La subida manual vuelve como fallback en los cinco módulos que la habían perdido con la API de Amazon Ads (2026-09-29)
+
+**Por qué.** Al pasar a la API, Search Term Report, Bulk Campañas, Análisis de Funnel, Bid Optimizer, PPC Insights y PPC
+Audit conservaron la subida manual como alternativa, pero Análisis Cruzado, SBH Recommendation, PPC Forecast, Account
+Pulse y Weekly Client Report la perdieron: sin una cuenta conectada y sincronizada no había forma de usarlos. El criterio
+quedaba distinto según el módulo.
+
+**Ahora, un solo criterio.** Todo módulo que lee Amazon Ads sigue la cuenta por defecto y ofrece la subida a mano:
+- Sin cuentas conectadas, el uploader con la pista para conectar la cuenta.
+- Con cuentas, «Subir archivo manualmente» en todos los estados de la tarjeta de la cuenta (sin elegir, lectura caída,
+  sin sincronizar, primera carga, al día). El modo manual muestra la nota, «Volver a datos de Amazon Ads» (con la cuenta
+  elegida intacta) y el uploader, y no lee nada de Amazon Ads.
+- Lo que el archivo no dice (días, cuenta, moneda, atribución) se dice en pantalla y al agente IA; nunca se inventa. La
+  firma de la pestaña IA incluye el archivo, así que un archivo nuevo es un análisis pendiente, no uno viejo.
+
+**Por módulo.**
+- **Análisis Cruzado: Bulk File.** `core/cross_analysis/bulk_file.py` lo convierte en lo mismo que da la cuenta: search
+  terms canónicos con sus IDs (Auto negativizable, product targeting no), las Exact habilitadas de la hoja de campañas
+  (sin esa hoja, «♻️ Ya en Exact» queda sin dato) y todos los ASINs de cada ad group. Las cuatro pestañas y los dos
+  exports funcionan igual.
+- **SBH Recommendation: Bulk File o export de keywords SP** para marcar «En SP». Del Bulk usa la misma regla que el
+  listado (keyword, campaña y ad group habilitados, sin negativas). Un Campaign CSV de nivel campaña, que el uploader
+  viejo dejaba vacío sin avisar, ahora da un error claro.
+- **PPC Forecast, Account Pulse y Weekly Client Report: Campaign CSV**, una sola vez en el bloque compartido
+  (`ad_account_block.py` + `core/amazon_ads/campaign_file.py`). Lee el export de Campaign Manager (y los headers viejos),
+  suma todas las campañas sea cual sea su estado, limpia montos con cualquier prefijo («MX$5,796.55»), toma la moneda si
+  el archivo la dice y rechaza un Bulk File (sumarlo contaría dos veces). Como el archivo no trae días, se compara con
+  todos los días del BR (`file_split`) y la pantalla pide que se exporte con ese mismo rango. Forecast: desglose y
+  spend estimado. Account Pulse: ACoS y TACoS del período del archivo, sin comparar semanas, y la hoja Campañas.
+  Weekly: la hoja Advertising, también sin BR diario (entonces sin TACoS); portfolios y NTB sólo si el archivo los trae.
+- **Search Term Report, Bid Optimizer, PPC Insights y Análisis de Funnel** ya tenían la subida manual, pero el picker del
+  STR no la ofrecía en tres estados: lectura de search terms caída, cuenta que pide reautorizar sin datos todavía, y
+  lista de cuentas caída con datos en pantalla. Ahora la ofrece también ahí (sólo con `allow_manual`: Análisis Cruzado
+  y PPC Audit dibujan su propio botón).
+
+**Archivos que no son lo que parecen.** Ningún lector deja pasar un traceback: un .xlsx cifrado, un .xls renombrado o
+un zip que no es un workbook dan un error que nombra el archivo. El Campaign CSV rechaza cualquier Bulk (hoja de
+campañas SP, SB o SD, o columna `Entity`, también guardado como CSV) y un archivo con dos monedas; un Campaign ID que
+Excel reescribió en notación científica ya no funde campañas distintas; un NTB en `-` o vacío queda sin dato, no 0.
+SBH lee CSV con `;` (Excel en español), usa `State` para el estado y `Status` como estado de entrega (una campaña
+pausada no marca «En SP»), y rechaza la columna `Targeting` de una grilla de campañas (Manual/Automatic). El Bulk de
+Análisis Cruzado conserva los términos «nan», «null» o «n/a», y la ayuda pide destildar *Campaign items with zero
+impressions* (Amazon los excluye por defecto y sin ellos «♻️ Ya en Exact» no ve las keywords sin impresiones).
+Weekly muestra «—» (no 0) para impresiones, clicks u órdenes que el archivo no trae, y Account Pulse pone el ACoS/TACoS
+del archivo en su propia sección del Excel, no bajo «This Week».
+
 ### Added — Órdenes de Compra recibe una OC desde planilla (2026-09-29)
 
 **Por qué.** Fede tiene una OC Emitida de 109 líneas y la recepción manual pide cargarlas de a una.

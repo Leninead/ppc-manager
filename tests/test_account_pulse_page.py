@@ -1,9 +1,11 @@
-"""Account Pulse over an in-memory PostgREST: the week against the prior one, and the ads of the chosen account.
+"""Account Pulse over an in-memory PostgREST: the week against the prior one, and the ads of the chosen account or of
+a Campaign CSV uploaded by hand.
 
 No network: `_open_rest` is replaced before every script run, the uploads are fakes that serve CSVs built here, and the
 AI tab runs disabled except where a test fakes the provider.
 """
 import csv
+import hashlib
 import io
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -25,8 +27,11 @@ from core import ai_tab
 from core.account_pulse.ads_by_week import ads_by_week
 from core.account_pulse.campaigns import campaign_rows
 from core.amazon_ads import campaign_totals
+from core.amazon_ads.campaign_file import read_campaign_file
 from core.amazon_ads.campaign_totals import ProductDay, ProductSeries, Totals
 from core.amazon_ads.report_provider import ProfileOption
+from core.business_report.paid_split import file_split
+from core.date_labels import date_range_label
 from modules.pages import account_pulse as pulse_page
 from modules.pages import ad_account_block
 
@@ -67,6 +72,15 @@ def _by_child_csv() -> bytes:
                           "Ordered Product Sales": ["$1,000.00", "$500.00"], "Sessions - Total": [50, 30],
                           "Units Ordered": [10, 5], "Featured Offer (Buy Box) Percentage": ["90%", "99%"]})
     return frame.to_csv(index=False).encode("utf-8")
+
+
+def _campaign_csv(sp_sales: str = "$600.00") -> bytes:
+    """The account's campaigns over the report's days, as Campaign Manager exports them: 160 spent, 640 sold."""
+    return ("Campaign name,Campaign ID,State,Type,Portfolio name,Impressions,Clicks,Total cost,Purchases,Sales\n"
+            "Luna - B0TEST0001 - SP - KW - EXACT - Brand,111,ENABLED,Sponsored Products,Kids,900,40,$120.00,12,"
+            f'"{sp_sales}"\n'
+            "Old auto,222,PAUSED,Sponsored Products,,300,10,$30.00,0,$0.00\n"
+            "Video Luna,333,ENABLED,Sponsored Brands,,500,20,$10.00,2,$40.00\n").encode("utf-8")
 
 
 def _upload(name: str, data: bytes) -> UploadedFile:
@@ -136,9 +150,9 @@ class _FakeRest:
     """The profile table, the campaign sync jobs, and the campaign totals by day and by campaign."""
 
     def __init__(self, *, profiles=True, synced_through: date | None = date(2026, 9, 22), campaign_days=None,
-                 fail_totals=False, latest_status: str = ""):
+                 fail_totals=False, latest_status: str = "", fail_sync=False):
         self._profiles, self._synced_through, self._fail_totals = profiles, synced_through, fail_totals
-        self._latest_status = latest_status
+        self._latest_status, self._fail_sync = latest_status, fail_sync
         self._campaign_days = _campaign_days() if campaign_days is None else campaign_days
         self.reads: list[tuple[str, dict]] = []
 
@@ -147,6 +161,8 @@ class _FakeRest:
             return [_profile_row()] if self._profiles else []
         if table == "integration_sync_jobs":
             assert params["job_kind"] == "eq.sp_campaigns"
+            if self._fail_sync:
+                raise requests.ConnectionError("gateway down")
             if self._latest_status and params.get("status") != "eq.completed":
                 return [_campaign_job(date(2026, 9, 22), self._latest_status)]
             return [_campaign_job(self._synced_through)] if self._synced_through else []
@@ -198,13 +214,16 @@ render()
 """
 
 
-def _page(monkeypatch, rest=None, *, days=None, daily=True, by_child=False, ai_enabled=False) -> AppTest:
+def _page(monkeypatch, rest=None, *, days=None, daily=True, by_child=False, ai_enabled=False,
+          campaign_file: tuple[str, bytes] | None = None) -> AppTest:
     import streamlit
     uploads = {}
     if daily:
         uploads["ap_br_daily"] = ("BusinessReport-by-date.csv", _business_report_csv(days or _report_days()))
     if by_child:
         uploads["ap_br_child"] = ("BusinessReport-by-child.csv", _by_child_csv())
+    if campaign_file is not None:
+        uploads["ap_src_file"] = campaign_file
     monkeypatch.setattr(streamlit, "file_uploader",
                         lambda label, *args, key=None, **kwargs: _upload(*uploads[key]) if key in uploads else None)
     monkeypatch.setattr(search_term_source, "_open_rest", lambda: rest)
@@ -217,6 +236,22 @@ def _page(monkeypatch, rest=None, *, days=None, daily=True, by_child=False, ai_e
 
 def _choose_account(app: AppTest) -> AppTest:
     app.selectbox(key="ap_src_account").set_value(ACCOUNT).run()
+    assert not app.exception, app.exception
+    return app
+
+
+def _upload_offered(app: AppTest) -> bool:
+    return any(button.key == "ap_src_upload_manual" for button in app.button)
+
+
+def _run_ai(app: AppTest) -> AppTest:
+    app.button(key="account_pulse_ai_recalc").click().run()
+    for _ in range(30):
+        entry = app.session_state["app_chat_modules"].get("account_pulse")
+        if entry is not None and entry.state == "current":
+            break
+        time.sleep(0.2)
+        app.run()
     assert not app.exception, app.exception
     return app
 
@@ -313,12 +348,162 @@ def test_more_ad_sales_than_report_sales_warns_that_the_account_may_not_be_the_r
         "el país sean los del BR."]
 
 
-def test_without_connected_accounts_the_page_says_so_and_still_renders(monkeypatch):
+def test_without_connected_accounts_the_page_asks_for_the_campaign_csv_and_still_renders(monkeypatch):
     app = _page(monkeypatch, _FakeRest(profiles=False))
 
-    assert pulse_page._ADS_TEXTS.no_accounts in _text(app)
+    assert f"{ad_account_block.FILE_HINT} {pulse_page._ADS_TEXTS.no_accounts}" in _text(app)
     assert not app.selectbox
     assert f"Sin ACoS, TACoS ni campañas: {ad_account_block.MISSING_NO_ACCOUNTS}." in _text(app)
+    assert ">—</div>" in _card(app, "ACoS TW") and ">—</div>" in _card(app, "TACoS TW")
+
+
+def test_a_campaign_csv_gives_the_acos_tacos_and_campaigns_of_its_whole_period_with_no_weeks(monkeypatch):
+    fake = _FakeRest(profiles=False)
+
+    app = _page(monkeypatch, fake, campaign_file=("campaigns.csv", _campaign_csv()))
+
+    assert fake.reads == []
+    # The paused campaign still spent in the range: 160 of spend over 640 of ad sales and the report's 1,380.
+    acos_card, tacos_card = _card(app, pulse_page.FILE_ACOS_LABEL), _card(app, pulse_page.FILE_TACOS_LABEL)
+    assert ">25.0%</div>" in acos_card and ">11.6%</div>" in tacos_card
+    assert not any(arrow in acos_card + tacos_card for arrow in "↑↓→")
+    assert not any(">ACoS TW</div>" in str(element.value) for element in app.markdown)
+    text = _text(app)
+    assert pulse_page.FILE_ADS_CAPTION.format(file="campaigns.csv", products="SP · SB", total=14,
+                                              window=date_range_label(FIRST_DAY, LAST_DAY)) in text
+    assert "ACoS y TACoS de cada semana" not in text and "Sponsored Products con atribución de" not in text
+    assert "BR diario: 14 días · 3 campañas con actividad" in text
+    assert "Top Campañas (3 con actividad · Campaign CSV «campaigns.csv»)" in text
+    campaigns = app.dataframe[-1].value
+    assert list(campaigns["Campaign"]) == ["Luna - B0TEST0001 - SP - KW - EXACT - Brand", "Old auto", "Video Luna"]
+    assert list(campaigns["Producto"]) == ["SP", "SP", "SB"]
+    assert list(campaigns["Spend"]) == ["$120.00", "$30.00", "$10.00"]
+    assert list(campaigns["ACoS %"]) == ["20.0%", "—", "25.0%"]
+
+
+def test_what_a_campaign_csv_does_not_say_shows_as_unknown_not_as_zero(monkeypatch):
+    csv_bytes = b"Campaign name,Total cost,Sales\nAlpha,$300.00,$1200.00\n"
+
+    app = _page(monkeypatch, _FakeRest(profiles=False), campaign_file=("campaigns.csv", csv_bytes))
+
+    campaigns = app.dataframe[-1].value
+    assert list(campaigns["Producto"]) == ["—"] and list(campaigns["Orders"]) == ["—"]
+    assert f"del Campaign CSV «campaigns.csv» ({pulse_page.FILE_PRODUCTS_UNKNOWN})" in _text(app)
+
+
+def test_a_campaign_csv_where_no_campaign_had_activity_says_so_not_that_it_does_not_name_the_products(monkeypatch):
+    workbooks = _keep_workbooks(monkeypatch)
+    csv_bytes = (b"Campaign name,Type,Total cost,Sales\nAlpha,Sponsored Products,$0.00,$0.00\n"
+                 b"Beta,Sponsored Brands,$0.00,$0.00\n")
+
+    app = _page(monkeypatch, _FakeRest(profiles=False), campaign_file=("campaigns.csv", csv_bytes))
+
+    summary = _rows_by_label(load_workbook(workbooks[-1])["Resumen Ejecutivo"])
+    for text in (_text(app), " ".join(str(label) for label in summary)):
+        assert pulse_page.FILE_PRODUCTS_UNKNOWN not in text
+        assert f"del Campaign CSV «campaigns.csv» ({pulse_page.FILE_PRODUCTS_NONE})" in text
+
+
+def test_a_campaign_csv_that_cannot_be_read_says_how_to_export_it_and_the_pulse_still_renders(monkeypatch):
+    app = _page(monkeypatch, _FakeRest(profiles=False), campaign_file=("campaigns.xlsx", b"not a workbook"))
+
+    assert any("No se pudo leer «campaigns.xlsx»" in str(error.value) and "Campaign Manager → Campaigns → Export"
+               in str(error.value) for error in app.error)
+    assert f"Sin ACoS, TACoS ni campañas: {ad_account_block.MISSING_UNREADABLE_FILE}." in _text(app)
+    assert [tab.label for tab in app.tabs] == ["📊 Pulse", "🤖 Análisis IA"]
+
+
+def test_a_campaign_csv_that_sold_more_than_the_report_warns_that_it_may_be_another_account_or_range(monkeypatch):
+    app = _page(monkeypatch, _FakeRest(profiles=False),
+                campaign_file=("campaigns.csv", _campaign_csv(sp_sales="$9,000.00")))
+
+    assert [str(warning.value) for warning in app.warning] == [
+        "Las ventas de ads del Campaign CSV (\\$9,040.00) superan las del BR (\\$1,380.00): revisá que el archivo "
+        "sea de la cuenta del BR y del mismo rango de fechas."]
+
+
+@pytest.mark.parametrize("rest, choose", [
+    (_FakeRest(), False),
+    (_FakeRest(fail_sync=True), True),
+    (_FakeRest(synced_through=None), True),
+    (_FakeRest(synced_through=None, latest_status="pending"), True),
+    (_FakeRest(synced_through=None, latest_status="failed"), True),
+    (_FakeRest(), True),
+    (_FakeRest(fail_totals=True), True),
+], ids=["not-chosen", "sync-unreadable", "never-synced", "first-load", "first-load-failed", "synced",
+        "ads-unreadable"])
+def test_every_state_of_the_account_card_offers_the_manual_upload(monkeypatch, rest, choose):
+    app = _page(monkeypatch, rest)
+    if choose:
+        _choose_account(app)
+
+    assert _upload_offered(app)
+
+
+def test_the_manual_upload_reads_the_campaign_csv_instead_of_the_account_and_going_back_restores_it(monkeypatch):
+    fake = _FakeRest()
+    app = _choose_account(_page(monkeypatch, fake, campaign_file=("campaigns.csv", _campaign_csv())))
+    assert "esta semana 7 de 7 días, la anterior 7 de 7 días" in _text(app)
+    fake.reads.clear()
+
+    app.button(key="ap_src_upload_manual").click().run()
+
+    assert not app.exception, app.exception
+    assert fake.reads == []
+    text = _text(app)
+    assert search_term_source.MANUAL_MODE_NOTE in text and ad_account_block.FILE_HINT in text
+    assert "ACoS y TACoS del Campaign CSV «campaigns.csv»" in text
+    assert ">25.0%</div>" in _card(app, pulse_page.FILE_ACOS_LABEL)
+    assert not _upload_offered(app) and not any(box.key == "ap_src_account" for box in app.selectbox)
+
+    app.button(key="ap_src_back_to_api").click().run()
+
+    assert not app.exception, app.exception
+    assert app.selectbox(key="ap_src_account").value == ACCOUNT
+    assert "esta semana 7 de 7 días, la anterior 7 de 7 días" in _text(app)
+    assert ">20.5%</div>" in _card(app, "ACoS TW")
+    assert _upload_offered(app)
+
+
+def test_the_manual_mode_without_a_file_says_it_is_missing(monkeypatch):
+    app = _page(monkeypatch, _FakeRest())
+
+    app.button(key="ap_src_upload_manual").click().run()
+
+    assert not app.exception, app.exception
+    assert f"Sin ACoS, TACoS ni campañas: {ad_account_block.MISSING_NO_FILE}." in _text(app)
+    assert ">—</div>" in _card(app, "ACoS TW")
+
+
+def _keep_workbooks(monkeypatch) -> list:
+    """The workbooks the page builds for its download button, in the order it builds them."""
+    workbooks = []
+    build_excel = pulse_page._build_account_pulse_excel
+
+    def keep_workbook(*args, **kwargs):
+        workbooks.append(build_excel(*args, **kwargs))
+        return workbooks[-1]
+
+    monkeypatch.setattr(pulse_page, "_build_account_pulse_excel", keep_workbook)
+    return workbooks
+
+
+def test_the_excel_of_a_campaign_csv_has_its_acos_and_tacos_with_no_prior_week_and_its_campaigns(monkeypatch):
+    workbooks = _keep_workbooks(monkeypatch)
+    _page(monkeypatch, _FakeRest(profiles=False), campaign_file=("campaigns.csv", _campaign_csv()))
+
+    workbook = load_workbook(workbooks[-1])
+    summary = _rows_by_label(workbook["Resumen Ejecutivo"])
+    assert summary[pulse_page.FILE_ACOS_ROW][1:] == ["25.0%", None, None, None, None]
+    assert summary[pulse_page.FILE_TACOS_ROW][1:] == ["11.6%", None, None, None, None]
+    assert "ACoS %" not in summary and "TACoS %" not in summary
+    caption = "ACoS y TACoS del Campaign CSV «campaigns.csv» (SP · SB), sin comparar semanas"
+    assert any(caption in str(label) for label in summary)
+    sheet = workbook["Campañas"]
+    assert sheet["A1"].value == "Client — Campañas · Campaign CSV «campaigns.csv»"
+    assert [cell.value for cell in sheet[3]] == ["Luna - B0TEST0001 - SP - KW - EXACT - Brand", "SP", "NUEVA", 900, 40,
+                                                 120.0, 600.0, "20.0%", 12]
+    assert sheet["F3"].number_format == '"$"#,##0.00'
 
 
 def test_the_by_child_report_alone_lists_its_buybox_alerts_and_asks_for_the_daily_one(monkeypatch):
@@ -327,6 +512,15 @@ def test_the_by_child_report_alone_lists_its_buybox_alerts_and_asks_for_the_dail
     assert not app.tabs
     assert "BuyBox Alerts (1 ASINs < 95%)" in _text(app)
     assert "Cargá al menos el BR diario para generar el Excel." in _text(app)
+
+
+def test_the_by_child_report_alone_shows_its_money_in_the_currency_the_campaign_csv_says(monkeypatch):
+    csv_bytes = _campaign_csv().decode("utf-8").replace("$", "MX$").encode("utf-8")
+
+    app = _page(monkeypatch, _FakeRest(profiles=False), daily=False, by_child=True,
+                campaign_file=("campaigns.csv", csv_bytes))
+
+    assert list(app.dataframe[-1].value["Sales"]) == ["MX$1,000.00"]
 
 
 def test_the_ai_analysis_waits_for_the_click_and_reaches_the_chat_with_the_account(monkeypatch):
@@ -357,6 +551,39 @@ def test_the_ai_analysis_waits_for_the_click_and_reaches_the_chat_with_the_accou
     assert "Publicidad → VIGILAR: TACoS de 10,5%." in shared.documents[-1]["content"]
     assert "- TACoS, semana actual (%): 10.5" in shared.documents[0]["content"]
     assert (shared.profile_id, shared.country_code) == ("111", "US")
+
+
+def test_the_ai_analysis_of_a_campaign_csv_says_where_the_ads_come_from_and_signs_the_file(monkeypatch):
+    monkeypatch.setattr(ai_client, "ask", lambda **call: {"structured_output": ANSWER, "session_id": "file-session"})
+    content = _campaign_csv()
+    app = _page(monkeypatch, _FakeRest(profiles=False), ai_enabled=True, campaign_file=("campaigns.csv", content))
+
+    _run_ai(app)
+
+    shared = app.session_state["app_chat_modules"]["account_pulse"].analysis
+    titles = [document["title"] for document in shared.documents]
+    assert titles[0] == "Account Pulse · BusinessReport-by-date.csv · Parámetros"
+    params = shared.documents[0]["content"]
+    assert "Cuenta de Amazon Ads del Business Report: ninguna: el AM subió el Campaign CSV a mano" in params
+    assert "Datos de ads: los del Campaign CSV «campaigns.csv»" in params
+    assert "- ACoS (%): 25" in params and "- TACoS (%): 11.6" in params
+    assert "semana actual (%): 25" not in params
+    campaigns = next(document["content"] for document in shared.documents if "Campañas con actividad" in
+                     document["title"])
+    assert campaigns.splitlines()[1].split(",")[1:] == ["SP", "NUEVA", "900", "40", "120.0", "600.0", "20.0", "12"]
+    assert (shared.profile_id, shared.country_code) == ("", "")
+    assert app.session_state["account_pulse_ai_file_sig"].endswith(hashlib.sha256(content).hexdigest()[:16])
+    publicidad = next(row for row in app.markdown if "ACoS (CSV) 25.0%" in str(row.value))
+    assert "TACoS (CSV) 11.6%" in str(publicidad.value)
+
+
+def test_a_new_campaign_csv_is_new_data_for_the_analysis():
+    report = _upload("BusinessReport-by-date.csv", _business_report_csv(_report_days()))
+    signatures = {pulse_page._data_signature(report, None, source) for source in (
+        "111", read_campaign_file(_campaign_csv(), "campaigns.csv").digest,
+        read_campaign_file(_campaign_csv(sp_sales="$700.00"), "campaigns.csv").digest)}
+
+    assert len(signatures) == 3
 
 
 def test_the_ai_rows_show_each_topic_with_its_verdict_and_skip_the_ones_the_module_did_not_compute():
@@ -405,3 +632,75 @@ def test_the_excel_compares_acos_and_tacos_week_over_week_and_lists_the_campaign
                                                  120.0, 600.0, "20.0%", 12]
     assert sheet["H4"].value == "—"
     assert sheet["F3"].number_format == '"MX$"#,##0.00'
+
+
+def test_the_excel_shows_what_a_campaign_csv_does_not_say_as_unknown_and_its_acos_against_the_target():
+    daily_data = pulse_page._parse_br_daily(_upload("BusinessReport-by-date.csv", _business_report_csv(_report_days())))
+    campaign_file = read_campaign_file(b"Campaign name,Total cost,Sales\nAlpha,$300.00,$600.00\n", "campaigns.csv")
+    campaigns = campaign_rows(campaign_file.campaigns, unknown_counts=campaign_file.missing_counts)
+
+    workbook = load_workbook(pulse_page._build_account_pulse_excel(
+        daily_data, {}, campaigns, "Luna", 30.0, ads_period="Campaign CSV «campaigns.csv»",
+        split_from_file=file_split(_history(), campaign_file), source_file="campaigns.csv"))
+
+    assert [cell.value for cell in workbook["Campañas"][3]] == ["Alpha", "—", "HEREDADA", "—", "—", 300.0, 600.0,
+                                                                "50.0%", "—"]
+    diagnosis = [str(row[0].value) for row in workbook["Resumen Ejecutivo"].iter_rows() if row[0].value]
+    assert "  ACoS del Campaign CSV 50.0% supera 1.5x target (30%) — optimizar bids y negativos." in diagnosis
+
+
+def test_the_excel_of_a_campaign_csv_without_activity_says_so():
+    daily_data = pulse_page._parse_br_daily(_upload("BusinessReport-by-date.csv", _business_report_csv(_report_days())))
+    campaign_file = read_campaign_file(b"Campaign name,Total cost,Sales\nAlpha,$0.00,$0.00\n", "campaigns.csv")
+
+    workbook = load_workbook(pulse_page._build_account_pulse_excel(
+        daily_data, {}, [], "Luna", 30.0, split_from_file=file_split(_history(), campaign_file),
+        source_file="campaigns.csv"))
+
+    assert workbook["Campañas"]["A3"].value == f"  Sin campañas: {pulse_page.FILE_NO_CAMPAIGNS}."
+    summary = " ".join(str(label) for label in _rows_by_label(workbook["Resumen Ejecutivo"]))
+    assert f"del Campaign CSV «campaigns.csv» ({pulse_page.FILE_PRODUCTS_NONE})" in summary
+
+
+def test_a_campaign_csv_whose_active_campaigns_are_no_sp_sb_or_sd_still_says_it_does_not_name_them():
+    daily_data = pulse_page._parse_br_daily(_upload("BusinessReport-by-date.csv", _business_report_csv(_report_days())))
+    campaign_file = read_campaign_file(b"Campaign name,Type,Total cost,Sales\nAlpha,Sponsored TV,$300.00,$600.00\n",
+                                       "campaigns.csv")
+    campaigns = campaign_rows(campaign_file.campaigns, unknown_counts=campaign_file.missing_counts)
+
+    workbook = load_workbook(pulse_page._build_account_pulse_excel(
+        daily_data, {}, campaigns, "Luna", 30.0, split_from_file=file_split(_history(), campaign_file),
+        source_file="campaigns.csv"))
+
+    summary = " ".join(str(label) for label in _rows_by_label(workbook["Resumen Ejecutivo"]))
+    assert f"del Campaign CSV «campaigns.csv» ({pulse_page.FILE_PRODUCTS_UNKNOWN})" in summary
+
+
+def _header_above(worksheet, label: str):
+    """The value column's header over the row `label`: the last «Métrica» header row above it."""
+    header = None
+    for row in worksheet.iter_rows():
+        if row[0].value == "Métrica":
+            header = row[1].value
+        elif row[0].value == label:
+            return header
+    raise AssertionError(f"no row {label!r}")
+
+
+def test_the_excel_puts_the_campaign_csv_figures_under_the_whole_period_not_under_this_week():
+    # 30 days of report: the file's TACoS is its 160 of spend over all of them, not over this week's 760.
+    days = _report_days(first=LAST_DAY - timedelta(days=29))
+    daily_data = pulse_page._parse_br_daily(_upload("BusinessReport-by-date.csv", _business_report_csv(days)))
+    history = pd.DataFrame({"_date": pd.to_datetime([day for day, _ in days]), "_sales": [sales for _, sales in days]})
+    campaign_file = read_campaign_file(_campaign_csv(), "campaigns.csv")
+    campaigns = campaign_rows(campaign_file.campaigns, unknown_counts=campaign_file.missing_counts)
+
+    sheet = load_workbook(pulse_page._build_account_pulse_excel(
+        daily_data, {}, campaigns, "Luna", 30.0, split_from_file=file_split(history, campaign_file),
+        source_file="campaigns.csv"))["Resumen Ejecutivo"]
+
+    assert _header_above(sheet, pulse_page.FILE_TACOS_ROW) != "This Week"
+    assert _header_above(sheet, pulse_page.FILE_ACOS_ROW) == pulse_page.FILE_PERIOD_COLUMN
+    assert _header_above(sheet, pulse_page.FILE_TACOS_ROW) == pulse_page.FILE_PERIOD_COLUMN
+    assert _rows_by_label(sheet)[pulse_page.FILE_TACOS_ROW][1] == "5.8%"
+    assert _header_above(sheet, "Sales") == "This Week" and _header_above(sheet, "CVR %") == "This Week"

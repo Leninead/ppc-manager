@@ -22,8 +22,8 @@ _ASIN_CAP = ("Viajaron todos los ASINs: {total}.",
 
 @dataclass
 class CrossData:
-    account: str  # the Amazon Ads account and country of the search terms
-    period: str  # the search terms' window
+    account: str  # the Amazon Ads account and country of the search terms, or the Bulk File's name
+    period: str  # the search terms' window; a Bulk File does not state it
     currency: str  # "" when the account declares none
     brand: str  # the brand the SQP names or the AM typed, "" when none
     exact_source: str  # where the already-exact mark comes from, or why it is unknown
@@ -33,6 +33,7 @@ class CrossData:
     queries: list  # records, the ones the AM can export first
     asins: list  # records, most ad spend first
     idioma: str = "es"
+    from_bulk_file: bool = False  # the search terms and the exact keywords come from a Bulk File uploaded by hand
 
 
 # razon before veredicto on purpose: autoregressive generation conditions the verdict on the reasoning.
@@ -112,9 +113,8 @@ def build_context(d: CrossData) -> tuple[str, list, dict]:
     parameters = "\n".join(f"- {label}: {value}" for label, value in d.parameters.items())
     counts = "\n".join(f"- {label}: {_number(value)}" for label, value in d.counts.items())
     params = (
-        f"Cuenta de Amazon Ads de los search terms: {d.account}\n"
-        f"Período de los search terms: {d.period}\n"
-        f"Moneda: {d.currency or 'no declarada'}\n"
+        _source_lines(d)
+        + f"Moneda: {d.currency or 'no declarada'}\n"
         f"Marca del SQP: {d.brand or 'no detectada'}\n"
         f"Keywords Exact de la cuenta: {d.exact_source}\n"
         + (f"ASIN de cada search term: {d.asin_source}\n" if d.asin_source else "")
@@ -137,6 +137,14 @@ def build_context(d: CrossData) -> tuple[str, list, dict]:
         "que ya calculó el módulo y cerrá con la síntesis ejecutiva. Citá row_ids exactos del documento."
     )
     return input_text, docs, OUTPUT_SCHEMA
+
+
+def _source_lines(d: CrossData) -> str:
+    if d.from_bulk_file:
+        return (f"Search terms: Bulk File subido a mano «{d.account}», no una cuenta de Amazon Ads conectada\n"
+                "Período de los search terms: no informado, el Bulk File no dice qué días cubre\n"
+                "Atribución de ventas y órdenes: el Bulk File no la dice; se leen como de 7 días\n")
+    return f"Cuenta de Amazon Ads de los search terms: {d.account}\nPeríodo de los search terms: {d.period}\n"
 
 
 def _cap_line(sentences: tuple[str, str], total: int, sent: int) -> str:

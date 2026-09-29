@@ -2,6 +2,7 @@
 import pandas as pd
 import pytest
 
+from core.sbh.sp_keyword_file import CHECKED_KEYWORD_CAMPAIGN_AD_GROUP
 from core.sbh.targets import (
     CLUSTER_COLUMNS,
     NO,
@@ -12,6 +13,7 @@ from core.sbh.targets import (
     UNKNOWN,
     YES,
     QueryShare,
+    SpKeywordCoverage,
     SqpFormatError,
     query_shares,
     recommend_targets,
@@ -150,3 +152,14 @@ def test_nothing_above_the_minimum_search_volume_leaves_empty_tables():
 
 def test_root_words_drop_stop_words_short_words_and_non_letters():
     assert root_words("Crema de vitamina A para la piel 50ml") == ["crema", "vitamina", "piel"]
+
+
+def test_a_coverage_from_a_hand_uploaded_file_is_known_without_an_account():
+    from_file = SpKeywordCoverage(frozenset({"vitamin a cream"}), file_name="bulk-luna.xlsx", file_digest="ab12cd34",
+                                  file_checked_states=CHECKED_KEYWORD_CAMPAIGN_AD_GROUP)
+    from_account = SpKeywordCoverage(frozenset(), account_label="Luna Kids · US", profile_id="111")
+
+    assert from_file.known and from_file.from_file
+    assert (from_file.account_label, from_file.profile_id, from_file.listed_at) == ("", "", None)
+    assert from_account.known and not from_account.from_file
+    assert not SpKeywordCoverage(file_name="bulk-luna.xlsx").from_file

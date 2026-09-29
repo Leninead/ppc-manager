@@ -10,22 +10,28 @@ from core.ppc_forecast.projection import DATE, PROJECTED_SALES, SalesForecast
 
 ANALYSIS_MODULE = "ppc_forecast"
 UNKNOWN = "sin dato"
+NO_PRODUCTS = "ninguno"
+FILE_ADS_ORIGIN = ("un Campaign CSV subido a mano: no dice qué días cubre, así que se compara con todos los días del "
+                   "Business Report")
 _WEEKDAYS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
 
 def build_analysis_input(history: pd.DataFrame, forecast: SalesForecast, *, split: PaidSplit | None,
                          ads: ProductSeries | None, account: str, ads_note: str, currency_code: str,
-                         lang: str) -> ForecastData:
+                         lang: str, ads_file: str = "", file_without_activity: bool = False) -> ForecastData:
     """`history` is the Business Report per day (`_date`, `_sales`, `_units`, `_sess`); `ads` the series behind
-    `split`. `ads_note` says why there is no split, and is ignored when there is one."""
+    `split`, None when the split comes from the Campaign CSV named `ads_file`; `file_without_activity` says none of its
+    campaigns ran. `ads_note` says why there is no split, and is ignored when there is one."""
     ads = ads if split is not None else None
     return ForecastData(account=account, ads_note="" if split is not None else ads_note,
-                        currency_code=currency_code, figures=forecast_figures(history, forecast, split),
+                        currency_code=currency_code,
+                        figures=forecast_figures(history, forecast, split, file_without_activity=file_without_activity),
                         history=_history_records(history, ads), projection=_projection_records(forecast.projection),
-                        idioma=lang)
+                        idioma=lang, ads_file=ads_file if split is not None else "")
 
 
-def forecast_figures(history: pd.DataFrame, forecast: SalesForecast, split: PaidSplit | None) -> dict:
+def forecast_figures(history: pd.DataFrame, forecast: SalesForecast, split: PaidSplit | None, *,
+                     file_without_activity: bool = False) -> dict:
     """The module's figures by name, as the page shows them and the agent reads them."""
     ratio = forecast.trend.weekend_ratio
     figures = {
@@ -43,14 +49,23 @@ def forecast_figures(history: pd.DataFrame, forecast: SalesForecast, split: Paid
     if split is None:
         return figures
     needed = spend_for_target(split, forecast.sales_with_growth)
+    if split.from_file:
+        figures.update({
+            "Origen de los datos de ads": FILE_ADS_ORIGIN,
+            "Productos con actividad": ", ".join(split.products) or (NO_PRODUCTS if file_without_activity else UNKNOWN),
+        })
+    else:
+        figures.update({
+            "Días con datos de ads": (f"{split.covered_days} de {split.history_days}, del {split.start.isoformat()} "
+                                      f"al {split.end.isoformat()}"),
+            "Productos con actividad": ", ".join(split.products) or NO_PRODUCTS,
+            "Atribución de Sponsored Products (días)": split.attribution_days,
+        })
     figures.update({
-        "Días con datos de ads": (f"{split.covered_days} de {split.history_days}, del {split.start.isoformat()} al "
-                                  f"{split.end.isoformat()}"),
-        "Productos con actividad": ", ".join(split.products) or "ninguno",
-        "Atribución de Sponsored Products (días)": split.attribution_days,
         "Spend de ads": _amount(split.ad_spend),
         "Ventas de ads": _amount(split.ad_sales),
-        "Ventas del Business Report en esos días": _amount(split.br_sales),
+        ("Ventas de todo el Business Report" if split.from_file else "Ventas del Business Report en esos días"):
+            _amount(split.br_sales),
         "ACoS (%)": _percent(split.acos),
         "TACoS (%)": _percent(split.tacos),
         "Ventas orgánicas estimadas": _amount(split.organic_sales),
@@ -58,7 +73,9 @@ def forecast_figures(history: pd.DataFrame, forecast: SalesForecast, split: Paid
         "Spend estimado para el objetivo": _amount(needed) if needed is not None else UNKNOWN,
     })
     if split.ads_exceed_br:
-        figures["Aviso del módulo"] = "las ventas de ads superan a las del Business Report en los mismos días"
+        figures["Aviso del módulo"] = ("las ventas de ads del Campaign CSV superan a las de todo el Business Report"
+                                       if split.from_file else
+                                       "las ventas de ads superan a las del Business Report en los mismos días")
     return figures
 
 

@@ -87,7 +87,7 @@ corre la suite entera sobre un checkout limpio.
 | 1 | 🏠 Inicio | — | ✅ rediseñado 2026-03-27 (3 cards + flujo guiado + changelog) |
 | 2 | 📊 Search Term Report | PPC | ✅ completo; 2026-09-29: filtro «Estado de campaña» (Activas por defecto) en Vista General y Por Campana; top 5 de campañas por gasto en Por Campana |
 | 3 | 🔍 Search Query Performance | PPC | ✅ completo |
-| 4 | 🔗 Análisis Cruzado STR vs SQP | PPC | ✅ + Plan de Acción 2026-03-21; IT-51 2026-09-28: search terms, Exact habilitadas y ASIN de la cuenta de Amazon Ads (sin Bulk File), plan para Campaign Builder + Análisis IA |
+| 4 | 🔗 Análisis Cruzado STR vs SQP | PPC | ✅ + Plan de Acción 2026-03-21; IT-51 2026-09-28: search terms, Exact habilitadas y ASIN de la cuenta de Amazon Ads, plan para Campaign Builder + Análisis IA; 2026-09-29: Bulk File a mano como fallback |
 | 5 | 📈 Tendencia Multi-Semana | PPC | ✅ completo |
 | 6 | 📁 Bulk Campañas | PPC | ✅ + Campaign Analyzer 2026-03-21; 2026-09-29: filtro «Estado de campaña» al lado de Producto, con las SP archivadas |
 | 7 | 💰 Business Report | PPC | ✅ completo |
@@ -96,14 +96,14 @@ corre la suite entera sobre un checkout limpio.
 | 10 | 🚀 Campaign Builder | PPC | ✅ nuevo 2026-03-21 |
 | 11 | 🧲 DataDive Analyzer | Research | ✅ conectado 2026-03-27 (4 tabs: MKL, Competitors, Rank Radar, Volatility) |
 | 12 | 🧲 Helium 10 Analyzer | Research | ✅ conectado 2026-03-27 (3 tabs: Cerebro, KW Research, Competitor Gap) |
-| 13 | 📢 SBH Recommendation | Research | ✅ conectado 2026-03-27 (targets SBH cruzando MKL+SQP); IT-49 2026-09-25: «En SP» del listado SP de la cuenta + Análisis IA |
+| 13 | 📢 SBH Recommendation | Research | ✅ conectado 2026-03-27 (targets SBH cruzando MKL+SQP); IT-49 2026-09-25: «En SP» del listado SP de la cuenta + Análisis IA; 2026-09-29: Bulk File o export de keywords a mano como fallback |
 | 14 | 🔎 PPC Insights | Research | ✅ conectado 2026-03-27 (health score por ASIN, 824 líneas); 2026-09-29: estructura de campañas del listado SP de la cuenta en lugar del Campaign CSV (que queda a mano), también en el análisis IA guardado y el chat |
-| 15 | 📈 PPC Forecast | Research | ✅ conectado 2026-03-27 (proyección ventas + estacionalidad); IT-47 2026-09-25: ventas de ads de la cuenta de Amazon Ads (SP+SB+SD) en lugar del Campaign CSV, fin de semana contado una vez + Análisis IA |
+| 15 | 📈 PPC Forecast | Research | ✅ conectado 2026-03-27 (proyección ventas + estacionalidad); IT-47 2026-09-25: ventas de ads de la cuenta de Amazon Ads (SP+SB+SD), fin de semana contado una vez + Análisis IA; 2026-09-29: Campaign CSV a mano como fallback |
 | 16 | 🛡️ PPC Audit | Research | ✅ conectado 2026-03-27 (auditoría integral score 0-100); IT-44 2026-09-28: lee la cuenta de Amazon Ads (estructura SP con keywords y targets sin tráfico, placements, SB y SD con sus search terms) o el Bulk File a mano + Análisis IA + herramienta `ppc_audit` del chat |
-| 17 | 📊 Account Pulse | Research | ✅ conectado 2026-03-27 (monitor salud diaria + festivos MX); IT-45 2026-09-28: ACoS/TACoS de cada semana y campañas de la cuenta de Amazon Ads (SP+SB+SD) en lugar del Campaign CSV + Análisis IA |
+| 17 | 📊 Account Pulse | Research | ✅ conectado 2026-03-27 (monitor salud diaria + festivos MX); IT-45 2026-09-28: ACoS/TACoS de cada semana y campañas de la cuenta de Amazon Ads (SP+SB+SD) + Análisis IA; 2026-09-29: Campaign CSV a mano como fallback (sin semanas) |
 | 18 | 🔬 Reportes Atom 11 | Account | ✅ completo |
 | 19 | 🛡️ Reportes MerchanSpring | Account | ✅ completo |
-| 20 | 📊 Weekly Client Report | Account | ✅ completo; IT-45 2026-09-28: hoja Advertising de la cuenta de Amazon Ads (SP+SB+SD, NTB de SB y SD) en lugar del Campaign CSV + Análisis IA con el resumen para el cliente; 2026-09-29: stock FBA por ASIN del último snapshot del Pricing Dashboard (grupo STOCK en WoW Comparison; AWD/Izzi cuando el Pricing los integre) |
+| 20 | 📊 Weekly Client Report | Account | ✅ completo; IT-45 2026-09-28: hoja Advertising de la cuenta de Amazon Ads (SP+SB+SD, NTB de SB y SD) + Análisis IA con el resumen para el cliente; 2026-09-29: stock FBA por ASIN del último snapshot del Pricing Dashboard (grupo STOCK en WoW Comparison; AWD/Izzi cuando el Pricing los integre) y Campaign CSV a mano como fallback |
 | 21 | ⚙️ Atom11 Rules Builder | PPC | ✅ nuevo 2026-03-23 |
 | 22 | 📚 Knowledge Base | Knowledge | ✅ conectado 2026-03-27 (explorar + agregar notas .md) |
 | 23 | 👁️ Listing Monitor | Account Manager | ✅ nuevo 2026-04-09 |
@@ -191,7 +191,7 @@ app.py original: 3,974 líneas → actual: ~200 líneas (router + sidebar oscuro
 - **SQP:** `read_sqp()` con `skiprows=1`. Marca extraída con `extract_sqp_brand()`.
 - **Bulk:** Dataframe raw con el filtro «Estado de campaña» (Activas por defecto). El Campaign Analyzer diagnostica sólo `State == "ENABLED"`.
 - **Business Report:** Dataframe raw de ventas y sesiones.
-- **Análisis Cruzado STR vs SQP** (`modules/pages/analisis_cruzado.py`, reglas en `core/cross_analysis/`): cruza los search terms de la cuenta de Amazon Ads (búsqueda paga) con el SQP de la marca (mercado) para keyword discovery + clasificación automática. Desde IT-51 (2026-09-28) no pide el Bulk File: search terms del picker, keywords Exact habilitadas del listado SP de la cuenta y ASIN de cada ad group de sus product ads. Detalle en `modules/pages/CLAUDE.md` (M4).
+- **Análisis Cruzado STR vs SQP** (`modules/pages/analisis_cruzado.py`, reglas en `core/cross_analysis/`): cruza los search terms de la cuenta de Amazon Ads (búsqueda paga) con el SQP de la marca (mercado) para keyword discovery + clasificación automática. Desde IT-51 (2026-09-28) no exige el Bulk File: search terms del picker, keywords Exact habilitadas del listado SP de la cuenta y ASIN de cada ad group de sus product ads. Desde 2026-09-29 el Bulk File vuelve como fallback manual (sin cuentas o con «Subir archivo manualmente»), convertido a lo mismo por `core/cross_analysis/bulk_file.py`. Detalle en `modules/pages/CLAUDE.md` (M4).
   - **Tab 1 Cruce:** oportunidades marca/genéricas + gasto por origen del término (Exact/Phrase/Broad/Auto/Product Targeting). Opportunity Score = min-max de impresiones + clicks + purchase rate.
   - **Tab 2 Plan de Acción:** classifier con acciones priorizadas (bloque BRAND antes que genéricas): ⚫ ASIN (PT) > ⚔️ CONQUEST (cross-brand) > ❔ SIN DATA marca > 🛡️ DEFENDER marca > 🏆 BRAND PURE OK > ⚡ ESCALAR > ➕ AGREGAR keyword > 🚫 NO ATACAR > 🔍 INVESTIGAR > ⬇️ BAJAR BID > 👁️ MONITOREAR. Inputs opcionales: competidores conocidos, ASINs propios del cliente, precio promedio, CVR default, target ACoS. Guardas INV-11 (🛑 No negativizable · 🏅 Ranking KW · ♻️ Ya en Exact, esta última sobre cada query del SQP contra el listado). Dos exports: bulk para Amazon con Max Bid calculado (CVR × precio × target ACoS) y Match Type por acción (ESCALAR→exact, AGREGAR→phrase, DEFENDER→exact), y plan para Campaign Builder.
   - **Tab 3 PPC Insights por ASIN:** el ASIN de cada search term con la regla de PPC Insights (`resolve_asins`: el del ad group si anuncia uno, el del nombre de campaña si anuncia varios, nunca repartido) + cobertura de gasto; BR by ASIN opcional por `(Child) ASIN`.
@@ -307,7 +307,7 @@ _build_merchanspring_excel(data, client_name)
 | BR diario 14d | By Date → Sales and Traffic | CUENTA TOTAL PW/TW |
 | BR by Child | By ASIN → Child Item | Desglose por ASIN |
 | Atom 11 ASIN | ASIN → DateRange 14d | Ad Spend/Sales split 7+7 |
-| Cuenta de Amazon Ads (opcional, IT-45) | Bloque en la página: cuenta + país, sin export | Hoja Advertising sobre los días del BR diario: KPIs, campañas, portfolios, NTB de SB y SD (DPV no se sincroniza) |
+| Cuenta de Amazon Ads (opcional, IT-45) o Campaign CSV (fallback) | Bloque en la página: cuenta + país, sin export; o «Subir archivo manualmente» → Campaign Manager → Campaigns → Export | Hoja Advertising sobre los días del BR diario: KPIs, campañas, portfolios, NTB de SB y SD (DPV no se sincroniza); con el CSV, sus totales por campaña |
 | Stock del Pricing Dashboard (opcional) | Selector en la página, sin archivo | Grupo STOCK (solo FBA por ahora) por ASIN en WoW Comparison, del último snapshot guardado |
 
 ### Output Excel 3 hojas

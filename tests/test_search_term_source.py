@@ -451,7 +451,7 @@ import streamlit as st
 from modules.pages.search_term_source import render_source_picker
 st.cache_data.clear()
 for prefix in PREFIXES:
-    source = render_source_picker(prefix)
+    source = render_source_picker(prefix, allow_manual=ALLOW_MANUAL)
     st.session_state[f"test_result_{prefix}"] = (
         None if source is None else (source.label, len(source.frame), source.currency_code, source.bulk_ready,
                                      source.signature))
@@ -471,9 +471,10 @@ def _single_select_button_groups(monkeypatch):
     monkeypatch.setattr(ButtonGroup, "_widget_state", property(widget_state))
 
 
-def _picker_app(monkeypatch, fake, prefixes=("str",)) -> AppTest:
+def _picker_app(monkeypatch, fake, prefixes=("str",), *, allow_manual=True) -> AppTest:
     monkeypatch.setattr(picker, "_open_rest", lambda: fake)
-    return AppTest.from_string(_PICKER_SCRIPT.replace("PREFIXES", repr(tuple(prefixes))), default_timeout=30)
+    script = _PICKER_SCRIPT.replace("PREFIXES", repr(tuple(prefixes))).replace("ALLOW_MANUAL", repr(allow_manual))
+    return AppTest.from_string(script, default_timeout=30)
 
 
 def _picker_keys_in_session(app: AppTest) -> set[str]:
@@ -768,6 +769,88 @@ class TestPickerApp:
         app.button(key="str_src_load_newer").click().run()
         assert not app.exception
         assert app.session_state["test_result_str"][1] == 2
+
+
+_MANUAL_UPLOAD_KEY_NAMES = ("upload_manual", "upload_meanwhile", "upload_failed")
+
+
+def _manual_upload_buttons(app: AppTest, prefix: str = "str") -> list:
+    keys = {picker.picker_key(prefix, name) for name in _MANUAL_UPLOAD_KEY_NAMES}
+    return [button for button in app.button if button.key in keys]
+
+
+def _needs_reauth_without_data(monkeypatch, *, allow_manual: bool) -> AppTest:
+    profile = _profile_row(status="needs_reauth", data_from=None, data_through=None, refreshed_on=None,
+                           last_success_at=None)
+    app = _picker_app(monkeypatch, _FakeRest([profile]), allow_manual=allow_manual)
+    app.run()
+    return app
+
+
+def _search_terms_unreadable(monkeypatch, *, allow_manual: bool) -> AppTest:
+    fake = _FakeRest([_profile_row()], [_completed_job_row()], search_term_rows=_SEARCH_TERM_ROWS)
+    fake.failing_spans = {7}
+    app = _picker_app(monkeypatch, fake, allow_manual=allow_manual)
+    app.run()
+    return app
+
+
+def _search_terms_unreadable_with_kept_data(monkeypatch, *, allow_manual: bool) -> AppTest:
+    fake = _FakeRest([_profile_row()], [_completed_job_row()], search_term_rows=_SEARCH_TERM_ROWS)
+    fake.failing_spans = {14}
+    app = _picker_app(monkeypatch, fake, allow_manual=allow_manual)
+    app.run()
+    app.selectbox(key="str_src_period").set_value("14").run()
+    return app
+
+
+def _accounts_unreadable_with_kept_data(monkeypatch, *, allow_manual: bool) -> AppTest:
+    fake = _FakeRest([_profile_row()], [_completed_job_row()], search_term_rows=_SEARCH_TERM_ROWS)
+    app = _picker_app(monkeypatch, fake, allow_manual=allow_manual)
+    app.run()
+    fake.profiles_down = True
+    app.run()
+    return app
+
+
+_STATES_WITHOUT_THE_INFO_ROW = pytest.mark.parametrize("reach_state", [
+    _needs_reauth_without_data, _search_terms_unreadable, _search_terms_unreadable_with_kept_data,
+    _accounts_unreadable_with_kept_data,
+], ids=["needs_reauth_without_data", "search_terms_unreadable", "search_terms_unreadable_with_kept_data",
+        "accounts_unreadable_with_kept_data"])
+
+
+class TestManualUploadWithoutTheInfoRow:
+    @_STATES_WITHOUT_THE_INFO_ROW
+    def test_the_state_offers_the_info_rows_manual_upload_once(self, monkeypatch, reach_state):
+        app = reach_state(monkeypatch, allow_manual=True)
+        assert not app.exception
+        (button,) = _manual_upload_buttons(app)
+        assert (button.key, button.label, button.proto.type, button.proto.icon) == (
+            "str_src_upload_manual", "Subir archivo manualmente", "secondary", ":material/upload:")
+
+        button.click().run()
+        assert not app.exception
+        assert picker.MANUAL_MODE_NOTE in _markdown(app)
+        assert app.button(key="str_src_back_to_api")
+        assert app.session_state["test_result_str"] is None
+
+    @_STATES_WITHOUT_THE_INFO_ROW
+    def test_a_picker_without_manual_upload_offers_none(self, monkeypatch, reach_state):
+        app = reach_state(monkeypatch, allow_manual=False)
+        assert not app.exception
+        assert _manual_upload_buttons(app) == []
+
+    def test_manual_mode_during_an_accounts_outage_goes_back_to_the_kept_data(self, monkeypatch):
+        app = _accounts_unreadable_with_kept_data(monkeypatch, allow_manual=True)
+        kept = app.session_state["test_result_str"]
+        app.button(key="str_src_upload_manual").click().run()
+        assert not app.warning
+
+        app.button(key="str_src_back_to_api").click().run()
+        assert not app.exception
+        assert app.session_state["test_result_str"] == kept
+        assert [warning.value for warning in app.warning] == [picker.ACCOUNTS_UNREADABLE_MESSAGE]
 
 
 _CONSOLE_2026_CSV = (

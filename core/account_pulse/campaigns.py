@@ -16,20 +16,25 @@ def campaign_age(name: str) -> str:
     return "HEREDADA"
 
 
-def campaign_rows(totals: pd.DataFrame) -> list[dict]:
-    """One row per campaign of `totals` (the account's campaign totals over a window), most spend first.
+def campaign_rows(totals: pd.DataFrame, *, unknown_counts: tuple[str, ...] = ()) -> list[dict]:
+    """One row per campaign of `totals` (the account's campaign totals over a window, or a Campaign CSV's), most spend
+    first. `unknown_counts` names the counts (impressions, clicks, orders) a Campaign CSV lacks: None in every row.
 
     ACoS is None for a campaign that sold nothing: a 0% would read as the account's best campaign."""
     # The read comes in no set order: ties are broken by product and id so the same data lists the same way.
     ordered = totals.sort_values(["spend", "product", "campaign_id"], ascending=[False, True, True], kind="stable")
+
+    def count(row, field: str) -> int | None:
+        return None if field in unknown_counts else int(getattr(row, field))
+
     return [{
         "Campaign": row.campaign,
         "Product": row.product,
         "Age": campaign_age(row.campaign),
-        "Impressions": int(row.impressions),
-        "Clicks": int(row.clicks),
+        "Impressions": count(row, "impressions"),
+        "Clicks": count(row, "clicks"),
         "Spend": round(float(row.spend), 2),
         "Sales": round(float(row.sales), 2),
         "ACoS": round(row.spend / row.sales * 100, 1) if row.sales > 0 else None,
-        "Orders": int(row.orders),
+        "Orders": count(row, "orders"),
     } for row in ordered.itertuples(index=False)]

@@ -1,7 +1,8 @@
 """How much of the Business Report's sales came from ads, over the days the account's campaign reports also cover.
 
 The ads side is the account's synced campaign reports (Sponsored Products, Brands and Display, counted as Campaign
-Manager counts them): what the Campaign CSV the modules used to ask for carried. Both sides sum the same days.
+Manager counts them), and both sides sum the same days. Without the account, a Campaign CSV uploaded by hand carries
+the same totals but not its days: it is compared with the whole report, as if exported over the report's range.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from datetime import date
 
 import pandas as pd
 
+from core.amazon_ads.campaign_file import CampaignFile
 from core.amazon_ads.campaign_totals import ProductSeries
 
 
@@ -26,7 +28,9 @@ class PaidSplit:
     br_sales: float
     products: tuple[str, ...]
     currency_code: str
-    attribution_days: int
+    attribution_days: int | None  # None for a Campaign CSV, which does not say it
+    # The ads come from a Campaign CSV: its days are the report's by assumption, not a measured window.
+    from_file: bool = False
 
     @property
     def acos(self) -> float | None:
@@ -72,6 +76,16 @@ def paid_split(history: pd.DataFrame, ads: ProductSeries) -> PaidSplit:
                      ad_sales=sum(totals.sales for totals in ad_days),
                      br_sales=float(covered["_sales"].sum()), products=ads.products,
                      currency_code=ads.currency_code, attribution_days=ads.attribution_days)
+
+
+def file_split(history: pd.DataFrame, campaign_file: CampaignFile) -> PaidSplit:
+    """The split of a Campaign CSV against every day of the Business Report (`_date`, `_sales`)."""
+    report_days = history["_date"].dt.date
+    days = int(report_days.nunique())
+    return PaidSplit(start=report_days.min(), end=report_days.max(), covered_days=days, history_days=days,
+                     ad_spend=campaign_file.ad_spend, ad_sales=campaign_file.ad_sales,
+                     br_sales=float(history["_sales"].sum()), products=campaign_file.products,
+                     currency_code=campaign_file.currency_code, attribution_days=None, from_file=True)
 
 
 def spend_for_target(split: PaidSplit | None, target_sales: float) -> float | None:

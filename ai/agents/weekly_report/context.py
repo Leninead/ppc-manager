@@ -1,8 +1,9 @@
 """What the Weekly Client Report agent receives and the shape it must answer in.
 
 Serialization only: the account's week against the prior one, the per-product figures, the ads by ASIN of Atom 11 and
-the account's advertising from the synced campaign reports were computed by the module. The AI reads the week, says
-whether each topic calls for action, and drafts the summary the AM sends to the client.
+the account's advertising from the synced campaign reports, or from a Campaign CSV uploaded by hand, were computed by
+the module. The AI reads the week, says whether each topic calls for action, and drafts the summary the AM sends to the
+client.
 """
 from dataclasses import dataclass
 
@@ -22,9 +23,10 @@ class WeeklyData:
     figures: dict        # the module's figures, in the order the report shows them
     products: list       # one record per ASIN of the BR by Child, most sales first
     campaigns: list      # the Advertising sheet's top campaigns, most spend first
-    portfolios: list     # the Advertising sheet's portfolios, most spend first
+    portfolios: list | None  # the Advertising sheet's portfolios, most spend first; None when the file has none
     changelog: str       # the technical changes the AM wrote for the week, "" when none
     idioma: str = "es"
+    ads_file: str = ""   # the Campaign CSV the advertising comes from when the AM uploaded it instead of the account
 
 
 _SYNTHESIS = {
@@ -116,10 +118,15 @@ def build_context(d: WeeklyData) -> tuple[str, list, dict]:
     products = d.products[:MAX_PRODUCTS]
     caps = _cap_line("productos del BR by Child", "los de más ventas", len(d.products), len(products))
     figures = "\n".join(f"- {label}: {_figure_text(figure)}" for label, figure in d.figures.items())
-    ads = f"ninguna: {d.ads_note}\n" if d.ads_note else "la de la cuenta de arriba\n"
+    if d.ads_file:
+        account = "ninguna: el AM subió el Campaign CSV a mano"
+        ads = f"la del Campaign CSV «{d.ads_file}»: un total por campaña, sin detalle por día ni fechas propias\n"
+    else:
+        account = d.account or "ninguna"
+        ads = f"ninguna: {d.ads_note}\n" if d.ads_note else "la de la cuenta de arriba\n"
     params = (
         f"Cliente: {d.client or 'sin nombre'}\n"
-        f"Cuenta de Amazon Ads del Business Report: {d.account or 'ninguna'}\n"
+        f"Cuenta de Amazon Ads del Business Report: {account}\n"
         f"Publicidad de la cuenta: {ads}"
         f"Moneda: {d.currency_code or 'la del Business Report, que el módulo no conoce'}\n"
         f"Cifras del módulo:\n{figures}\n"
@@ -133,10 +140,15 @@ def build_context(d: WeeklyData) -> tuple[str, list, dict]:
          "content": _csv(products) if products else "no se subió el BR by Child"},
     ]
     if not d.ads_note:
+        no_campaigns = ("ninguna campaña del Campaign CSV tuvo actividad" if d.ads_file
+                        else "ninguna campaña tuvo actividad en esos días")
         docs.append({"title": f"Campañas de más spend ({len(d.campaigns)} filas)",
-                     "content": _csv(d.campaigns) if d.campaigns else "ninguna campaña tuvo actividad en esos días"})
-        docs.append({"title": f"Portfolios ({len(d.portfolios)} filas)",
-                     "content": _csv(d.portfolios) if d.portfolios else "ninguno"})
+                     "content": _csv(d.campaigns) if d.campaigns else no_campaigns})
+        if d.portfolios is None:
+            docs.append({"title": "Portfolios", "content": "sin dato: el Campaign CSV no trae la columna de portfolio"})
+        else:
+            docs.append({"title": f"Portfolios ({len(d.portfolios)} filas)",
+                         "content": _csv(d.portfolios) if d.portfolios else "ninguno"})
     if d.changelog:
         docs.append({"title": "Cambios de la semana, escritos por el AM", "content": d.changelog})
     input_text = (

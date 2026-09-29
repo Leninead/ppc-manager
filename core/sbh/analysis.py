@@ -9,6 +9,7 @@ import pandas as pd
 from ai.agents import make_ids
 from ai.agents.sbh.chat_document import row_item
 from ai.agents.sbh.context import KEYWORDS_PER_CLUSTER, ROW_PREFIX, SbhData, records_of
+from core.sbh.sp_keyword_file import CHECKED_STATES_PHRASES
 from core.sbh.targets import (
     COL_CLUSTER,
     COL_IMPRESSION_SHARE,
@@ -57,7 +58,7 @@ def build_analysis_input(targets: SbhTargets, coverage: SpKeywordCoverage, *, br
         "Targets de prioridad MEDIA": int((priorities == PRIORITY_MEDIUM).sum()),
         "Targets de prioridad BAJA": int((priorities == PRIORITY_LOW).sum()),
         "Clusters": len(targets.clusters),
-        **({"Targets que ya corren en SP": int((keywords[COL_IN_SP] == YES).sum())} if coverage.known else {}),
+        **({_in_sp_count_label(coverage): int((keywords[COL_IN_SP] == YES).sum())} if coverage.known else {}),
     }
     data = SbhData(
         brand=brand,
@@ -66,8 +67,20 @@ def build_analysis_input(targets: SbhTargets, coverage: SpKeywordCoverage, *, br
         clusters=[_cluster_record(cluster, keywords, coverage.known) for _, cluster in targets.clusters.iterrows()],
         keywords=[_keyword_record(keyword) for _, keyword in keywords.iterrows()],
         idioma=lang,
+        sp_file=sp_file_source(coverage) if coverage.from_file else "",
     )
     return SbhAnalysisInput(data, records_of(data))
+
+
+def sp_file_source(coverage: SpKeywordCoverage) -> str:
+    """The hand-uploaded file «En SP» comes from, which states it let the reader check, and what it does not say."""
+    checked = CHECKED_STATES_PHRASES[coverage.file_checked_states]
+    return f"«{coverage.file_name}» ({checked}); no dice de qué cuenta ni de qué día es"
+
+
+def _in_sp_count_label(coverage: SpKeywordCoverage) -> str:
+    # A file says which keywords it lists, not that they run today, and some files do not say they are enabled.
+    return "Targets que están en SP según el archivo" if coverage.from_file else "Targets que ya corren en SP"
 
 
 def sbh_row_labels(records: list) -> dict[str, str]:

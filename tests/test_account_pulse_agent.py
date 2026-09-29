@@ -7,9 +7,11 @@ from ai.agent_call import build_agent_call
 from ai.agents.account_pulse.chat_document import reading_text
 from ai.agents.account_pulse.context import MAX_CAMPAIGNS, OUTPUT_SCHEMA, TOPICS, VERDICTS, build_context
 from core.account_pulse.ads_by_week import ads_by_week
-from core.account_pulse.analysis import ANALYSIS_MODULE, build_analysis_input
+from core.account_pulse.analysis import ANALYSIS_MODULE, FILE_ADS_ORIGIN, build_analysis_input
+from core.account_pulse.campaigns import campaign_rows
+from core.amazon_ads.campaign_file import read_campaign_file
 from core.amazon_ads.campaign_totals import ProductDay, ProductSeries, Totals
-from core.business_report.paid_split import paid_split
+from core.business_report.paid_split import file_split, paid_split
 
 # Monday 3 to Sunday 16 August 2026; 16 September would be a holiday, 15 August is a Saturday.
 FIRST, LAST = date(2026, 8, 3), date(2026, 8, 16)
@@ -129,6 +131,80 @@ def test_the_fingerprint_changes_with_what_the_agent_reads_and_only_with_that():
     assert build_agent_call(ANALYSIS_MODULE, _payload()).input_digest == same
     assert build_agent_call(ANALYSIS_MODULE, _payload(target_acos=25)).input_digest != same
     assert build_agent_call(ANALYSIS_MODULE, _payload(ads=_ads())).input_digest != same
+
+
+def _file_payload(sales="$1,280.00", content=None):
+    daily_data = _daily_data()
+    content = content or ("Campaign name,Type,Impressions,Clicks,Total cost,Purchases,Sales\n"
+                          f'Alpha,Sponsored Products,900,40,$300.00,12,"{sales}"\n'
+                          "Beta,Sponsored Brands,500,20,$20.00,0,$0.00\n")
+    campaign_file = read_campaign_file(content.encode("utf-8"), "campaigns.csv")
+    return build_analysis_input(daily_data, None, weeks=None, split=file_split(_history(daily_data), campaign_file),
+                                series=None,
+                                campaigns=campaign_rows(campaign_file.campaigns,
+                                                        unknown_counts=campaign_file.missing_counts),
+                                account="", ads_note="", currency_code="", target_acos=30, lang="es",
+                                ads_file="campaigns.csv")
+
+
+def test_with_a_campaign_csv_the_parameters_name_the_file_and_compare_no_weeks():
+    documents = _documents(_file_payload())
+
+    params = documents["Parámetros"]
+    assert "Cuenta de Amazon Ads del Business Report: ninguna: el AM subió el Campaign CSV a mano" in params
+    assert ("Datos de ads: los del Campaign CSV «campaigns.csv»: un total por campaña, sin detalle por día ni por "
+            "semana") in params
+    assert f"- Origen de los datos de ads: {FILE_ADS_ORIGIN}" in params
+    assert "- Productos con actividad: SP, SB" in params
+    # 320 of spend over 1,280 of ad sales and the report's 1,750 of all its days.
+    assert "- Spend de ads: 320" in params and "- Ventas de ads: 1280" in params
+    assert "- Ventas de todo el Business Report: 1750" in params
+    assert "- ACoS (%): 25" in params and "- TACoS (%): 18.3" in params
+    assert "semana actual (%): 25" not in params and "Variación del ACoS" not in params
+    assert "Días con datos de ads" not in params and "Atribución" not in params
+    assert "los de la cuenta de arriba" not in params
+    assert documents["Días del Business Report"].splitlines()[0] == "fecha,dia,tipo,ventas,unidades,sesiones"
+    campaigns = documents["Campañas con actividad"].splitlines()
+    assert campaigns[1:] == ["Alpha,SP,HEREDADA,900,40,300.0,1280.0,23.4,12", "Beta,SB,HEREDADA,500,20,20.0,0.0,,0"]
+
+
+def test_the_counts_a_campaign_csv_lacks_travel_empty_not_as_zero():
+    content = "Campaign name,Total cost,Sales\nAlpha,$300.00,$1200.00\n"
+
+    documents = _documents(_file_payload(content=content))
+
+    assert "- Productos con actividad: sin dato" in documents["Parámetros"]
+    assert documents["Campañas con actividad"].splitlines()[1] == "Alpha,,HEREDADA,,,300.0,1200.0,25.0,"
+
+
+def test_a_campaign_csv_where_no_campaign_had_activity_tells_the_agent_no_product_had_any():
+    content = ("Campaign name,Type,Total cost,Sales\nAlpha,Sponsored Products,$0.00,$0.00\n"
+               "Beta,Sponsored Brands,$0.00,$0.00\n")
+
+    documents = _documents(_file_payload(content=content))
+
+    assert "- Productos con actividad: ninguno" in documents["Parámetros"]
+    assert documents["Campañas con actividad"] == "ninguna campaña del Campaign CSV tuvo actividad"
+
+
+def test_a_campaign_csv_whose_active_campaigns_are_no_sp_sb_or_sd_leaves_the_products_unknown():
+    content = "Campaign name,Type,Total cost,Sales\nAlpha,Sponsored TV,$300.00,$1200.00\n"
+
+    params = _documents(_file_payload(content=content))["Parámetros"]
+
+    assert "- Productos con actividad: sin dato" in params
+
+
+def test_a_campaign_csv_above_the_report_reaches_the_agent_as_the_file_warning():
+    params = _documents(_file_payload(sales="$9,000.00"))["Parámetros"]
+
+    assert "- Aviso del módulo: las ventas de ads del Campaign CSV superan a las de todo el Business Report" in params
+
+
+def test_the_file_payload_is_its_own_data():
+    assert build_agent_call(ANALYSIS_MODULE, _file_payload()).input_digest not in {
+        build_agent_call(ANALYSIS_MODULE, _payload()).input_digest,
+        build_agent_call(ANALYSIS_MODULE, _payload(ads=_ads())).input_digest}
 
 
 def test_the_answer_reads_one_topic_per_row_before_the_synthesis():

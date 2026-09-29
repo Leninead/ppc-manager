@@ -67,18 +67,27 @@ class QueryShare:
 
 @dataclass(frozen=True)
 class SpKeywordCoverage:
-    """The Sponsored Products keywords that run in the account chosen on screen."""
+    """The Sponsored Products keywords that run in the account chosen on screen, or in a file uploaded by hand."""
 
-    # None when there is no account, no listing or no reading: unknown, never "none of them".
+    # None when there is no account, no listing, no file or no reading: unknown, never "none of them".
     keyword_texts: frozenset[str] | None = None
     account_label: str = ""
     profile_id: str = ""
     country_code: str = ""
     listed_at: datetime | None = None
+    # A hand-uploaded file names no account and no listing moment: its name and digest stand for them.
+    file_name: str = ""
+    file_digest: str = ""
+    # Which states the file let its reader check (core/sbh/sp_keyword_file.py CHECKED_*).
+    file_checked_states: str = ""
 
     @property
     def known(self) -> bool:
         return self.keyword_texts is not None
+
+    @property
+    def from_file(self) -> bool:
+        return self.known and bool(self.file_digest)
 
 
 @dataclass(frozen=True)

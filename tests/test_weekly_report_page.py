@@ -1,15 +1,18 @@
-"""Weekly Client Report over an in-memory PostgREST: the Advertising sheet from the chosen account, and the AI tab.
+"""Weekly Client Report over an in-memory PostgREST: the Advertising sheet from the chosen account or from a Campaign
+CSV uploaded by hand, and the AI tab.
 
 No network: `_open_rest` is replaced before every script run, the uploads are fakes that serve CSVs built here, and the
 AI tab runs disabled except where a test fakes the provider.
 """
 import csv
+import hashlib
 import io
 import time
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
 import requests
+from openpyxl import load_workbook
 from streamlit.proto.Common_pb2 import FileURLs
 from streamlit.proto.WidgetStates_pb2 import WidgetState
 from streamlit.runtime.uploaded_file_manager import UploadedFile, UploadedFileRec
@@ -20,6 +23,7 @@ import ai.client as ai_client
 import ai.runtime as ai_runtime
 import modules.pages.search_term_source as search_term_source
 from core import ai_tab
+from modules.pages import ad_account_block
 from modules.pages import weekly_client_report as weekly_page
 
 ACCOUNT = "Luna Kids"
@@ -53,6 +57,24 @@ def _by_child_csv() -> bytes:
     return ("(Parent) ASIN,(Child) ASIN,Title,Sessions - Total,Units Ordered,Ordered Product Sales\n"
             'B0PARENT001,B0TEST0001,Producto Uno,700,140,"$2,800.00"\n'
             'B0PARENT002,B0TEST0002,Producto Dos,875,175,"$3,500.00"\n').encode("utf-8")
+
+
+def _campaign_csv() -> bytes:
+    """The account's campaigns over the report's days, as Campaign Manager exports them: 320 spent, 1,280 sold."""
+    return ("Campaign name,Campaign ID,State,Type,Portfolio name,Impressions,Clicks,Total cost,Purchases,Sales\n"
+            'Luna SP,111,ENABLED,Sponsored Products,Kids,2800,140,$280.00,28,"$1,120.00"\n'
+            "Luna SB,222,PAUSED,Sponsored Brands,,800,40,$40.00,8,$160.00\n").encode("utf-8")
+
+
+def _campaign_csv_without_portfolios() -> bytes:
+    return ("Campaign name,Type,Impressions,Clicks,Total cost,Purchases,Sales\n"
+            'Luna SP,Sponsored Products,2800,140,$280.00,28,"$1,120.00"\n').encode("utf-8")
+
+
+def _campaign_csv_without_counts() -> bytes:
+    """Campaign Manager lets the AM leave columns out: no impressions, clicks or purchases."""
+    return ("Campaign name,Type,Total cost,Sales\n"
+            'Luna SP,Sponsored Products,$280.00,"$1,120.00"\n').encode("utf-8")
 
 
 def _upload(name: str, data: bytes) -> UploadedFile:
@@ -180,15 +202,24 @@ render()
 """
 
 
-def _page(monkeypatch, rest=None, *, daily=True, by_child=False, ai_enabled=False) -> AppTest:
+def _page(monkeypatch, rest=None, *, daily=True, by_child=False, ai_enabled=False,
+          campaign_file: tuple[str, bytes] | None = None, downloads: dict | None = None) -> AppTest:
+    """`downloads`, when given, collects each download button's bytes by its key."""
     import streamlit
     uploads = {}
     if daily:
         uploads["br_daily"] = ("BusinessReport-by-date.csv", _daily_csv())
     if by_child:
         uploads["br_child"] = ("BusinessReport-by-child.csv", _by_child_csv())
+    if campaign_file is not None:
+        uploads["wcr_src_file"] = campaign_file
     monkeypatch.setattr(streamlit, "file_uploader",
                         lambda label, *args, key=None, **kwargs: _upload(*uploads[key]) if key in uploads else None)
+    if downloads is not None:
+        def record_download(label, data=None, *, key=None, **kwargs):
+            downloads[key] = data
+            return False
+        monkeypatch.setattr(streamlit, "download_button", record_download)
     monkeypatch.setattr(search_term_source, "_open_rest", lambda: rest)
     monkeypatch.setattr("ai.config.AI_ENABLED", ai_enabled)
     app = AppTest.from_string(_PAGE_SCRIPT, default_timeout=30)
@@ -199,6 +230,34 @@ def _page(monkeypatch, rest=None, *, daily=True, by_child=False, ai_enabled=Fals
 
 def _choose_account(app: AppTest) -> AppTest:
     app.selectbox(key="wcr_src_account").set_value(ACCOUNT).run()
+    assert not app.exception, app.exception
+    return app
+
+
+def _upload_offered(app: AppTest) -> bool:
+    return any(button.key == "wcr_src_upload_manual" for button in app.button)
+
+
+def _successes(app: AppTest) -> str:
+    return " ".join(str(success.value) for success in app.success)
+
+
+def _advertising_sheet(downloads: dict):
+    return load_workbook(io.BytesIO(downloads["weekly_dl"]))["\U0001f4e3 Advertising"]
+
+
+def _sheet_rows(sheet) -> dict:
+    return {row[0].value: [cell.value for cell in row] for row in sheet.iter_rows(min_row=7) if row[0].value}
+
+
+def _run_ai(app: AppTest) -> AppTest:
+    app.button(key="weekly_report_ai_recalc").click().run()
+    for _ in range(30):
+        entry = app.session_state["app_chat_modules"].get("weekly_report")
+        if entry is not None and entry.state == "current":
+            break
+        time.sleep(0.2)
+        app.run()
     assert not app.exception, app.exception
     return app
 
@@ -224,12 +283,13 @@ def test_without_reports_nothing_renders_and_the_analysis_is_withdrawn(monkeypat
     assert "weekly_report" not in app.session_state["app_chat_modules"]
 
 
-def test_the_campaign_csv_and_the_old_ai_button_are_gone(monkeypatch):
+def test_the_old_ai_button_is_gone_and_the_campaign_csv_comes_back_only_as_the_manual_upload(monkeypatch):
     app = _page(monkeypatch, _FakeRest())
 
     assert [tab.label for tab in app.tabs] == ["📊 Reporte", "🤖 Análisis IA"]
     assert "btn_weekly_ai" not in [button.key for button in app.button]
-    assert "Campaign CSV" not in _text(app)
+    assert _upload_offered(app)
+    assert ad_account_block.FILE_HINT not in _text(app)
 
 
 def test_before_choosing_an_account_nothing_is_read(monkeypatch):
@@ -323,9 +383,182 @@ def test_the_ai_rows_show_each_topic_with_its_verdict_and_skip_the_ones_the_modu
                      "badges": ["OK"], "warning": "", "reasoning": "3.500 contra 2.800."}]
 
 
-def test_without_connected_accounts_the_report_says_so_and_still_renders(monkeypatch):
-    app = _page(monkeypatch, _FakeRest(profiles=False))
+def test_without_connected_accounts_the_block_asks_for_the_campaign_csv_and_the_report_still_renders(monkeypatch):
+    downloads = {}
 
-    assert weekly_page._ADS_TEXTS.no_accounts in _text(app)
+    app = _page(monkeypatch, _FakeRest(profiles=False), downloads=downloads)
+
+    assert f"{ad_account_block.FILE_HINT} {weekly_page._ADS_TEXTS.no_accounts}" in _text(app)
     assert [box.key for box in app.selectbox] == ["weekly_stock_client"]
     assert [tab.label for tab in app.tabs] == ["📊 Reporte", "🤖 Análisis IA"]
+    assert _advertising_sheet(downloads)["A1"].value == (
+        f"⚠️ Sin datos de Amazon Ads: {ad_account_block.MISSING_NO_ACCOUNTS}.")
+
+
+def test_without_connected_accounts_a_campaign_csv_fills_the_advertising_sheet_without_reading_amazon_ads(monkeypatch):
+    fake, downloads = _FakeRest(profiles=False), {}
+
+    app = _page(monkeypatch, fake, campaign_file=("campaigns.csv", _campaign_csv()), downloads=downloads)
+
+    assert fake.reads == []
+    assert "2 campañas · 3,600 imps ✓" in _successes(app)
+    assert "Se compara con los 14 días del BR (3 – 16 ago 2026)" in _text(app)
+    assert not app.warning
+    sheet = _advertising_sheet(downloads)
+    assert sheet["A2"].value == (
+        "Fuente: Campaign CSV subido a mano (campaigns.csv) · SP · SB. El archivo no dice qué días cubre ni con qué "
+        "atribución se exportó: tiene que estar exportado con los días del BR diario (03–16 ago 2026). Tampoco dice "
+        "la moneda.")
+    # The paused SB campaign still spent in the range: 280 + 40 spent and 1,120 + 160 sold.
+    assert [cell.value for cell in sheet[4]][4:7] == ["$320.00", "$1,280.00", "25.0%"]
+    assert sheet["A5"].value == ("New-to-brand (SB y SD): —  |  Vistas de la página de detalle: — (no se leen del "
+                                 "Campaign CSV)")
+    rows = _sheet_rows(sheet)
+    assert rows["Luna SP"][:2] == ["Luna SP", "SP"]
+    assert rows["Kids"][:4] == ["Kids", 280.0, 1120.0, 25.0]
+    assert rows["(Sin Portfolio)"][:4] == ["(Sin Portfolio)", 40.0, 160.0, 25.0]
+
+
+def test_a_campaign_csv_without_portfolios_leaves_the_portfolios_out_of_the_sheet(monkeypatch):
+    downloads = {}
+
+    _page(monkeypatch, _FakeRest(profiles=False), campaign_file=("campaigns.csv", _campaign_csv_without_portfolios()),
+          downloads=downloads)
+
+    rows = _sheet_rows(_advertising_sheet(downloads))
+    assert "Luna SP" in rows
+    assert "PORTFOLIOS" not in rows and "(Sin Portfolio)" not in rows
+
+
+def test_a_campaign_csv_alone_fills_the_advertising_sheet_without_claiming_days(monkeypatch):
+    downloads = {}
+
+    app = _page(monkeypatch, _FakeRest(profiles=False), daily=False, ai_enabled=True,
+                campaign_file=("campaigns.csv", _campaign_csv()), downloads=downloads)
+
+    assert [tab.label for tab in app.tabs] == ["📊 Reporte", "🤖 Análisis IA"]
+    assert "2 campañas · 3,600 imps ✓" in _successes(app)
+    assert weekly_page.MISSING_NO_DAILY_REPORT not in _text(app)
+    assert weekly_page._AI_TEXTS["es"]["needs_daily"] in _text(app)
+    assert _advertising_sheet(downloads)["A2"].value == (
+        "Fuente: Campaign CSV subido a mano (campaigns.csv) · SP · SB. El archivo no dice qué días cubre ni con qué "
+        "atribución se exportó: sus cifras son las del rango con que se exportó. Tampoco dice la moneda.")
+
+
+def test_the_advertising_section_names_both_of_its_sources(monkeypatch):
+    app = _page(monkeypatch, _FakeRest(profiles=False))
+
+    assert "#### 5️⃣ Publicidad — cuenta de Amazon Ads o Campaign CSV" in [md.value for md in app.markdown]
+    app.radio(key="wlang").set_value("English").run()
+    assert "#### 5️⃣ Advertising — Amazon Ads account or Campaign CSV" in [md.value for md in app.markdown]
+
+
+def test_a_campaign_csv_without_the_counts_shows_them_unknown_instead_of_zero(monkeypatch):
+    downloads = {}
+
+    app = _page(monkeypatch, _FakeRest(profiles=False), campaign_file=("campaigns.csv", _campaign_csv_without_counts()),
+                downloads=downloads)
+
+    assert "1 campañas ✓" in _successes(app) and "imps" not in _successes(app)
+    sheet = _advertising_sheet(downloads)
+    assert [cell.value for cell in sheet[4]][:8] == ["—", "—", "—", "—", "$280.00", "$1,120.00", "25.0%", "—"]
+    assert _sheet_rows(sheet)["Luna SP"] == ["Luna SP", "SP", "—", "—", "—", 280.0, 1120.0, 25.0, "—"]
+
+
+def test_a_campaign_csv_alone_leaves_the_weekly_verdict_and_the_product_days_out_of_the_report(monkeypatch):
+    downloads = {}
+
+    _page(monkeypatch, _FakeRest(profiles=False), daily=False, campaign_file=("campaigns.csv", _campaign_csv()),
+          downloads=downloads)
+
+    workbook = load_workbook(io.BytesIO(downloads["weekly_dl"]))
+    text = " ".join(str(cell.value) for sheet in workbook.worksheets for row in sheet.iter_rows() for cell in row
+                    if cell.value is not None)
+    assert "Semana estable" not in text and "CONCLUSIÓN" not in text
+    assert "?d" not in text and "Sin comparación semanal por producto. Los montos" in text
+
+
+def test_a_campaign_csv_that_cannot_be_read_says_how_to_export_it_and_the_report_still_renders(monkeypatch):
+    downloads = {}
+
+    app = _page(monkeypatch, _FakeRest(profiles=False), campaign_file=("campaigns.xlsx", b"not a workbook"),
+                downloads=downloads)
+
+    assert any("No se pudo leer «campaigns.xlsx»" in str(error.value) and "Campaign Manager → Campaigns → Export"
+               in str(error.value) for error in app.error)
+    assert [tab.label for tab in app.tabs] == ["📊 Reporte", "🤖 Análisis IA"]
+    assert not any("Traceback" in str(code.value) for code in app.code)
+    assert _advertising_sheet(downloads)["A1"].value == (
+        f"⚠️ Sin datos de Amazon Ads: {ad_account_block.MISSING_UNREADABLE_FILE}.")
+
+
+@pytest.mark.parametrize("rest, choose, daily", [
+    (_FakeRest(), False, True),
+    (_FakeRest(), True, True),
+    (_FakeRest(fail_totals=True), True, True),
+    (_FakeRest(), True, False),
+], ids=["not-chosen", "synced", "ads-unreadable", "no-daily-report"])
+def test_every_state_of_the_account_card_offers_the_manual_upload(monkeypatch, rest, choose, daily):
+    app = _page(monkeypatch, rest, daily=daily, by_child=True)
+    if choose:
+        _choose_account(app)
+
+    assert _upload_offered(app)
+
+
+def test_the_manual_upload_reads_the_campaign_csv_instead_of_the_account_and_going_back_restores_it(monkeypatch):
+    fake, downloads = _FakeRest(), {}
+    app = _choose_account(_page(monkeypatch, fake, campaign_file=("campaigns.csv", _campaign_csv()),
+                                downloads=downloads))
+    assert "14 de 14 días del BR con datos de ads" in _text(app)
+    fake.reads.clear()
+
+    app.button(key="wcr_src_upload_manual").click().run()
+
+    assert not app.exception, app.exception
+    assert fake.reads == []
+    assert search_term_source.MANUAL_MODE_NOTE in _text(app)
+    assert "2 campañas · 3,600 imps ✓" in _successes(app)
+    assert _advertising_sheet(downloads)["A2"].value.startswith("Fuente: Campaign CSV subido a mano (campaigns.csv)")
+    assert not _upload_offered(app) and not any(box.key == "wcr_src_account" for box in app.selectbox)
+
+    app.button(key="wcr_src_back_to_api").click().run()
+
+    assert not app.exception, app.exception
+    assert app.selectbox(key="wcr_src_account").value == ACCOUNT
+    assert "14 de 14 días del BR con datos de ads" in _text(app)
+    assert _upload_offered(app)
+
+
+def test_the_manual_mode_without_a_file_says_it_is_missing(monkeypatch):
+    downloads = {}
+    app = _page(monkeypatch, _FakeRest(), downloads=downloads)
+
+    app.button(key="wcr_src_upload_manual").click().run()
+
+    assert not app.exception, app.exception
+    assert _advertising_sheet(downloads)["A1"].value == (
+        f"⚠️ Sin datos de Amazon Ads: {ad_account_block.MISSING_NO_FILE}.")
+
+
+def test_the_ai_analysis_of_a_campaign_csv_says_where_the_advertising_comes_from_and_signs_the_file(monkeypatch):
+    monkeypatch.setattr(ai_client, "ask", lambda **call: {"structured_output": ANSWER, "session_id": "file-session"})
+    content = _campaign_csv()
+    app = _page(monkeypatch, _FakeRest(profiles=False), ai_enabled=True, campaign_file=("campaigns.csv", content))
+    app.text_input(key="weekly_client").set_value(CLIENT).run()
+
+    _run_ai(app)
+
+    shared = app.session_state["app_chat_modules"]["weekly_report"].analysis
+    assert shared.documents[0]["title"] == "Weekly Client Report · Luna Kids MX · Parámetros"
+    params = shared.documents[0]["content"]
+    assert "Cuenta de Amazon Ads del Business Report: ninguna: el AM subió el Campaign CSV a mano" in params
+    assert "Publicidad de la cuenta: la del Campaign CSV «campaigns.csv»" in params
+    assert "- Publicidad de la cuenta, origen: un Campaign CSV subido a mano" in params
+    # 320 of spend over the 6,300 the whole daily report sold.
+    assert "- TACoS de la cuenta (%): 5.1" in params
+    assert "Atribución" not in params and "Publicidad de la cuenta, días" not in params
+    assert (shared.profile_id, shared.country_code) == ("", "")
+    assert app.session_state["weekly_report_ai_file_sig"].endswith(hashlib.sha256(content).hexdigest()[:16])
+    # The file does not say its currency: its spend gets no assumed one, the report's sales keep the report's.
+    assert "Spend &#36;320.00" in _text(app) and "Sales TW MX&#36;3,500.00" in _text(app)

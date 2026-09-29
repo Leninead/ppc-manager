@@ -24,6 +24,7 @@ class ForecastData:
     history: list       # one record per Business Report day, oldest first
     projection: list    # one record per projected day
     idioma: str = "es"
+    ads_file: str = ""  # the Campaign CSV the ads figures come from when the AM uploaded it instead of the account
 
 
 # razon before confianza on purpose: autoregressive generation conditions the confidence on the reasoning.
@@ -94,9 +95,14 @@ OUTPUT_SCHEMA = {
 def build_context(d: ForecastData) -> tuple[str, list, dict]:
     history = d.history[-MAX_HISTORY_DAYS:]
     figures = "\n".join(f"- {label}: {_figure_text(figure)}" for label, figure in d.figures.items())
-    ads = f"ninguno: {d.ads_note}\n" if d.ads_note else "los de la cuenta de arriba\n"
+    if d.ads_file:
+        account = "ninguna: el AM subió el Campaign CSV a mano"
+        ads = f"los del Campaign CSV «{d.ads_file}»: un total por campaña, sin detalle por día ni fechas propias\n"
+    else:
+        account = d.account or "ninguna"
+        ads = f"ninguno: {d.ads_note}\n" if d.ads_note else "los de la cuenta de arriba\n"
     params = (
-        f"Cuenta de Amazon Ads del Business Report: {d.account or 'ninguna'}\n"
+        f"Cuenta de Amazon Ads del Business Report: {account}\n"
         f"Datos de ads: {ads}"
         f"Moneda: {d.currency_code or 'la del Business Report, que el módulo no conoce'}\n"
         f"Cifras del módulo:\n{figures}\n"

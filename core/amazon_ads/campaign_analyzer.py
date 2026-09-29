@@ -30,6 +30,7 @@ from core.amazon_ads.campaign_provider import (
     STATE,
     TOTAL_COST,
 )
+from core.amazon_ads.export_amounts import clean_money
 
 ANALYSIS_MODULE = "bulk_campaigns"
 
@@ -129,8 +130,8 @@ def analyzer_frame(frame: pd.DataFrame) -> AnalyzerFrame:
     has_acos = ACOS in frame.columns
     has_roas = ROAS in frame.columns
     campaigns = frame.copy()
-    campaigns["_spend"] = _clean_money(campaigns[TOTAL_COST])
-    campaigns["_sales"] = _clean_money(campaigns[SALES])
+    campaigns["_spend"] = clean_money(campaigns[TOTAL_COST])
+    campaigns["_sales"] = clean_money(campaigns[SALES])
     if has_acos:
         campaigns["_acos"] = pd.to_numeric(campaigns[ACOS], errors="coerce").fillna(0) * 100
     elif has_roas:
@@ -264,11 +265,6 @@ def _days_live(start: date | None, window_end: date) -> int | None:
 
 def _known(value) -> bool:
     return value is not None and not pd.isna(value)
-
-
-def _clean_money(series: pd.Series) -> pd.Series:
-    # Anything but the number goes: a Campaign CSV writes "$1,234.50", but also "MX$", "CA$", "£" or "€".
-    return pd.to_numeric(series.astype(str).str.replace(r"[^\d.\-]", "", regex=True), errors="coerce").fillna(0)
 
 
 def _number(value, kind, default):

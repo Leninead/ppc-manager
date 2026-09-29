@@ -1,14 +1,18 @@
-"""PPC Forecast over an in-memory PostgREST: the Business Report's projection, and the ads of the chosen account.
+"""PPC Forecast over an in-memory PostgREST: the Business Report's projection, and the ads of the chosen account or of
+a Campaign CSV uploaded by hand.
 
-No network: `_open_rest` is replaced before every script run, the Business Report upload is a fake that serves a CSV
-built here, and the AI tab runs disabled except where a test fakes the provider.
+No network: `_open_rest` is replaced before every script run, the uploads are fakes that serve CSVs built here, and
+the AI tab runs disabled except where a test fakes the provider.
 """
+import hashlib
+import io
 import time
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
 import requests
+from openpyxl import load_workbook
 from streamlit.proto.WidgetStates_pb2 import WidgetState
 from streamlit.testing.v1 import AppTest
 from streamlit.testing.v1.element_tree import ButtonGroup
@@ -59,6 +63,13 @@ class _Upload:
         return self._data
 
 
+def _campaign_csv(sp_sales: str = "$1,120.00") -> bytes:
+    """The account's campaigns over the report's days, as Campaign Manager exports them: 320 spent, 1,280 sold."""
+    return ("Campaign name,Campaign ID,State,Type,Portfolio name,Impressions,Clicks,Total cost,Purchases,Sales\n"
+            f'Luna SP,111,ENABLED,Sponsored Products,Kids,2800,140,$280.00,28,"{sp_sales}"\n'
+            "Luna SB,222,PAUSED,Sponsored Brands,,800,40,$40.00,8,$160.00\n").encode("utf-8")
+
+
 def _profile_row(status: str = "active") -> dict:
     return {"profile_id": "111", "account_id": 1, "cliente": ACCOUNT, "account_name": "Luna Kids US",
             "country_code": "US", "currency_code": "USD", "account_type": "seller", "timezone": "America/New_York",
@@ -98,8 +109,9 @@ class _FakeRest:
     """
 
     def __init__(self, *, profiles=True, synced_through: date | None = date(2026, 9, 22), campaign_days=None,
-                 fail_totals=False, latest_status: str = "", profile_status: str = "active"):
+                 fail_totals=False, latest_status: str = "", profile_status: str = "active", fail_sync=False):
         self._profiles, self._synced_through, self._fail_totals = profiles, synced_through, fail_totals
+        self._fail_sync = fail_sync
         self._latest_status, self._profile_status = latest_status, profile_status
         self._campaign_days = _campaign_days() if campaign_days is None else campaign_days
         self.reads: list[tuple[str, dict]] = []
@@ -109,6 +121,8 @@ class _FakeRest:
             return [_profile_row(self._profile_status)] if self._profiles else []
         if table == "integration_sync_jobs":
             assert params["job_kind"] == "eq.sp_campaigns"
+            if self._fail_sync:
+                raise requests.ConnectionError("gateway down")
             if self._latest_status and params.get("status") != "eq.completed":
                 return [_campaign_job(date(2026, 9, 22), self._latest_status)]
             return [_campaign_job(self._synced_through)] if self._synced_through else []
@@ -155,10 +169,13 @@ render()
 """
 
 
-def _page(monkeypatch, rest=None, *, days=None, upload=True, ai_enabled=False) -> AppTest:
+def _page(monkeypatch, rest=None, *, days=None, upload=True, ai_enabled=False,
+          campaign_file: _Upload | None = None) -> AppTest:
     import streamlit
     report = _Upload("BusinessReport-by-date.csv", _business_report_csv(days or _repeated_week()))
     uploads = {"forecast_br": report} if upload else {}
+    if campaign_file is not None:
+        uploads["forecast_src_file"] = campaign_file
     monkeypatch.setattr(streamlit, "file_uploader", lambda label, *args, key=None, **kwargs: uploads.get(key))
     monkeypatch.setattr(search_term_source, "_open_rest", lambda: rest)
     monkeypatch.setattr("ai.config.AI_ENABLED", ai_enabled)
@@ -176,6 +193,22 @@ def _generate(app: AppTest) -> AppTest:
 
 def _choose_account(app: AppTest) -> AppTest:
     app.selectbox(key="forecast_src_account").set_value(ACCOUNT).run()
+    assert not app.exception, app.exception
+    return app
+
+
+def _upload_offered(app: AppTest) -> bool:
+    return any(button.key == "forecast_src_upload_manual" for button in app.button)
+
+
+def _run_ai(app: AppTest) -> AppTest:
+    app.button(key="ppc_forecast_ai_recalc").click().run()
+    for _ in range(30):
+        entry = app.session_state["app_chat_modules"].get("ppc_forecast")
+        if entry is not None and entry.state == "current":
+            break
+        time.sleep(0.2)
+        app.run()
     assert not app.exception, app.exception
     return app
 
@@ -334,12 +367,202 @@ def test_more_ad_sales_than_report_sales_warns_that_the_account_may_not_be_the_r
         "el país sean los del BR."]
 
 
-def test_without_connected_accounts_the_page_says_so_and_still_projects(monkeypatch):
+def test_without_connected_accounts_the_page_asks_for_the_campaign_csv_and_still_projects(monkeypatch):
     app = _generate(_page(monkeypatch, _FakeRest(profiles=False)))
 
-    assert forecast_page.NO_ACCOUNTS_NOTE in _text(app)
+    assert f"{ad_account_block.FILE_HINT} {forecast_page.NO_ACCOUNTS_NOTE}" in _text(app)
     assert [box.label for box in app.selectbox] == ["Horizonte de proyección (días)"]
     assert _metric(app, "Ventas proyectadas (14d)") == "$1,240.00"
+    assert _metric(app, "Spend estimado para objetivo") == "—"
+    assert f"Sin desglose: {ad_account_block.MISSING_NO_ACCOUNTS}." in _text(app)
+
+
+def test_without_connected_accounts_a_campaign_csv_splits_the_report_over_all_its_days(monkeypatch):
+    fake = _FakeRest(profiles=False)
+
+    app = _generate(_page(monkeypatch, fake, campaign_file=_Upload("campaigns.csv", _campaign_csv())))
+
+    assert fake.reads == []
+    text = _text(app)
+    # The paused SB campaign still spent in the range: 280 + 40 spent and 1,120 + 160 sold.
+    assert "$320.00" in text and "$1,280.00" in text and "25.0%" in text
+    assert "$1,200.00" in text
+    assert forecast_page.FILE_SPLIT_CAPTION.format(file="campaigns.csv", products="SP · SB", total=28,
+                                                   window="3 – 30 ago 2026") in text
+    assert "días del BR tienen datos de ads" not in text and "Sponsored Products con atribución de" not in text
+    assert "Se compara con los 28 días del BR (3 – 30 ago 2026)" in text and "el archivo no dice la moneda" in text
+    assert _metric(app, "Spend estimado para objetivo") == "$176.00"
+    help_text = next(metric.help for metric in app.metric if metric.label == "Spend estimado para objetivo")
+    assert help_text == forecast_page.FILE_BUDGET_HELP
+
+
+@pytest.mark.parametrize("csv, products", [
+    ("Campaign name,Type,Total cost,Sales\nIdle,Sponsored Products,$0.00,$0.00\n", "sin campañas con actividad"),
+    ("Campaign name,Total cost,Sales\nIdle,$0.00,$0.00\n", "sin campañas con actividad"),
+    ("Campaign name,Type,Total cost,Sales\nTV,Sponsored TV,$50.00,$200.00\n", "sin decir si son SP, SB o SD"),
+    ("Campaign name,Total cost,Sales\nAny,$50.00,$200.00\n", "sin decir si son SP, SB o SD"),
+], ids=["idle-with-types", "idle-without-types", "active-unknown-type", "active-without-types"])
+def test_a_campaign_csv_says_no_campaign_ran_only_when_none_did(monkeypatch, csv, products):
+    app = _generate(_page(monkeypatch, _FakeRest(profiles=False),
+                          campaign_file=_Upload("campaigns.csv", csv.encode("utf-8"))))
+
+    assert forecast_page.FILE_SPLIT_CAPTION.format(file="campaigns.csv", products=products, total=28,
+                                                   window="3 – 30 ago 2026") in _text(app)
+
+
+def _built_excels(monkeypatch) -> list[bytes]:
+    built = []
+    build = forecast_page._build_forecast_excel
+
+    def spy(*args, **kwargs):
+        workbook = build(*args, **kwargs)
+        built.append(workbook.getvalue())
+        return workbook
+
+    monkeypatch.setattr(forecast_page, "_build_forecast_excel", spy)
+    return built
+
+
+def _summary_rows(workbook: bytes) -> dict:
+    sheet = load_workbook(io.BytesIO(workbook))["Resumen"]
+    return {label: value for label, value in sheet.iter_rows(min_row=4, max_col=2, values_only=True)}
+
+
+def test_the_excel_says_the_spend_estimate_of_a_campaign_csv_assumes_the_reports_range(monkeypatch):
+    built = _built_excels(monkeypatch)
+
+    _generate(_page(monkeypatch, _FakeRest(profiles=False), campaign_file=_Upload("campaigns.csv", _campaign_csv())))
+
+    rows = _summary_rows(built[-1])
+    assert rows["Spend estimado para objetivo"] == "$176.00"
+    assert rows["Origen del spend estimado"] == ("Campaign CSV «campaigns.csv» comparado con los 28 días del BR "
+                                                 "(3 – 30 ago 2026): supone que el archivo cubre ese mismo rango")
+    assert list(rows)[-1] == "Origen del spend estimado"
+
+
+def test_the_excel_of_an_account_has_no_file_origin_row(monkeypatch):
+    built = _built_excels(monkeypatch)
+
+    _choose_account(_generate(_page(monkeypatch, _FakeRest())))
+
+    rows = _summary_rows(built[-1])
+    assert rows["Spend estimado para objetivo"] == "$176.00" and "Origen del spend estimado" not in rows
+
+
+def test_a_campaign_csv_that_says_its_currency_shows_the_split_in_it(monkeypatch):
+    csv = _campaign_csv().decode("utf-8").replace("$", "MX$").encode("utf-8")
+
+    app = _generate(_page(monkeypatch, _FakeRest(profiles=False), campaign_file=_Upload("campaigns.csv", csv)))
+
+    assert _metric(app, "Spend estimado para objetivo") == "MX$176.00"
+    assert "MXN" in _text(app)
+
+
+# An encrypted .xlsx or a renamed .xls is an OLE2 compound file, which pandas cannot open without xlrd.
+@pytest.mark.parametrize("content", [b"not a workbook", bytes.fromhex("D0CF11E0A1B11AE1") + bytes(504)],
+                         ids=["text", "ole2"])
+def test_a_campaign_csv_that_cannot_be_read_says_how_to_export_it_and_the_forecast_still_renders(monkeypatch,
+                                                                                                  content):
+    app = _generate(_page(monkeypatch, _FakeRest(profiles=False), campaign_file=_Upload("campaigns.xlsx", content)))
+
+    assert any("No se pudo leer «campaigns.xlsx»" in str(error.value) and "Campaign Manager → Campaigns → Export"
+               in str(error.value) for error in app.error)
+    assert _metric(app, "Ventas proyectadas (14d)") == "$1,240.00"
+    assert _metric(app, "Spend estimado para objetivo") == "—"
+    assert f"Sin desglose: {ad_account_block.MISSING_UNREADABLE_FILE}." in _text(app)
+
+
+def test_a_campaign_csv_that_sold_more_than_the_report_warns_that_it_may_be_another_account_or_range(monkeypatch):
+    csv = _campaign_csv(sp_sales="$14,000.00")
+
+    app = _generate(_page(monkeypatch, _FakeRest(profiles=False), campaign_file=_Upload("campaigns.csv", csv)))
+
+    assert [str(warning.value) for warning in app.warning] == [
+        "Las ventas de ads del Campaign CSV (\\$14,160.00) superan las del BR (\\$2,480.00): revisá que el archivo "
+        "sea de la cuenta del BR y del mismo rango de fechas."]
+
+
+@pytest.mark.parametrize("rest, choose", [
+    (_FakeRest(), False),
+    (_FakeRest(fail_sync=True), True),
+    (_FakeRest(synced_through=None), True),
+    (_FakeRest(synced_through=None, latest_status="pending"), True),
+    (_FakeRest(synced_through=None, latest_status="failed"), True),
+    (_FakeRest(), True),
+    (_FakeRest(fail_totals=True), True),
+], ids=["not-chosen", "sync-unreadable", "never-synced", "first-load", "first-load-failed", "synced",
+        "ads-unreadable"])
+def test_every_state_of_the_account_card_offers_the_manual_upload(monkeypatch, rest, choose):
+    app = _generate(_page(monkeypatch, rest))
+    if choose:
+        _choose_account(app)
+
+    assert _upload_offered(app)
+
+
+def test_the_manual_upload_reads_the_campaign_csv_instead_of_the_account_and_going_back_restores_it(monkeypatch):
+    fake = _FakeRest()
+    app = _choose_account(_generate(_page(monkeypatch, fake,
+                                          campaign_file=_Upload("campaigns.csv", _campaign_csv()))))
+    assert "28 de 28 días del BR tienen datos de ads" in _text(app)
+    fake.reads.clear()
+
+    app.button(key="forecast_src_upload_manual").click().run()
+
+    assert not app.exception, app.exception
+    assert fake.reads == []
+    text = _text(app)
+    assert search_term_source.MANUAL_MODE_NOTE in text and ad_account_block.FILE_HINT in text
+    assert "Ventas de ads del Campaign CSV «campaigns.csv»" in text
+    assert not _upload_offered(app) and not any(box.key == "forecast_src_account" for box in app.selectbox)
+
+    app.button(key="forecast_src_back_to_api").click().run()
+
+    assert not app.exception, app.exception
+    assert app.selectbox(key="forecast_src_account").value == ACCOUNT
+    assert "28 de 28 días del BR tienen datos de ads" in _text(app)
+    assert _upload_offered(app)
+
+
+def test_the_manual_mode_without_a_file_says_it_is_missing(monkeypatch):
+    app = _generate(_page(monkeypatch, _FakeRest()))
+
+    app.button(key="forecast_src_upload_manual").click().run()
+
+    assert _metric(app, "Spend estimado para objetivo") == "—"
+    assert f"Sin desglose: {ad_account_block.MISSING_NO_FILE}." in _text(app)
+
+
+def test_the_ai_analysis_of_a_campaign_csv_says_where_the_ads_come_from_and_signs_the_file(monkeypatch):
+    monkeypatch.setattr(ai_client, "ask", lambda **call: {"structured_output": ANSWER, "session_id": "file-session"})
+    content = _campaign_csv()
+    app = _generate(_page(monkeypatch, _FakeRest(profiles=False), ai_enabled=True,
+                          campaign_file=_Upload("campaigns.csv", content)))
+
+    _run_ai(app)
+
+    shared = app.session_state["app_chat_modules"]["ppc_forecast"].analysis
+    assert shared.documents[0]["title"] == "PPC Forecast · BusinessReport-by-date.csv · Parámetros"
+    params = shared.documents[0]["content"]
+    assert "Cuenta de Amazon Ads del Business Report: ninguna: el AM subió el Campaign CSV a mano" in params
+    assert "Datos de ads: los del Campaign CSV «campaigns.csv»" in params
+    assert "- Origen de los datos de ads: un Campaign CSV subido a mano" in params
+    assert "Días con datos de ads" not in params and "Atribución" not in params
+    assert "- Spend estimado para el objetivo: 176" in params
+    assert (shared.profile_id, shared.country_code) == ("", "")
+    assert app.session_state["ppc_forecast_ai_file_sig"].endswith(hashlib.sha256(content).hexdigest()[:16])
+
+
+def test_the_ai_analysis_of_a_campaign_csv_without_activity_says_it_had_no_products(monkeypatch):
+    monkeypatch.setattr(ai_client, "ask", lambda **call: {"structured_output": ANSWER, "session_id": "idle-session"})
+    csv = b"Campaign name,Type,Total cost,Sales\nIdle,Sponsored Products,$0.00,$0.00\n"
+    app = _generate(_page(monkeypatch, _FakeRest(profiles=False), ai_enabled=True,
+                          campaign_file=_Upload("campaigns.csv", csv)))
+
+    _run_ai(app)
+
+    params = app.session_state["app_chat_modules"]["ppc_forecast"].analysis.documents[0]["content"]
+    assert "- Productos con actividad: ninguno" in params
 
 
 def test_the_ai_analysis_waits_for_the_click_and_reaches_the_chat_with_the_account(monkeypatch):

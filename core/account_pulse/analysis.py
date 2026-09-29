@@ -13,6 +13,9 @@ from core.business_report.paid_split import PaidSplit
 
 ANALYSIS_MODULE = "account_pulse"
 UNKNOWN = "sin dato"
+FILE_ADS_ORIGIN = ("un Campaign CSV subido a mano: un total por campaña, sin detalle por día, así que no hay ACoS ni "
+                   "TACoS de cada semana; no dice qué días cubre, así que se compara con todos los días del Business "
+                   "Report")
 _WEEKDAYS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 # (figure, its change's label, the parser's key, decimals, unit)
 _COMPARED = (("Ventas", "Variación de ventas (%)", "Sales", 2, ""),
@@ -23,22 +26,30 @@ _COMPARED = (("Ventas", "Variación de ventas (%)", "Sales", 2, ""),
 
 def build_analysis_input(daily_data: dict, br_child: dict | None, *, weeks: AdWeeks | None, split: PaidSplit | None,
                          series: ProductSeries | None, campaigns: list[dict], account: str, ads_note: str,
-                         currency_code: str, target_acos: float, lang: str) -> PulseData:
+                         currency_code: str, target_acos: float, lang: str, ads_file: str = "") -> PulseData:
     """`daily_data` is the page's parsed daily Business Report; `br_child` is None when no BR by Child was uploaded.
-    `ads_note` says why there are no ads figures, and is ignored when there are."""
-    with_ads = weeks is not None and series is not None
+    With a Campaign CSV (`ads_file`) the split is the file's, against every day of the report, with no weeks nor
+    `series`. `ads_note` says why there are no ads figures, and is ignored when there are."""
+    from_file = split is not None and split.from_file
+    with_account_ads = weeks is not None and series is not None
+    with_ads = with_account_ads or from_file
     return PulseData(
         account=account, ads_note="" if with_ads else ads_note, currency_code=currency_code,
-        figures=pulse_figures(daily_data, weeks if with_ads else None, split if with_ads else None, target_acos),
-        days=_day_records(daily_data["daily"], series if with_ads else None),
+        figures=pulse_figures(daily_data, weeks if with_account_ads else None, split if with_ads else None,
+                              target_acos, has_active_campaigns=bool(campaigns)),
+        days=_day_records(daily_data["daily"], series if with_account_ads else None),
         buybox=[_buybox_record(alert) for alert in buybox_alerts(br_child)] if br_child is not None else None,
         campaigns=[_campaign_record(row) for row in campaigns] if with_ads else [],
         idioma=lang,
+        ads_file=ads_file if from_file else "",
     )
 
 
-def pulse_figures(daily_data: dict, weeks: AdWeeks | None, split: PaidSplit | None, target_acos: float) -> dict:
-    """The module's figures by name, as the page shows them and the agent reads them."""
+def pulse_figures(daily_data: dict, weeks: AdWeeks | None, split: PaidSplit | None, target_acos: float, *,
+                  has_active_campaigns: bool = True) -> dict:
+    """The module's figures by name, as the page shows them and the agent reads them. A Campaign CSV's `split` comes
+    with no `weeks`: one set of ads figures for the file's whole period, where `has_active_campaigns` tells a file
+    whose campaigns all stood still from one that does not say SP, SB or SD."""
     agg, days = daily_data["agg"], [row["date"] for row in daily_data["daily"]]
     this_week_start = daily_data["this_week_start"]
     figures = {
@@ -56,6 +67,9 @@ def pulse_figures(daily_data: dict, weeks: AdWeeks | None, split: PaidSplit | No
         prior_buybox = agg.get("BuyBox_PW")
         figures["Buy Box promedio, semana anterior (%)"] = prior_buybox if _known(prior_buybox) else UNKNOWN
     figures["Target ACoS (%)"] = target_acos
+    if split is not None and split.from_file:
+        figures.update(_file_ads_figures(split, has_active_campaigns=has_active_campaigns))
+        return figures
     if weeks is None or split is None:
         return figures
     figures["Productos con actividad"] = ", ".join(split.products) or "ninguno"
@@ -68,6 +82,21 @@ def pulse_figures(daily_data: dict, weeks: AdWeeks | None, split: PaidSplit | No
         figures[f"Variación del {label} (%)"] = _percent(_change(this_week, prior_week))
     if split.ads_exceed_br:
         figures["Aviso del módulo"] = "las ventas de ads superan a las del Business Report en los mismos días"
+    return figures
+
+
+def _file_ads_figures(split: PaidSplit, *, has_active_campaigns: bool) -> dict:
+    figures = {
+        "Origen de los datos de ads": FILE_ADS_ORIGIN,
+        "Productos con actividad": ", ".join(split.products) or (UNKNOWN if has_active_campaigns else "ninguno"),
+        "Spend de ads": _amount(split.ad_spend),
+        "Ventas de ads": _amount(split.ad_sales),
+        "Ventas de todo el Business Report": _amount(split.br_sales),
+        "ACoS (%)": _percent(split.acos),
+        "TACoS (%)": _percent(split.tacos),
+    }
+    if split.ads_exceed_br:
+        figures["Aviso del módulo"] = "las ventas de ads del Campaign CSV superan a las de todo el Business Report"
     return figures
 
 

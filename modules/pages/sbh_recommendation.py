@@ -1,12 +1,15 @@
 """SBH Recommendation (M23): Sponsored Brand Headline targets from DataDive's MKL and the brand's SQP.
 
 Whether a keyword already runs in Sponsored Products comes from the SP structure listing of the Amazon Ads account
-the AM picks; without one, that column is unknown and the page says so. The rules live in core/sbh/.
+the AM picks, or from a Bulk File or keyword export uploaded by hand when there is no account or the AM prefers a file;
+without either, that column is unknown and the page says so. The rules live in core/sbh/.
 """
 import hashlib
 import html
 import io
 import logging
+import re
+import zipfile
 from datetime import datetime, timezone
 from functools import partial
 
@@ -20,7 +23,14 @@ from core.amazon_ads.report_provider import ProfileOption, ReportReadError
 from core.chat import app_chat
 from core.date_labels import data_of_day_phrase, day_phrase
 from core.helpers import extract_sqp_brand, kpi_card, read_sqp
-from core.sbh.analysis import ANALYSIS_MODULE, build_analysis_input, sbh_row_labels
+from core.sbh.analysis import ANALYSIS_MODULE, build_analysis_input, sbh_row_labels, sp_file_source
+from core.sbh.sp_keyword_file import (
+    CHECKED_NONE,
+    NOT_READABLE_MESSAGE,
+    SpKeywordFile,
+    SpKeywordFileError,
+    read_sp_keyword_file,
+)
 from core.sbh.targets import (
     COL_CLUSTER,
     COL_IMPRESSION_SHARE,
@@ -57,10 +67,17 @@ XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 SP_BLOCK_TITLE = "Keywords activas en Sponsored Products"
 SP_BLOCK_TAG = "Listado diario de Amazon Ads"
 ACCOUNT_PLACEHOLDER = "Elegí la cuenta de la marca"
-NO_ACCOUNTS_NOTE = ("No hay cuentas de Amazon Ads conectadas, así que «En SP» queda sin dato. Se conectan en "
-                    "Sistema → Cuentas conectadas.")
+SP_UPLOAD_LABEL = "Sube tu Bulk File o un export de keywords SP (.xlsx o .csv)"
+NO_ACCOUNTS_NOTE = ("No hay cuentas de Amazon Ads conectadas: sin archivo, «En SP» queda sin dato. Si conectás la "
+                    "cuenta en Sistema → Cuentas conectadas, las keywords que corren en Sponsored Products se leen "
+                    "solas todos los días.")
 CHOOSE_ACCOUNT_NOTE = ("Elegí la cuenta de la marca del MKL y el SQP para marcar las keywords que ya corren en "
-                       "Sponsored Products. Sin cuenta, «En SP» queda sin dato.")
+                       "Sponsored Products, o subí su Bulk File a mano. Sin cuenta ni archivo, «En SP» queda sin dato.")
+SP_FILE_MODE_NOTE = ("Estás marcando «En SP» con un archivo subido a mano. No se guarda ni se mezcla con los datos de "
+                     "Amazon Ads.")
+UNREADABLE_FILE_MESSAGE = ("No se pudo leer «{file}»: {reason} Subí el Bulk File tal como lo exporta Campaign Manager "
+                           "→ Bulk Operations, o un export de las keywords de Sponsored Products. «En SP» queda sin "
+                           "dato.")
 NOT_LISTED_NOTE = ("Todavía no hay un listado de las campañas y keywords de Sponsored Products de esta cuenta: se "
                    "listan una vez por día. Mientras tanto, «En SP» queda sin dato.")
 REFUSED_NOTE = ("Amazon rechazó el listado de Sponsored Products de esta cuenta: «{refusal}». «En SP» queda sin dato; "
@@ -68,9 +85,13 @@ REFUSED_NOTE = ("Amazon rechazó el listado de Sponsored Products de esta cuenta
 UNREADABLE_NOTE = "«En SP» queda sin dato."
 IN_SP_KNOWN_CAPTION = ("«En SP»: la keyword corre hoy en Sponsored Products de {account} con ese mismo texto, en "
                        "cualquier match type (keyword, campaña y ad group habilitados), según el listado {listed}.")
-IN_SP_UNKNOWN_CAPTION = ("«En SP» sin dato (—): no hay un listado de Sponsored Products de la cuenta de la marca. "
-                         "La prioridad trata esas keywords como si no corrieran en SP.")
+IN_SP_FILE_CAPTION = ("«En SP»: la keyword está en Sponsored Products con ese mismo texto, en cualquier match type, "
+                      "según el archivo subido a mano {source}.")
+IN_SP_UNKNOWN_CAPTION = ("«En SP» sin dato (—): no hay un listado de Sponsored Products de la cuenta de la marca ni "
+                         "un archivo subido a mano que se pueda leer. La prioridad trata esas keywords como si no "
+                         "corrieran en SP.")
 
+_MARKDOWN_SPECIALS = re.compile(r"([\\`*_\[\]~$])")
 _VERDICT_COLORS = {
     "LANZAR": "background-color:#EAF3DE;color:#173404",
     "PROBAR": "background-color:#FAEEDA;color:#412402",
@@ -175,14 +196,17 @@ def _how_to_use():
         with col2:
             st.markdown("**📂 De dónde salen los datos**")
             st.caption("DataDive MKL + SQP (requeridos). Las keywords que ya corren en Sponsored Products salen de la "
-                       "cuenta de Amazon Ads conectada que elijas.")
+                       "cuenta de Amazon Ads conectada que elijas; si no está conectada, o preferís un archivo, subí "
+                       "el Bulk File (Campaign Manager → Bulk Operations) o un export de keywords SP. Es opcional: "
+                       "sin cuenta ni archivo, «En SP» queda sin dato.")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Campaign Builder (M10) con el SBH Target Pack para generar bulk de campañas SB.")
         st.markdown("**▶️ Pasos:**")
         st.markdown(
             "1. Subí el MKL de DataDive + el SQP de la marca\n"
-            "2. Elegí la cuenta de Amazon Ads de la marca para marcar las keywords que ya corren en SP\n"
+            "2. Elegí la cuenta de Amazon Ads de la marca para marcar las keywords que ya corren en SP, o subí su "
+            "Bulk File a mano\n"
             "3. Revisá priorización: ALTA (SV≥1000, IS<10%) / MEDIA / BAJA\n"
             "4. Análisis IA: qué clusters lanzar primero y con qué headline\n"
             "5. Descargá el SBH Target Pack con clusters y headlines sugeridos"
@@ -204,12 +228,13 @@ def _render_empty_state():
 
 
 def _render_sp_keywords() -> SpKeywordCoverage:
-    """Mounts the account block; returns the SP keywords that run in the chosen account, or an unknown coverage."""
+    """Mounts the SP keywords block; returns those that run in the chosen account or the uploaded file, or unknown."""
     search_term_source._keep_choices(KEY_PREFIX)
     profiles = search_term_source._available_profiles()
     if not profiles:
-        st.caption(NO_ACCOUNTS_NOTE)
-        return SpKeywordCoverage()
+        return _render_sp_file(hint=NO_ACCOUNTS_NOTE)
+    if st.session_state.get(picker_key(KEY_PREFIX, "manual")):
+        return _render_manual_mode()
 
     groups = group_by_label(profiles)
     card_key = picker_key(KEY_PREFIX, "card")
@@ -221,6 +246,7 @@ def _render_sp_keywords() -> SpKeywordCoverage:
         if account is None:
             header.markdown(_block_header("idle", "Sin cuenta elegida"), unsafe_allow_html=True)
             st.caption(CHOOSE_ACCOUNT_NOTE)
+            _render_upload_action()
             return SpKeywordCoverage()
 
         countries = country_labels(groups[account])
@@ -237,24 +263,76 @@ def _render_sp_keywords() -> SpKeywordCoverage:
             log.warning("SBH: SP keywords unreadable for profile %s: %s", option.profile_id, exc)
             header.markdown(_block_header("err", "No se pudo leer"), unsafe_allow_html=True)
             st.error(f"{exc} {UNREADABLE_NOTE}")
+            _render_upload_action()
             return unknown
         if not listing.known and listing.refusal:
             header.markdown(_block_header("err", "Sin permiso"), unsafe_allow_html=True)
             st.caption(REFUSED_NOTE.format(refusal=listing.refusal))
+            _render_upload_action()
             return unknown
         if not listing.known:
             header.markdown(_block_header("warn", "Sin listar"), unsafe_allow_html=True)
             st.caption(NOT_LISTED_NOTE)
+            _render_upload_action()
             return unknown
 
         keyword_texts = active_keyword_texts(listing.rows)
         header.markdown(_block_header("ok", f"Listadas {listing_moment(listing.listed_at, now, day_phrase)}"),
                         unsafe_allow_html=True)
-        st.markdown(search_term_source._muted_line_html([_active_keywords_label(len(keyword_texts)),
-                                                         html.escape(unknown.account_label)]),
-                    unsafe_allow_html=True)
+        info_col, action_col = st.columns([4.2, 3.8], vertical_alignment="center")
+        info_col.markdown(search_term_source._muted_line_html([_active_keywords_label(len(keyword_texts)),
+                                                               html.escape(unknown.account_label)]),
+                          unsafe_allow_html=True)
+        with action_col:
+            _render_upload_action()
         return SpKeywordCoverage(keyword_texts, unknown.account_label, option.profile_id,
                                  option.country_code, listing.listed_at)
+
+
+def _render_upload_action() -> None:
+    actions_key = picker_key(KEY_PREFIX, "actions")
+    st.markdown(search_term_source._actions_css(actions_key), unsafe_allow_html=True)
+    with st.container(key=actions_key):
+        st.button("Subir archivo manualmente", key=picker_key(KEY_PREFIX, "upload_manual"), type="secondary",
+                  icon=":material/upload:", on_click=search_term_source._set_manual_mode, args=(KEY_PREFIX, True))
+
+
+def _render_manual_mode() -> SpKeywordCoverage:
+    with st.container(border=True):
+        note_col, back_col = st.columns([4.2, 1.8], vertical_alignment="center")
+        note_col.markdown(SP_FILE_MODE_NOTE)
+        back_col.button("Volver a datos de Amazon Ads", key=picker_key(KEY_PREFIX, "back_to_api"), type="tertiary",
+                        icon=":material/arrow_back:", on_click=search_term_source._set_manual_mode,
+                        args=(KEY_PREFIX, False))
+        return _render_sp_file(hint="")
+
+
+def _render_sp_file(*, hint: str) -> SpKeywordCoverage:
+    """The SP source stays optional: without a readable file «En SP» is unknown and the page still recommends."""
+    uploaded = st.file_uploader(SP_UPLOAD_LABEL, type=["xlsx", "csv"], key=picker_key(KEY_PREFIX, "file"))
+    if hint:
+        st.caption(hint)
+    if uploaded is None:
+        return SpKeywordCoverage()
+    file_bytes = uploaded.getvalue()
+    try:
+        sp_file = _read_sp_keyword_file(file_bytes, uploaded.name)
+    except (ValueError, zipfile.BadZipFile, OSError) as exc:
+        log.warning("SBH: SP keyword file %s could not be read: %s", uploaded.name, exc)
+        reason = str(exc) if isinstance(exc, SpKeywordFileError) else NOT_READABLE_MESSAGE
+        st.error(UNREADABLE_FILE_MESSAGE.format(file=_markdown_literal(uploaded.name), reason=reason))
+        return SpKeywordCoverage()
+    file_name_html = html.escape(uploaded.name).replace("$", "&#36;")
+    st.markdown(search_term_source._muted_line_html([_file_keywords_label(sp_file), file_name_html]),
+                unsafe_allow_html=True)
+    return SpKeywordCoverage(sp_file.keyword_texts, file_name=uploaded.name,
+                             file_digest=hashlib.sha256(file_bytes).hexdigest()[:16],
+                             file_checked_states=sp_file.checked_states)
+
+
+@st.cache_data(max_entries=3, ttl=3600, show_spinner="Leyendo el archivo de keywords…")
+def _read_sp_keyword_file(file_bytes: bytes, file_name: str) -> SpKeywordFile:
+    return read_sp_keyword_file(file_bytes, file_name)
 
 
 def _choose_account(column, accounts: list[str]) -> str | None:
@@ -272,6 +350,19 @@ def _block_header(kind: str, label: str) -> str:
 
 def _active_keywords_label(count: int) -> str:
     return "1 keyword activa" if count == 1 else f"{count_label(count)} keywords activas"
+
+
+def _file_keywords_label(sp_file: SpKeywordFile) -> str:
+    """A file without a state column lists keywords, not active ones."""
+    count = len(sp_file.keyword_texts)
+    if sp_file.checked_states != CHECKED_NONE:
+        return _active_keywords_label(count)
+    return "1 keyword" if count == 1 else f"{count_label(count)} keywords"
+
+
+def _markdown_literal(text: str) -> str:
+    """The text as typed in a markdown element: a file name's $ is never LaTeX, nor its * or _ emphasis."""
+    return _MARKDOWN_SPECIALS.sub(r"\\\1", text)
 
 
 def _account_label(option: ProfileOption) -> str:
@@ -360,6 +451,8 @@ def _render_targets(targets: SbhTargets, coverage: SpKeywordCoverage):
 def _in_sp_caption(coverage: SpKeywordCoverage) -> str:
     if not coverage.known:
         return IN_SP_UNKNOWN_CAPTION
+    if coverage.from_file:
+        return IN_SP_FILE_CAPTION.format(source=_markdown_literal(sp_file_source(coverage)))
     listed = listing_moment(coverage.listed_at, datetime.now(timezone.utc), data_of_day_phrase)
     return IN_SP_KNOWN_CAPTION.format(account=coverage.account_label, listed=listed)
 
@@ -450,6 +543,6 @@ def _cluster_metrics(record: dict) -> list[str]:
 
 
 def _data_signature(mkl_bytes: bytes, sqp_bytes: bytes, coverage: SpKeywordCoverage) -> str:
-    """What changes when the files or the account under the analysis do, not when a value on screen does."""
+    """What changes when the files, the account or the SP file under the analysis do, not when a value on screen does."""
     files = hashlib.sha256(hashlib.sha256(mkl_bytes).digest() + hashlib.sha256(sqp_bytes).digest()).hexdigest()
-    return f"{files[:16]}|{coverage.profile_id}"
+    return f"{files[:16]}|{coverage.profile_id or coverage.file_digest}"

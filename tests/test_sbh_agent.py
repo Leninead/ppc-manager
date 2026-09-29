@@ -5,11 +5,14 @@ from ai.agent_call import build_agent_call
 from ai.agents.sbh import chat_document
 from ai.agents.sbh.context import KEYWORDS_PER_CLUSTER, MAX_CLUSTERS, MAX_KEYWORDS, build_context
 from core.sbh.analysis import ANALYSIS_MODULE, build_analysis_input, sbh_row_labels
+from core.sbh.sp_keyword_file import CHECKED_KEYWORD, CHECKED_KEYWORD_CAMPAIGN_AD_GROUP, CHECKED_NONE
 from core.sbh.targets import QueryShare, SpKeywordCoverage, recommend_targets
 
 KNOWN = SpKeywordCoverage(frozenset({"vitamin c serum"}), account_label="Luna Kids · US", profile_id="111",
                           country_code="US")
 UNKNOWN = SpKeywordCoverage()
+FROM_FILE = SpKeywordCoverage(frozenset({"vitamin c serum"}), file_name="bulk-luna.xlsx",
+                              file_digest="ab12cd34ef567890", file_checked_states=CHECKED_KEYWORD_CAMPAIGN_AD_GROUP)
 
 
 def _mkl(rows) -> pd.DataFrame:
@@ -61,6 +64,40 @@ def test_without_an_account_the_in_sp_column_travels_as_unknown():
     assert {line.split(",")[6] for line in docs[2]["content"].splitlines()[1:]} == {"sin dato"}
 
 
+def test_a_hand_uploaded_bulk_file_is_named_as_the_source_of_the_in_sp_column():
+    built = _input(coverage=FROM_FILE)
+    params = build_context(built.data)[1][0]["content"]
+
+    assert ("Archivo subido a mano del que sale la columna en_sp: «bulk-luna.xlsx» (keyword, campaña y ad group "
+            "habilitados); no dice de qué cuenta ni de qué día es\n") in params
+    assert "Cuenta de Amazon Ads de la columna en_sp" not in params
+    assert "- Targets que están en SP según el archivo: 1" in params
+    assert "Targets que ya corren en SP" not in params
+    assert built.records[0]["en_sp"] == 1
+    assert built.data.keywords[1]["en_sp"] == "sí"
+
+
+def test_a_keyword_export_says_which_states_it_could_not_check():
+    export = SpKeywordCoverage(frozenset({"vitamin c serum"}), file_name="keywords.csv", file_digest="0f0f0f0f0f0f0f0f",
+                               file_checked_states=CHECKED_KEYWORD)
+
+    params = build_context(_input(coverage=export).data)[1][0]["content"]
+
+    assert ("«keywords.csv» (keyword habilitada; el archivo no dice si su campaña y su ad group lo están)"
+            in params)
+
+
+def test_a_file_without_states_never_counts_its_targets_as_running():
+    listed = SpKeywordCoverage(frozenset({"vitamin c serum"}), file_name="str.csv", file_digest="1e1e1e1e1e1e1e1e",
+                               file_checked_states=CHECKED_NONE)
+
+    params = build_context(_input(coverage=listed).data)[1][0]["content"]
+
+    assert "(el archivo no dice si la keyword está habilitada, así que cuenta todas las que trae)" in params
+    assert "- Targets que están en SP según el archivo: 1" in params
+    assert "Targets que ya corren en SP" not in params
+
+
 def test_each_keyword_travels_with_its_answers_in_words_and_a_missing_launch_score_empty():
     keywords = _input().data.keywords
 
@@ -104,6 +141,7 @@ def test_the_same_data_digests_the_same_and_another_coverage_or_language_does_no
 
     assert first.input_digest == build_agent_call(ANALYSIS_MODULE, _input().data).input_digest
     assert first.input_digest != build_agent_call(ANALYSIS_MODULE, _input(coverage=UNKNOWN).data).input_digest
+    assert first.input_digest != build_agent_call(ANALYSIS_MODULE, _input(coverage=FROM_FILE).data).input_digest
     assert first.input_digest != build_agent_call(ANALYSIS_MODULE, _input(lang="en").data).input_digest
     assert first.model == "claude-opus-5-5"
 

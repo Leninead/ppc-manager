@@ -242,7 +242,10 @@ Fuente del dato: el listado diario de Sponsored Products de Amazon Ads
 `StructureProvider`), keywords con match type Exact y estado propio
 enabled, tengan o no clicks en el período. Es el mismo universo que la
 hoja `Sponsored Products Campaigns` del Bulk File filtrada por
-`Entity == 'Keyword'`, `Match Type == 'Exact'`, `State == 'enabled'`.
+`Entity == 'Keyword'`, `Match Type == 'Exact'`, `State == 'enabled'`,
+que es la fuente cuando el AM sube el Bulk File a mano como fallback
+(`core/cross_analysis/bulk_file.enabled_exact_keywords`; sin esa hoja
+el cruce queda desconocido, nunca vacío).
 Un reporte de search terms NO alcanza: sólo trae las keywords con clicks.
 
 Si ese cruce no está disponible, la funcionalidad advierte que el
@@ -259,8 +262,9 @@ de no negativizar algo negativizable es unos dólares de spend; el costo
 de negativizar una ranking keyword es posición orgánica perdida.
 
 Fuente del dato: el portfolio de cada fila del reporte de search terms
-(`Portfolio name` del frame canónico; antes, la columna `Portfolio Name
-(Informational only)` de la hoja `SP Search Term Report` del Bulk File).
+(`Portfolio name` del frame canónico; con un Bulk File subido a mano, la
+columna `Portfolio Name (Informational only)` de su hoja `SP Search Term
+Report`, renombrada a `Portfolio name` por el adaptador).
 Un portfolio cuyo nombre no se sincronizó también se protege: no se
 puede confirmar que no sea RANKING (`is_ranking_protected`).
 

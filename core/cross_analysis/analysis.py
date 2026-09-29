@@ -83,7 +83,7 @@ class CrossAnalysisInput:
 
 def build_analysis_input(plan: pd.DataFrame, asin_rows: pd.DataFrame, *, account: str, period: str, currency: str,
                          brand: str, exact_source: str, asin_source: str, parameters: dict, counts: dict,
-                         lang: str) -> CrossAnalysisInput:
+                         lang: str, from_bulk_file: bool = False) -> CrossAnalysisInput:
     if plan.empty:
         return CrossAnalysisInput(None, [])
     data = CrossData(
@@ -91,7 +91,7 @@ def build_analysis_input(plan: pd.DataFrame, asin_rows: pd.DataFrame, *, account
         asin_source=asin_source, parameters=parameters, counts=counts,
         queries=[_query_record(row) for row in _work_order(plan).to_dict("records")],
         asins=[_asin_record(row) for row in asin_rows.to_dict("records")],
-        idioma=lang,
+        idioma=lang, from_bulk_file=from_bulk_file,
     )
     return CrossAnalysisInput(data, records_of(data))
 

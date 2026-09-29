@@ -29,6 +29,7 @@ class SbhData:
     clusters: list    # records, most search volume first
     keywords: list    # records, priority first and then search volume
     idioma: str = "es"
+    sp_file: str = ""  # the hand-uploaded file en_sp comes from and what it could check, "" for an account
 
 
 # razon before veredicto on purpose: autoregressive generation conditions the verdict on the reasoning.
@@ -113,10 +114,12 @@ def build_context(d: SbhData) -> tuple[str, list, dict]:
     counts = "\n".join(f"- {label}: {_number(value)}" for label, value in d.counts.items())
     sp_account = (d.sp_account if d.sp_account
                   else "ninguna, así que en_sp está sin dato en todas las filas")
+    sp_source = (f"Archivo subido a mano del que sale la columna en_sp: {d.sp_file}\n" if d.sp_file
+                 else f"Cuenta de Amazon Ads de la columna en_sp: {sp_account}\n")
     params = (
         f"Marca del SQP: {d.brand or 'no detectada'}\n"
-        f"Cuenta de Amazon Ads de la columna en_sp: {sp_account}\n"
-        f"Cifras del módulo sobre todo el MKL:\n{counts}\n"
+        + sp_source
+        + f"Cifras del módulo sobre todo el MKL:\n{counts}\n"
         + _cap_line(_CLUSTER_CAP, len(d.clusters), len(clusters))
         + _cap_line(_KEYWORD_CAP, len(d.keywords), len(keywords))
         + f"Idioma de salida: {'en (English)' if d.idioma == 'en' else 'es (español)'}\n"

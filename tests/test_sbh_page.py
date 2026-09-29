@@ -109,14 +109,40 @@ class _FakeRest:
 
 
 class _Upload:
-    def __init__(self, name: str):
+    def __init__(self, name: str, data: bytes | None = None):
         self.name = name
+        self._data = name.encode("utf-8") if data is None else data
 
     def getvalue(self) -> bytes:
-        return self.name.encode("utf-8")
+        return self._data
 
     def seek(self, offset: int) -> None:
         return None
+
+
+class _Uploader:
+    """st.file_uploader faked: the upload each key returns, and the label each key was last drawn with."""
+
+    def __init__(self, uploads: dict):
+        self.uploads = uploads
+        self.labels: dict[str, str] = {}
+
+    def __call__(self, label, *args, key=None, **kwargs):
+        self.labels[key] = label
+        return self.uploads.get(key)
+
+
+def _bulk_file(*keyword_texts: str, paused: tuple[str, ...] = ()) -> bytes:
+    """A Bulk File's Sponsored Products sheet: one enabled campaign and ad group with these keywords."""
+    rows = [{"Entity": "Campaign", "Campaign ID": 1, "Ad Group ID": None, "State": "enabled", "Keyword Text": None},
+            {"Entity": "Ad Group", "Campaign ID": 1, "Ad Group ID": 10, "State": "enabled", "Keyword Text": None}]
+    rows += [{"Entity": "Keyword", "Campaign ID": 1, "Ad Group ID": 10,
+              "State": "paused" if text in paused else "enabled", "Keyword Text": text}
+             for text in (*keyword_texts, *paused)]
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        pd.DataFrame(rows).to_excel(writer, sheet_name="Sponsored Products Campaigns", index=False)
+    return buffer.getvalue()
 
 
 @pytest.fixture(autouse=True)
@@ -152,10 +178,12 @@ render()
 """
 
 
-def _page(monkeypatch, fake, *, files=True, ai_enabled=False) -> AppTest:
+def _page(monkeypatch, fake, *, files=True, ai_enabled=False, uploader: _Uploader | None = None) -> AppTest:
     import streamlit
-    uploads = {"sbh_mkl": _Upload("niche-luna-keywords.xlsx"), "sbh_sqp": _Upload("sqp.csv")} if files else {}
-    monkeypatch.setattr(streamlit, "file_uploader", lambda label, *args, key=None, **kwargs: uploads.get(key))
+    uploader = uploader or _Uploader({})
+    if files:
+        uploader.uploads.update({"sbh_mkl": _Upload("niche-luna-keywords.xlsx"), "sbh_sqp": _Upload("sqp.csv")})
+    monkeypatch.setattr(streamlit, "file_uploader", uploader)
     monkeypatch.setattr(sbh_page, "_parse_mkl", lambda data, name: (MKL.copy(), []))
     monkeypatch.setattr(sbh_page, "read_sqp", lambda file: SQP.copy())
     monkeypatch.setattr(sbh_page, "extract_sqp_brand", lambda file: "luna")
@@ -245,12 +273,130 @@ def test_a_keyword_listing_amazon_refused_says_so_and_is_not_an_empty_one(monkey
     assert set(_in_sp(app).values()) == {"—"}
 
 
-def test_without_connected_accounts_the_page_says_so_and_still_recommends(monkeypatch):
-    app = _page(monkeypatch, _FakeRest(profiles=False))
+def test_without_connected_accounts_the_page_offers_the_upload_and_still_recommends(monkeypatch):
+    uploader = _Uploader({})
+
+    app = _page(monkeypatch, _FakeRest(profiles=False), uploader=uploader)
 
     assert sbh_page.NO_ACCOUNTS_NOTE in _text(app)
+    assert uploader.labels["sbh_src_file"] == sbh_page.SP_UPLOAD_LABEL
     assert not app.selectbox
     assert set(_in_sp(app).values()) == {"—"}
+    assert sbh_page.IN_SP_UNKNOWN_CAPTION in _text(app)
+
+
+def test_without_connected_accounts_a_hand_uploaded_bulk_file_marks_in_sp(monkeypatch):
+    fake = _FakeRest(profiles=False)
+    bulk = _Upload("bulk-luna.xlsx", _bulk_file("Vitamin C Serum", paused=("night vitamin oil",)))
+
+    app = _page(monkeypatch, fake, uploader=_Uploader({"sbh_src_file": bulk}))
+
+    assert fake.reads == []
+    assert _in_sp(app) == {"vitamin a cream": "❌", "vitamin c serum": "✅", "night vitamin oil": "❌"}
+    text = _text(app)
+    assert "1 keyword activa" in text and "bulk-luna.xlsx" in text
+    assert ("según el archivo subido a mano «bulk-luna.xlsx» (keyword, campaña y ad group habilitados); no dice de "
+            "qué cuenta ni de qué día es.") in text
+
+
+@pytest.mark.parametrize("fake, choose", [
+    (_FakeRest(), False),
+    (_FakeRest(), True),
+    (_FakeRest(fail=True), True),
+    (_FakeRest(structure=()), True),
+    (_FakeRest(structure=[CAMPAIGN_ROW], jobs=[_job_row("sp_targets", warning="sin permiso")]), True),
+], ids=["no account chosen", "listed", "unreadable", "never listed", "refused"])
+def test_every_state_of_the_account_card_offers_the_manual_upload(monkeypatch, fake, choose):
+    app = _page(monkeypatch, fake)
+    if choose:
+        app = _choose_account(app)
+
+    assert [button.key for button in app.button].count("sbh_src_upload_manual") == 1
+
+
+def test_the_manual_upload_reads_nothing_from_the_account_and_the_way_back_keeps_it(monkeypatch):
+    fake = _FakeRest()
+    uploader = _Uploader({})
+    app = _choose_account(_page(monkeypatch, fake, uploader=uploader))
+    fake.reads.clear()
+
+    app.button(key="sbh_src_upload_manual").click().run()
+
+    assert not app.exception, app.exception
+    assert fake.reads == []
+    assert sbh_page.SP_FILE_MODE_NOTE in _text(app)
+    assert "Volver a datos de Amazon Ads" in [button.label for button in app.button]
+    assert uploader.labels["sbh_src_file"] == sbh_page.SP_UPLOAD_LABEL
+    assert not app.selectbox
+    assert set(_in_sp(app).values()) == {"—"}
+
+    app.button(key="sbh_src_back_to_api").click().run()
+
+    assert not app.exception, app.exception
+    assert app.selectbox(key="sbh_src_account").value == ACCOUNT
+    assert _in_sp(app)["vitamin c serum"] == "✅"
+
+
+def test_a_keyword_export_uploaded_by_hand_says_which_states_it_could_not_check(monkeypatch):
+    export = pd.DataFrame({"Keyword Text": ["vitamin a cream", "night vitamin oil"], "State": ["enabled", "paused"]})
+    app = _page(monkeypatch, _FakeRest(), uploader=_Uploader({"sbh_src_file": _Upload(
+        "keywords.csv", export.to_csv(index=False).encode("utf-8"))}))
+    app.session_state["sbh_src_manual"] = True
+    app.run()
+
+    assert not app.exception, app.exception
+    assert _in_sp(app) == {"vitamin a cream": "✅", "vitamin c serum": "❌", "night vitamin oil": "❌"}
+    assert "(keyword habilitada; el archivo no dice si su campaña y su ad group lo están)" in _text(app)
+
+
+@pytest.mark.parametrize("file_bytes", [b"not a workbook", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + bytes(504)],
+                         ids=["not a workbook", "encrypted workbook"])
+def test_a_file_that_cannot_be_read_says_which_and_the_page_still_recommends(monkeypatch, file_bytes):
+    app = _page(monkeypatch, _FakeRest(profiles=False),
+                uploader=_Uploader({"sbh_src_file": _Upload("bulk-luna.xlsx", file_bytes)}))
+
+    errors = [str(error.value) for error in app.error]
+    assert any(error.startswith("No se pudo leer «bulk-luna.xlsx»: no es un Excel ni un CSV") for error in errors)
+    assert [tab.label for tab in app.tabs] == ["📢 Targets", "🤖 Análisis IA"]
+    assert set(_in_sp(app).values()) == {"—"}
+
+
+def test_a_campaign_export_uploaded_for_keywords_is_refused_and_in_sp_stays_unknown(monkeypatch):
+    campaigns = pd.DataFrame({"Campaigns": ["LK - SP - Auto", "LK - SP - Exact"], "State": ["Enabled", "Enabled"],
+                              "Status": ["Delivering", "Delivering"], "Targeting": ["Automatic", "Manual"]})
+    app = _page(monkeypatch, _FakeRest(profiles=False), uploader=_Uploader({"sbh_src_file": _Upload(
+        "Sponsored_Products_Campaigns.csv", campaigns.to_csv(index=False).encode("utf-8"))}))
+
+    errors = [str(error.value) for error in app.error]
+    assert any("no trae una columna con el texto de las keywords" in error for error in errors)
+    assert set(_in_sp(app).values()) == {"—"}
+    assert sbh_page.IN_SP_UNKNOWN_CAPTION in _text(app)
+
+
+def test_a_file_name_with_dollars_or_asterisks_is_shown_as_typed_never_as_math_or_emphasis(monkeypatch):
+    name = "keywords $1 a $2 *final*.xlsx"
+    app = _page(monkeypatch, _FakeRest(profiles=False),
+                uploader=_Uploader({"sbh_src_file": _Upload(name, _bulk_file("vitamin c serum"))}))
+
+    captions = " ".join(str(caption.value) for caption in app.caption)
+    assert "según el archivo subido a mano «keywords \\$1 a \\$2 \\*final\\*.xlsx»" in captions
+    assert "keywords &#36;1 a &#36;2 *final*.xlsx" in " ".join(str(line.value) for line in app.markdown)
+
+    unreadable = _page(monkeypatch, _FakeRest(profiles=False),
+                       uploader=_Uploader({"sbh_src_file": _Upload("bulk $1 a $2.xlsx", b"not a workbook")}))
+
+    assert any(str(error.value).startswith("No se pudo leer «bulk \\$1 a \\$2.xlsx»") for error in unreadable.error)
+
+
+def test_the_signature_follows_the_account_or_the_hand_uploaded_file():
+    account = SpKeywordCoverage(frozenset(), account_label="Luna Kids · US", profile_id="111")
+    first = SpKeywordCoverage(frozenset({"a"}), file_name="bulk.xlsx", file_digest="aaaaaaaaaaaaaaaa")
+    second = SpKeywordCoverage(frozenset({"a"}), file_name="bulk.xlsx", file_digest="bbbbbbbbbbbbbbbb")
+
+    signatures = {sbh_page._data_signature(b"mkl", b"sqp", coverage).split("|")[1]
+                  for coverage in (account, first, second, SpKeywordCoverage())}
+
+    assert signatures == {"111", "aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb", ""}
 
 
 def test_without_the_files_the_page_shows_the_empty_state_and_withdraws_the_analysis(monkeypatch):
@@ -296,6 +442,38 @@ def test_the_ai_analysis_waits_for_the_click_and_reaches_the_chat_with_the_accou
     assert "Cuenta de Amazon Ads de la columna en_sp: Luna Kids · US" in shared.documents[0]["content"]
     assert (shared.profile_id, shared.country_code) == ("111", "US")
     assert shared.annotate("Lanzar G01") == "Lanzar G01 (vitamin)"
+
+
+def _run_analysis(app: AppTest) -> AppTest:
+    app.button(key="sbh_ai_recalc").click().run()
+    for _ in range(30):
+        entry = app.session_state["app_chat_modules"].get("sbh")
+        if entry is not None and entry.state == "current":
+            break
+        time.sleep(0.2)
+        app.run()
+    assert not app.exception, app.exception
+    return app
+
+
+def test_the_ai_analysis_of_a_hand_uploaded_file_names_it_and_a_new_file_is_new_data(monkeypatch):
+    monkeypatch.setattr(ai_client, "ask", lambda **call: {"structured_output": ANSWER, "session_id": "sbh-file"})
+    uploader = _Uploader({"sbh_src_file": _Upload("bulk-luna.xlsx", _bulk_file("vitamin c serum"))})
+    app = _run_analysis(_page(monkeypatch, _FakeRest(profiles=False), ai_enabled=True, uploader=uploader))
+
+    shared = app.session_state["app_chat_modules"]["sbh"].analysis
+    parameters = shared.documents[0]["content"]
+    assert "Archivo subido a mano del que sale la columna en_sp: «bulk-luna.xlsx»" in parameters
+    assert "Cuenta de Amazon Ads de la columna en_sp" not in parameters
+    assert "- Targets que están en SP según el archivo: 1" in parameters
+    assert (shared.profile_id, shared.country_code) == ("", "")
+
+    uploader.uploads["sbh_src_file"] = _Upload("bulk-luna-2.xlsx", _bulk_file("vitamin a cream"))
+    app.run()
+
+    labels = ai_tab.ai_labels("es", sbh_page._AI_TEXTS["es"])
+    text = " ".join(str(element.value) for element in app.markdown)
+    assert labels["pending_title"] in text and labels["stale_title"] not in text
 
 
 def test_the_ai_rows_warn_about_a_headline_longer_than_campaign_builder_takes():

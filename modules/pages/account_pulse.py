@@ -1,7 +1,9 @@
 """Account Pulse (M17): the account's daily health, this week against the prior one.
 
 The ACoS, the TACoS and the campaigns come from the campaign reports of the Amazon Ads account the AM picks, over the
-Business Report's own days. The rules live in core/account_pulse/.
+Business Report's own days. Without the account, a Campaign CSV uploaded by hand stands in: it has no days, so its ACoS
+and TACoS cover the file's whole period, against every day of the Business Report, with no week to compare. The rules
+live in core/account_pulse/.
 """
 import hashlib
 import io
@@ -19,6 +21,7 @@ from core.account_pulse.analysis import ANALYSIS_MODULE, build_analysis_input
 from core.account_pulse.buybox import buybox_alerts
 from core.account_pulse.campaigns import campaign_rows
 from core.account_pulse.day_types import day_type
+from core.business_report.paid_split import PaidSplit
 from core.chat import app_chat
 from core.currency_format import excel_money_format, money
 from core.date_labels import date_range_label
@@ -39,19 +42,34 @@ TOP_CAMPAIGNS_SHOWN = 15
 
 _ADS_TEXTS = AdAccountTexts(
     title="Publicidad de la cuenta",
-    no_accounts=("No hay cuentas de Amazon Ads conectadas, así que no hay ACoS, TACoS ni campañas. Se conectan en "
-                 "Sistema → Cuentas conectadas."),
+    no_accounts=("Sin cuentas de Amazon Ads conectadas, el ACoS, el TACoS y las campañas salen de este archivo, sin "
+                 "separar semanas. Si conectás la cuenta en Sistema → Cuentas conectadas, llegan solos, semana por "
+                 "semana, y no hace falta subirlo."),
     choose_account=("Elegí la cuenta y el país del BR para el ACoS y el TACoS de cada semana y sus campañas. El BR no "
                     "dice de qué cuenta es, así que no hay una por defecto."),
     first_load=("Estamos trayendo las campañas de esta cuenta por primera vez; cuando termine aparecen el ACoS, el "
                 "TACoS y las campañas."),
     unreadable="Sin ACoS, TACoS ni campañas.",
     without_ads="Sin ACoS, TACoS ni campañas",
+    upload_label="Sube tu Campaign CSV (.csv o .xlsx) — opcional, para el ACoS, el TACoS y las campañas",
 )
 WEEKS_CAPTION = ("ACoS y TACoS de cada semana sobre sus días del BR con datos de ads: esta semana {this_week}, la "
                  "anterior {prior_week}. Sponsored Products con atribución de {attribution} días; Sponsored Brands y "
                  "Display como los cuenta Campaign Manager. Las ventas de ads se atribuyen al día del click: las de los "
                  "últimos días todavía pueden crecer.")
+FILE_ADS_CAPTION = ("ACoS y TACoS del Campaign CSV «{file}» ({products}), sin comparar semanas: el archivo trae un "
+                    "total por campaña, no por día. No dice qué días cubre: el TACoS se calcula sobre los {total} días "
+                    "del BR ({window}), así que tiene que estar exportado con ese mismo rango. La atribución es la que "
+                    "usó Campaign Manager al exportarlo.")
+FILE_PRODUCTS_UNKNOWN = "sin decir si son SP, SB o SD"
+FILE_PRODUCTS_NONE = "ninguna campaña con actividad"
+FILE_ADS_SECTION = "PUBLICIDAD — CAMPAIGN CSV, SIN COMPARAR SEMANAS"
+FILE_PERIOD_COLUMN = "Todo el período"
+FILE_ACOS_LABEL = "ACoS del archivo"
+FILE_TACOS_LABEL = "TACoS del archivo"
+FILE_ACOS_ROW = "ACoS % (Campaign CSV)"
+FILE_TACOS_ROW = "TACoS % (Campaign CSV)"
+FILE_NO_CAMPAIGNS = "ninguna campaña del Campaign CSV tuvo actividad"
 
 _VERDICT_COLORS = ("background-color:#FFEBEE;color:#9C0006", "background-color:#FAEEDA;color:#412402",
                    "background-color:#EAF3DE;color:#173404")
@@ -276,6 +294,11 @@ def _percent_text(value):
     return f"{value:.1f}%" if value is not None else "—"
 
 
+def _or_dash(value):
+    """A count the Campaign CSV lacks, or a campaign type it does not say, shows as unknown, not as 0."""
+    return "—" if value is None or value == "" else value
+
+
 def _week_acos_tacos(weeks: AdWeeks | None):
     """(ACoS TW, ACoS PW, TACoS TW, TACoS PW), None where a week has no ads data."""
     this_week = weeks.this_week if weeks is not None else None
@@ -292,10 +315,24 @@ def _weeks_caption(weeks: AdWeeks) -> str:
                                 attribution=attribution)
 
 
+def _file_caption(split: PaidSplit, source_file: str, *, has_active_campaigns: bool) -> str:
+    """No products means no campaign had activity, or the file does not say SP, SB or SD for the ones that did."""
+    products = " · ".join(split.products) or (FILE_PRODUCTS_UNKNOWN if has_active_campaigns else FILE_PRODUCTS_NONE)
+    return FILE_ADS_CAPTION.format(file=source_file, products=products, total=split.history_days,
+                                   window=date_range_label(split.start, split.end))
+
+
+def _ads_period(ads: AccountAds) -> str:
+    """What the campaigns cover: the account's days of the report, or the Campaign CSV, which does not say its days."""
+    if ads.from_file:
+        return f"Campaign CSV «{ads.source_file}»"
+    return date_range_label(ads.split.start, ads.split.end) if ads.split is not None else ""
+
+
 # ── Excel builder ────────────────────────────────────────────────────
 def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="", target_acos=30.0, *,
                                weeks: AdWeeks | None = None, currency_code: str = "", ads_period: str = "",
-                               ads_note: str = ""):
+                               ads_note: str = "", split_from_file: PaidSplit | None = None, source_file: str = ""):
     agg = daily_data["agg"]
     daily = daily_data["daily"]
     show = partial(money, currency_code=currency_code)
@@ -377,7 +414,7 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="", 
     _kpi_row("CVR %", agg["CVR_TW"], agg["CVR_PW"],
              lambda v: f"{v:.2f}%")
 
-    # ACoS and TACoS of each week over its own days of the report.
+    # ACoS and TACoS of each week over its own days of the report; a Campaign CSV has no weeks, only its period.
     acos_tw, acos_pw, tacos_tw, tacos_pw = _week_acos_tacos(weeks)
     if weeks is not None:
         _kpi_row("ACoS %", acos_tw, acos_pw, _percent_text, inverse=True)
@@ -389,6 +426,18 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="", 
 
     if weeks is not None:
         rn = _note_row(ws1, rn, _weeks_caption(weeks), NCOLS)
+    elif split_from_file is not None:
+        # Under "This Week" a figure of the file's whole period would read as the week's.
+        rn = _sec(ws1, rn + 1, FILE_ADS_SECTION, NCOLS)
+        _hdr(ws1, rn, ["Métrica", FILE_PERIOD_COLUMN])
+        rn += 1
+        for label, value in ((FILE_ACOS_ROW, split_from_file.acos), (FILE_TACOS_ROW, split_from_file.tacos)):
+            _cell(ws1, rn, 1, label, left=True, bold=True)
+            _cell(ws1, rn, 2, _percent_text(value), bold=True)
+            ws1.row_dimensions[rn].height = 18
+            rn += 1
+        caption = _file_caption(split_from_file, source_file, has_active_campaigns=bool(campaigns))
+        rn = _note_row(ws1, rn, caption, NCOLS)
     elif ads_note:
         rn = _note_row(ws1, rn, f"Sin ACoS, TACoS ni campañas: {ads_note}.", NCOLS, h=18)
 
@@ -411,8 +460,11 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="", 
     cvr_d = _pct(agg["CVR_TW"], agg["CVR_PW"])
     if cvr_d is not None and cvr_d < -10:
         diag_lines.append(f"CVR bajó {cvr_d:.1f}% — revisar listings, precio y reviews.")
-    if acos_tw is not None and acos_tw > target_acos * 1.5:
-        diag_lines.append(f"ACoS {acos_tw:.1f}% supera 1.5x target ({target_acos:.0f}%) — optimizar bids y negativos.")
+    ads_acos, acos_label = ((split_from_file.acos, "ACoS del Campaign CSV") if split_from_file is not None
+                            else (acos_tw, "ACoS"))
+    if ads_acos is not None and ads_acos > target_acos * 1.5:
+        diag_lines.append(f"{acos_label} {ads_acos:.1f}% supera 1.5x target ({target_acos:.0f}%) — optimizar bids y "
+                          "negativos.")
     bb_issues = buybox_alerts(br_child)
     if bb_issues:
         diag_lines.append(f"{len(bb_issues)} ASINs con BuyBox < 95% — revisar pricing/stock.")
@@ -592,7 +644,7 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="", 
         row_bg = _WHITE if ri % 2 == 0 else _LGRAY
 
         _cell(ws4, rn, 1, camp["Campaign"][:60], bg=row_bg, left=True)
-        _cell(ws4, rn, 2, camp["Product"], bg=row_bg)
+        _cell(ws4, rn, 2, _or_dash(camp["Product"]), bg=row_bg)
 
         # Type color: NUEVA = green, HEREDADA = blue
         if camp["Age"] == "NUEVA":
@@ -600,8 +652,8 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="", 
         else:
             _cell(ws4, rn, 3, "HEREDADA", bg=_BLUE_L, fg=_BLUE, bold=True)
 
-        _cell(ws4, rn, 4, camp["Impressions"], bg=row_bg, fmt="#,##0")
-        _cell(ws4, rn, 5, camp["Clicks"], bg=row_bg, fmt="#,##0")
+        _cell(ws4, rn, 4, _or_dash(camp["Impressions"]), bg=row_bg, fmt="#,##0")
+        _cell(ws4, rn, 5, _or_dash(camp["Clicks"]), bg=row_bg, fmt="#,##0")
         _cell(ws4, rn, 6, camp["Spend"], bg=row_bg, fmt=money_fmt)
         _cell(ws4, rn, 7, camp["Sales"], bg=row_bg, fmt=money_fmt)
 
@@ -618,11 +670,12 @@ def _build_account_pulse_excel(daily_data, br_child, campaigns, client_name="", 
                 a_bg, a_fg = _RED_L, _RED
             _cell(ws4, rn, 8, f"{acos_v:.1f}%", bg=a_bg, fg=a_fg, bold=True)
 
-        _cell(ws4, rn, 9, camp["Orders"], bg=row_bg, fmt="#,##0")
+        _cell(ws4, rn, 9, _or_dash(camp["Orders"]), bg=row_bg, fmt="#,##0")
         ws4.row_dimensions[rn].height = 16
 
     if not campaigns:
-        reason = ads_note or "ninguna campaña tuvo actividad en esos días"
+        reason = ads_note or (FILE_NO_CAMPAIGNS if split_from_file is not None
+                              else "ninguna campaña tuvo actividad en esos días")
         _note_row(ws4, 3, f"Sin campañas: {reason}.", CAMP_COLS, h=18)
 
     ws4.freeze_panes = "A3"
@@ -642,7 +695,7 @@ def render():
         "<div>"
         "<div style='font-size:1.3rem;font-weight:800;color:#1F1F1F;'>Account Pulse</div>"
         "<div style='font-size:0.82rem;color:#888;'>Monitor de salud diaria: BR diario 14d + BR by Child + cuenta de "
-        "Amazon Ads → Excel 4 hojas</div>"
+        "Amazon Ads o Campaign CSV → Excel 4 hojas</div>"
         "</div>"
         "</div>",
         unsafe_allow_html=True,
@@ -664,7 +717,7 @@ def render():
     br_child_file = st.file_uploader("BR by Child Item (.csv/.xlsx)",
                                       type=["csv", "xlsx"], key="ap_br_child")
 
-    st.markdown("#### 3 Publicidad — cuenta de Amazon Ads")
+    st.markdown("#### 3 Publicidad — cuenta de Amazon Ads o Campaign CSV")
     ad_account = render_ad_account_block(KEY_PREFIX, _ADS_TEXTS)
 
     if not br_daily_file and not br_child_file:
@@ -683,8 +736,9 @@ def render():
 
     if daily_data is None:
         st.success(f"{len(br_child)} ASINs")
-        profile = ad_account.profile
-        _render_buybox_alerts(br_child, partial(money, currency_code=profile.currency_code if profile else ""))
+        profile, campaign_file = ad_account.profile, ad_account.campaign_file
+        currency_code = profile.currency_code if profile else campaign_file.currency_code if campaign_file else ""
+        _render_buybox_alerts(br_child, partial(money, currency_code=currency_code))
         _render_empty_state()
         app_chat.withdraw_analysis(ANALYSIS_MODULE)
         return
@@ -692,7 +746,8 @@ def render():
     history = _history(daily_data)
     ads = read_account_ads(ad_account, history, _ADS_TEXTS, with_campaigns=True)
     weeks = ads_by_week(history, ads.series, daily_data["this_week_start"]) if ads.series is not None else None
-    campaigns = campaign_rows(ads.campaigns) if ads.campaigns is not None else []
+    file_counts = ad_account.campaign_file.missing_counts if ad_account.campaign_file is not None else ()
+    campaigns = campaign_rows(ads.campaigns, unknown_counts=file_counts) if ads.campaigns is not None else []
 
     loaded = [f"BR diario: {len(daily_data['daily'])} días"]
     if br_child:
@@ -707,7 +762,8 @@ def render():
     with analysis_tab:
         _render_ai_tab(daily_data, br_child if br_child_file else None, ads, weeks, campaigns, target_acos,
                        subject=ads.account or client_name.strip() or br_daily_file.name,
-                       data_signature=_data_signature(br_daily_file, br_child_file, ads.profile_id))
+                       data_signature=_data_signature(br_daily_file, br_child_file,
+                                                      ads.profile_id or ads.file_digest))
 
 
 def _how_to_use():
@@ -720,7 +776,9 @@ def _how_to_use():
         with col2:
             st.markdown("**📂 De dónde salen los datos**")
             st.caption("BR diario 14d (By Date) requerido y BR by Child opcional. La cuenta de Amazon Ads del BR "
-                       "(opcional) trae el ACoS, el TACoS y las campañas de los mismos días.")
+                       "(opcional) trae el ACoS, el TACoS y las campañas de los mismos días, semana por semana. Sin "
+                       "cuenta conectada, o con «Subir archivo manualmente», los trae el Campaign CSV del mismo rango "
+                       "que el BR, para todo el período y sin separar semanas.")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Weekly Client Report (M14) para reporte formal o copiar mensaje Slack para comunicación rápida.")
@@ -728,7 +786,8 @@ def _how_to_use():
         st.markdown(
             "1. Ingresá nombre del cliente + Target ACoS\n"
             "2. Subí BR diario 14d (requerido) + BR by Child\n"
-            "3. Elegí la cuenta y el país del BR para el ACoS, el TACoS y las campañas (opcional)\n"
+            "3. Elegí la cuenta y el país del BR para el ACoS, el TACoS y las campañas (opcional), o subí el "
+            "Campaign CSV del mismo rango (Campaign Manager → Campaigns → Export)\n"
             "4. Revisá los KPIs de la semana contra la anterior y el Análisis IA\n"
             "5. Descargá el Excel con 4 hojas (Resumen + Ventas Diarias + BuyBox + Campañas)"
         )
@@ -759,6 +818,7 @@ def _render_pulse(daily_data, br_child, ads: AccountAds, weeks: AdWeeks | None, 
     show = partial(money, currency_code=ads.currency_code)
     agg = daily_data["agg"]
     acos_tw, acos_pw, tacos_tw, tacos_pw = _week_acos_tacos(weeks)
+    split_from_file = ads.split if ads.from_file else None
 
     # ── KPI cards ────────────────────────────────────────
     cards = st.columns(6)
@@ -773,14 +833,20 @@ def _render_pulse(daily_data, br_child, ads: AccountAds, weeks: AdWeeks | None, 
                              delta=_pct(agg["Sessions_TW"], agg["Sessions_PW"])), unsafe_allow_html=True)
     with cards[3]:
         st.markdown(kpi_card("CVR TW", f"{agg['CVR_TW']:.2f}%"), unsafe_allow_html=True)
+    if split_from_file is not None:
+        acos_card = kpi_card(FILE_ACOS_LABEL, _percent_text(split_from_file.acos))
+        tacos_card = kpi_card(FILE_TACOS_LABEL, _percent_text(split_from_file.tacos))
+    else:
+        acos_card = kpi_card("ACoS TW", _percent_text(acos_tw), delta=_pct(acos_tw, acos_pw), delta_good=False)
+        tacos_card = kpi_card("TACoS TW", _percent_text(tacos_tw), delta=_pct(tacos_tw, tacos_pw), delta_good=False)
     with cards[4]:
-        st.markdown(kpi_card("ACoS TW", _percent_text(acos_tw), delta=_pct(acos_tw, acos_pw), delta_good=False),
-                    unsafe_allow_html=True)
+        st.markdown(acos_card, unsafe_allow_html=True)
     with cards[5]:
-        st.markdown(kpi_card("TACoS TW", _percent_text(tacos_tw), delta=_pct(tacos_tw, tacos_pw), delta_good=False),
-                    unsafe_allow_html=True)
+        st.markdown(tacos_card, unsafe_allow_html=True)
     if weeks is not None:
         st.caption(_weeks_caption(weeks))
+    elif split_from_file is not None:
+        st.caption(_file_caption(split_from_file, ads.source_file, has_active_campaigns=bool(campaigns)))
     else:
         st.caption(f"Sin ACoS, TACoS ni campañas: {ads.no_ads_reason}.")
     if ads.split is not None and ads.split.ads_exceed_br:
@@ -806,16 +872,15 @@ def _render_pulse(daily_data, br_child, ads: AccountAds, weeks: AdWeeks | None, 
 
     # ── Top campaigns preview ────────────────────────────
     if campaigns:
-        period = date_range_label(ads.split.start, ads.split.end)
-        st.markdown(f"##### Top Campañas ({len(campaigns)} con actividad · {period})")
+        st.markdown(f"##### Top Campañas ({len(campaigns)} con actividad · {_ads_period(ads)})")
         st.dataframe(pd.DataFrame([{
             "Campaign": camp["Campaign"][:50],
-            "Producto": camp["Product"],
+            "Producto": _or_dash(camp["Product"]),
             "Tipo": camp["Age"],
             "Spend": show(camp["Spend"]),
             "Sales": show(camp["Sales"]),
             "ACoS %": _percent_text(camp["ACoS"]),
-            "Orders": camp["Orders"],
+            "Orders": _or_dash(camp["Orders"]),
         } for camp in campaigns[:TOP_CAMPAIGNS_SHOWN]]), use_container_width=True, hide_index=True)
 
     # ── Download button ──────────────────────────────────
@@ -828,8 +893,10 @@ def _render_pulse(daily_data, br_child, ads: AccountAds, weeks: AdWeeks | None, 
         target_acos=target_acos,
         weeks=weeks,
         currency_code=ads.currency_code,
-        ads_period=date_range_label(ads.split.start, ads.split.end) if ads.split is not None else "",
+        ads_period=_ads_period(ads),
         ads_note=ads.no_ads_reason,
+        split_from_file=split_from_file,
+        source_file=ads.source_file,
     )
     safe_n = (client_name or "report").replace(" ", "_")[:30]
     st.download_button(
@@ -871,7 +938,8 @@ def _render_ai_tab(daily_data, br_child, ads: AccountAds, weeks: AdWeeks | None,
         return
     payload = build_analysis_input(daily_data, br_child, weeks=weeks, split=ads.split, series=ads.series,
                                    campaigns=campaigns, account=ads.account, ads_note=ads.no_ads_reason,
-                                   currency_code=ads.currency_code, target_acos=target_acos, lang=lang)
+                                   currency_code=ads.currency_code, target_acos=target_acos, lang=lang,
+                                   ads_file=ads.source_file)
     labels = ai_tab.ai_labels(lang, texts)
     st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
     analysis = ai_tab.resolve_analysis(slug=ANALYSIS_MODULE, payload=payload, file_signature=data_signature,
@@ -906,6 +974,11 @@ def _ai_records(daily_data, br_child, ads: AccountAds, weeks: AdWeeks | None, la
         records.append({"tema": "PUBLICIDAD", "item": topics["PUBLICIDAD"],
                         "metrics": [f"ACoS TW {_percent_text(acos_tw)}", f"PW {_percent_text(acos_pw)}",
                                     f"TACoS TW {_percent_text(tacos_tw)}", f"PW {_percent_text(tacos_pw)}"]})
+    elif ads.from_file and ads.split is not None:
+        records.append({"tema": "PUBLICIDAD", "item": topics["PUBLICIDAD"],
+                        "metrics": [f"ACoS (CSV) {_percent_text(ads.split.acos)}",
+                                    f"TACoS (CSV) {_percent_text(ads.split.tacos)}",
+                                    f"Spend {show(ads.split.ad_spend)}"]})
     alerts = buybox_alerts(br_child) if br_child else []
     buybox_metrics = [f"BuyBox TW {agg['BuyBox_TW']:.1f}%"] if agg.get("BuyBox_TW") is not None else []
     if alerts:
@@ -956,7 +1029,8 @@ def _digest(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()[:16]
 
 
-def _data_signature(br_daily_file, br_child_file, profile_id: str) -> str:
-    """What changes when a report or the account under the analysis do, not when the target ACoS does."""
+def _data_signature(br_daily_file, br_child_file, ads_source: str) -> str:
+    """What changes when a report or the ads under the analysis do (the account's profile id, or the Campaign CSV's
+    digest), not when the target ACoS does."""
     child = _digest(br_child_file.getvalue()) if br_child_file else ""
-    return f"{_digest(br_daily_file.getvalue())}|{child}|{profile_id}"
+    return f"{_digest(br_daily_file.getvalue())}|{child}|{ads_source}"

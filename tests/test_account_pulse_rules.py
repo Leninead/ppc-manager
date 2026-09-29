@@ -59,3 +59,11 @@ def test_a_campaign_that_sold_nothing_has_no_acos_instead_of_the_best_one():
     rows = campaign_rows(_totals([("SP", "1", "Bleeding", 25.0, 0.0, 0, 12, 400)]))
 
     assert rows[0]["ACoS"] is None
+
+
+def test_the_counts_a_campaign_csv_lacks_are_unknown_instead_of_zero():
+    rows = campaign_rows(_totals([("", "", "From a file", 25.0, 100.0, 0, 0, 0)]),
+                         unknown_counts=("impressions", "orders"))
+
+    assert rows[0] == {"Campaign": "From a file", "Product": "", "Age": "HEREDADA", "Impressions": None, "Clicks": 0,
+                       "Spend": 25.0, "Sales": 100.0, "ACoS": 25.0, "Orders": None}

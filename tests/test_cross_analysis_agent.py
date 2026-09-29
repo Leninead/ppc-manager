@@ -30,7 +30,8 @@ QUERIES = [sqp_row("baby swaddle", purchases=60, brand_purchases=4, brand_share=
            sqp_row("quiet query", purchases=2, brand_purchases=0, brand_share=0.0)]
 
 
-def _inputs(queries=QUERIES, exact=frozenset({"baby swaddle"}), lang="es", target=35.0):
+def _inputs(queries=QUERIES, exact=frozenset({"baby swaddle"}), lang="es", target=35.0, account="Luna Kids · US",
+            period="1 – 27 sep 2026", from_bulk_file=False):
     table = sqp(*queries)
     table[QUERY_TYPE] = query_types(table[QUERY], PARAMS.brand_terms)
     table = with_funnel_diagnosis(numeric_sqp(table))
@@ -39,10 +40,10 @@ def _inputs(queries=QUERIES, exact=frozenset({"baby swaddle"}), lang="es", targe
     plan = build_action_plan(table, terms, exact, params, sales_column=sales_column(7), orders_column=orders_column(7))
     summary = asin_summary(terms, {"4001": frozenset({"B0CYLMJJJC"})}, {}, sales_column=sales_column(7),
                            orders_column=orders_column(7))
-    built = build_analysis_input(plan, summary.rows, account="Luna Kids · US", period="1 – 27 sep 2026",
-                                 currency="USD", brand="luna", exact_source="listado de hoy 09:12",
-                                 asin_source="", parameters={"Target ACoS (%)": target},
-                                 counts=plan_counts(plan, table, terms), lang=lang)
+    built = build_analysis_input(plan, summary.rows, account=account, period=period, currency="USD", brand="luna",
+                                 exact_source="listado de hoy 09:12", asin_source="",
+                                 parameters={"Target ACoS (%)": target}, counts=plan_counts(plan, table, terms),
+                                 lang=lang, from_bulk_file=from_bulk_file)
     return built, plan
 
 
@@ -80,12 +81,23 @@ def test_the_parameters_carry_the_account_the_sources_and_the_whole_plan_figures
 
     assert [doc["title"] for doc in docs] == ["Parámetros", "Plan de Acción (5 filas)", "ASINs (1 filas)"]
     assert "Cuenta de Amazon Ads de los search terms: Luna Kids · US" in params
+    assert "Período de los search terms: 1 – 27 sep 2026" in params and "Bulk File" not in params
     assert "Keywords Exact de la cuenta: listado de hoy 09:12" in params
     assert "- Queries del SQP, sin repetir: 5" in params
     assert "- Queries con acción AGREGAR: 1" in params
     assert "- Queries que ya existen como keyword Exact habilitada: 1" in params
     assert "Viajaron todas las queries del plan: 5." in params
     assert docs[1]["content"].splitlines()[0].startswith("row_id,consulta,accion,tipo,en_str")
+
+
+def test_a_bulk_file_names_itself_and_never_a_period_or_an_attribution_it_does_not_state():
+    built, _ = _inputs(account="bulk.xlsx", period="", from_bulk_file=True)
+    params = build_context(built.data)[1][0]["content"]
+
+    assert "Search terms: Bulk File subido a mano «bulk.xlsx», no una cuenta de Amazon Ads conectada" in params
+    assert "Período de los search terms: no informado, el Bulk File no dice qué días cubre" in params
+    assert "Atribución de ventas y órdenes: el Bulk File no la dice" in params
+    assert "Cuenta de Amazon Ads" not in params
 
 
 def test_more_queries_than_travel_say_how_many_were_left_out():

@@ -1,7 +1,8 @@
 """PPC Forecast (M19): the Business Report's daily sales projected with their trend and their weekend difference.
 
 The ad spend and ad sales behind the organic vs paid split come from the campaign reports of the Amazon Ads account
-the AM picks, over the Business Report's own days. The rules live in core/ppc_forecast/.
+the AM picks, over the Business Report's own days; without the account, from a Campaign CSV uploaded by hand, compared
+with every day of the Business Report. The rules live in core/ppc_forecast/.
 """
 import hashlib
 import io
@@ -35,8 +36,10 @@ KEY_PREFIX = "forecast"
 _GENERATED_FOR_KEY = "forecast_generated_for"
 
 ADS_BLOCK_TITLE = "Ventas de ads de la cuenta"
-NO_ACCOUNTS_NOTE = ("No hay cuentas de Amazon Ads conectadas, así que no hay desglose orgánico vs paid ni spend "
-                    "estimado. Se conectan en Sistema → Cuentas conectadas.")
+NO_ACCOUNTS_NOTE = ("Sin cuentas de Amazon Ads conectadas, el desglose orgánico vs paid y el spend estimado salen "
+                    "de este archivo. Si conectás la cuenta en Sistema → Cuentas conectadas, llegan solos y no hace "
+                    "falta subirlo.")
+UPLOAD_LABEL = "Sube tu Campaign CSV (.csv o .xlsx) — opcional, para separar orgánico vs paid"
 CHOOSE_ACCOUNT_NOTE = ("Elegí la cuenta y el país del BR para separar las ventas de ads de las orgánicas y estimar el "
                        "spend para el objetivo. El BR no dice de qué cuenta es, así que no hay una por defecto.")
 FIRST_LOAD_NOTE = "Estamos trayendo las campañas de esta cuenta por primera vez; cuando termine aparece el desglose."
@@ -44,11 +47,23 @@ UNREADABLE_NOTE = "Sin desglose orgánico vs paid ni spend estimado."
 SPLIT_CAPTION = ("{covered} de {total} días del BR tienen datos de ads ({window} · {products}). Sponsored Products "
                  "con atribución de {attribution} días; Sponsored Brands y Display como los cuenta Campaign Manager. "
                  "Las ventas de ads se atribuyen al día del click: las de los últimos días todavía pueden crecer.")
+FILE_SPLIT_CAPTION = ("Ventas de ads del Campaign CSV «{file}» ({products}). El archivo no dice qué días cubre: se "
+                      "compara con los {total} días del BR ({window}), así que tiene que estar exportado con ese mismo "
+                      "rango. La atribución es la que usó Campaign Manager al exportarlo.")
+FILE_PRODUCTS_UNKNOWN = "sin decir si son SP, SB o SD"
+NO_ACTIVE_CAMPAIGNS = "sin campañas con actividad"
 BUDGET_HELP = ("Spend de ads ÷ ventas del BR (TACoS) en los días con datos de ads, aplicado a las ventas con el "
                "crecimiento objetivo. Supone que el TACoS no cambia al subir el spend.")
+FILE_BUDGET_HELP = ("Spend del Campaign CSV ÷ ventas del BR (TACoS), aplicado a las ventas con el crecimiento "
+                    "objetivo. Supone que el archivo cubre los mismos días del BR y que el TACoS no cambia al subir el "
+                    "spend.")
+FILE_SPEND_ORIGIN_LABEL = "Origen del spend estimado"
+FILE_SPEND_ORIGIN = ("Campaign CSV «{file}» comparado con los {total} días del BR ({window}): supone que el archivo "
+                     "cubre ese mismo rango")
 
 _ADS_TEXTS = AdAccountTexts(title=ADS_BLOCK_TITLE, no_accounts=NO_ACCOUNTS_NOTE, choose_account=CHOOSE_ACCOUNT_NOTE,
-                            first_load=FIRST_LOAD_NOTE, unreadable=UNREADABLE_NOTE, without_ads="Sin desglose")
+                            first_load=FIRST_LOAD_NOTE, unreadable=UNREADABLE_NOTE, without_ads="Sin desglose",
+                            upload_label=UPLOAD_LABEL)
 
 _CONFIDENCE_COLORS = ("background-color:#EAF3DE;color:#173404", "background-color:#FAEEDA;color:#412402",
                       "background-color:#FFEBEE;color:#9C0006")
@@ -137,7 +152,7 @@ def _parse_br_daily(file_bytes, fname):
 # ── Excel export ─────────────────────────────────────────────────────────────
 
 def _build_forecast_excel(forecast: SalesForecast, n_days: int, needed_spend: float | None, client_name: str,
-                          currency_code: str):
+                          currency_code: str, spend_origin: str = ""):
     """Construye Excel con 2 hojas: Resumen + Proyección Diaria."""
     HDR_FILL = PatternFill("solid", fgColor="E84000")
     HDR_FONT = Font(bold=True, color="FFFFFF", size=11)
@@ -184,6 +199,8 @@ def _build_forecast_excel(forecast: SalesForecast, n_days: int, needed_spend: fl
         ("Total ventas con crecimiento objetivo", show(forecast.sales_with_growth)),
         ("Spend estimado para objetivo", show(needed_spend) if needed_spend is not None else "sin dato"),
     ]
+    if spend_origin:
+        metric_rows.append((FILE_SPEND_ORIGIN_LABEL, spend_origin))
 
     for i, (label, val) in enumerate(metric_rows):
         ws.append([label, val])
@@ -311,12 +328,15 @@ def render():
 
     forecast = forecast_sales(history, horizon, target_growth)
     ads = read_account_ads(ad_account, history, _ADS_TEXTS)
+    # No products with activity means none ran, not that the file hides them: only an empty file can say so.
+    file_without_activity = ad_account.campaign_file is not None and ad_account.campaign_file.campaign_count == 0
     forecast_tab, analysis_tab = st.tabs(["📈 Forecast", "🤖 Análisis IA"])
     with forecast_tab:
-        _render_forecast(forecast, n_days, ads, history, client_name)
+        _render_forecast(forecast, n_days, ads, history, client_name, file_without_activity=file_without_activity)
     with analysis_tab:
         _render_ai_tab(history, forecast, ads, subject=ads.account or client_name.strip() or file_br.name,
-                       data_signature=_data_signature(br_bytes, ads.profile_id))
+                       data_signature=_data_signature(br_bytes, ads.profile_id or ads.file_digest),
+                       file_without_activity=file_without_activity)
 
 
 def _how_to_use():
@@ -329,7 +349,9 @@ def _how_to_use():
         with col2:
             st.markdown("**📂 De dónde salen los datos**")
             st.caption("BR Diario (By Date → Sales and Traffic) mínimo 14 días, ideal 30+. La cuenta de Amazon Ads "
-                       "del BR (opcional) separa las ventas de ads de las orgánicas y estima el spend.")
+                       "del BR (opcional) separa las ventas de ads de las orgánicas y estima el spend. Sin cuenta "
+                       "conectada, o con «Subir archivo manualmente», lo hace el Campaign CSV del mismo rango que "
+                       "el BR.")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Ajustar budgets en Campaign Manager según escenario elegido y revisar Account Pulse (M21) semanalmente.")
@@ -337,7 +359,8 @@ def _how_to_use():
         st.markdown(
             "1. Configurá crecimiento objetivo + horizonte (7/14/30 días)\n"
             "2. Subí el BR diario (mínimo 14 días)\n"
-            "3. Elegí la cuenta y el país del BR para el desglose orgánico vs paid (opcional)\n"
+            "3. Elegí la cuenta y el país del BR para el desglose orgánico vs paid (opcional), o subí el Campaign "
+            "CSV del mismo rango (Campaign Manager → Campaigns → Export)\n"
             "4. Tocá Generar Forecast: gráfico histórico + proyección, desglose y spend estimado\n"
             "5. Análisis IA: qué tanto confiar en la proyección y qué hacer esta semana\n"
             "6. Descargá el Excel con 2 hojas (resumen + proyección diaria)"
@@ -358,7 +381,7 @@ def _render_empty_state():
 
 
 def _render_forecast(forecast: SalesForecast, n_days: int, ads: AccountAds, history: pd.DataFrame,
-                     client_name: str):
+                     client_name: str, *, file_without_activity: bool):
     show = partial(money, currency_code=ads.currency_code)
     trend = forecast.trend
     needed_spend = spend_for_target(ads.split, forecast.sales_with_growth)
@@ -414,7 +437,7 @@ def _render_forecast(forecast: SalesForecast, n_days: int, ads: AccountAds, hist
     c3.metric(
         "Spend estimado para objetivo",
         show(needed_spend) if needed_spend is not None else "—",
-        help=BUDGET_HELP if needed_spend is not None else f"Sin dato: {ads.no_ads_reason}.",
+        help=_budget_help(ads) if needed_spend is not None else f"Sin dato: {ads.no_ads_reason}.",
     )
 
     # ── SECCIÓN 4: Tabla de proyección diaria ────────────────────────────────
@@ -430,13 +453,14 @@ def _render_forecast(forecast: SalesForecast, n_days: int, ads: AccountAds, hist
         )
 
     # ── SECCIÓN 5: Desglose orgánico vs paid ─────────────────────────────────
-    _render_split(ads, show)
+    _render_split(ads, show, file_without_activity=file_without_activity)
 
     # ── Export Excel ─────────────────────────────────────────────────────────
     st.markdown("---")
     st.subheader("Exportar")
     try:
-        excel_buf = _build_forecast_excel(forecast, n_days, needed_spend, client_name, ads.currency_code)
+        excel_buf = _build_forecast_excel(forecast, n_days, needed_spend, client_name, ads.currency_code,
+                                          spend_origin=_file_spend_origin(ads) if needed_spend is not None else "")
         fname_out = f"PPC_Forecast_{client_name.replace(' ', '_') + '_' if client_name else ''}{forecast.horizon}d.xlsx"
         st.download_button(
             label="Descargar Forecast Excel",
@@ -449,7 +473,7 @@ def _render_forecast(forecast: SalesForecast, n_days: int, ads: AccountAds, hist
         st.error(f"Error al generar Excel: {e}")
 
 
-def _render_split(ads: AccountAds, show):
+def _render_split(ads: AccountAds, show, *, file_without_activity: bool):
     st.subheader("Desglose Orgánico vs Paid")
     split = ads.split
     if split is None:
@@ -466,10 +490,16 @@ def _render_split(ads: AccountAds, show):
         st.markdown(kpi_card("ACoS", f"{split.acos:.1f}%" if split.acos is not None else "—"), unsafe_allow_html=True)
     with k4:
         st.markdown(kpi_card("Ventas orgánicas estimadas", show(split.organic_sales)), unsafe_allow_html=True)
-    st.caption(SPLIT_CAPTION.format(covered=split.covered_days, total=split.history_days,
-                                    window=date_range_label(split.start, split.end),
-                                    products=" · ".join(split.products) or "sin campañas con actividad",
-                                    attribution=split.attribution_days))
+    if split.from_file:
+        no_products = NO_ACTIVE_CAMPAIGNS if file_without_activity else FILE_PRODUCTS_UNKNOWN
+        st.caption(FILE_SPLIT_CAPTION.format(file=ads.source_file, total=split.history_days,
+                                             window=date_range_label(split.start, split.end),
+                                             products=" · ".join(split.products) or no_products))
+    else:
+        st.caption(SPLIT_CAPTION.format(covered=split.covered_days, total=split.history_days,
+                                        window=date_range_label(split.start, split.end),
+                                        products=" · ".join(split.products) or NO_ACTIVE_CAMPAIGNS,
+                                        attribution=split.attribution_days))
     if split.paid_share is not None:
         split_df = pd.DataFrame(
             {
@@ -481,8 +511,20 @@ def _render_split(ads: AccountAds, show):
         st.dataframe(split_df, use_container_width=True, hide_index=True)
 
 
+def _budget_help(ads: AccountAds) -> str:
+    return FILE_BUDGET_HELP if ads.from_file else BUDGET_HELP
+
+
+def _file_spend_origin(ads: AccountAds) -> str:
+    """The Campaign CSV behind the spend estimate and the range it is assumed to cover; "" for the account's."""
+    if not ads.from_file or ads.split is None:
+        return ""
+    return FILE_SPEND_ORIGIN.format(file=ads.source_file, total=ads.split.history_days,
+                                    window=date_range_label(ads.split.start, ads.split.end))
+
+
 def _render_ai_tab(history: pd.DataFrame, forecast: SalesForecast, ads: AccountAds, *, subject: str,
-                   data_signature: str):
+                   data_signature: str, file_without_activity: bool):
     from ai.agents.ppc_forecast import chat_document
     from ai.config import AI_ENABLED
     from core import ai_tab
@@ -496,7 +538,8 @@ def _render_ai_tab(history: pd.DataFrame, forecast: SalesForecast, ads: AccountA
         app_chat.withdraw_analysis(ANALYSIS_MODULE)
         return
     payload = build_analysis_input(history, forecast, split=ads.split, ads=ads.series, account=ads.account,
-                                   ads_note=ads.no_ads_reason, currency_code=ads.currency_code, lang=lang)
+                                   ads_note=ads.no_ads_reason, currency_code=ads.currency_code, lang=lang,
+                                   ads_file=ads.source_file, file_without_activity=file_without_activity)
     labels = ai_tab.ai_labels(lang, texts)
     st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
     analysis = ai_tab.resolve_analysis(slug=ANALYSIS_MODULE, payload=payload, file_signature=data_signature,
@@ -570,6 +613,7 @@ def _inputs_signature(br_bytes: bytes, horizon: int, target_growth: int) -> str:
     return f"{_digest(br_bytes)}|{horizon}|{target_growth}"
 
 
-def _data_signature(br_bytes: bytes, profile_id: str) -> str:
-    """What changes when the Business Report or the account under the analysis do, not when a parameter does."""
-    return f"{_digest(br_bytes)}|{profile_id}"
+def _data_signature(br_bytes: bytes, ads_source: str) -> str:
+    """What changes when the Business Report or the ads under the analysis do (the account's profile id, or the
+    Campaign CSV's digest), not when a parameter does."""
+    return f"{_digest(br_bytes)}|{ads_source}"

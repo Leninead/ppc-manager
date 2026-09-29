@@ -6,8 +6,9 @@ import pandas as pd
 from ai.agent_call import build_agent_call
 from ai.agents.weekly_report.chat_document import client_message, reading_text
 from ai.agents.weekly_report.context import MAX_PRODUCTS, OUTPUT_SCHEMA, TOPICS, VERDICTS, build_context
+from core.amazon_ads.campaign_file import read_campaign_file
 from core.amazon_ads.campaign_totals import ProductDay, ProductSeries, Totals
-from core.business_report.paid_split import paid_split
+from core.business_report.paid_split import file_split, paid_split
 from core.weekly_report.advertising import advertising_summary
 from core.weekly_report.analysis import ANALYSIS_MODULE, build_analysis_input
 
@@ -33,6 +34,10 @@ CAMPAIGNS = pd.DataFrame(
     columns=["product", "campaign_id", "campaign", "portfolio", "spend", "sales", "orders", "clicks", "impressions",
              "sales_clicks", "orders_clicks", "ntb_orders", "ntb_sales"])
 NO_ACCOUNT = "no se eligió la cuenta de Amazon Ads del BR"
+# Campaign Manager's export without portfolio or new-to-brand columns: 150 spent and 600 sold.
+CAMPAIGN_CSV = ("Campaign name,Type,Impressions,Clicks,Total cost,Purchases,Sales\n"
+                "Brand exact,Sponsored Products,900,40,$120.00,12,{sales}\n"
+                "Video,Sponsored Brands,1400,8,$30.00,0,$0.00\n")
 
 
 def _history() -> pd.DataFrame:
@@ -144,6 +149,92 @@ def test_the_fingerprint_changes_with_what_the_agent_reads_and_only_with_that():
     assert build_agent_call(ANALYSIS_MODULE, _payload(client="Otro")).input_digest != same
     assert build_agent_call(ANALYSIS_MODULE, _payload(changelog="- Nuevas rules")).input_digest != same
     assert build_agent_call(ANALYSIS_MODULE, _payload(ads=True)).input_digest != same
+
+
+def _file_payload(*, sales="$600.00", with_daily_report=True, content=None):
+    campaign_file = read_campaign_file((content or CAMPAIGN_CSV.format(sales=sales)).encode("utf-8"), "campaigns.csv")
+    return build_analysis_input(
+        BR_DAILY, BR_CHILD, BR_CHILD_PW, {}, weekly_products=False, product_days=14,
+        advertising=advertising_summary(campaign_file.campaigns, with_portfolios=campaign_file.has_portfolio,
+                                        unknown_counts=campaign_file.missing_counts),
+        split=file_split(_history(), campaign_file) if with_daily_report else None, account="", ads_note="",
+        currency_code=campaign_file.currency_code, client="Luna Kids MX", changelog="", lang="es",
+        ads_file=campaign_file.name)
+
+
+def test_with_a_campaign_csv_the_advertising_names_the_file_and_claims_no_days_attribution_or_portfolios():
+    documents = _documents(_file_payload())
+
+    params = documents["Parámetros"]
+    assert "Cuenta de Amazon Ads del Business Report: ninguna: el AM subió el Campaign CSV a mano" in params
+    assert ("Publicidad de la cuenta: la del Campaign CSV «campaigns.csv»: un total por campaña, sin detalle por día "
+            "ni fechas propias") in params
+    assert ("- Publicidad de la cuenta, origen: un Campaign CSV subido a mano: no dice qué días cubre ni con qué "
+            "atribución se exportó, así que se compara con los 14 días del BR diario, del 2026-08-03 al 2026-08-16"
+            ) in params
+    assert "- Productos con actividad: SP, SB" in params
+    assert "- ACoS de la cuenta (%): 25" in params
+    # 150 of spend over the 6,300 the whole daily report sold.
+    assert "- TACoS de la cuenta (%): 2.4" in params
+    assert "- New-to-brand de Sponsored Brands y Display: sin dato" in params
+    assert "- Vistas de la página de detalle: sin dato: no se leen del Campaign CSV" in params
+    assert "Atribución" not in params and "Publicidad de la cuenta, días" not in params
+    assert documents["Campañas de más spend"].splitlines()[1] == "Brand exact,SP,900,40,4.44,120.0,600.0,20.0,12"
+    assert documents["Portfolios"] == "sin dato: el Campaign CSV no trae la columna de portfolio"
+
+
+def test_a_campaign_csv_with_portfolios_sends_them():
+    content = "Campaign Name,Portfolio,Spend,Orders,Sales\nBrand exact,Brand,MX$120.00,12,MX$600.00\n"
+
+    documents = _documents(_file_payload(content=content))
+
+    assert documents["Portfolios"].splitlines() == ["portfolio,spend,ventas,acos", "Brand,120.0,600.0,20.0"]
+    assert "- Productos con actividad: sin dato" in documents["Parámetros"]
+    assert "Moneda: MXN" in documents["Parámetros"]
+
+
+def test_a_campaign_csv_without_the_daily_report_leaves_the_tacos_unknown():
+    params = _documents(_file_payload(with_daily_report=False))["Parámetros"]
+
+    assert ("- Publicidad de la cuenta, origen: un Campaign CSV subido a mano: no dice qué días cubre ni con qué "
+            "atribución se exportó\n") in params
+    assert "- TACoS de la cuenta (%): sin dato" in params
+    assert "- ACoS de la cuenta (%): 25" in params
+
+
+def test_a_campaign_csv_above_the_report_reaches_the_agent_as_the_file_warning():
+    params = _documents(_file_payload(sales='"$9,000.00"'))["Parámetros"]
+
+    assert "- Aviso del módulo: las ventas de ads del Campaign CSV superan a las de todo el BR diario" in params
+
+
+def test_a_campaign_csv_without_the_counts_sends_them_as_unknown_not_as_zero():
+    content = "Campaign name,Type,Total cost,Sales\nKids SP,Sponsored Products,$200.00,$1000.00\n"
+
+    documents = _documents(_file_payload(content=content))
+
+    params = documents["Parámetros"]
+    for label in ("Impresiones", "Clicks", "Órdenes de ads de la cuenta"):
+        assert f"- {label}: sin dato: el Campaign CSV no trae la columna\n" in params
+    assert "- CTR (%): sin dato\n" in params and "- CPC: sin dato\n" in params
+    assert "- Ventas de ads de la cuenta: 1000\n" in params and "- ACoS de la cuenta (%): 20\n" in params
+    assert documents["Campañas de más spend"].splitlines()[1] == "Kids SP,SP,,,,200.0,1000.0,20.0,"
+
+
+def test_a_typed_campaign_csv_without_activity_says_no_product_ran_not_that_it_lacks_the_types():
+    content = ("Campaign name,Type,Impressions,Clicks,Total cost,Purchases,Sales\n"
+               "Kids SP,Sponsored Products,0,0,$0.00,0,$0.00\n")
+
+    params = _documents(_file_payload(content=content))["Parámetros"]
+
+    assert "- Productos con actividad: ninguno\n" in params
+    assert "- Campañas con actividad: 0\n" in params
+
+
+def test_the_file_payload_is_its_own_data():
+    assert build_agent_call(ANALYSIS_MODULE, _file_payload()).input_digest not in {
+        build_agent_call(ANALYSIS_MODULE, _payload()).input_digest,
+        build_agent_call(ANALYSIS_MODULE, _payload(ads=True)).input_digest}
 
 
 def test_the_answer_reads_each_topic_then_the_synthesis_then_the_client_summary():

@@ -11,9 +11,10 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+from core.business_report.paid_split import PaidSplit
 from core.chat import app_chat
 from core.currency_format import excel_money_format, money
-from core.weekly_report.advertising import advertising_summary
+from core.weekly_report.advertising import Advertising, advertising_summary
 from core.weekly_report.analysis import ANALYSIS_MODULE, build_analysis_input
 from core.pricing_clients import PRICING_CLIENTS
 from core.weekly_report.stock import REPORT_COLUMNS, StockSnapshot, days_before_week, latest_stock
@@ -31,13 +32,15 @@ log = logging.getLogger(__name__)
 MODULE_LABEL = "Weekly Client Report"
 KEY_PREFIX = "wcr"
 NO_STOCK = "(sin stock)"
-# The currency the rest of the report is written in; the Advertising sheet and the AI tab follow the account's.
+# The currency the rest of the report is written in; the Advertising sheet and the AI tab follow the account's, or the
+# Campaign CSV's when it says it.
 REPORT_CURRENCY = "MXN"
 MISSING_NO_DAILY_REPORT = "falta el BR diario: sin él no se sabe qué días leer"
 _ADS_TEXTS = AdAccountTexts(
     title="Publicidad de la cuenta",
-    no_accounts=("No hay cuentas de Amazon Ads conectadas, así que la hoja Advertising sale sin datos. Se conectan en "
-                 "Sistema → Cuentas conectadas."),
+    no_accounts=("Sin cuentas de Amazon Ads conectadas, la hoja Advertising sale de este archivo. Si conectás la "
+                 "cuenta en Sistema → Cuentas conectadas, llega sola y no hace falta subirlo."),
+    upload_label="Sube tu Campaign CSV (.csv o .xlsx) — opcional, para la hoja Advertising",
     choose_account=("Elegí la cuenta y el país del BR para la hoja Advertising: KPIs, campañas, portfolios y "
                     "new-to-brand de los días del BR diario. El BR no dice de qué cuenta es, así que no hay una por "
                     "defecto."),
@@ -640,6 +643,8 @@ _L_EXEC = {
             "warn_full": ("⚠️ Sin comparación semanal por producto ({days}d de datos). "
                           "Los montos por ASIN son del período completo. La comparación "
                       "semanal de la cuenta está en la hoja Reporte Ejecutivo."),
+        "warn_full_nodays": ("⚠️ Sin comparación semanal por producto. Los montos por ASIN son del período "
+                             "completo. La comparación semanal de la cuenta está en la hoja Reporte Ejecutivo."),
         "note": "* ACoS = Gasto Ads / Ventas Ads  |  TACoS = Gasto Ads / Ventas Totales  |  \u2014 = dato no disponible",
         "stock": "STOCK al {date}", "stock_nodate": "STOCK (sin snapshot)",
         "stock_fba_only": "  |  AWD e Izzi todavía no se integran en el Pricing Dashboard: el stock es solo FBA",
@@ -680,9 +685,17 @@ _L_EXEC = {
         "ads_source": ("Fuente: {account} · {period} · {covered} de {total} días del BR con datos de ads · "
                        "{products}. Sponsored Products con atribución de {attribution} días; Sponsored Brands y "
                        "Display como los cuenta Campaign Manager."),
+        "ads_source_file": ("Fuente: Campaign CSV subido a mano ({file}) · {products}. El archivo no dice qué días "
+                            "cubre ni con qué atribución se exportó: {days}"),
+        "ads_file_days": "tiene que estar exportado con los días del BR diario ({period}).",
+        "ads_file_no_days": "sus cifras son las del rango con que se exportó.",
+        "ads_file_no_products": "sin decir si son SP, SB o SD",
+        "ads_file_no_activity": "sin campañas con actividad",
+        "ads_file_no_currency": "Tampoco dice la moneda.",
         "ads_ntb": "New-to-brand (SB y SD): {orders} órdenes ({share}) · ventas {sales}",
         "ads_ntb_unknown": "New-to-brand (SB y SD): —",
         "ads_dpv": "Vistas de la página de detalle: — (no se sincronizan)",
+        "ads_dpv_file": "Vistas de la página de detalle: — (no se leen del Campaign CSV)",
         "ads_no_sales": "sin ventas",
         "ads_missing": "⚠️ Sin datos de Amazon Ads: {reason}.",
     },
@@ -693,6 +706,8 @@ _L_EXEC = {
             "warn_full": ("⚠️ No weekly comparison per product ({days}d of data). "
                           "Per-ASIN amounts cover the full period. The account's "
                       "weekly comparison is in the Executive Report sheet."),
+        "warn_full_nodays": ("⚠️ No weekly comparison per product. Per-ASIN amounts cover the full period. The "
+                             "account's weekly comparison is in the Executive Report sheet."),
         "note": "* ACoS = Ad Spend / Ad Sales  |  TACoS = Ad Spend / Total Sales  |  \u2014 = not available",
         "stock": "STOCK as of {date}", "stock_nodate": "STOCK (no snapshot)",
         "stock_fba_only": "  |  AWD and Izzi are not integrated in the Pricing Dashboard yet: the stock is FBA only",
@@ -733,9 +748,17 @@ _L_EXEC = {
         "ads_source": ("Source: {account} · {period} · {covered} of {total} BR days with ads data · {products}. "
                        "Sponsored Products with {attribution}-day attribution; Sponsored Brands and Display as "
                        "Campaign Manager counts them."),
+        "ads_source_file": ("Source: Campaign CSV uploaded by hand ({file}) · {products}. The file does not say which "
+                            "days it covers or which attribution it was exported with: {days}"),
+        "ads_file_days": "it has to be exported over the daily BR's days ({period}).",
+        "ads_file_no_days": "its figures cover the range it was exported over.",
+        "ads_file_no_products": "without saying whether they are SP, SB or SD",
+        "ads_file_no_activity": "no campaigns with activity",
+        "ads_file_no_currency": "Nor does it say the currency.",
         "ads_ntb": "New-to-brand (SB and SD): {orders} orders ({share}) · sales {sales}",
         "ads_ntb_unknown": "New-to-brand (SB and SD): —",
         "ads_dpv": "Detail page views: — (not synced)",
+        "ads_dpv_file": "Detail page views: — (not read from the Campaign CSV)",
         "ads_no_sales": "no sales",
         "ads_missing": "⚠️ No Amazon Ads data: {reason}.",
     },
@@ -757,10 +780,12 @@ def _stock_note(stock: StockSnapshot, client: str, br_daily, t: dict) -> str:
 
 def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es", br_daily=None, advertising=None,
                         changelog_text="", period_child_tw=None, period_child_pw=None, *, ads_currency="",
-                        ads_source="", ads_note="", stock: StockSnapshot | None = None, stock_client=""):
+                        ads_source="", ads_note="", ads_from_file=False, stock: StockSnapshot | None = None,
+                        stock_client=""):
     """
     advertising: la publicidad de la cuenta de Amazon Ads (core.weekly_report.advertising) sobre los dias del BR
-    diario, en `ads_currency`; `ads_source` dice de donde sale y `ads_note` por que falta.
+    diario, o la del Campaign CSV subido a mano (`ads_from_file`), en `ads_currency`; `ads_source` dice de donde sale
+    y `ads_note` por que falta.
 
     stock: el stock del ultimo snapshot del Pricing Dashboard de `stock_client`. Con None la hoja no lleva el grupo
     STOCK; con un snapshot vacio lo lleva en "—" y la nota lo dice.
@@ -1119,7 +1144,8 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     if not modo_wow:
         warn_rn = note_rn + 1
         ws1.merge_cells(start_row=warn_rn, start_column=1, end_row=warn_rn, end_column=total_cols)
-        wc = ws1.cell(row=warn_rn, column=1, value=t["warn_full"].format(days=_dias_full or "?"))
+        wc = ws1.cell(row=warn_rn, column=1,
+                      value=t["warn_full"].format(days=_dias_full) if _dias_full else t["warn_full_nodays"])
         wc.fill = _fill(YEL_L); wc.font = _font(True, YEL_D, 9)
         wc.alignment = _al("left"); wc.border = _bd()
         ws1.row_dimensions[warn_rn].height = 28
@@ -1160,14 +1186,14 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
 
         # KPI cards row
         ad_kpis = [
-            ("Impressions", f"{ct['Impressions']:,.0f}"),
-            ("Clicks", f"{ct['Clicks']:,.0f}"),
+            ("Impressions", _count_text(ct["Impressions"])),
+            ("Clicks", _count_text(ct["Clicks"])),
             ("CTR", f"{ct['CTR']:.2f}%" if ct["CTR"] is not None else "\u2014"),
             ("CPC", show(ct["CPC"])),
             ("Spend", show(ct["Spend"])),
             ("Sales", show(ct["Sales"])),
             ("ACoS", f"{ct['ACoS']:.1f}%" if ct["ACoS"] is not None else "\u2014"),
-            ("Orders", f"{ct['Orders']:,.0f}"),
+            ("Orders", _count_text(ct["Orders"])),
         ]
         for ki, (kn, kv) in enumerate(ad_kpis, 1):
             _cell(ws_ad, 3, ki, kn, bg=DGRAY, fg=WHITE, bold=True, size=8)
@@ -1175,7 +1201,7 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         ws_ad.row_dimensions[3].height = 14
         ws_ad.row_dimensions[4].height = 18
 
-        # New-to-brand, credited by SB and SD only, and detail page views, which are not synced
+        # New-to-brand, credited by SB and SD only, and detail page views, neither synced nor read from the file
         ad_rn = 5
         ntb = advertising.new_to_brand
         if ntb is not None:
@@ -1185,7 +1211,8 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         else:
             ntb_txt = t["ads_ntb_unknown"]
         ws_ad.merge_cells(start_row=ad_rn, start_column=1, end_row=ad_rn, end_column=AD_COLS)
-        c = ws_ad.cell(row=ad_rn, column=1, value=f"{ntb_txt}  |  {t['ads_dpv']}")
+        dpv_txt = t["ads_dpv_file"] if ads_from_file else t["ads_dpv"]
+        c = ws_ad.cell(row=ad_rn, column=1, value=f"{ntb_txt}  |  {dpv_txt}")
         c.fill = _fill(BLUE_L); c.font = _font(True, BLUE_D, 9)
         c.alignment = _al("left"); c.border = _bd()
         ad_rn += 1
@@ -1202,8 +1229,8 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
                 row_bg = WHITE if ci_c % 2 == 0 else LGRAY
                 _cell(ws_ad, ad_rn, 1, camp["Campaign"][:60], bg=row_bg, left=True)
                 _cell(ws_ad, ad_rn, 2, camp["Product"], bg=row_bg)
-                _cell(ws_ad, ad_rn, 3, camp["Impressions"], bg=row_bg, fmt="#,##0")
-                _cell(ws_ad, ad_rn, 4, camp["Clicks"], bg=row_bg, fmt="#,##0")
+                _cell(ws_ad, ad_rn, 3, _count_cell(camp["Impressions"]), bg=row_bg, fmt="#,##0")
+                _cell(ws_ad, ad_rn, 4, _count_cell(camp["Clicks"]), bg=row_bg, fmt="#,##0")
                 if camp["CTR"] is not None:
                     _cell(ws_ad, ad_rn, 5, camp["CTR"], bg=row_bg, fmt="0.00")
                 else:
@@ -1218,7 +1245,7 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
                     bg_a = GRN_L if acos_v < 30 else (YEL_L if acos_v < 60 else RED_L)
                     fg_a = GRN_D if acos_v < 30 else (YEL_D if acos_v < 60 else RED_D)
                     _cell(ws_ad, ad_rn, 8, acos_v, bg=bg_a, fg=fg_a, fmt="0.0")
-                _cell(ws_ad, ad_rn, 9, camp["Orders"], bg=row_bg, fmt="#,##0")
+                _cell(ws_ad, ad_rn, 9, _count_cell(camp["Orders"]), bg=row_bg, fmt="#,##0")
                 ws_ad.row_dimensions[ad_rn].height = 16
                 ad_rn += 1
 
@@ -1412,8 +1439,10 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
             cur = _erow(cur, f"  {t['bb_ok'].format(bb=f'{avg_bb:.1f}')}", bg=GRN_L, fg=GRN_D, h=20)
         ws2.row_dimensions[cur].height = 6; cur += 1
 
-    cur = _erow(cur, f"\u2705 {t['sec_conclusion']}", bg=NAVY, fg=WHITE, bold=True, h=18)
-    cur = _erow(cur, f"  {t['conclusion'].format(trend=trend, action=action)}", h=30, wrap=True)
+    # Without a change in sales or units there is no week to judge: "Semana estable" would be invented.
+    if s_d is not None or u_d is not None:
+        cur = _erow(cur, f"\u2705 {t['sec_conclusion']}", bg=NAVY, fg=WHITE, bold=True, h=18)
+        cur = _erow(cur, f"  {t['conclusion'].format(trend=trend, action=action)}", h=30, wrap=True)
 
     # ── SHEET 4: Changelog (opcional) ──────────────────────────────
     if changelog_text and changelog_text.strip():
@@ -1452,9 +1481,11 @@ def render():
     lang_w = "es" if wlang == "Espa\u00f1ol" else "en"
 
     st.header("\U0001f4ca Weekly Client Report")
-    st.caption("BR diario + BR by Child (1 o 2 semanas) + Atom 11 ASIN + cuenta de Amazon Ads → Excel 3 hojas"
+    st.caption("BR diario + BR by Child (1 o 2 semanas) + Atom 11 ASIN + cuenta de Amazon Ads o Campaign CSV → "
+               "Excel 3 hojas"
                if lang_w == "es"
-               else "Daily BR + BR by Child (1 or 2 weeks) + Atom 11 ASIN + Amazon Ads account → 3-sheet Excel")
+               else "Daily BR + BR by Child (1 or 2 weeks) + Atom 11 ASIN + Amazon Ads account or Campaign CSV → "
+                    "3-sheet Excel")
     st.divider()
 
     with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
@@ -1467,7 +1498,8 @@ def render():
             st.caption("BR diario 14d (By Date) + BR by Child de esta semana + BR by Child de la "
                        "semana anterior (opcional) + Atom 11 ASIN 14d, todos con el mismo date range. "
                        "La cuenta de Amazon Ads del BR (opcional) completa la hoja Advertising con los "
-                       "días del BR diario.")
+                       "días del BR diario. Sin cuenta conectada, o con «Subir archivo manualmente», la "
+                       "completa el Campaign CSV del mismo date range (Campaign Manager → Campaigns → Export).")
         with col3:
             st.markdown("**➡️ Siguiente paso**")
             st.caption("Enviar al cliente vía Slack/email. Usar el botón de changelog para comunicación técnica.")
@@ -1478,7 +1510,8 @@ def render():
             "3. Para tener comparación semanal POR PRODUCTO, subí también el by-Child de la "
             "semana anterior (3º uploader). Sin ese archivo el reporte sale igual, pero los "
             "montos por ASIN van etiquetados como período completo\n"
-            "4. Elegí la cuenta y el país del BR para la hoja Advertising (opcional)\n"
+            "4. Elegí la cuenta y el país del BR para la hoja Advertising (opcional), o subí el Campaign CSV "
+            "del mismo date range\n"
             "5. Agregá changelog técnico opcional (se suma como hoja extra)\n"
             "6. Descargá el Excel con 3 hojas: WoW Comparison + Advertising + Reporte Ejecutivo\n"
             "7. Análisis IA: la lectura de la semana y el borrador del resumen para el cliente"
@@ -1536,8 +1569,8 @@ def render():
     st.caption("Atom 11 \u2192 ASIN \u2192 DateRange 14 d\u00edas. Split autom\u00e1tico 7+7.")
     atom_file = st.file_uploader("Atom 11 ASIN (.xlsx)", type=["xlsx"], key="atom_wow")
 
-    st.markdown("#### 5\ufe0f\u20e3 " + ("Publicidad — cuenta de Amazon Ads" if lang_w == "es"
-                                          else "Advertising — Amazon Ads account"))
+    st.markdown("#### 5\ufe0f\u20e3 " + ("Publicidad — cuenta de Amazon Ads o Campaign CSV" if lang_w == "es"
+                                          else "Advertising — Amazon Ads account or Campaign CSV"))
     ad_account = render_ad_account_block(KEY_PREFIX, _ADS_TEXTS)
 
     st.markdown("#### 📝 Changelog (opcional)")
@@ -1562,7 +1595,8 @@ def render():
         st.caption("👆 Hacé click en el ícono de copiar arriba a la derecha del bloque para copiarlo.")
 
     uploads = [br_daily_file, br_child_file, br_child_pw_file, atom_file]
-    if not any(uploads):
+    campaign_file = ad_account.campaign_file
+    if not any(uploads) and campaign_file is None:
         app_chat.withdraw_analysis(ANALYSIS_MODULE)
         return
 
@@ -1573,7 +1607,11 @@ def render():
         br_child_pw_data = _parse_br_wow(br_child_pw_file)    if br_child_pw_file else {}
         atom_data     = _parse_atom11_wow(atom_file)        if atom_file     else {}
         ads = _read_ads(ad_account, br_daily_data)
-        advertising = advertising_summary(ads.campaigns) if ads.campaigns is not None else None
+        with_portfolios = campaign_file is None or campaign_file.has_portfolio
+        unknown_counts = campaign_file.missing_counts if campaign_file is not None else ()
+        advertising = (advertising_summary(ads.campaigns, with_portfolios=with_portfolios,
+                                           unknown_counts=unknown_counts)
+                       if ads.campaigns is not None else None)
         stock, stock_error = None, ""
         if stock_client != NO_STOCK:
             try:
@@ -1599,7 +1637,7 @@ def render():
             if br_daily_data: msgs.append(f"BR diario \u2713 TW={br_daily_data['dates_tw'][-1]}")
             if br_child_data: msgs.append(f"{len(br_child_data)} ASINs BR child \u2713")
             if atom_data:     msgs.append(f"{len(atom_data)} ASINs Atom 11 \u2713")
-            if advertising:   msgs.append(f"{advertising.campaign_count} campañas · {advertising.totals['Impressions']:,.0f} imps \u2713")
+            if advertising:   msgs.append(_advertising_read_line(advertising))
             _pw_usable = _es_modo_wow(period_child_tw, period_child_pw)
             if _pw_usable:
                 msgs.append(f"{len(br_child_pw_data)} ASINs BR child PW ✓")
@@ -1748,8 +1786,9 @@ def render():
                 period_child_tw=period_child_tw,
                 period_child_pw=period_child_pw,
                 ads_currency=ads.currency_code,
-                ads_source=_ads_source(ads, lang_w) if advertising else "",
+                ads_source=_ads_source(ads, advertising, lang_w) if advertising else "",
                 ads_note=ads.no_ads_reason,
+                ads_from_file=ads.from_file,
                 stock=stock,
                 stock_client=stock_client,
             )
@@ -1767,7 +1806,7 @@ def render():
                            period_child_tw=period_child_tw, period_child_pw=period_child_pw, client=client_w or "",
                            changelog=changelog_input or "", lang=lang_w,
                            report_name=br_daily_file.name if br_daily_file else "",
-                           data_signature=_data_signature(uploads, ads.profile_id))
+                           data_signature=_data_signature(uploads, ads.profile_id or ads.file_digest))
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -1814,13 +1853,16 @@ _AI_TEXTS = {
 
 
 def _read_ads(choice: AdAccountChoice, br_daily_data) -> AccountAds:
-    """The chosen account's ads over the daily report's days; without the daily report there are no days to read."""
-    if br_daily_data is None:
+    """The chosen account's ads over the daily report's days; without the daily report there are no days to read.
+
+    A Campaign CSV needs no days: without the daily report it still fills the Advertising sheet, with no TACoS."""
+    if br_daily_data is None and choice.campaign_file is None:
         if choice.profile is None:
             return AccountAds(no_ads_reason=choice.no_ads_reason)
         choice.info_line.caption(f"{_ADS_TEXTS.without_ads}: {MISSING_NO_DAILY_REPORT}.")
         return AccountAds(no_ads_reason=MISSING_NO_DAILY_REPORT)
-    return read_account_ads(choice, _history(br_daily_data), _ADS_TEXTS, with_campaigns=True)
+    history = _history(br_daily_data) if br_daily_data is not None else None
+    return read_account_ads(choice, history, _ADS_TEXTS, with_campaigns=True)
 
 
 def _history(br_daily_data) -> pd.DataFrame:
@@ -1829,13 +1871,42 @@ def _history(br_daily_data) -> pd.DataFrame:
     return pd.DataFrame({"_date": pd.to_datetime(list(daily)), "_sales": list(daily.values())})
 
 
-def _ads_source(ads: AccountAds, lang: str) -> str:
-    """The Advertising sheet's line on where its figures come from: the account, its days and the attribution."""
+def _ads_source(ads: AccountAds, advertising: Advertising, lang: str) -> str:
+    """The Advertising sheet's line on where its figures come from: the account, its days and the attribution, or the
+    Campaign CSV and what it does not say."""
+    texts = _L_EXEC.get(lang, _L_EXEC["es"])
     split = ads.split
-    period = _rango_legible({"start": split.start.isoformat(), "end": split.end.isoformat()}, lang)
-    return _L_EXEC.get(lang, _L_EXEC["es"])["ads_source"].format(
-        account=ads.account, period=f"{period} {split.end.year}", covered=split.covered_days,
+    if ads.from_file:
+        products = " · ".join(advertising.products) or (
+            texts["ads_file_no_products"] if advertising.campaign_count else texts["ads_file_no_activity"])
+        days = (texts["ads_file_days"].format(period=_split_period(split, lang)) if split is not None
+                else texts["ads_file_no_days"])
+        line = texts["ads_source_file"].format(file=ads.source_file, products=products, days=days)
+        return line if ads.currency_code else f"{line} {texts['ads_file_no_currency']}"
+    return texts["ads_source"].format(
+        account=ads.account, period=_split_period(split, lang), covered=split.covered_days,
         total=split.history_days, products=" · ".join(split.products) or "—", attribution=split.attribution_days)
+
+
+def _advertising_read_line(advertising: Advertising) -> str:
+    impressions = advertising.totals["Impressions"]
+    if impressions is None:
+        return f"{advertising.campaign_count} campañas \u2713"
+    return f"{advertising.campaign_count} campañas · {impressions:,.0f} imps \u2713"
+
+
+def _count_text(count: float | None) -> str:
+    """A count for the Advertising sheet's KPI row; None only when the Campaign CSV lacks its column."""
+    return "\u2014" if count is None else f"{count:,.0f}"
+
+
+def _count_cell(count: int | None) -> int | str:
+    return "\u2014" if count is None else count
+
+
+def _split_period(split: PaidSplit, lang: str) -> str:
+    period = _rango_legible({"start": split.start.isoformat(), "end": split.end.isoformat()}, lang)
+    return f"{period} {split.end.year}"
 
 
 def _render_ai_tab(br_daily_data, br_child_data, br_child_pw_data, atom_data, *, advertising, ads: AccountAds,
@@ -1861,7 +1932,7 @@ def _render_ai_tab(br_daily_data, br_child_data, br_child_pw_data, atom_data, *,
         br_daily_data, br_child_data, br_child_pw_data, atom_data, weekly_products=weekly_products,
         product_days=(period_child_tw or {}).get("days"), advertising=advertising, split=ads.split,
         account=ads.account, ads_note=ads.no_ads_reason, currency_code=ads.currency_code, client=client,
-        changelog=changelog, lang=lang)
+        changelog=changelog, lang=lang, ads_file=ads.source_file)
     labels = ai_tab.ai_labels(lang, texts)
     st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
     analysis = ai_tab.resolve_analysis(slug=ANALYSIS_MODULE, payload=payload, file_signature=data_signature,
@@ -1883,6 +1954,8 @@ def _render_ai_tab(br_daily_data, br_child_data, br_child_pw_data, atom_data, *,
 def _ai_records(br_daily, atom, advertising, ads: AccountAds, labels: dict) -> list[dict]:
     """The report's figures behind each topic the AI reads, as the opinion table names them."""
     show = partial(money, currency_code=ads.currency_code or REPORT_CURRENCY)
+    # A Campaign CSV that does not say its currency is not given the report's.
+    show_ads = partial(money, currency_code=ads.currency_code) if ads.from_file else show
     topics = labels["topics"]
     sales_change = _change(br_daily["Sales_TW"], br_daily["Sales_PW"])
     records = [
@@ -1897,7 +1970,7 @@ def _ai_records(br_daily, atom, advertising, ads: AccountAds, labels: dict) -> l
     if advertising is not None:
         ads_metrics += [f"ACoS {_percent_text(advertising.totals['ACoS'])}",
                         f"TACoS {_percent_text(ads.split.tacos if ads.split is not None else None)}",
-                        f"Spend {show(advertising.totals['Spend'])}"]
+                        f"Spend {show_ads(advertising.totals['Spend'])}"]
     if atom:
         spend_tw = sum(row.get("Spend_TW", 0) for row in atom.values())
         sales_tw = sum(row.get("Sales_TW", 0) for row in atom.values())
@@ -1966,7 +2039,8 @@ def _change(this_week, prior_week) -> float | None:
         return None
 
 
-def _data_signature(uploads, profile_id: str) -> str:
-    """What changes when a report or the account under the analysis do, not when the client's name does."""
+def _data_signature(uploads, ads_source: str) -> str:
+    """What changes when a report or the ads under the analysis do (the account's profile id, or the Campaign CSV's
+    digest), not when the client's name does."""
     digests = [hashlib.sha256(upload.getvalue()).hexdigest()[:16] if upload else "" for upload in uploads]
-    return "|".join([*digests, profile_id])
+    return "|".join([*digests, ads_source])

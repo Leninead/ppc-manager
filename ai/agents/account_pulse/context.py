@@ -1,8 +1,8 @@
 """What the Account Pulse agent receives and the shape it must answer in.
 
 Serialization only: the week against the prior one, the kind of each day, each week's ACoS and TACoS over the same
-days, the Buy Box losses and the campaigns were computed by the module (core/account_pulse/). The AI reads what
-changed and whether it calls for action.
+days (or a Campaign CSV's, over its whole period), the Buy Box losses and the campaigns were computed by the module
+(core/account_pulse/). The AI reads what changed and whether it calls for action.
 """
 from dataclasses import dataclass
 
@@ -23,8 +23,9 @@ class PulseData:
     figures: dict       # the module's figures, in the order the page shows them
     days: list          # one record per Business Report day, oldest first
     buybox: list | None  # ASINs below 95% Buy Box, most estimated lost sales first; None without the BR by Child
-    campaigns: list     # campaigns with activity over the report's days with ads data, most spend first
+    campaigns: list     # campaigns with activity over the report's days with ads data or in the file, most spend first
     idioma: str = "es"
+    ads_file: str = ""  # the Campaign CSV the ads figures come from when the AM uploaded it instead of the account
 
 
 # razon before veredicto on purpose: autoregressive generation conditions the verdict on the reasoning.
@@ -104,10 +105,15 @@ def build_context(d: PulseData) -> tuple[str, list, dict]:
     if campaigns is not None:
         caps += _cap_line("campañas con actividad", "las de más spend", len(d.campaigns), len(campaigns))
     figures = "\n".join(f"- {label}: {_figure_text(figure)}" for label, figure in d.figures.items())
-    ads = f"ninguno: {d.ads_note}\n" if d.ads_note else "los de la cuenta de arriba\n"
+    if d.ads_file:
+        account = "ninguna: el AM subió el Campaign CSV a mano"
+        ads = f"los del Campaign CSV «{d.ads_file}»: un total por campaña, sin detalle por día ni por semana\n"
+    else:
+        account = d.account or "ninguna"
+        ads = f"ninguno: {d.ads_note}\n" if d.ads_note else "los de la cuenta de arriba\n"
     by_child = "no se subió, así que no hay Buy Box por ASIN" if d.buybox is None else "subido"
     params = (
-        f"Cuenta de Amazon Ads del Business Report: {d.account or 'ninguna'}\n"
+        f"Cuenta de Amazon Ads del Business Report: {account}\n"
         f"Datos de ads: {ads}"
         f"Moneda: {d.currency_code or 'la del Business Report, que el módulo no conoce'}\n"
         f"BR by Child: {by_child}\n"
@@ -124,8 +130,10 @@ def build_context(d: PulseData) -> tuple[str, list, dict]:
         docs.append({"title": f"ASINs con BuyBox bajo 95% ({len(buybox)} filas)",
                      "content": _csv(buybox) if buybox else "ninguno: todos los ASINs con sesiones tienen 95% o más"})
     if campaigns is not None:
+        none_active = ("ninguna campaña del Campaign CSV tuvo actividad" if d.ads_file
+                       else "ninguna campaña tuvo actividad en esos días")
         docs.append({"title": f"Campañas con actividad ({len(campaigns)} filas)",
-                     "content": _csv(campaigns) if campaigns else "ninguna campaña tuvo actividad en esos días"})
+                     "content": _csv(campaigns) if campaigns else none_active})
     input_text = (
         "Analizá las cifras del módulo según tu rol: una lectura por tema de qué cambió esta semana contra la anterior "
         "y si pide actuar, y cerrá con la síntesis ejecutiva."

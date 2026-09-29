@@ -2,13 +2,15 @@
 from datetime import date, timedelta
 
 import pandas as pd
+import pytest
 
 from ai.agent_call import build_agent_call
 from ai.agents.ppc_forecast.chat_document import reading_text
 from ai.agents.ppc_forecast.context import MAX_HISTORY_DAYS, OUTPUT_SCHEMA, TOPICS, build_context
+from core.amazon_ads.campaign_file import read_campaign_file
 from core.amazon_ads.campaign_totals import ProductDay, ProductSeries, Totals
 from core.ppc_forecast.analysis import ANALYSIS_MODULE, build_analysis_input
-from core.business_report.paid_split import paid_split
+from core.business_report.paid_split import file_split, paid_split
 from core.ppc_forecast.projection import forecast_sales
 
 FIRST, LAST = date(2026, 8, 3), date(2026, 8, 30)
@@ -110,6 +112,61 @@ def test_the_fingerprint_changes_with_what_the_agent_reads_and_only_with_that():
     assert build_agent_call(ANALYSIS_MODULE, _payload()).input_digest == same
     assert build_agent_call(ANALYSIS_MODULE, _payload(growth=20)).input_digest != same
     assert build_agent_call(ANALYSIS_MODULE, _payload(ads=_ads())).input_digest != same
+
+
+def _file_payload(sales="$1,280.00"):
+    history = _history()
+    content = f'Campaign name,Type,Total cost,Sales\nAlpha,Sponsored Products,$320.00,"{sales}"\n'
+    campaign_file = read_campaign_file(content.encode("utf-8"), "campaigns.csv")
+    return build_analysis_input(history, forecast_sales(history, 14, 10), split=file_split(history, campaign_file),
+                                ads=None, account="", ads_note="", currency_code="", lang="es",
+                                ads_file="campaigns.csv")
+
+
+def test_with_a_campaign_csv_the_parameters_name_the_file_and_claim_no_days_or_attribution():
+    documents = _documents(_file_payload())
+
+    params = documents["Parámetros"]
+    assert "Cuenta de Amazon Ads del Business Report: ninguna: el AM subió el Campaign CSV a mano" in params
+    assert ("Datos de ads: los del Campaign CSV «campaigns.csv»: un total por campaña, sin detalle por día ni fechas "
+            "propias") in params
+    assert ("- Origen de los datos de ads: un Campaign CSV subido a mano: no dice qué días cubre, así que se compara "
+            "con todos los días del Business Report") in params
+    assert "- Productos con actividad: SP" in params
+    assert "- Ventas de todo el Business Report: 2480" in params
+    assert "- Ventas orgánicas estimadas: 1200" in params
+    assert "- Spend estimado para el objetivo: 176" in params
+    assert "Días con datos de ads" not in params and "Atribución" not in params and "en esos días" not in params
+    assert documents["Historia diaria"].splitlines()[0] == "fecha,dia,ventas,unidades,sesiones"
+
+
+@pytest.mark.parametrize("content, products", [
+    ("Campaign name,Type,Total cost,Sales\nIdle,Sponsored Products,$0.00,$0.00\n", "ninguno"),
+    ("Campaign name,Total cost,Sales\nIdle,$0.00,$0.00\n", "ninguno"),
+    ("Campaign name,Type,Total cost,Sales\nTV,Sponsored TV,$50.00,$200.00\n", "sin dato"),
+    ("Campaign name,Total cost,Sales\nAny,$50.00,$200.00\n", "sin dato"),
+], ids=["idle-with-types", "idle-without-types", "active-unknown-type", "active-without-types"])
+def test_the_products_of_a_campaign_csv_are_none_only_when_no_campaign_ran(content, products):
+    history = _history()
+    campaign_file = read_campaign_file(content.encode("utf-8"), "campaigns.csv")
+
+    payload = build_analysis_input(history, forecast_sales(history, 14, 10), split=file_split(history, campaign_file),
+                                   ads=None, account="", ads_note="", currency_code="", lang="es",
+                                   ads_file="campaigns.csv", file_without_activity=campaign_file.campaign_count == 0)
+
+    assert f"- Productos con actividad: {products}\n" in _documents(payload)["Parámetros"]
+
+
+def test_a_campaign_csv_above_the_report_reaches_the_agent_as_the_file_warning():
+    params = _documents(_file_payload(sales="$9,000.00"))["Parámetros"]
+
+    assert "- Aviso del módulo: las ventas de ads del Campaign CSV superan a las de todo el Business Report" in params
+
+
+def test_the_file_payload_is_its_own_data():
+    assert build_agent_call(ANALYSIS_MODULE, _file_payload()).input_digest not in {
+        build_agent_call(ANALYSIS_MODULE, _payload()).input_digest,
+        build_agent_call(ANALYSIS_MODULE, _payload(ads=_ads())).input_digest}
 
 
 def test_the_answer_reads_one_figure_per_topic_before_the_synthesis():

@@ -10,6 +10,8 @@ from core.weekly_report.advertising import Advertising
 
 ANALYSIS_MODULE = "weekly_report"
 UNKNOWN = "sin dato"
+FILE_ADS_ORIGIN = "un Campaign CSV subido a mano: no dice qué días cubre ni con qué atribución se exportó"
+FILE_COUNT_UNKNOWN = f"{UNKNOWN}: el Campaign CSV no trae la columna"
 # (figure, its change's label, the daily report's key, decimals, unit)
 _COMPARED = (("Ventas", "Variación de ventas (%)", "Sales", 2, ""),
              ("Unidades", "Variación de unidades (%)", "Units", 0, ""),
@@ -20,24 +22,27 @@ _COMPARED = (("Ventas", "Variación de ventas (%)", "Sales", 2, ""),
 def build_analysis_input(br_daily: dict, br_child: dict, br_child_pw: dict, atom: dict, *, weekly_products: bool,
                          product_days: int | None, advertising: Advertising | None, split: PaidSplit | None,
                          account: str, ads_note: str, currency_code: str, client: str, changelog: str,
-                         lang: str) -> WeeklyData:
+                         lang: str, ads_file: str = "") -> WeeklyData:
     """`br_daily` is the page's parsed daily Business Report, `br_child_pw` counts only with `weekly_products`, and
-    `ads_note` says why there is no account advertising: it is ignored when there is."""
-    with_ads = advertising is not None and split is not None
+    `ads_note` says why there is no account advertising: it is ignored when there is. With the Campaign CSV named
+    `ads_file` the advertising needs no split, which then only adds the TACoS."""
+    with_ads = advertising is not None and (split is not None or bool(ads_file))
+    advertising_file = ads_file if with_ads else ""
     return WeeklyData(
         client=client.strip(), account=account, ads_note="" if with_ads else ads_note, currency_code=currency_code,
         figures=weekly_figures(br_daily, atom, weekly_products=weekly_products, product_days=product_days,
                                has_products=bool(br_child), advertising=advertising if with_ads else None,
-                               split=split if with_ads else None),
+                               split=split if with_ads else None, ads_file=advertising_file),
         products=_product_records(br_child, br_child_pw if weekly_products else {}, atom, weekly_products),
         campaigns=[_campaign_record(campaign) for campaign in advertising.campaigns] if with_ads else [],
-        portfolios=[_portfolio_record(portfolio) for portfolio in advertising.portfolios] if with_ads else [],
-        changelog=changelog.strip(), idioma=lang,
+        portfolios=_portfolio_records(advertising.portfolios) if with_ads else [],
+        changelog=changelog.strip(), idioma=lang, ads_file=advertising_file,
     )
 
 
 def weekly_figures(br_daily: dict, atom: dict, *, weekly_products: bool, product_days: int | None,
-                   has_products: bool, advertising: Advertising | None, split: PaidSplit | None) -> dict:
+                   has_products: bool, advertising: Advertising | None, split: PaidSplit | None,
+                   ads_file: str = "") -> dict:
     """The module's figures by name, as the report shows them and the agent reads them."""
     figures = {"Semana actual": _period_label(br_daily.get("period_tw")),
                "Semana anterior": _period_label(br_daily.get("period_pw")),
@@ -51,8 +56,8 @@ def weekly_figures(br_daily: dict, atom: dict, *, weekly_products: bool, product
         if _known(br_daily.get(key)):
             figures[f"Buy Box promedio, {name} (%)"] = round(float(br_daily[key]), 1)
     figures.update(_atom_figures(atom, br_daily["Sales_TW"]))
-    if advertising is not None and split is not None:
-        figures.update(_account_ads_figures(advertising, split))
+    if advertising is not None and (split is not None or ads_file):
+        figures.update(_account_ads_figures(advertising, split, from_file=bool(ads_file)))
     return figures
 
 
@@ -81,24 +86,22 @@ def _atom_figures(atom: dict, sales_this_week: float) -> dict:
     }
 
 
-def _account_ads_figures(advertising: Advertising, split: PaidSplit) -> dict:
+def _account_ads_figures(advertising: Advertising, split: PaidSplit | None, *, from_file: bool) -> dict:
+    """`split` is None only for a Campaign CSV uploaded without the daily report."""
     totals = advertising.totals
-    figures = {
-        "Publicidad de la cuenta, días": (f"del {split.start.isoformat()} al {split.end.isoformat()}: "
-                                          f"{split.covered_days} de {split.history_days} días del BR"),
-        "Productos con actividad": ", ".join(split.products) or "ninguno",
-        "Atribución de Sponsored Products (días)": split.attribution_days,
+    figures = _file_source_figures(advertising, split) if from_file else _synced_source_figures(split)
+    figures.update({
         "Campañas con actividad": advertising.campaign_count,
-        "Impresiones": int(totals["Impressions"]),
-        "Clicks": int(totals["Clicks"]),
+        "Impresiones": _count(totals["Impressions"]),
+        "Clicks": _count(totals["Clicks"]),
         "CTR (%)": _percent(totals["CTR"]),
         "CPC": _amount(totals["CPC"]) if totals["CPC"] is not None else UNKNOWN,
         "Spend de ads de la cuenta": _amount(totals["Spend"]),
         "Ventas de ads de la cuenta": _amount(totals["Sales"]),
-        "Órdenes de ads de la cuenta": int(totals["Orders"]),
+        "Órdenes de ads de la cuenta": _count(totals["Orders"]),
         "ACoS de la cuenta (%)": _percent(totals["ACoS"]),
-        "TACoS de la cuenta (%)": _percent(split.tacos),
-    }
+        "TACoS de la cuenta (%)": _percent(split.tacos if split is not None else None),
+    })
     new_to_brand = advertising.new_to_brand
     if new_to_brand is None:
         figures["New-to-brand de Sponsored Brands y Display"] = UNKNOWN
@@ -106,10 +109,30 @@ def _account_ads_figures(advertising: Advertising, split: PaidSplit) -> dict:
         figures.update({"Órdenes new-to-brand (SB y SD)": new_to_brand.orders,
                         "Ventas new-to-brand (SB y SD)": _amount(new_to_brand.sales),
                         "Parte new-to-brand de las órdenes de SB y SD (%)": _percent(advertising.new_to_brand_share)})
-    figures["Vistas de la página de detalle"] = f"{UNKNOWN}: no se sincronizan"
-    if split.ads_exceed_br:
-        figures["Aviso del módulo"] = "las ventas de ads superan a las del Business Report en los mismos días"
+    figures["Vistas de la página de detalle"] = (f"{UNKNOWN}: no se leen del Campaign CSV" if from_file
+                                                 else f"{UNKNOWN}: no se sincronizan")
+    if split is not None and split.ads_exceed_br:
+        figures["Aviso del módulo"] = ("las ventas de ads del Campaign CSV superan a las de todo el BR diario"
+                                       if from_file else
+                                       "las ventas de ads superan a las del Business Report en los mismos días")
     return figures
+
+
+def _synced_source_figures(split: PaidSplit) -> dict:
+    return {
+        "Publicidad de la cuenta, días": (f"del {split.start.isoformat()} al {split.end.isoformat()}: "
+                                          f"{split.covered_days} de {split.history_days} días del BR"),
+        "Productos con actividad": ", ".join(split.products) or "ninguno",
+        "Atribución de Sponsored Products (días)": split.attribution_days,
+    }
+
+
+def _file_source_figures(advertising: Advertising, split: PaidSplit | None) -> dict:
+    compared = (f", así que se compara con los {split.history_days} días del BR diario, del "
+                f"{split.start.isoformat()} al {split.end.isoformat()}" if split is not None else "")
+    # Without campaigns with activity no product had any, whether or not the file names the types.
+    products = ", ".join(advertising.products) or ("ninguno" if not advertising.campaign_count else UNKNOWN)
+    return {"Publicidad de la cuenta, origen": FILE_ADS_ORIGIN + compared, "Productos con actividad": products}
 
 
 def _product_records(br_child: dict, br_child_pw: dict, atom: dict, weekly_products: bool) -> list[dict]:
@@ -138,9 +161,11 @@ def _campaign_record(campaign: dict) -> dict:
             "ventas": campaign["Sales"], "acos": campaign["ACoS"], "ordenes": campaign["Orders"]}
 
 
-def _portfolio_record(portfolio: dict) -> dict:
-    return {"portfolio": portfolio["Portfolio"], "spend": portfolio["Spend"], "ventas": portfolio["Sales"],
-            "acos": portfolio["ACoS"]}
+def _portfolio_records(portfolios: list[dict] | None) -> list[dict] | None:
+    if portfolios is None:
+        return None
+    return [{"portfolio": portfolio["Portfolio"], "spend": portfolio["Spend"], "ventas": portfolio["Sales"],
+             "acos": portfolio["ACoS"]} for portfolio in portfolios]
 
 
 def _period_label(period: dict | None) -> str:
@@ -157,6 +182,11 @@ def _change(this_week, prior_week) -> float | None:
     if not _known(this_week) or not _known(prior_week) or not prior_week:
         return None
     return (float(this_week) - float(prior_week)) / float(prior_week) * 100
+
+
+def _count(value: float | None) -> int | str:
+    """None only for a count the Campaign CSV lacks."""
+    return FILE_COUNT_UNKNOWN if value is None else int(value)
 
 
 def _amount(value: float) -> float:

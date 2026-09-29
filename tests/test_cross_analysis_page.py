@@ -1,6 +1,7 @@
-"""Análisis Cruzado over an in-memory PostgREST: the account's search terms, its SP listing and its product ads.
+"""Análisis Cruzado over an in-memory PostgREST: the account's search terms, its SP listing and its product ads, or a
+Bulk File uploaded by hand.
 
-No network: `_open_rest` is replaced before every script run, the SQP upload and its reader are faked, and the AI
+No network: `_open_rest` is replaced before every script run, the uploads and the SQP reader are faked, and the AI
 tab runs disabled except where a test fakes the provider.
 """
 import csv
@@ -11,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 import openpyxl
 import pandas as pd
 import pytest
+import requests
 from streamlit.proto.WidgetStates_pb2 import WidgetState
 from streamlit.testing.v1 import AppTest
 from streamlit.testing.v1.element_tree import ButtonGroup
@@ -19,8 +21,11 @@ import ai.client as ai_client
 import ai.runtime as ai_runtime
 import modules.pages.search_term_source as search_term_source
 from core.amazon_ads.structure_provider import CAMPAIGN, KEYWORD, ROW_COLUMNS
+from core.cross_analysis.action_plan import ACTION_DEFEND
 from modules.pages import analisis_cruzado
 from tests.cross_analysis_data import SEARCH_TERM_COLUMNS, sqp, sqp_row, term_row
+from tests.test_bulk_parser import _asegurar_fixture as synthetic_bulk_file
+from tests.test_cross_analysis_bulk_file import OLE_COMPOUND_FILE, bulk_workbook
 
 _PROFILE_TZ = "America/Los_Angeles"
 SEARCH_TERMS = [
@@ -30,6 +35,14 @@ SEARCH_TERMS = [
 SQP = sqp(sqp_row("baby swaddle", purchases=60, brand_purchases=4, brand_share=6.7),
           sqp_row("luna pajamas", purchases=20, brand_share=50.0),
           sqp_row("sleep sack", purchases=3, brand_purchases=0, brand_share=0.0))
+# The synthetic Bulk File's terms (tests/fixtures/make_bulk_fixture.py), with "merino" as the brand.
+BULK_SQP = sqp(sqp_row("organic cotton sleep sack", purchases=40, brand_purchases=5, brand_share=12.5),
+               sqp_row("merino wool swaddle blanket", purchases=30, brand_purchases=3, brand_share=10.0),
+               sqp_row("nordic sleep bag", purchases=20, brand_share=50.0))
+TAB_LABELS = ["🔗 Análisis Cruzado", "🎯 Plan de Acción", "📊 PPC Insights por ASIN", "🤖 Análisis IA"]
+BULK_FILE_KEY = "cruzado_src_file"
+UPLOAD_BUTTON_KEY = "cruzado_bulk_src_upload_manual"
+ZERO_IMPRESSION_ITEMS = "Campaign items with zero impressions"
 ANSWER = {"synthesis": {"situation": "La marca vende por queries que no captura.", "week_actions": ["Revisar X01"],
                         "mid_term": [], "risks": [], "executive_summary": "1 query para revisar."},
           "consultas": [{"row_id": "X01", "razon": "60 compras del mercado.", "veredicto": "ESPERAR",
@@ -49,13 +62,13 @@ def _synced_today() -> datetime:
 LISTED = _synced_today()
 
 
-def _profile_row() -> dict:
+def _profile_row(*, synced=True) -> dict:
     yesterday = _profile_today() - timedelta(days=1)
     return {"profile_id": "111", "account_id": 1, "cliente": "Luna Kids", "account_name": "Luna Kids US",
             "country_code": "US", "currency_code": "USD", "account_type": "seller", "timezone": _PROFILE_TZ,
-            "status": "active", "data_from": (yesterday - timedelta(days=64)).isoformat(),
-            "data_through": yesterday.isoformat(), "refreshed_on": _profile_today().isoformat(),
-            "last_success_at": LISTED.isoformat(), "last_error": ""}
+            "status": "active", "data_from": (yesterday - timedelta(days=64)).isoformat() if synced else None,
+            "data_through": yesterday.isoformat() if synced else None, "refreshed_on": _profile_today().isoformat(),
+            "last_success_at": LISTED.isoformat() if synced else None, "last_error": ""}
 
 
 def _job_row(job_id, kind) -> dict:
@@ -94,14 +107,20 @@ def _csv(columns, rows) -> bytes:
 class _FakeRest:
     """The profiles, the sync jobs, the search terms, the SP listing and the product ads the page reads."""
 
-    def __init__(self, *, profiles=True, listing=LISTING, product_ads=({"ad_group_id": "4001", "asin": "B0CYLMJJJC"},)):
-        self._profiles, self._listing, self._product_ads = profiles, list(listing), list(product_ads)
+    def __init__(self, *, profiles=True, synced=True, listing=LISTING,
+                 product_ads=({"ad_group_id": "4001", "asin": "B0CYLMJJJC"},), unreadable=()):
+        self._profiles, self._synced = profiles, synced
+        self._listing, self._product_ads, self._unreadable = list(listing), list(product_ads), set(unreadable)
         self.jobs = [_job_row(7, "sp_search_terms")]
         self.reads: list[str] = []
+        self.selects: list[str] = []
 
     def select(self, table, params):
+        self.selects.append(table)
+        if table in self._unreadable:
+            raise requests.ConnectionError(f"{table} is down")
         if table == "ads_profile_sync":
-            return [_profile_row()] if self._profiles else []
+            return [_profile_row(synced=self._synced)] if self._profiles else []
         if table == "integration_sync_jobs":
             kind = params.get("job_kind", "eq.sp_search_terms").removeprefix("eq.")
             return [dict(job) for job in self.jobs if job["job_kind"] == kind][:1]
@@ -113,6 +132,8 @@ class _FakeRest:
 
     def rpc_csv(self, name, args, *, timeout_s=8):
         self.reads.append(name)
+        if name in self._unreadable:
+            raise requests.ConnectionError(f"{name} is down")
         if name == "search_terms_between":
             return _csv(SEARCH_TERM_COLUMNS, SEARCH_TERMS)
         assert name == "sp_structure_between"
@@ -120,11 +141,11 @@ class _FakeRest:
 
 
 class _Upload:
-    def __init__(self, name: str):
-        self.name = name
+    def __init__(self, name: str, data: bytes | None = None):
+        self.name, self._data = name, name.encode("utf-8") if data is None else data
 
     def getvalue(self) -> bytes:
-        return self.name.encode("utf-8")
+        return self._data
 
 
 @pytest.fixture(autouse=True)
@@ -160,12 +181,15 @@ render()
 """
 
 
-def _page(monkeypatch, fake, *, sqp_uploaded=True, ai_enabled=False, downloads=None) -> AppTest:
+def _page(monkeypatch, fake, *, sqp_uploaded=True, bulk=None, sqp_table=SQP, brand="luna", session=None,
+          ai_enabled=False, downloads=None) -> AppTest:
     import streamlit
     uploads = {"sqp_x": _Upload("sqp.csv")} if sqp_uploaded else {}
+    if bulk is not None:
+        uploads[BULK_FILE_KEY] = bulk
     monkeypatch.setattr(streamlit, "file_uploader", lambda label, *args, key=None, **kwargs: uploads.get(key))
-    monkeypatch.setattr(analisis_cruzado, "read_sqp", lambda file: SQP.copy())
-    monkeypatch.setattr(analisis_cruzado, "extract_sqp_brand", lambda file: "luna")
+    monkeypatch.setattr(analisis_cruzado, "read_sqp", lambda file: sqp_table.copy())
+    monkeypatch.setattr(analisis_cruzado, "extract_sqp_brand", lambda file: brand)
     monkeypatch.setattr(search_term_source, "_open_rest", lambda: fake)
     monkeypatch.setattr("ai.config.AI_ENABLED", ai_enabled)
     if downloads is not None:
@@ -174,9 +198,15 @@ def _page(monkeypatch, fake, *, sqp_uploaded=True, ai_enabled=False, downloads=N
             return False
         monkeypatch.setattr(streamlit, "download_button", record_download)
     app = AppTest.from_string(_PAGE_SCRIPT, default_timeout=30)
+    for key, value in (session or {}).items():
+        app.session_state[key] = value
     app.run()
     assert not app.exception, app.exception
     return app
+
+
+def _bulk_file() -> _Upload:
+    return _Upload("bulk.xlsx", synthetic_bulk_file().read_bytes())
 
 
 def _text(app: AppTest) -> str:
@@ -185,15 +215,137 @@ def _text(app: AppTest) -> str:
     return " ".join(parts)
 
 
+def _button_keys(app: AppTest) -> list[str]:
+    return [button.key for button in app.button]
+
+
 def _plan_table(app: AppTest) -> pd.DataFrame:
     return app.tabs[1].dataframe[0].value
 
 
-def test_without_connected_accounts_the_page_says_so_and_asks_for_no_file(monkeypatch):
+def _plan_captions(app: AppTest) -> list[str]:
+    return [str(caption.value) for caption in app.tabs[1].caption]
+
+
+def test_without_connected_accounts_the_page_asks_for_the_bulk_file(monkeypatch):
     app = _page(monkeypatch, _FakeRest(profiles=False))
 
-    assert search_term_source.NO_ACCOUNTS_MESSAGE.format(module="Análisis Cruzado") in _text(app)
+    text = _text(app)
+    assert analisis_cruzado.NO_CONNECTION_BULK_HINT in text and search_term_source.NO_CONNECTION_HINT not in text
+    assert "El SQP se sigue subiendo a mano." in analisis_cruzado.NO_CONNECTION_BULK_HINT
+    assert "Subí el Bulk File para cruzar sus search terms con el SQP de la marca." in text
     assert not app.tabs
+
+
+def test_the_help_says_to_include_the_keywords_without_impressions_in_the_bulk_file(monkeypatch):
+    app = _page(monkeypatch, _FakeRest(profiles=False))
+
+    assert any(ZERO_IMPRESSION_ITEMS in str(block.value) and "Exclude" in str(block.value) for block in app.markdown)
+
+
+def test_a_bulk_file_without_accounts_runs_the_four_tabs_without_reading_amazon_ads(monkeypatch):
+    fake = _FakeRest(profiles=False)
+
+    app = _page(monkeypatch, fake, bulk=_bulk_file(), sqp_table=BULK_SQP, brand="merino")
+
+    assert [tab.label for tab in app.tabs] == TAB_LABELS
+    assert fake.reads == [] and set(fake.selects) == {"ads_profile_sync"}
+    text = _text(app)
+    assert "Keywords Exact que trae la hoja de campañas del Bulk File · 4 keywords Exact habilitadas." in text
+    assert analisis_cruzado.BULK_UNSTATED_NOTE in text
+    captions = _plan_captions(app)
+    assert analisis_cruzado.BULK_GUARDS_CAPTION in captions and analisis_cruzado.GUARDS_CAPTION not in captions
+    assert "tenga o no clicks" not in analisis_cruzado.BULK_GUARDS_CAPTION
+    assert ZERO_IMPRESSION_ITEMS in analisis_cruzado.BULK_GUARDS_CAPTION
+    table = _plan_table(app)
+    assert dict(zip(table["Search Query"], table["♻️ Ya en Exact"])) == {
+        "organic cotton sleep sack": True, "merino wool swaddle blanket": False, "nordic sleep bag": True}
+    assert dict(zip(table["Search Query"], table["🏅 Ranking KW"]))["merino wool swaddle blanket"]
+
+
+def test_the_listing_line_offers_the_bulk_file_and_manual_mode_reads_no_amazon_ads(monkeypatch):
+    fake = _FakeRest()
+    app = _page(monkeypatch, fake)
+    assert _button_keys(app).count(UPLOAD_BUTTON_KEY) == 1
+    reads = len(fake.reads)
+
+    app.button(key=UPLOAD_BUTTON_KEY).click().run()
+
+    assert not app.exception, app.exception
+    assert search_term_source.MANUAL_MODE_NOTE in _text(app)
+    assert "Subí el Bulk File para cruzar sus search terms con el SQP de la marca." in _text(app)
+    assert not app.tabs and len(fake.reads) == reads
+    app.button(key="cruzado_src_back_to_api").click().run()
+    assert [tab.label for tab in app.tabs] == TAB_LABELS
+    assert search_term_source.MANUAL_MODE_NOTE not in _text(app)
+
+
+def test_an_account_without_data_yet_offers_the_bulk_file(monkeypatch):
+    app = _page(monkeypatch, _FakeRest(synced=False))
+
+    assert not app.tabs
+    assert _button_keys(app).count(UPLOAD_BUTTON_KEY) == 1
+
+
+def test_an_unreadable_listing_or_product_ads_still_offers_the_bulk_file(monkeypatch):
+    app = _page(monkeypatch, _FakeRest(unreadable=("sp_structure_between", "ads_product_ad")))
+
+    text = _text(app)
+    assert analisis_cruzado.EXACT_UNREADABLE_NOTE in text and analisis_cruzado.ADVERTISED_ASINS_UNREADABLE in text
+    assert _button_keys(app).count(UPLOAD_BUTTON_KEY) == 1
+    assert [tab.label for tab in app.tabs] == TAB_LABELS
+
+
+def test_a_file_that_is_not_a_workbook_says_so_and_shows_no_tabs(monkeypatch):
+    app = _page(monkeypatch, _FakeRest(profiles=False), bulk=_Upload("notas.xlsx", b"not a workbook"))
+
+    assert any("No se pudo leer «notas.xlsx»" in str(error.value) for error in app.error)
+    assert not app.tabs
+
+
+def test_an_encrypted_or_legacy_excel_file_says_so_instead_of_a_traceback(monkeypatch):
+    app = _page(monkeypatch, _FakeRest(profiles=False), bulk=_Upload("bulk-protegido.xlsx", OLE_COMPOUND_FILE))
+
+    assert any("No se pudo leer «bulk-protegido.xlsx»" in str(error.value) for error in app.error)
+    assert not app.tabs
+
+
+def test_a_bulk_file_without_the_campaigns_sheet_warns_and_hides_the_exact_mark(monkeypatch):
+    bulk = _Upload("bulk.xlsx", bulk_workbook(campaigns=False))
+
+    app = _page(monkeypatch, _FakeRest(profiles=False), bulk=bulk, sqp_table=BULK_SQP, brand="merino")
+
+    text = _text(app)
+    assert analisis_cruzado.NO_CAMPAIGNS_SHEET_WARNING in text and analisis_cruzado.BULK_EXACT_UNKNOWN_CAPTION in text
+    assert "Sin listado" not in text
+    captions = _plan_captions(app)
+    assert ("Sin la hoja de campañas del Bulk File no se pudo verificar si las keywords a agregar ya existen como "
+            "Exact: revisalas en Campaign Manager antes de subir el archivo.") in captions
+    assert ("Sin la hoja de campañas del Bulk File no se pudo verificar cuáles ya existen como keyword Exact: "
+            "revisalas en Campaign Manager antes de lanzarlas.") in captions
+    assert "♻️ Ya en Exact" not in _plan_table(app).columns
+
+
+def test_both_exports_of_a_bulk_file_carry_the_files_ids(monkeypatch):
+    downloads = {}
+    app = _page(monkeypatch, _FakeRest(), bulk=_bulk_file(), sqp_table=BULK_SQP, brand="merino",
+                session={"cruzado_src_manual": True}, downloads=downloads)
+
+    app.number_input(key="ac_precio_prom").set_value(20.0).run()
+
+    assert not app.exception, app.exception
+    bulk = next(data for label, data in downloads.items() if "Plan de Acción bulk" in label)
+    sheet = pd.read_excel(io.BytesIO(bulk), sheet_name="Sponsored Products Campaigns", dtype=str)
+    assert sorted(sheet[["Campaign ID", "Ad Group ID", "Keyword ID"]].fillna("").values.tolist()) == [
+        ["132313349237695", "900000000000101", ""],
+        ["132313349237695", "900000000000101", "409151500000001"],
+        ["214785693021447", "900000000000202", "409151500000006"]]
+    builder = next(data for label, data in downloads.items() if "plan para Campaign Builder" in label)
+    plan = pd.read_excel(io.BytesIO(builder))
+    assert plan[["Keyword", "Acción sugerida"]].values.tolist() == [["merino wool swaddle blanket", ACTION_DEFEND]]
+    left_out = pd.read_excel(io.BytesIO(builder), sheet_name="Fuera del plan")
+    assert dict(zip(left_out["Keyword"], left_out["Motivo"]))["organic cotton sleep sack"] == (
+        "Ya existe como keyword Exact habilitada en la cuenta: Campaign Builder crearía otra igual.")
 
 
 def test_without_the_sqp_the_page_shows_the_empty_state_and_withdraws_the_analysis(monkeypatch):
@@ -222,6 +374,8 @@ def test_the_listing_marks_a_query_that_runs_as_exact_without_a_single_click(mon
     table = _plan_table(app)
     assert dict(zip(table["Search Query"], table["♻️ Ya en Exact"])) == {"baby swaddle": True, "luna pajamas": True,
                                                                           "sleep sack": False}
+    captions = _plan_captions(app)
+    assert analisis_cruzado.GUARDS_CAPTION in captions and analisis_cruzado.BULK_GUARDS_CAPTION not in captions
     assert [tab.label for tab in app.tabs] == ["🔗 Análisis Cruzado", "🎯 Plan de Acción", "📊 PPC Insights por ASIN",
                                                "🤖 Análisis IA"]
 
@@ -232,7 +386,23 @@ def test_without_a_listing_the_exact_mark_is_hidden_and_the_page_says_why(monkey
     text = _text(app)
     assert analisis_cruzado.EXACT_NOT_LISTED_NOTE in text
     assert analisis_cruzado.EXACT_UNKNOWN_CAPTION in text
+    assert ("Sin listado de la cuenta no se pudo verificar si las keywords a agregar ya existen como Exact: revisalas "
+            "en Campaign Manager antes de subir el archivo.") in _plan_captions(app)
     assert "♻️ Ya en Exact" not in _plan_table(app).columns
+
+
+def test_an_accounts_outage_with_data_on_screen_reads_the_accounts_no_more_than_the_picker_does(monkeypatch):
+    fake = _FakeRest()
+    app = _page(monkeypatch, fake)
+    fake._unreadable.add("ads_profile_sync")
+    selects = len(fake.selects)
+
+    app.run()
+
+    assert not app.exception, app.exception
+    assert fake.selects[selects:].count("ads_profile_sync") == 2
+    assert search_term_source.ACCOUNTS_UNREADABLE_MESSAGE in _text(app)
+    assert [tab.label for tab in app.tabs] == TAB_LABELS
 
 
 def test_the_asin_tab_gives_each_term_the_asin_its_ad_group_advertises(monkeypatch):
@@ -297,3 +467,32 @@ def test_the_ai_analysis_waits_for_the_click_and_reaches_the_chat_with_the_accou
     assert titles[-1] == "Análisis Cruzado · Luna Kids · US · Lectura de la IA"
     assert (shared.profile_id, shared.country_code) == ("111", "US")
     assert shared.annotate("Revisar X01").startswith("Revisar X01 (")
+
+
+def test_the_ai_analysis_of_a_bulk_file_names_the_file_and_no_account(monkeypatch):
+    calls = []
+
+    def ask(**call):
+        calls.append(call)
+        return {"structured_output": ANSWER, "session_id": "cross-bulk-session"}
+
+    monkeypatch.setattr(ai_client, "ask", ask)
+    app = _page(monkeypatch, _FakeRest(profiles=False), bulk=_bulk_file(), sqp_table=BULK_SQP, brand="merino",
+                ai_enabled=True)
+
+    app.button(key="cross_analysis_ai_recalc").click().run()
+    for _ in range(30):
+        entry = app.session_state["app_chat_modules"].get("cross_analysis")
+        if entry is not None and entry.state == "current":
+            break
+        time.sleep(0.2)
+        app.run()
+
+    assert not app.exception, app.exception
+    params = calls[0]["context"][0]["content"]
+    assert "Search terms: Bulk File subido a mano «bulk.xlsx», no una cuenta de Amazon Ads conectada" in params
+    assert ("Keywords Exact de la cuenta: hoja de campañas del Bulk File, que trae 4 keywords Exact habilitadas; si se "
+            "bajó sin «Campaign items with zero impressions», no trae las que no tuvieron impresiones") in params
+    shared = app.session_state["app_chat_modules"]["cross_analysis"].analysis
+    assert shared.documents[0]["title"] == "Análisis Cruzado · bulk.xlsx · Parámetros"
+    assert (shared.profile_id, shared.country_code) == ("", "")

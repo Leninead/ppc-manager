@@ -201,7 +201,7 @@ Analizar search terms de campañas SP: negativizar, harvestear, clasificar por t
 - **Moneda: indicador, nunca selector ni conversión.** Sale del perfil de Amazon o de la columna de moneda del archivo; los montos se formatean con `core/currency_format.money()` (`MX$`, `CA$`, `¥` sin decimales; sin moneda conocida queda el `$` de siempre).
 - Datos de API y archivo manual comparten la forma canónica (`console_columns()`), con los IDs ocultos al final (`_campaign_id`, `_ad_group_id`, `_keyword_id`, `_keyword_type`, `_origin_match_type`, ...). Ningún nombre oculto puede contener "portfolio", "sales", "click", etc.: `_detect_cols` toma la primera columna que matchea. Los tests de `core/search_term/frame.py` y del provider usan `_detect_cols` real como oráculo.
 - El picker es un componente reutilizable: todas sus keys empiezan con `f"{key_prefix}_src_"` (M2 usa `str`). Otro módulo que quiera los mismos datos lo llama con su propio prefijo.
-- Estados del picker: primera carga en curso, **primera carga fallida** (pill rojo, detalle saneado y botón «Subir archivo manualmente»; nunca apunta al Registro, que es admin), reintentando, al día y desactualizada. Si una lectura falla después de haber cargado datos del mismo perfil, muestra el error y deja los últimos datos buenos a la vista.
+- Estados del picker: primera carga en curso, **primera carga fallida** (pill rojo, detalle saneado y botón «Subir archivo manualmente»; nunca apunta al Registro, que es admin), reintentando, al día y desactualizada. Si una lectura falla después de haber cargado datos del mismo perfil, muestra el error y deja los últimos datos buenos a la vista. Desde el 2026-09-29 «Subir archivo manualmente» (secundario, en el contenedor `actions`) también aparece con la lectura de search terms caída, con la cuenta pidiendo reautorizar antes de tener datos y con la lista de cuentas caída y datos en pantalla, sólo con `allow_manual` (Análisis Cruzado y PPC Audit dibujan su propio botón con otro prefijo).
 - Las elecciones (cuenta, país, período, cuenta del archivo) y los inputs de M2 sobreviven a un rerun donde el widget no se dibuja (`_park_inputs` / `_restore_parked_inputs`). El uploader de anti-canibalización de Tab 3 es la excepción: Streamlit no deja restaurar un `file_uploader`.
 
 ### Filtro «Estado de campaña» (2026-09-29)
@@ -326,9 +326,20 @@ Campaign Builder (M10).
 4 tabs: Cruce (en ambos / solo STR / solo SQP + diagnóstico de funnel) | Plan de Acción (acciones, guardas INV-11,
 exports) | PPC Insights por ASIN (BR opcional) | Análisis IA.
 
-### Fuente de datos (IT-51, 2026-09-28 — sin Bulk File)
-- **Search terms**: `render_source_picker("cruzado", allow_manual=False)`. Sólo cuentas conectadas: el Bulk File y la
-  carga manual salieron (decisión de Juan). Sin cuentas, el picker dice que hace falta una y la página no pide el SQP.
+### Fuente de datos (IT-51, 2026-09-28; Bulk File como fallback desde 2026-09-29)
+- **Search terms**: `render_source_picker("cruzado", allow_manual=False)` elige cuenta, país y período.
+- **Bulk File a mano (fallback, 2026-09-29):** sin cuentas conectadas (y sin datos ya cargados en la sesión) o con
+  «Subir archivo manualmente» (flag `cruzado_src_manual`, el mismo patrón que PPC Audit), la página lee un Bulk File
+  (.xlsx, uploader `cruzado_src_file`). `core/cross_analysis/bulk_file.read_bulk_file` lo convierte en lo mismo que da
+  la cuenta: search terms canónicos (`console_columns(7) + HIDDEN_ID_COLUMNS`, IDs como texto, origen AUTO para
+  close-match/loose-match/substitutes/complements y PRODUCT_TARGETING para el resto de los targets), Exact habilitadas
+  de la hoja «Sponsored Products Campaigns» (None si falta, nunca un set vacío) y todos los ASINs de cada ad group. El
+  botón vive en su propio contenedor (`cruzado_bulk_src_*`) porque el picker ya usa `cruzado_src_actions`; se ofrece
+  en la línea del listado en todos sus estados y bajo el picker cuando éste no devuelve datos. Un Bulk no dice días,
+  moneda ni atribución: se muestra con $, como 7 días, y la pantalla y el agente IA lo dicen. Bulk Operations excluye
+  por defecto los *Campaign items with zero impressions*: la ayuda pide destildarlo, y en modo archivo «♻️ Ya en Exact»
+  sólo afirma lo que trae la hoja de campañas (un «no» no prueba que la keyword no exista). Las hojas se leen con
+  `keep_default_na=False`, como el provider, así un término «nan» o «n/a» no se pierde.
 - **Keywords Exact habilitadas (INV-11.2)**: el listado SP de la misma cuenta
   (`keyword_listing_source.load_keyword_listing` → `active_keywords.enabled_exact_keyword_texts`): estado propio de la
   keyword, en cualquier campaña, tengan o no clicks (el reporte sólo trae las que tuvieron). La línea debajo del picker
@@ -397,7 +408,9 @@ test), `tests/test_cross_analysis_plan_exports.py`, `tests/test_cross_analysis_a
 IA falso). Datos sintéticos por el provider real: `tests/cross_analysis_data.py`.
 
 ### Anti-patterns
-- ❌ NO volver a pedir el Bulk File: search terms, Exact y ASIN salen de la cuenta de Amazon Ads.
+- ❌ NO exigir el Bulk File: search terms, Exact y ASIN salen de la cuenta de Amazon Ads; el Bulk es sólo el fallback
+  manual y pasa por `core/cross_analysis/bulk_file.py`, nunca directo a las pestañas.
+- ❌ NO aceptar el Search Term Report standalone como fallback: no trae los IDs de keyword ni el match type de origen.
 - ❌ NO calcular «Ya en Exact» sólo sobre los search terms: el reporte no ve las Exact sin clicks.
 - ❌ NO mostrar ✗ en una guarda sin dato: sin listado la columna no se muestra.
 - ❌ NO repartir el gasto de un ad group de varios ASINs ni tomar su primer ASIN.
@@ -884,7 +897,7 @@ salían de 14 días bajo el encabezado "esta semana", ~2× lo real.
 | 2 | BR by Child — esta semana | sí | sin fechas propias |
 | 3 | BR by Child — semana anterior | **no** | sin este archivo NO hay WoW por producto |
 | 4 | Atom 11 ASIN 14d | no | sí trae desglose diario: su split 7+7 es correcto |
-| 5 | Cuenta de Amazon Ads del BR | no | bloque compartido; lee la cuenta sobre los días del BR diario (IT-45) |
+| 5 | Cuenta de Amazon Ads del BR o Campaign CSV | no | bloque compartido; lee la cuenta sobre los días del BR diario (IT-45), o el Campaign CSV subido a mano (fallback) |
 
 ### Los dos modos
 `_es_modo_wow(period_child_tw, period_child_pw)` es la única fuente de verdad y la
@@ -940,9 +953,14 @@ _L_EXEC                           # textos del ejecutivo, a NIVEL DE MÓDULO (te
 - ❌ NO elegir una cuenta por defecto ni mezclar la publicidad de la cuenta en la fila CUENTA TOTAL (es de Atom 11).
 - ❌ NO mostrar ACoS 0% para una campaña sin ventas ni leer un NTB desconocido como 0.
 
-### Hoja Advertising: la cuenta de Amazon Ads, no el Campaign CSV (IT-45, 2026-09-28)
-- El uploader «Campaign CSV» salió. El 5º bloque es el de cuenta de PPC Forecast, compartido
-  (`modules/pages/ad_account_block.py`): Cuenta + País, **sin cuenta por defecto**, mismos estados.
+### Hoja Advertising: la cuenta de Amazon Ads, con el Campaign CSV como fallback (IT-45, 2026-09-28)
+- El 5º bloque es el de cuenta de PPC Forecast, compartido (`modules/pages/ad_account_block.py`): Cuenta + País, **sin
+  cuenta por defecto**, mismos estados.
+- **Campaign CSV a mano (fallback, 2026-09-29):** sin cuentas conectadas o con «Subir archivo manualmente» el bloque
+  lee el Campaign CSV (`wcr_src_file`). Abre la página aunque no haya otro archivo y no necesita el BR diario: sin él
+  no hay split y el TACoS queda sin dato. La fila 2 dice que es un archivo subido a mano, que no dice sus días ni su
+  atribución (ni su moneda, si no la trae); los portfolios sólo salen si el archivo trae la columna, el NTB sólo con
+  `Type` y columnas NTB, y el DPV dice «no se leen del Campaign CSV».
 - La ventana son los días del BR diario (`daily_sales` de `_parse_br_daily_wow`) que la sincronización de campañas
   guarda. **Sin BR diario no hay días que leer**: la hoja dice `MISSING_NO_DAILY_REPORT` (antes el CSV no dependía del
   diario).
@@ -1036,9 +1054,15 @@ Buy Box, ACoS y TACoS, con fines de semana y festivos MX marcados.
 BR diario (requerido) + BR by Child (opcional) + cuenta de Amazon Ads del BR (opcional) → pestañas 📊 Pulse | 🤖 Análisis
 IA → Excel 4 hojas (Resumen Ejecutivo, Ventas Diarias, BuyBox & ASINs, Campañas).
 
-### ACoS, TACoS y campañas: la cuenta de Amazon Ads, no el Campaign CSV (IT-45, 2026-09-28)
-- El uploader «Campaign CSV» salió. El bloque «Publicidad de la cuenta» es el de PPC Forecast, compartido en
-  `modules/pages/ad_account_block.py`: Cuenta + País, **sin cuenta por defecto** (el BR no dice de quién es).
+### ACoS, TACoS y campañas: la cuenta de Amazon Ads, con el Campaign CSV como fallback (IT-45, 2026-09-28)
+- El bloque «Publicidad de la cuenta» es el de PPC Forecast, compartido en `modules/pages/ad_account_block.py`: Cuenta +
+  País, **sin cuenta por defecto** (el BR no dice de quién es).
+- **Campaign CSV a mano (fallback, 2026-09-29):** sin cuentas conectadas o con «Subir archivo manualmente»
+  (`ap_src_file`). Un total por campaña, sin días: **no hay semanas**. Las cards pasan a «ACoS del archivo» / «TACoS del
+  archivo», sin delta; el TACoS divide el spend del archivo por las ventas de todos los días del BR, y el caption, la
+  nota del Excel y el agente IA dicen que el archivo tiene que estar exportado con ese mismo rango. Filas del Excel
+  «ACoS % (Campaign CSV)» / «TACoS % (Campaign CSV)» con semana anterior «—»; conteos o tipo que el archivo no trae,
+  «—» (nunca 0).
 - Lee `campaign_totals.daily_totals` (SP, SB y SD por día) y `window_totals` (una fila por campaña con actividad) sobre
   los días del BR que la sincronización de campañas guarda.
 - **Cada semana sobre sus propios días** (`ads_by_week`): la semana actual son los últimos 7 días del BR y la anterior
@@ -1230,9 +1254,15 @@ Ads del BR, separar las ventas de ads de las orgánicas y estimar el spend para 
 - «Ratio Finde/Laboral»: sábado o domingo sobre día hábil en la mitad de la historia; «—» si la historia no tiene los
   dos tipos de día.
 
-### Ventas de ads: reportes de campaña de la cuenta, no el Campaign CSV (IT-47)
-- El uploader «Campaign CSV» salió. El bloque «Ventas de ads de la cuenta» elige Cuenta + País (helpers del picker del
-  STR). **Arranca sin cuenta**: el BR diario no dice de qué cuenta es.
+### Ventas de ads: reportes de campaña de la cuenta, con el Campaign CSV como fallback (IT-47)
+- El bloque «Ventas de ads de la cuenta» elige Cuenta + País (helpers del picker del STR). **Arranca sin cuenta**: el BR
+  diario no dice de qué cuenta es.
+- **Campaign CSV a mano (fallback, 2026-09-29):** sin cuentas conectadas o con «Subir archivo manualmente»
+  (`forecast_src_file`). `core/amazon_ads/campaign_file.read_campaign_file` lo lleva a las columnas de `window_totals`
+  (una fila por campaña con actividad, todas las filas sumadas sea cual sea su State, montos con cualquier prefijo:
+  «MX$5,796.55»); rechaza un Bulk File (repite métricas por nivel y sumarlo contaría dos veces). `file_split` lo
+  compara con **todos** los días del BR (`PaidSplit.from_file`, atribución `None`): el caption y el agente dicen que el
+  archivo no dice qué días cubre y que tiene que estar exportado con el rango del BR, nunca «N de M días».
 - Lee `core/amazon_ads/campaign_totals.daily_totals` (RPC `campaign_daily_totals`, migración 019): SP, SB y SD por día,
   SP con la atribución de la cuenta y SB/SD como los cuenta Campaign Manager. Es lo que traía el CSV.
 - **No desde `ads_search_term_daily`** (lo que sugería el ticket): sólo trae Sponsored Products. Medido en la base local
@@ -1265,7 +1295,8 @@ resultado desaparecía en cualquier rerun, y con él la pestaña IA.
 
 ### Inputs
 - BR diario (By Date → Sales and Traffic, .csv o .xlsx): mínimo 7 días, 14 o más recomendado
-- Cuenta de Amazon Ads del BR: opcional
+- Cuenta de Amazon Ads del BR: opcional; o, como fallback, el Campaign CSV (Campaign Manager → Campaigns → Export) del
+  mismo rango que el BR
 
 ### Tests
 `tests/test_ppc_forecast_projection.py`, `tests/test_business_report_paid_split.py`, `tests/test_ppc_forecast_agent.py`,
@@ -1455,7 +1486,8 @@ Analizar exports Helium 10 Cerebro para reverse ASIN, research y competitor gap.
 **Archivo:** modules/pages/sbh_recommendation.py. Reglas en `core/sbh/targets.py`, payload IA en `core/sbh/analysis.py`,
 agente en `ai/agents/sbh/`.
 **Sección sidebar:** Research
-**Session state prefix:** `sbh_` (uploaders `sbh_mkl`/`sbh_sqp`, cuenta `sbh_src_account`/`sbh_src_profile`, IA `sbh_ai_*`)
+**Session state prefix:** `sbh_` (uploaders `sbh_mkl`/`sbh_sqp`, cuenta `sbh_src_account`/`sbh_src_profile`, fallback
+manual `sbh_src_manual`/`sbh_src_file`/`sbh_src_upload_manual`/`sbh_src_back_to_api`/`sbh_src_actions`, IA `sbh_ai_*`)
 
 ### Propósito
 Recomendar targets para campañas Sponsored Brand Headline cruzando el MKL de DataDive y el SQP de la marca con las
@@ -1464,9 +1496,15 @@ keywords que ya corren en Sponsored Products en la cuenta de Amazon Ads de la ma
 ### Arquitectura
 2 pestañas: 📢 Targets (priorización, clusters, headlines, SBH Target Pack) | 🤖 Análisis IA (agente `sbh`).
 
-### «En SP» sale del listado de estructura SP (IT-49, 2026-09-25)
-- El uploader «Campaign CSV» salió: su parser buscaba «Keyword Text» o «Targeting», así que con un Campaign CSV de
-  verdad (nivel campaña) dejaba el set vacío sin avisar; sólo andaba con un Bulk.
+### «En SP» sale del listado de estructura SP (IT-49, 2026-09-25), con archivo como fallback (2026-09-29)
+- El uploader «Campaign CSV» de antes salió: su parser buscaba «Keyword Text» o «Targeting», así que con un Campaign CSV
+  de verdad (nivel campaña) dejaba el set vacío sin avisar; sólo andaba con un Bulk.
+- **Fallback manual (2026-09-29):** sin cuentas conectadas o con «Subir archivo manualmente» (en todos los estados de
+  la tarjeta), un Bulk File o un export de keywords SP (`core/sbh/sp_keyword_file.read_sp_keyword_file`). Del Bulk
+  (hoja «Sponsored Products Campaigns») usa literalmente `active_keyword_texts`, la misma regla que el listado; de un
+  export plano, la columna Keyword Text / Keyword / Targeting con su State si la trae, sin negativas. Un Campaign CSV de
+  nivel campaña ahora da un error claro en vez de un set vacío. `SpKeywordCoverage.from_file` lleva el archivo y qué
+  estados se pudieron revisar; el caption y el agente IA dicen «según el archivo», sin cuenta ni día.
 - El bloque «Keywords activas en Sponsored Products» elige Cuenta + País (helpers del picker del STR). **La cuenta
   arranca vacía a propósito**: el MKL y el SQP no dicen de qué cuenta son, y una cuenta por defecto cruzaría la marca
   con el SP de otro cliente sin avisar.
@@ -1502,7 +1540,8 @@ keywords que ya corren en Sponsored Products en la cuenta de Amazon Ads de la ma
 ### Inputs
 - DataDive MKL (.xlsx) — requerido
 - SQP (.xlsx, .csv) — requerido
-- Cuenta de Amazon Ads de la marca — opcional (sin ella «En SP» queda sin dato)
+- Cuenta de Amazon Ads de la marca, o Bulk File / export de keywords SP a mano — opcional (sin ninguno «En SP» queda
+  sin dato)
 
 ### Tests
 `tests/test_amazon_ads_active_keywords.py`, `tests/test_sbh_targets.py`, `tests/test_sbh_agent.py`,
@@ -2097,7 +2136,18 @@ de esa cuenta monta `render_ad_account_block(key_prefix, AdAccountTexts(...))` y
 `read_account_ads(choice, history, texts, with_campaigns=...)` (`modules/pages/ad_account_block.py`): sin cuenta por
 defecto, sobre los días del BR que la sincronización de campañas guarda, con los estados de PPC Forecast y el aviso de
 ventas de ads por encima de las del BR (`ads_exceed_br_warning`). Lo usan PPC Forecast, Account Pulse y Weekly Client
-Report.
+Report. Desde el 2026-09-29 trae el fallback manual de los tres: sin cuentas, o con «Subir archivo manualmente» (en
+todos los estados de la tarjeta), el Campaign CSV (`AdAccountChoice.campaign_file`); `read_account_ads` devuelve entonces
+un `AccountAds` con `source_file` / `file_digest` y un `file_split` sin serie diaria (`history=None` sólo vale con
+archivo). Cada módulo decide qué hace sin semanas ni atribución.
+
+**Criterio de fallback manual (2026-09-29).** Todo módulo que lee datos de Amazon Ads conserva la subida a mano: sin
+cuentas conectadas muestra el uploader con una pista para conectar la cuenta; con cuentas, la tarjeta ofrece
+«Subir archivo manualmente» (`:material/upload:`, secundario, contenedor `picker_key(prefix, "actions")` con
+`_actions_css`) en todos sus estados; el modo manual muestra la nota, «Volver a datos de Amazon Ads» (terciario,
+`:material/arrow_back:`) y el uploader, y no lee nada de Amazon Ads. Lo que un archivo no dice (días, cuenta, moneda,
+atribución) se dice, nunca se inventa; la firma de la pestaña IA incluye el digest del archivo. Referencias:
+`campaign_source.py`, `audit_source.py`, `ad_account_block.py`.
 
 **Grano de campaña (2026-09-17).** Dos solicitudes diarias más por perfil, desde las 03:00: `campaign_entities`
 (foto de `/sp/campaigns/list` en `ads_campaign`) y `sp_campaigns` (reporte `spCampaigns` reemplazado día por día en

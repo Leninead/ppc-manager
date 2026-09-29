@@ -383,8 +383,12 @@ def render_source_picker(key_prefix: str = "str", *, allow_manual: bool = True,
     manual_mode = allow_manual and bool(st.session_state.get(picker_key(key_prefix, "manual")))
     if not profiles:
         last_source = _last_source(key_prefix)
-        if last_source is not None and not manual_mode:
+        if last_source is not None and manual_mode:
+            return _render_manual_mode(key_prefix, manual_reader)
+        if last_source is not None:
             st.warning(ACCOUNTS_UNREADABLE_MESSAGE)
+            if allow_manual:
+                _render_upload_action(key_prefix)
             return _with_own_frame(last_source)
         if not allow_manual:
             st.info(NO_ACCOUNTS_MESSAGE.format(module=module_label))
@@ -504,6 +508,9 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption], *,
                                       key=picker_key(key_prefix, "profile"))
         st.session_state[picker_key(key_prefix, "profile_last")] = profile_id
         if pinned.data_through is None:
+            # The first load and its failure offer their own upload inside the status fragment.
+            if allow_manual and state == STATE_NEEDS_REAUTH:
+                _render_upload_action(key_prefix)
             return None
 
         with period_col:
@@ -516,11 +523,10 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption], *,
             source = _pinned_search_terms(key_prefix, pinned, start, end)
         except ReportReadError as exc:
             last_source = _last_source(key_prefix, profile_id=profile_id)
-            if last_source is None:
-                st.error(str(exc))
-                return None
-            st.error(f"{exc} {KEPT_DATA_NOTE}")
-            return _with_own_frame(last_source)
+            st.error(str(exc) if last_source is None else f"{exc} {KEPT_DATA_NOTE}")
+            if allow_manual:
+                _render_upload_action(key_prefix)
+            return None if last_source is None else _with_own_frame(last_source)
 
         _render_info_row(key_prefix, source, pinned, start, end, state=state, allow_manual=allow_manual, now=now)
         if source.frame.empty:
@@ -678,8 +684,7 @@ def _render_info_row(key_prefix: str, source: SearchTermSource, pinned: ProfileO
     # alternativas entre sí, y una en tertiary se leía como enlace al lado de la otra.
     actions = []
     if allow_manual:
-        actions.append(dict(label="Subir archivo manualmente", key=picker_key(key_prefix, "upload_manual"),
-                            icon=":material/upload:", on_click=_set_manual_mode, args=(key_prefix, True)))
+        actions.append(_upload_manual_action(key_prefix))
     if state in (STATE_READY, STATE_FAILED):
         actions.append(dict(label="Actualizar ahora", key=picker_key(key_prefix, "refresh"),
                             icon=":material/refresh:", on_click=_request_refresh,
@@ -692,6 +697,19 @@ def _render_info_row(key_prefix: str, source: SearchTermSource, pinned: ProfileO
         for action in actions:
             st.button(action["label"], key=action["key"], type="secondary", icon=action["icon"],
                       on_click=action["on_click"], args=action["args"])
+
+
+def _upload_manual_action(key_prefix: str) -> dict:
+    return dict(label="Subir archivo manualmente", key=picker_key(key_prefix, "upload_manual"),
+                icon=":material/upload:", on_click=_set_manual_mode, args=(key_prefix, True))
+
+
+def _render_upload_action(key_prefix: str) -> None:
+    """The info row's manual upload, alone, for the states that never reach that row."""
+    actions_key = picker_key(key_prefix, "actions")
+    st.markdown(_actions_css(actions_key), unsafe_allow_html=True)
+    with st.container(key=actions_key):
+        st.button(type="secondary", **_upload_manual_action(key_prefix))
 
 
 def _resolve_choice(key_prefix: str, name: str, options: list[str], *, fallback: str | None) -> str:

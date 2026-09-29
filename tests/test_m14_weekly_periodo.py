@@ -1038,3 +1038,46 @@ def test_periodo_de_14_dias_no_habilita_modo_wow():
 
     assert ws.cell(3, 3).value != "Esta semana"
     assert "completo" in str(ws.cell(3, 3).value).lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sin comparación semanal no hay veredicto: el Campaign CSV solo, el by-Child
+# solo, o un BR diario sin semana anterior terminaban en "Semana estable".
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 7 fechas: todas son la semana actual y la anterior queda en 0.
+_BR_BY_DATE_SOLO_ESTA_SEMANA = "".join(
+    ["Date,Ordered Product Sales,Units Ordered,Sessions - Total,Order Item Session Percentage\n"]
+    + [f'8/{d}/26,"MX$500.00",5,25,20.00%\n' for d in range(10, 17)]
+)
+
+
+@pytest.mark.parametrize("br_tw, br_daily", [
+    ({}, None),
+    (_parse_br_wow(_b(_BR_BY_CHILD_DUP)), None),
+    ({}, _parse_br_daily_wow(_b(_BR_BY_DATE_SOLO_ESTA_SEMANA))),
+], ids=["sin-archivos-de-ventas", "by-child-solo", "br-diario-sin-semana-anterior"])
+def test_ejecutivo_sin_variacion_de_ventas_no_inventa_conclusion(br_tw, br_daily):
+    buf = wcr._build_weekly_excel(br_tw, {}, {}, {}, "TEST", "es", br_daily)
+    texto = _texto_hoja(_hoja_ejecutivo(buf))
+
+    assert "Semana estable" not in texto and "CONCLUSIÓN" not in texto, texto
+
+
+def test_ejecutivo_con_variacion_de_ventas_mantiene_la_conclusion():
+    buf = wcr._build_weekly_excel({}, {}, {}, {}, "TEST", "es", _parse_br_daily_wow(_b(_BR_BY_DATE_14D)))
+    texto = _texto_hoja(_hoja_ejecutivo(buf))
+
+    assert "CONCLUSIÓN" in texto and "Semana estable" in texto
+
+
+@pytest.mark.parametrize("lang, aviso", [
+    ("es", "⚠️ Sin comparación semanal por producto. Los montos por ASIN son del período completo."),
+    ("en", "⚠️ No weekly comparison per product. Per-ASIN amounts cover the full period."),
+])
+def test_aviso_de_periodo_completo_sin_dias_conocidos_no_inventa_los_dias(lang, aviso):
+    ws = _wow_sheet(wcr._build_weekly_excel({}, {}, {}, {}, "TEST", lang, None))
+    texto = _texto_hoja(ws)
+
+    assert "?d" not in texto, texto
+    assert aviso in texto, texto
