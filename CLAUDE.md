@@ -103,7 +103,7 @@ corre la suite entera sobre un checkout limpio.
 | 17 | 📊 Account Pulse | Research | ✅ conectado 2026-03-27 (monitor salud diaria + festivos MX); IT-45 2026-09-28: ACoS/TACoS de cada semana y campañas de la cuenta de Amazon Ads (SP+SB+SD) en lugar del Campaign CSV + Análisis IA |
 | 18 | 🔬 Reportes Atom 11 | Account | ✅ completo |
 | 19 | 🛡️ Reportes MerchanSpring | Account | ✅ completo |
-| 20 | 📊 Weekly Client Report | Account | ✅ completo; IT-45 2026-09-28: hoja Advertising de la cuenta de Amazon Ads (SP+SB+SD, NTB de SB y SD) en lugar del Campaign CSV + Análisis IA con el resumen para el cliente; 2026-09-29: stock FBA/AWD/Izzi por ASIN del último snapshot del Pricing Dashboard (grupo STOCK en WoW Comparison) |
+| 20 | 📊 Weekly Client Report | Account | ✅ completo; IT-45 2026-09-28: hoja Advertising de la cuenta de Amazon Ads (SP+SB+SD, NTB de SB y SD) en lugar del Campaign CSV + Análisis IA con el resumen para el cliente; 2026-09-29: stock FBA por ASIN del último snapshot del Pricing Dashboard (grupo STOCK en WoW Comparison; AWD/Izzi cuando el Pricing los integre) |
 | 21 | ⚙️ Atom11 Rules Builder | PPC | ✅ nuevo 2026-03-23 |
 | 22 | 📚 Knowledge Base | Knowledge | ✅ conectado 2026-03-27 (explorar + agregar notas .md) |
 | 23 | 👁️ Listing Monitor | Account Manager | ✅ nuevo 2026-04-09 |
@@ -307,7 +307,7 @@ _build_merchanspring_excel(data, client_name)
 | BR by Child | By ASIN → Child Item | Desglose por ASIN |
 | Atom 11 ASIN | ASIN → DateRange 14d | Ad Spend/Sales split 7+7 |
 | Cuenta de Amazon Ads (opcional, IT-45) | Bloque en la página: cuenta + país, sin export | Hoja Advertising sobre los días del BR diario: KPIs, campañas, portfolios, NTB de SB y SD (DPV no se sincroniza) |
-| Stock del Pricing Dashboard (opcional) | Selector en la página, sin archivo | Grupo STOCK (FBA/AWD/Izzi/Total) por ASIN en WoW Comparison, del último snapshot guardado |
+| Stock del Pricing Dashboard (opcional) | Selector en la página, sin archivo | Grupo STOCK (solo FBA por ahora) por ASIN en WoW Comparison, del último snapshot guardado |
 
 ### Output Excel 3 hojas
 - `📈 WoW Comparison` — fila azul CUENTA TOTAL + desglose por ASIN (+ grupo STOCK al final si se elige cliente del Pricing Dashboard)

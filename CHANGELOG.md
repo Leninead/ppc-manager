@@ -15,8 +15,12 @@ de Amazon que la plataforma guarda es el snapshot del Pricing Dashboard (M30), c
 **Ahora.**
 - Selector «Stock del Pricing Dashboard» debajo del nombre del cliente, con los clientes del Pricing Dashboard.
   Por defecto «(sin stock)»: el reporte sale como antes.
-- Con un cliente, la hoja «WoW Comparison» suma un grupo STOCK al final, después de TACoS (FBA, AWD, Izzi y Total),
-  con la fecha del snapshot en el encabezado. Cada ASIN suma sus SKUs. La fila CUENTA TOTAL suma todo el snapshot.
+- Con un cliente, la hoja «WoW Comparison» suma un grupo STOCK al final, después de TACoS, con una sola columna FBA
+  y la fecha del snapshot en el encabezado. Cada ASIN suma sus SKUs. La fila CUENTA TOTAL suma el FBA de todo el
+  snapshot.
+- AWD e Izzi quedan afuera: el Pricing Dashboard todavía no los integra y los guarda en 0, que no es un dato. La nota
+  al pie lo dice. Las columnas del grupo se declaran en un solo lugar (`REPORT_COLUMNS` de
+  `core/weekly_report/stock.py`) para sumarlas cuando el Pricing las guarde de verdad.
 - Un dato que el snapshot no trae queda «—», nunca 0. Un 0 del snapshot se muestra como 0: es un quiebre real.
 - La nota al pie dice de dónde sale el stock, de qué fecha es y cuántos SKUs sin ASIN quedaron afuera. Si el snapshot
   es anterior a la semana del reporte, lo avisa con los días. La pantalla muestra el mismo texto.

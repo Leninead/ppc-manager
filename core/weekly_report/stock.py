@@ -17,6 +17,9 @@ AREA = "account-health"
 MODULE = "pricing-dashboard"
 STOCK_FIELDS = (("fba", "fba_available"), ("awd", "awd_available"), ("izzi", "izzi_available"),
                 ("total", "total_stock"))
+REPORT_COLUMNS = (("fba", "FBA"),)
+"""The stock columns the report shows. The Pricing Dashboard saves AWD and Izzi as 0 until it integrates them, so
+they stay out; add ("awd", "AWD"), ("izzi", "Izzi") and ("total", "Total") here once it saves them for real."""
 
 
 @dataclass(frozen=True)

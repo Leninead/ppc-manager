@@ -8,7 +8,9 @@ import pytest
 from openpyxl import load_workbook
 
 from core.weekly_report import stock as stock_mod
-from core.weekly_report.stock import AsinStock, StockSnapshot, days_before_week, latest_stock, stock_by_asin
+from core.weekly_report.stock import (
+    REPORT_COLUMNS, AsinStock, StockSnapshot, days_before_week, latest_stock, stock_by_asin,
+)
 from modules.pages import weekly_client_report as wcr
 
 DASH = "—"
@@ -51,7 +53,7 @@ def _row_of(ws, asin: str) -> int:
 
 
 def _stock_cells(ws, row: int) -> list:
-    return [ws.cell(row, FIRST_STOCK_COL + i).value for i in range(4)]
+    return [ws.cell(row, FIRST_STOCK_COL + i).value for i in range(len(REPORT_COLUMNS))]
 
 
 def _notes(ws) -> list[str]:
@@ -192,27 +194,28 @@ def test_without_stock_the_sheet_ends_at_tacos():
     assert not any("Stock" in note for note in _notes(ws))
 
 
-def test_the_stock_group_goes_after_tacos_with_its_date():
+def test_the_stock_group_is_one_fba_column_after_tacos_with_its_date():
     ws = _excel(_stock_for_report())
 
     assert ws.cell(2, FIRST_STOCK_COL).value == "STOCK al 2026-08-12"
-    assert _stock_cells(ws, 3) == ["FBA", "AWD", "Izzi", "Total"]
+    assert _stock_cells(ws, 3) == ["FBA"]
+    assert ws.max_column == FIRST_STOCK_COL
     assert ws.cell(3, 23).value == "Esta semana", "TACoS stays in column 23"
 
 
 def test_each_asin_shows_its_units_a_real_zero_and_a_dash_when_unknown():
     ws = _excel(_stock_for_report())
 
-    assert _stock_cells(ws, _row_of(ws, "B0TEST0001")) == [10, 5, 1, 16]
-    assert _stock_cells(ws, _row_of(ws, "B0TEST0002")) == [0, 0, 0, 0]
-    assert _stock_cells(ws, _row_of(ws, "B0TEST0003")) == [DASH] * 4
+    assert _stock_cells(ws, _row_of(ws, "B0TEST0001")) == [10]
+    assert _stock_cells(ws, _row_of(ws, "B0TEST0002")) == [0]
+    assert _stock_cells(ws, _row_of(ws, "B0TEST0003")) == [DASH]
 
 
-def test_the_account_row_adds_up_the_snapshot():
+def test_the_account_row_adds_up_the_snapshot_fba():
     ws = _excel(_stock_for_report())
 
     assert ws.cell(4, 1).value == "▶ CUENTA TOTAL"
-    assert _stock_cells(ws, 4) == [10, 5, 1, 16]
+    assert _stock_cells(ws, 4) == [10]
 
 
 def test_the_note_names_the_source_date_and_skus_left_out():
@@ -221,6 +224,7 @@ def test_the_note_names_the_source_date_and_skus_left_out():
     stock_note = next(note for note in _notes(ws) if note.startswith("Stock:"))
     assert "Pricing Dashboard de Dermaglos (2026-08-12)" in stock_note
     assert "SKUs sin ASIN fuera del stock: 1" in stock_note
+    assert "AWD e Izzi todavía no se integran en el Pricing Dashboard: el stock es solo FBA" in stock_note
     assert "anterior a la semana" not in stock_note
 
 
@@ -235,13 +239,13 @@ def test_a_client_without_snapshots_gets_dashes_and_says_so():
     ws = _excel(StockSnapshot())
 
     assert ws.cell(2, FIRST_STOCK_COL).value == "STOCK (sin snapshot)"
-    assert _stock_cells(ws, 4) == [DASH] * 4
-    assert _stock_cells(ws, _row_of(ws, "B0TEST0001")) == [DASH] * 4
+    assert _stock_cells(ws, 4) == [DASH]
+    assert _stock_cells(ws, _row_of(ws, "B0TEST0001")) == [DASH]
     assert any("Dermaglos no tiene snapshots" in note for note in _notes(ws))
 
 
 def test_without_the_daily_report_the_stock_still_shows_per_asin():
     ws = _excel(_stock_for_report(), daily=False)
 
-    assert _stock_cells(ws, _row_of(ws, "B0TEST0001")) == [10, 5, 1, 16]
+    assert _stock_cells(ws, _row_of(ws, "B0TEST0001")) == [10]
     assert any(note.startswith("Stock:") for note in _notes(ws))

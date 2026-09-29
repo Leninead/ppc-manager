@@ -16,7 +16,7 @@ from core.currency_format import excel_money_format, money
 from core.weekly_report.advertising import advertising_summary
 from core.weekly_report.analysis import ANALYSIS_MODULE, build_analysis_input
 from core.pricing_clients import PRICING_CLIENTS
-from core.weekly_report.stock import StockSnapshot, days_before_week, latest_stock
+from core.weekly_report.stock import REPORT_COLUMNS, StockSnapshot, days_before_week, latest_stock
 from modules.pages.ad_account_block import (
     AccountAds,
     AdAccountChoice,
@@ -641,7 +641,8 @@ _L_EXEC = {
                           "Los montos por ASIN son del período completo. La comparación "
                       "semanal de la cuenta está en la hoja Reporte Ejecutivo."),
         "note": "* ACoS = Gasto Ads / Ventas Ads  |  TACoS = Gasto Ads / Ventas Totales  |  \u2014 = dato no disponible",
-        "stock": "STOCK al {date}", "stock_nodate": "STOCK (sin snapshot)", "stock_total": "Total",
+        "stock": "STOCK al {date}", "stock_nodate": "STOCK (sin snapshot)",
+        "stock_fba_only": "  |  AWD e Izzi todavía no se integran en el Pricing Dashboard: el stock es solo FBA",
         "stock_note": ("Stock: \u00faltimo snapshot del Pricing Dashboard de {client} ({date}), por ASIN sumando sus SKUs"
                        "  |  SKUs sin ASIN fuera del stock: {skus}"),
         "stock_none": "Stock: {client} no tiene snapshots guardados en el Pricing Dashboard; las columnas quedan en \u2014",
@@ -693,7 +694,8 @@ _L_EXEC = {
                           "Per-ASIN amounts cover the full period. The account's "
                       "weekly comparison is in the Executive Report sheet."),
         "note": "* ACoS = Ad Spend / Ad Sales  |  TACoS = Ad Spend / Total Sales  |  \u2014 = not available",
-        "stock": "STOCK as of {date}", "stock_nodate": "STOCK (no snapshot)", "stock_total": "Total",
+        "stock": "STOCK as of {date}", "stock_nodate": "STOCK (no snapshot)",
+        "stock_fba_only": "  |  AWD and Izzi are not integrated in the Pricing Dashboard yet: the stock is FBA only",
         "stock_note": ("Stock: {client}'s latest Pricing Dashboard snapshot ({date}), per ASIN adding up its SKUs"
                        "  |  SKUs without an ASIN left out: {skus}"),
         "stock_none": "Stock: {client} has no Pricing Dashboard snapshots saved; the columns show \u2014",
@@ -748,6 +750,8 @@ def _stock_note(stock: StockSnapshot, client: str, br_daily, t: dict) -> str:
     stale_days = days_before_week(stock.snapshot_date, week_start)
     if stale_days:
         text += t["stock_stale"].format(days=stale_days, start=week_start)
+    if not {"awd", "izzi"} & {field for field, _ in REPORT_COLUMNS}:
+        text += t["stock_fba_only"]
     return text
 
 
@@ -894,7 +898,7 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
     stock_col = 3 + sum(len(g[2]) for g in WOW_GROUPS)
     if stock is not None:
         stock_label = t["stock"].format(date=stock.snapshot_date) if stock.snapshot_date else t["stock_nodate"]
-        WOW_GROUPS.append((stock_label, False, ["FBA", "AWD", "Izzi", t["stock_total"]]))
+        WOW_GROUPS.append((stock_label, False, [label for _, label in REPORT_COLUMNS]))
     total_cols = 2 + sum(len(g[2]) for g in WOW_GROUPS)
 
     ws1.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
@@ -1031,8 +1035,8 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
         else:
             _cell(ws1, rn, 23, "\u2014", bg=BLUE_L_TOT, fg=BLUE_D_TOT)
         if stock is not None:
-            acct = stock.account
-            for i, units in enumerate((acct.fba, acct.awd, acct.izzi, acct.total)):
+            for i, (field, _) in enumerate(REPORT_COLUMNS):
+                units = getattr(stock.account, field)
                 if units is None:
                     _cell(ws1, rn, stock_col + i, "\u2014", bg=BLUE_L_TOT, fg=BLUE_D_TOT)
                 else:
@@ -1098,8 +1102,8 @@ def _build_weekly_excel(br_tw, br_pw, atom_tw, atom_pw, client_name="", lang="es
             dc(23, None)
         if stock is not None:
             item = stock.for_asin(row["asin"])
-            for i, units in enumerate((item.fba, item.awd, item.izzi, item.total)):
-                dc(stock_col + i, units, "#,##0")
+            for i, (field, _) in enumerate(REPORT_COLUMNS):
+                dc(stock_col + i, getattr(item, field), "#,##0")
 
     note_rn = 4 + offset + len(rows_data) + 1
     ws1.merge_cells(start_row=note_rn, start_column=1, end_row=note_rn, end_column=total_cols)
@@ -1485,7 +1489,7 @@ def render():
     stock_client = st.selectbox(
         "Stock del Pricing Dashboard / Pricing Dashboard stock", [NO_STOCK, *PRICING_CLIENTS],
         key="weekly_stock_client",
-        help="Suma al WoW Comparison el stock FBA, AWD e Izzi de cada ASIN, del último snapshot guardado en el "
+        help="Suma al WoW Comparison el stock FBA de cada ASIN, del último snapshot guardado en el "
              "Pricing Dashboard de ese cliente.",
     )
 

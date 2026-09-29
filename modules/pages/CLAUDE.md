@@ -963,8 +963,12 @@ _L_EXEC                           # textos del ejecutivo, a NIVEL DE MÓDULO (te
 - `core/weekly_report/stock.latest_stock(slug)` lee el último period de `account-health/<slug>/pricing-dashboard` vía
   `core.persistence` (local o base) y `stock_by_asin` suma los SKUs de cada ASIN. Un SKU sin ASIN no llega a ninguna
   fila: se cuenta en `skus_without_asin` y la nota lo dice.
-- Grupo STOCK al FINAL de WoW Comparison (columnas 24-27: FBA, AWD, Izzi, Total), para no correr las columnas fijas
-  3-23. Encabezado con la fecha del snapshot; CUENTA TOTAL = todo el snapshot.
+- Grupo STOCK al FINAL de WoW Comparison (desde la columna 24), para no correr las columnas fijas 3-23. Encabezado
+  con la fecha del snapshot; CUENTA TOTAL = el FBA de todo el snapshot.
+- **Solo FBA.** El Pricing Dashboard guarda `awd_available` e `izzi_available` en 0 porque todavía no los integra (sus
+  lookups son `{}`), y `total_stock` es entonces solo FBA: mostrarlos sería inventar ceros. Las columnas del grupo se
+  declaran en UN lugar, `REPORT_COLUMNS` de `core/weekly_report/stock.py`; `stock_by_asin` ya agrega los cuatro campos,
+  así que sumar AWD/Izzi/Total es agregarlos ahí cuando el Pricing los guarde de verdad (y la nota «solo FBA» se va sola).
 - **Sin dato es «—», nunca 0**; un 0 del snapshot sí se muestra (quiebre real). Sin snapshots: «STOCK (sin snapshot)».
 - `_stock_note` arma la nota al pie y el texto de la pantalla (fuente, fecha, SKUs sin ASIN y, si el snapshot es
   anterior a `period_tw.start` del BR diario, cuántos días).
