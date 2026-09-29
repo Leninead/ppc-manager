@@ -3,6 +3,7 @@ import io
 import logging
 import re
 import unicodedata
+from datetime import datetime, timezone
 from functools import partial
 from types import SimpleNamespace
 
@@ -20,7 +21,9 @@ from core.ai_analysis.chat_context import (
     in_memory_analysis,
 )
 from core.ai_analysis.store import TRIGGER_SCHEDULED, AiAnalysisStore
+from core.amazon_ads.report_provider import ReportReadError
 from core.bulk.export import build_adgroup_negative, write_bulk_excel
+from core.date_labels import data_of_day_phrase
 from core.integrations.store import StoreError
 from core.integrations.sync_jobs import SyncJobStore
 from core.currency_format import currency_symbol, money
@@ -44,9 +47,8 @@ from core.search_term.candidates import uses_dollar_price as _uses_dollar_price
 from core.search_term.frame import SOURCE_FILE
 from core.search_term.negatives import (
     ACTION_NEGATIVE,
-    AD_GROUP_STATE_UNVERIFIED_NOTE,
-    EXACT_GUARD_PARTIAL_NOTE,
     ad_group_guards,
+    bulk_guard_notes,
     evaluate_candidates,
     negative_key,
     select_for_bulk,
@@ -61,9 +63,12 @@ from core.chat.screen_selection import (
     account_window,
 )
 from modules.pages import search_term_source
+from modules.pages.keyword_listing_source import listing_moment, load_keyword_listing, profile_option
 from modules.pages.search_term_source import DISPLAY_TIMEZONE, date_range_label, render_source_picker, shows_older_data
 
 log = logging.getLogger(__name__)
+
+LISTING_MOMENT_CAPTION = "Controles del bulk según el listado de Sponsored Products {listed}."
 
 DEFAULT_PRIORITY_FILTER = ["Alta", "Media"]
 RELEASED_RANKING_KEY = "neg_released_ranking"
@@ -382,17 +387,34 @@ def _bulk_file_name(source_label, currency_code, day):
     return f"negativos_bulk_{label_slug}_{currency}_{day.isoformat()}.xlsx"
 
 
+def _keyword_listing_for(source):
+    """The SP listing of the account behind API data, or None when it cannot be read and the guards stay partial."""
+    option = profile_option(source.profile_id) if source.profile_id else None
+    if option is None:
+        return None
+    try:
+        return load_keyword_listing(option, search_term_source.profile_today(option, datetime.now(timezone.utc)))
+    except ReportReadError as exc:
+        log.warning("negatives bulk: SP listing of profile %s unreadable, guards stay partial: %s",
+                    source.profile_id, exc)
+        return None
+
+
 def _render_negatives_bulk(candidates, unfiltered_frame, source, day, *, price_missing):
     """Ad-group negatives bulk from Amazon Ads data: the download plus what stayed out and why."""
+    listing = _keyword_listing_for(source)
     try:
-        guards = ad_group_guards(unfiltered_frame)
+        guards = ad_group_guards(unfiltered_frame, listing)
         _, unreleased_exclusions = select_for_bulk(candidates, unfiltered_frame, guards=guards)
     except ValueError as exc:
         log.error("negatives bulk could not be built for %s: %s", source.label, exc)
         st.error("No se pudo armar el bulk de negativos con estos datos. Quedó registrado en el log.")
         return
-    st.caption(EXACT_GUARD_PARTIAL_NOTE)
-    st.caption(AD_GROUP_STATE_UNVERIFIED_NOTE)
+    if listing is not None and listing.known:
+        st.caption(LISTING_MOMENT_CAPTION.format(
+            listed=listing_moment(listing.listed_at, datetime.now(timezone.utc), data_of_day_phrase)))
+    for note in bulk_guard_notes(listing):
+        st.caption(note)
     # The download sits above the release boxes but is built from what they say, so it is filled in last.
     download_slot = st.container()
     exclusions_heading_slot = st.container()

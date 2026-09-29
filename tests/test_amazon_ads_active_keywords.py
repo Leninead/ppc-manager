@@ -3,7 +3,7 @@ import csv
 import io
 from datetime import date
 
-from core.amazon_ads.active_keywords import active_keyword_texts, normalized_keyword
+from core.amazon_ads.active_keywords import active_keyword_texts, enabled_exact_keyword_texts, normalized_keyword
 from core.amazon_ads.report_provider import ProfileOption
 from core.amazon_ads.structure_provider import (
     AD_GROUP,
@@ -100,3 +100,25 @@ def test_product_targets_are_not_keywords():
 def test_normalized_keyword_is_the_form_both_sides_are_compared_in():
     assert normalized_keyword("  Crema  Vitamina A ") == "crema vitamina a"
     assert normalized_keyword("STRASSE") == normalized_keyword("straße")
+
+
+def _enabled_exact(*rows) -> frozenset[str]:
+    structure = StructureProvider(_FakeRest(list(rows))).sp_structure(PROFILE, DAY, DAY)
+    return enabled_exact_keyword_texts(structure.rows)
+
+
+def test_the_exact_universe_is_every_enabled_exact_keyword_whatever_its_campaign():
+    # INV-11.2 reads the keyword's own state, as a Bulk File's keyword rows carry it: a paused campaign keeps it in.
+    exact = _enabled_exact(_campaign("1"), _campaign("2", state="PAUSED"), _ad_group("10"),
+                           _keyword("Luna  Pajamas", campaign_id="1"), _keyword("sleep sack", campaign_id="2"),
+                           _keyword("paused exact", state="PAUSED"), _keyword("broad one", match_type="BROAD"),
+                           _keyword("phrase one", match_type="PHRASE"))
+
+    assert exact == {"luna pajamas", "sleep sack"}
+
+
+def test_the_exact_universe_has_no_product_targets_and_no_blank_texts():
+    target = _row(PRODUCT_TARGETING, campaign_id="1", ad_group_id="10", entity_id="t-1", target_kind="product",
+                  target_text='asin="B0CYLMJJJC"', match_type="EXACT")
+
+    assert _enabled_exact(_campaign("1"), target, _keyword("   ")) == frozenset()

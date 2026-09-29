@@ -7,25 +7,19 @@ import hashlib
 import html
 import io
 import logging
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from functools import partial
 
 import pandas as pd
-import requests
 import streamlit as st
 
 from ai.agents.sbh.chat_document import row_item
 from ai.agents.sbh.context import MAX_HEADLINE_CHARS
 from core.amazon_ads.active_keywords import active_keyword_texts
 from core.amazon_ads.report_provider import ProfileOption, ReportReadError
-from core.amazon_ads.structure_provider import AD_GROUP, CAMPAIGN, KEYWORD, SpStructure, StructureProvider
-from core.amazon_ads.sync_planner import CAMPAIGN_ENTITIES_KIND, SP_TARGETS_KIND
 from core.chat import app_chat
 from core.date_labels import data_of_day_phrase, day_phrase
 from core.helpers import extract_sqp_brand, kpi_card, read_sqp
-from core.integrations.store import _error_message
-from core.integrations.sync_jobs import SyncJobStore
 from core.sbh.analysis import ANALYSIS_MODULE, build_analysis_input, sbh_row_labels
 from core.sbh.targets import (
     COL_CLUSTER,
@@ -45,8 +39,8 @@ from core.sbh.targets import (
 from core.ui import palette
 from modules.pages import search_term_source
 from modules.pages.datadive_analyzer import _parse_mkl
+from modules.pages.keyword_listing_source import listing_moment, load_keyword_listing
 from modules.pages.search_term_source import (
-    DISPLAY_TIMEZONE,
     count_label,
     country_labels,
     group_by_label,
@@ -58,7 +52,6 @@ log = logging.getLogger(__name__)
 
 MODULE_LABEL = "SBH Recommendation"
 KEY_PREFIX = "sbh"
-SP_KEYWORDS_TTL_SECONDS = 15 * 60
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 SP_BLOCK_TITLE = "Keywords activas en Sponsored Products"
@@ -73,13 +66,11 @@ NOT_LISTED_NOTE = ("Todavía no hay un listado de las campañas y keywords de Sp
 REFUSED_NOTE = ("Amazon rechazó el listado de Sponsored Products de esta cuenta: «{refusal}». «En SP» queda sin dato; "
                 "si sigue así, avisale a un admin.")
 UNREADABLE_NOTE = "«En SP» queda sin dato."
-NO_DATABASE_MESSAGE = "No hay base de datos configurada para leer las keywords de Sponsored Products."
 IN_SP_KNOWN_CAPTION = ("«En SP»: la keyword corre hoy en Sponsored Products de {account} con ese mismo texto, en "
                        "cualquier match type (keyword, campaña y ad group habilitados), según el listado {listed}.")
 IN_SP_UNKNOWN_CAPTION = ("«En SP» sin dato (—): no hay un listado de Sponsored Products de la cuenta de la marca. "
                          "La prioridad trata esas keywords como si no corrieran en SP.")
 
-_LISTING_ACTION = "leer el listado de Sponsored Products de la cuenta"
 _VERDICT_COLORS = {
     "LANZAR": "background-color:#EAF3DE;color:#173404",
     "PROBAR": "background-color:#FAEEDA;color:#412402",
@@ -241,27 +232,28 @@ def _render_sp_keywords() -> SpKeywordCoverage:
                                     country_code=option.country_code)
         now = datetime.now(timezone.utc)
         try:
-            listing = _load_sp_keywords(option, profile_today(option, now))
+            listing = load_keyword_listing(option, profile_today(option, now))
         except ReportReadError as exc:
             log.warning("SBH: SP keywords unreadable for profile %s: %s", option.profile_id, exc)
             header.markdown(_block_header("err", "No se pudo leer"), unsafe_allow_html=True)
             st.error(f"{exc} {UNREADABLE_NOTE}")
             return unknown
-        if listing.keyword_texts is None and listing.refusal:
+        if not listing.known and listing.refusal:
             header.markdown(_block_header("err", "Sin permiso"), unsafe_allow_html=True)
             st.caption(REFUSED_NOTE.format(refusal=listing.refusal))
             return unknown
-        if listing.keyword_texts is None:
+        if not listing.known:
             header.markdown(_block_header("warn", "Sin listar"), unsafe_allow_html=True)
             st.caption(NOT_LISTED_NOTE)
             return unknown
 
-        header.markdown(_block_header("ok", f"Listadas {_listing_moment(listing.listed_at, now, day_phrase)}"),
+        keyword_texts = active_keyword_texts(listing.rows)
+        header.markdown(_block_header("ok", f"Listadas {listing_moment(listing.listed_at, now, day_phrase)}"),
                         unsafe_allow_html=True)
-        st.markdown(search_term_source._muted_line_html([_active_keywords_label(len(listing.keyword_texts)),
+        st.markdown(search_term_source._muted_line_html([_active_keywords_label(len(keyword_texts)),
                                                          html.escape(unknown.account_label)]),
                     unsafe_allow_html=True)
-        return SpKeywordCoverage(listing.keyword_texts, unknown.account_label, option.profile_id,
+        return SpKeywordCoverage(keyword_texts, unknown.account_label, option.profile_id,
                                  option.country_code, listing.listed_at)
 
 
@@ -284,51 +276,6 @@ def _active_keywords_label(count: int) -> str:
 
 def _account_label(option: ProfileOption) -> str:
     return f"{option.label} · {option.country_code}" if option.country_code else option.label
-
-
-def _listing_moment(listed_at: datetime, now: datetime, phrase) -> str:
-    """The listing's day as `phrase` words it (day_phrase, data_of_day_phrase) and its time, in the team's timezone."""
-    local = listed_at.astimezone(DISPLAY_TIMEZONE)
-    return f"{phrase(local.date(), now.astimezone(DISPLAY_TIMEZONE).date())} {local:%H:%M}"
-
-
-@dataclass(frozen=True)
-class _SpListing:
-    """What the account's latest SP listing says about its keywords."""
-
-    keyword_texts: frozenset[str] | None = None  # None while its campaigns or keywords were never listed
-    listed_at: datetime | None = None
-    refusal: str = ""  # the warning of a listing Amazon refused
-
-
-@st.cache_data(ttl=SP_KEYWORDS_TTL_SECONDS, show_spinner="Leyendo las keywords de Sponsored Products de la cuenta…")
-def _load_sp_keywords(option: ProfileOption, day: date) -> _SpListing:
-    """The account's running SP keywords and when they were listed, or why they are unknown."""
-    rest = search_term_source._open_rest()
-    if rest is None:
-        raise ReportReadError(NO_DATABASE_MESSAGE)
-    structure = StructureProvider(rest).sp_structure(option, day, day, entities=(CAMPAIGN, AD_GROUP, KEYWORD))
-    if structure is None:
-        return _SpListing()
-    campaigns_listed, campaigns_refusal = _family_listing(rest, structure, CAMPAIGN, CAMPAIGN_ENTITIES_KIND)
-    keywords_listed, keywords_refusal = _family_listing(rest, structure, KEYWORD, SP_TARGETS_KIND)
-    if campaigns_listed is None or keywords_listed is None:
-        return _SpListing(refusal=campaigns_refusal or keywords_refusal)
-    return _SpListing(active_keyword_texts(structure.rows), keywords_listed)
-
-
-def _family_listing(rest, structure: SpStructure, family: str, job_kind: str) -> tuple[datetime | None, str]:
-    """When a family was last listed (its newest row, or a listing that completed without rows), or its refusal."""
-    if family in structure.listed_at:
-        return structure.listed_at[family], ""
-    try:
-        job = SyncJobStore(rest).latest_completed_for_profile(structure.profile_id, job_kind)
-    except (requests.RequestException, ValueError) as exc:
-        raise ReportReadError(_error_message(exc, _LISTING_ACTION)) from exc
-    if job is None:
-        return None, ""
-    # A listing Amazon refused also completes, with no rows and the refusal as its warning.
-    return (None, job.warning) if job.warning else (job.finished_at, "")
 
 
 def _render_targets(targets: SbhTargets, coverage: SpKeywordCoverage):
@@ -413,7 +360,7 @@ def _render_targets(targets: SbhTargets, coverage: SpKeywordCoverage):
 def _in_sp_caption(coverage: SpKeywordCoverage) -> str:
     if not coverage.known:
         return IN_SP_UNKNOWN_CAPTION
-    listed = _listing_moment(coverage.listed_at, datetime.now(timezone.utc), data_of_day_phrase)
+    listed = listing_moment(coverage.listed_at, datetime.now(timezone.utc), data_of_day_phrase)
     return IN_SP_KNOWN_CAPTION.format(account=coverage.account_label, listed=listed)
 
 

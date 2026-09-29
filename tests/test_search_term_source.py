@@ -23,6 +23,7 @@ from ai.agents.str.context import StrData, build_context
 from core.chat import ads_scope
 from ai.agent_call import build_agent_call
 from core.amazon_ads.report_provider import ProfileOption, ReportProvider
+from core.amazon_ads.structure_provider import ROW_COLUMNS as STRUCTURE_ROW_COLUMNS
 from core.search_term.analysis import build_analysis_input, canonical_analysis_window
 from core.search_term.candidates import StrAnalysisParams, add_metric_columns, detect_columns
 from core.integrations.sync_jobs import SyncJob
@@ -304,13 +305,15 @@ class TestPickerKeys:
 
 
 class _FakeRest:
-    """In-memory PostgREST: the three tables and two functions the picker reads."""
+    """In-memory PostgREST: the tables and functions the picker and the negatives bulk read."""
 
-    def __init__(self, profile_rows, job_rows=(), request_rows=(), search_term_rows=(), refresh_reason="created"):
+    def __init__(self, profile_rows, job_rows=(), request_rows=(), search_term_rows=(), refresh_reason="created",
+                 structure_rows=()):
         self.profile_rows = list(profile_rows)
         self.job_rows = list(job_rows)
         self.request_rows = list(request_rows)
         self.search_term_rows = list(search_term_rows)
+        self.structure_rows = list(structure_rows)
         self.refresh_reason = refresh_reason
         self.rpc_calls = []
         self.search_term_reads = []
@@ -348,6 +351,8 @@ class _FakeRest:
         raise AssertionError(f"unexpected table {table}")
 
     def rpc_csv(self, name, args, *, timeout_s=8):
+        if name == "sp_structure_between":
+            return pd.DataFrame(self.structure_rows, columns=list(STRUCTURE_ROW_COLUMNS)).to_csv(index=False).encode()
         assert name == "search_terms_between"
         span = (date.fromisoformat(args["p_to"]) - date.fromisoformat(args["p_from"])).days + 1
         self.search_term_reads.append(span)

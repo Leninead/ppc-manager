@@ -16,13 +16,19 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-from core.amazon_ads.advertised_asins import FROM_AD_GROUP, FROM_CAMPAIGN_NAME, SEVERAL_ASINS, WITHOUT_ASIN
+from core.amazon_ads.advertised_asins import SEVERAL_ASINS, WITHOUT_ASIN
 from core.amazon_ads.report_provider import ReportProvider, ReportReadError
 from core.currency_format import currency_symbol, excel_money_format, money
 from core.helpers import kpi_card
 from core.integrations.store import StoreError
 from core.ppc_insights.analysis import ANALYSIS_MODULE, CANONICAL_LANG, build_analysis_input, insights_row_labels
-from core.ppc_insights.asin_health import FROM_FILE, NO_ASINS, InsightsAnalysisParams, analyze_asins, resolve_asins
+from core.ppc_insights.asin_health import (
+    NO_ASINS,
+    InsightsAnalysisParams,
+    analyze_asins,
+    asin_coverage_caption,
+    resolve_asins,
+)
 from core.search_term.candidates import uses_dollar_price
 from core.search_term.file import SearchTermFileError
 from core.chat.screen_selection import (
@@ -57,10 +63,6 @@ _GENERATED_FOR_KEY = "insights_generated_for"
 _RESULT_KEY = "insights_result"
 _SEEDED_ACCOUNT_KEY = "insights_seeded_account"
 
-_ORIGIN_LABELS = {FROM_FILE: "columna de ASIN del archivo", FROM_AD_GROUP: "producto anunciado del ad group",
-                  FROM_CAMPAIGN_NAME: "nombre de la campaña",
-                  SEVERAL_ASINS: "ad groups con varios ASINs sin ASIN en el nombre", WITHOUT_ASIN: "sin ASIN"}
-_UNATTRIBUTED_ORIGINS = (SEVERAL_ASINS, WITHOUT_ASIN)
 _NO_ASIN_CAUSES = {SEVERAL_ASINS: "ad groups que anuncian varios ASINs",
                    WITHOUT_ASIN: "ad groups que el listado de productos anunciados no vio"}
 NO_ASIN_FROM_FILE = ("El archivo no trae la columna de ASIN y ningún nombre de campaña lleva uno. Se muestra la "
@@ -464,21 +466,6 @@ def _insights_for(signature, source, f_sqp, f_br, f_camp, target_acos):
         result = _compute_insights(source, _ad_group_asins(source), f_sqp, f_br, f_camp, target_acos)
     st.session_state[_RESULT_KEY] = (signature, result)
     return result
-
-
-def asin_coverage_caption(asin_source, spend_share):
-    """Where the ASINs came from, as shares of the report's spend; "" when there is nothing to say."""
-    if asin_source == NO_ASINS or not spend_share:
-        return ""
-    outside = sum(share for origin, share in spend_share.items() if origin in _UNATTRIBUTED_ORIGINS)
-    if asin_source == FROM_FILE and outside == 0:
-        return ""
-    ordered = sorted(spend_share.items(), key=lambda item: -item[1])
-    parts = [f"{_ORIGIN_LABELS.get(origin, origin)} {share:.1f}%" for origin, share in ordered]
-    text = "Gasto por origen del ASIN: " + " · ".join(parts)
-    if outside > 0:
-        text += f". El {outside:.1f}% sin ASIN no entra en las cards."
-    return text
 
 
 def no_asin_notice(spend_share):

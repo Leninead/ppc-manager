@@ -237,9 +237,13 @@ campaña de la cuenta NO se negativiza, aunque tenga ACoS alto en
 Broad o Phrase.
 
 Requiere cruce contra las keywords Exact enabled de la cuenta.
-Fuente del dato: hoja `Sponsored Products Campaigns` del Bulk File,
-filtrando `Entity == 'Keyword'`, `Match Type == 'Exact'`,
-`State == 'enabled'`.
+Fuente del dato: el listado diario de Sponsored Products de Amazon Ads
+(`core/amazon_ads/active_keywords.enabled_exact_keyword_texts` sobre
+`StructureProvider`), keywords con match type Exact y estado propio
+enabled, tengan o no clicks en el período. Es el mismo universo que la
+hoja `Sponsored Products Campaigns` del Bulk File filtrada por
+`Entity == 'Keyword'`, `Match Type == 'Exact'`, `State == 'enabled'`.
+Un reporte de search terms NO alcanza: sólo trae las keywords con clicks.
 
 Si ese cruce no está disponible, la funcionalidad advierte que el
 guard está inactivo (ver INV-10).
@@ -254,8 +258,11 @@ El default se invierte respecto de lo intuitivo a propósito: el costo
 de no negativizar algo negativizable es unos dólares de spend; el costo
 de negativizar una ranking keyword es posición orgánica perdida.
 
-Fuente del dato: columna `Portfolio Name (Informational only)` de la
-hoja `SP Search Term Report` del Bulk File.
+Fuente del dato: el portfolio de cada fila del reporte de search terms
+(`Portfolio name` del frame canónico; antes, la columna `Portfolio Name
+(Informational only)` de la hoja `SP Search Term Report` del Bulk File).
+Un portfolio cuyo nombre no se sincronizó también se protege: no se
+puede confirmar que no sea RANKING (`is_ranking_protected`).
 
 ### INV-11.4 — Regla 4 (ACoS extremo) no negativiza
 
