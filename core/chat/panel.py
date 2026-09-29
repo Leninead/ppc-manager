@@ -77,7 +77,8 @@ _L = {
                      "bids": "Bids", "asins": "Salud por ASIN",
                      "campaign_health": "Diagnóstico de campañas",
                      "campaign_structure": "Estructura de campañas",
-                     "idle_targets": "Targets sin impresiones"}},
+                     "idle_targets": "Targets sin impresiones",
+                     "audit": "Auditoría PPC"}},
     "en": {"title": "Capybaras Assistant",
            "greeting": "Hi, I'm Capybaras Assistant. Ask me about your clients, "
                        "their accounts or what you're looking at in the app.",
@@ -108,7 +109,8 @@ _L = {
                      "bids": "Bids", "asins": "ASIN health",
                      "campaign_health": "Campaign diagnosis",
                      "campaign_structure": "Campaign structure",
-                     "idle_targets": "Targets without impressions"}},
+                     "idle_targets": "Targets without impressions",
+                     "audit": "PPC audit"}},
 }
 
 
@@ -145,7 +147,7 @@ _TOOL_SOURCES = (
       ("metrics_by_group", "metrics_by_group"), ("action_plan", "action_plan"), ("account", "accounts"),
       ("funnel", "funnel"), ("bid", "bids"),
       ("asin", "asins"), ("campaign_health", "campaign_health"), ("campaign_structure", "campaign_structure"),
-      ("idle_target", "idle_targets"))),
+      ("idle_target", "idle_targets"), ("audit", "audit"))),
 )
 
 

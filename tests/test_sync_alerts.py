@@ -90,6 +90,16 @@ def test_a_failed_sp_structure_listing_names_what_it_lists(job_kind, label):
     assert alert.detail == f"Falló la actualización de {label} después de 3 intentos."
 
 
+@pytest.mark.parametrize("job_kind, label", [
+    ("sb_search_terms", "términos de búsqueda SB"),
+    ("sb_legacy_search_terms", "términos de búsqueda SB del formato anterior"),
+])
+def test_a_failed_sb_search_term_report_names_what_it_brings(job_kind, label):
+    [alert] = _alerts(failed_jobs=[_job(job_kind=job_kind)])
+
+    assert alert.detail == f"Falló la actualización de {label} después de 3 intentos."
+
+
 def test_failure_older_than_24_hours_is_ignored():
     assert _alerts(failed_jobs=[_job(finished_at="2026-09-13T16:00:00+00:00")]) == []
 

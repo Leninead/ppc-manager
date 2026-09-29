@@ -474,10 +474,10 @@ def test_cross_analysis_reads_from_the_rows_the_enabled_exact_keywords_the_bulk_
 
 
 def test_target_graduation_returns_the_quiet_keyword_with_its_ad_group_and_bid():
-    from modules.pages.ppc_audit import _analyze_target_graduation
+    from core.ppc_audit.checks import graduation_targets
 
     frame = _account()
-    graduation = _analyze_target_graduation(frame[frame["Entity"] == "Keyword"], frame[frame["Entity"] == "Campaign"])
+    graduation = graduation_targets(frame[frame["Entity"] == "Keyword"], frame[frame["Entity"] == "Ad Group"])
 
     assert list(graduation["Keyword ID"]) == ["9002"]
     row = graduation.iloc[0]

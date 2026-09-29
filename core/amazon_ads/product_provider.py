@@ -1,8 +1,9 @@
-"""Sponsored Brands / Sponsored Display campaigns and idle targets, read next to the SP campaigns.
+"""Sponsored Brands / Sponsored Display campaigns and idle targets, read next to the SP campaigns, and the SB search
+terms.
 
 Kept apart from `campaign_provider` on purpose: the SP frame feeds the saved AI analysis and the MCP,
-whose inputs must not change when SB and SD show up in M6. Both reads answer None while the database
-lacks migration 015 (the seconds between "Deploy" and "DB migrate"), so the SP page keeps working.
+whose inputs must not change when SB and SD show up in M6. Every read answers None while the database
+lacks its migration (the seconds between "Deploy" and "DB migrate"), so the SP page keeps working.
 """
 from __future__ import annotations
 
@@ -49,6 +50,7 @@ log = logging.getLogger(__name__)
 
 PRODUCT_CAMPAIGNS_RPC = "product_campaigns_between"
 GRADUATION_TARGETS_RPC = "graduation_targets_between"
+SB_SEARCH_TERMS_RPC = "sb_search_terms_between"
 PRODUCT_TYPES = {"SP": "Sponsored Products", "SB": "Sponsored Brands", "SD": "Sponsored Display"}
 PRODUCT_CODES = {name: code for code, name in PRODUCT_TYPES.items()}
 # SB and SD count a purchase after a click or a view; SP only after a click. The click-only numbers go
@@ -76,6 +78,9 @@ BID_STRATEGY_LABELS = {
     "SD": {"clicks": "Optimize for page visits", "conversions": "Optimize for conversions",
            "reach": "Optimize for reach", "leads": "Optimize for leads"},
 }
+SB_SEARCH_TERM_COLUMNS = ("campaign_id", "campaign_name", "ad_group_id", "keyword_id", "keyword_text", "match_type",
+                          "search_term", "impressions", "clicks", "cost", "purchases", "sales", "purchases_clicks",
+                          "sales_clicks", "currency_code")
 
 _CAMPAIGN_TEXT = ("ad_product", "campaign_id", "name", "state", "start_date", "budget_type", "cost_type",
                   "portfolio_id", "portfolio_name", "is_multi_ad_groups", "bid_strategy", "metrics_known",
@@ -84,6 +89,11 @@ _CAMPAIGN_COUNTS = ("impressions", "clicks", "purchases", "purchases_clicks", "v
 _CAMPAIGN_AMOUNTS = ("cost", "sales", "sales_clicks")
 _TARGET_TEXT = ("ad_product", "target_id", "campaign_id", "campaign_name", "ad_group_id", "target_kind",
                 "target_text", "match_type")
+_SEARCH_TERM_TEXT = ("campaign_id", "campaign_name", "ad_group_id", "keyword_id", "keyword_text", "match_type",
+                     "search_term", "currency_code")
+_SEARCH_TERM_COUNTS = ("impressions", "clicks", "purchases", "purchases_clicks")
+_SEARCH_TERM_AMOUNTS = ("cost", "sales", "sales_clicks")
+_SEARCH_TERM_ORDER = ["campaign_name", "campaign_id", "ad_group_id", "keyword_id", "search_term"]
 
 
 @dataclass(frozen=True)
@@ -122,13 +132,26 @@ class ProductProvider:
     def __init__(self, rest: _Rest):
         self._rest = rest
 
-    def campaigns(self, profile_id: str, start: date, end: date) -> ProductCampaigns | None:
+    def campaigns(self, profile_id: str, start: date, end: date, *,
+                  include_archived: bool = False) -> ProductCampaigns | None:
         action = "leer las campañas SB y SD"
         rows = self._read(PRODUCT_CAMPAIGNS_RPC, profile_id, start, end, action)
         if rows is None:
             return None
         try:
-            return product_campaigns(_read_campaigns(rows))
+            return product_campaigns(_read_campaigns(rows), include_archived=include_archived)
+        except ValueError as exc:
+            raise ReportReadError(_error_message(exc, action)) from exc
+
+    def sb_search_terms(self, profile_id: str, start: date, end: date) -> pd.DataFrame | None:
+        """SB search terms summed over the range, a row per campaign, ad group, keyword and term, in
+        `SB_SEARCH_TERM_COLUMNS`."""
+        action = "leer los search terms SB"
+        rows = self._read(SB_SEARCH_TERMS_RPC, profile_id, start, end, action)
+        if rows is None:
+            return None
+        try:
+            return _read_sb_search_terms(rows)
         except ValueError as exc:
             raise ReportReadError(_error_message(exc, action)) from exc
 
@@ -164,58 +187,58 @@ class ProductProvider:
                 timeout_s=READ_TIMEOUT_SECONDS)
         except requests.HTTPError as exc:
             if _is_missing_function(exc):
-                log.info("amazon ads: %s does not exist yet (migration 015 pending)", rpc)
+                log.info("amazon ads: %s does not exist yet (its migration is pending)", rpc)
                 return None
             raise ReportReadError(_error_message(exc, action)) from exc
         except requests.RequestException as exc:
             raise ReportReadError(_error_message(exc, action)) from exc
 
 
-def product_campaigns(totals: pd.DataFrame) -> ProductCampaigns:
-    """The export's columns for SB and SD; ratios as fractions, like the SP frame."""
-    live = totals[totals["state"].str.strip().str.upper() != "ARCHIVED"]
-    live = live.sort_values(["ad_product", "name", "campaign_id"], kind="mergesort").reset_index(drop=True)
+def product_campaigns(totals: pd.DataFrame, *, include_archived: bool = False) -> ProductCampaigns:
+    """The export's columns for SB and SD; ratios as fractions, like the SP frame. Archived ones only when asked."""
+    shown = totals if include_archived else totals[totals["state"].str.strip().str.upper() != "ARCHIVED"]
+    shown = shown.sort_values(["ad_product", "name", "campaign_id"], kind="mergesort").reset_index(drop=True)
     # PostgREST's CSV writes a boolean the way Postgres prints it: "t" / "f", not true / false.
-    without = live["metrics_known"].str.strip().str.lower().isin(("f", "false"))
-    cost, sales, clicks, impressions = live["cost"], live["sales"], live["clicks"], live["impressions"]
+    without = shown["metrics_known"].str.strip().str.lower().isin(("f", "false"))
+    cost, sales, clicks, impressions = shown["cost"], shown["sales"], shown["clicks"], shown["impressions"]
     frame = pd.DataFrame({
-        CAMPAIGN_NAME: live["name"],
-        CAMPAIGN_ID: live["campaign_id"],
-        STATE: live["state"].str.strip().str.upper(),
-        TYPE: live["ad_product"].map(PRODUCT_TYPES),
+        CAMPAIGN_NAME: shown["name"],
+        CAMPAIGN_ID: shown["campaign_id"],
+        STATE: shown["state"].str.strip().str.upper(),
+        TYPE: shown["ad_product"].map(PRODUCT_TYPES),
         PORTFOLIO_NAME: [_portfolio_label(portfolio_id, name) for portfolio_id, name
-                         in zip(live["portfolio_id"], live["portfolio_name"])],
-        START_DATE: live["start_date"],
+                         in zip(shown["portfolio_id"], shown["portfolio_name"])],
+        START_DATE: shown["start_date"],
         BID_STRATEGY: [bid_strategy_label(product, code) for product, code
-                       in zip(live["ad_product"], live["bid_strategy"])],
-        BUDGET_AMOUNT: live["budget_amount"],
+                       in zip(shown["ad_product"], shown["bid_strategy"])],
+        BUDGET_AMOUNT: shown["budget_amount"],
         # Nullable integers: an SB campaign the reports leave out has no count at all, not a zero.
         IMPRESSIONS: impressions.astype("Int64"),
         CLICKS: clicks.astype("Int64"),
         CTR: clicks / impressions.where(impressions > 0),
         TOTAL_COST: cost,
         CPC: cost / clicks.where(clicks > 0),
-        PURCHASES: live["purchases"].astype("Int64"),
+        PURCHASES: shown["purchases"].astype("Int64"),
         SALES: sales,
         ACOS: cost / sales.where(sales > 0),
         ROAS: sales / cost.where(cost > 0),
-        PURCHASES_CLICKS: live["purchases_clicks"].astype("Int64"),
-        SALES_CLICKS: live["sales_clicks"],
+        PURCHASES_CLICKS: shown["purchases_clicks"].astype("Int64"),
+        SALES_CLICKS: shown["sales_clicks"],
     }, columns=list(PRODUCT_FRAME_COLUMNS))
     unknown = without.to_numpy()
     frame.loc[unknown, [IMPRESSIONS, CLICKS, PURCHASES, PURCHASES_CLICKS]] = pd.NA
     frame.loc[unknown, [CTR, TOTAL_COST, CPC, SALES, ACOS, ROAS, SALES_CLICKS]] = float("nan")
-    return ProductCampaigns(frame=frame, without_metrics=frozenset(live.loc[without, "campaign_id"]),
-                            new_to_brand=_new_to_brand(live, without))
+    return ProductCampaigns(frame=frame, without_metrics=frozenset(shown.loc[without, "campaign_id"]),
+                            new_to_brand=_new_to_brand(shown, without))
 
 
-def _new_to_brand(live: pd.DataFrame, without_metrics: pd.Series) -> dict[str, NewToBrand | None]:
+def _new_to_brand(shown: pd.DataFrame, without_metrics: pd.Series) -> dict[str, NewToBrand | None]:
     """Campaign id -> its new-to-brand figures, None when unmeasured; empty before migration 019 adds them."""
-    if not {"new_to_brand_purchases", "new_to_brand_sales"} <= set(live.columns):
+    if not {"new_to_brand_purchases", "new_to_brand_sales"} <= set(shown.columns):
         return {}
     figures = {}
-    for campaign_id, orders, sales, unknown in zip(live["campaign_id"], live["new_to_brand_purchases"],
-                                                   live["new_to_brand_sales"], without_metrics):
+    for campaign_id, orders, sales, unknown in zip(shown["campaign_id"], shown["new_to_brand_purchases"],
+                                                   shown["new_to_brand_sales"], without_metrics):
         measured = not unknown and not pd.isna(orders) and not pd.isna(sales)
         figures[campaign_id] = NewToBrand(int(orders), float(sales)) if measured else None
     return figures
@@ -291,6 +314,19 @@ def _read_campaigns(csv_bytes: bytes) -> pd.DataFrame:
         if new_to_brand in totals.columns:
             totals[new_to_brand] = _optional_numbers(totals, new_to_brand, PRODUCT_CAMPAIGNS_RPC)
     return totals
+
+
+def _read_sb_search_terms(csv_bytes: bytes) -> pd.DataFrame:
+    terms = _read_csv(csv_bytes, SB_SEARCH_TERM_COLUMNS, SB_SEARCH_TERMS_RPC)
+    for column in _SEARCH_TERM_TEXT:
+        terms[column] = terms[column].str.replace("\\\\", "\\", regex=False)
+    for column in _SEARCH_TERM_COUNTS:
+        terms[column] = _numbers(terms, column, SB_SEARCH_TERMS_RPC).round().astype("int64")
+    for column in _SEARCH_TERM_AMOUNTS:
+        terms[column] = _numbers(terms, column, SB_SEARCH_TERMS_RPC).astype("float64")
+    # The RPC answers in no fixed order; this one makes a data version always read the same.
+    ordered = terms.sort_values(_SEARCH_TERM_ORDER, kind="mergesort")
+    return ordered[list(SB_SEARCH_TERM_COLUMNS)].reset_index(drop=True)
 
 
 def _read_targets(csv_bytes: bytes) -> pd.DataFrame:

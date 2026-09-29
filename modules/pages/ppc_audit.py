@@ -1,1259 +1,767 @@
+"""PPC Audit Pro (M20): the account's audit from its synced Amazon Ads data, or from a hand-uploaded Bulk File.
+
+The rules live in core/ppc_audit/checks.py and the MCP runs the same ones; this page draws their result, builds the
+Excel and runs the AI analysis over it.
+"""
 import io
+import logging
+from datetime import date
+from functools import partial
 
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
+from ai.agents.ppc_audit.chat_document import row_item
+from core.chat import app_chat
+from core.chat.screen_selection import (
+    FROM_AMAZON_ADS,
+    FROM_HAND_UPLOAD,
+    HAND_UPLOAD_NOTE,
+    OLDER_DATA_NOTE,
+    ScreenSelection,
+    ToolCall,
+    account_window,
+)
+from core.currency_format import money
+from core.date_labels import date_range_label
+from core.excel_text import force_text_cells
 from core.helpers import kpi_card
+from core.ppc_audit.analysis import ANALYSIS_MODULE, audit_row_labels, build_analysis_input
+from core.ppc_audit.checks import (
+    AUTO_FROM_SEARCH_TERMS,
+    AUTO_FROM_TARGETING,
+    CAMPAIGN_IMPRESSIONS,
+    PRODUCTS,
+    RECOMMENDATION,
+    AuditResult,
+    WasteLine,
+    acos,
+    run_audit,
+)
+from core.ppc_audit.frames import (
+    SB_KEYWORDS,
+    SB_SD_CAMPAIGNS,
+    SB_SEARCH_TERMS,
+    SD_TARGETS,
+    SP_TARGET_METRICS,
+    SP_TARGETS,
+    AuditFrames,
+)
+from modules.pages.audit_source import MODULE_LABEL, AuditSource, render_audit_source
 
+log = logging.getLogger(__name__)
 
-# ── Helpers ─────────────────────────────────────────────────────────────────
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+BRAND_TERMS_KEY = "audit_brand_terms"
+BR_UPLOADER_KEY = "audit_br"
+GRADUATION_FILTER_KEY = "audit_grad_filter"
+DOWNLOAD_KEY = "audit_dl"
+GRADUATION_COLUMNS = ["Campaign Name", "Ad Group Name", "Keyword Text", "Match Type", "Bid", "Spend", "Sales",
+                      CAMPAIGN_IMPRESSIONS, RECOMMENDATION]
+GRADUATION_EXPORT_COLUMNS = ["Campaign Name", "Ad Group Name", "Keyword Text", "Match Type", "Bid", "Spend", "Sales",
+                             "Orders", CAMPAIGN_IMPRESSIONS, RECOMMENDATION]
+PRODUCT_NAMES = {"SP": "Sponsored Products", "SB": "Sponsored Brands", "SD": "Sponsored Display"}
+COUNT_COLUMNS = ("# Targets", "Targets", "Clicks", "Orders", CAMPAIGN_IMPRESSIONS)
+PRODUCT_BAND_COLORS = {"SP": "#1d4b8f", "SB": "#6b2d8f", "SD": "#2a6e4e"}
+API_GRADUATION_NOTE = ("El bid es el efectivo: el propio del keyword o, si no tiene, el default de su ad group. Se "
+                       "excluyen los keywords de ad groups pausados o archivados.")
+RUNNING_NOTE = ("Cuentan los keywords habilitados de campañas y ad groups habilitados: lo pausado no compite ni "
+                "canibaliza.")
+PLACEMENTS_NOT_LISTED = "Los ajustes por placement de esta cuenta todavía no se listaron."
 
-def _to_num(series):
-    """Coerce a series to numeric, stripping $, %, commas."""
-    return pd.to_numeric(
-        series.astype(str).str.replace(r"[\$%,]", "", regex=True),
-        errors="coerce",
-    ).fillna(0)
+_GRAD_COLORS = {
+    "SUBIR BID": "background:#E8F5E9;",
+    "PAUSAR": "background:#FFEBEE;",
+    "GRADUAR": "background:#FFF8E1;",
+    "MANTENER": "background:#E3F2FD;",
+    "YA PAUSADO": "background:#F5F5F5;",
+}
+_VERDICT_COLORS = {
+    "ACTUAR": "background-color:#EAF3DE;color:#173404",
+    "ESPERAR": "background-color:#F1EFE8;color:#2C2C2A",
+    "INVESTIGAR": "background-color:#FAEEDA;color:#412402",
+}
+_GROUP_TAGS = {"match_mixto": "Match types mixtos", "campana": "Top campaña", "duplicado": "Duplicado",
+               "graduacion": "Target Graduation", "termino_sin_venta": "Search term sin ventas"}
+_AI_TEXTS = {
+    "es": {"title": "Análisis IA",
+           "caption": "Lectura de la IA sobre la auditoría que ya calculó el módulo: qué hallazgos atender primero",
+           "disabled": "Análisis IA deshabilitado (AI_ENABLED=0).",
+           "table_title": "Hallazgos priorizados — lectura IA",
+           "col_item": "Campaña, keyword o término",
+           "counts": "{n} hallazgos priorizados",
+           "no_rows": ("No hay campañas con match types mixtos, keywords duplicadas, targets sin impresiones ni "
+                       "search terms sin ventas para analizar.")},
+    "en": {"title": "AI analysis",
+           "caption": "AI read on the audit the module already computed: which findings to act on first",
+           "disabled": "AI analysis disabled (AI_ENABLED=0).",
+           "table_title": "Prioritized findings — AI read",
+           "col_item": "Campaign, keyword or term",
+           "counts": "{n} findings prioritized",
+           "no_rows": ("No campaigns with mixed match types, duplicate keywords, targets without impressions or "
+                       "search terms without sales to analyze.")},
+}
 
-
-def _badge(text, level="ok"):
-    """HTML badge. level: ok | warn | crit."""
-    styles = {
-        "ok":   "background:#e6f4ed;color:#2a6e4e;",
-        "warn": "background:#fdf3e3;color:#c07a1a;",
-        "crit": "background:#fbeae7;color:#c8402a;",
-    }
-    s = styles.get(level, styles["ok"])
-    return (
-        f"<span style='{s}padding:3px 10px;border-radius:6px;"
-        f"font-weight:600;font-size:0.82rem;'>{text}</span>"
-    )
-
-
-# ── Parser ──────────────────────────────────────────────────────────────────
-
-_METRIC_INT = ["Impressions", "Clicks", "Spend", "Sales", "Orders", "Units"]
-_METRIC_PCT = ["ACOS", "Click-through Rate", "Conversion Rate", "CPC", "ROAS"]
-
-
-def _numericize(df):
-    """Numericize known metric columns in-place and return df."""
-    for col in _METRIC_INT:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-    for col in _METRIC_PCT:
-        if col in df.columns:
-            df[col] = _to_num(df[col])
-    return df
-
-
-@st.cache_data(max_entries=3, ttl=3600, show_spinner=False)
-def _parse_bulk(data, name):
-    """Parse Bulk File XLSX multi-sheet. Returns dict of DataFrames."""
-    buf = io.BytesIO(data)
-    xls = pd.ExcelFile(buf)
-    result = {}
-
-    # ── SP ──
-    if "Sponsored Products Campaigns" in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name="Sponsored Products Campaigns")
-        df.columns = df.columns.str.strip()
-        _numericize(df)
-        result["sp"] = df
-        if "Entity" in df.columns:
-            result["sp_campaigns"] = df[df["Entity"] == "Campaign"].copy()
-            result["sp_adgroups"] = df[df["Entity"] == "Ad Group"].copy()
-            result["sp_keywords"] = df[df["Entity"] == "Keyword"].copy()
-            result["sp_pt"] = df[df["Entity"] == "Product Targeting"].copy()
-            result["sp_bid_adj"] = df[df["Entity"] == "Bidding Adjustment"].copy()
-            result["sp_neg_kw"] = df[df["Entity"] == "Negative Keyword"].copy()
-            result["sp_neg_pt"] = df[df["Entity"] == "Negative Product Targeting"].copy()
-
-    # ── SB ──
-    if "Sponsored Brands Campaigns" in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name="Sponsored Brands Campaigns")
-        df.columns = df.columns.str.strip()
-        _numericize(df)
-        result["sb"] = df
-        if "Entity" in df.columns and len(df) > 0:
-            result["sb_campaigns"] = df[df["Entity"] == "Campaign"].copy()
-            result["sb_keywords"] = df[df["Entity"] == "Keyword"].copy()
-        else:
-            result["sb_campaigns"] = pd.DataFrame()
-            result["sb_keywords"] = pd.DataFrame()
-
-    # ── SD ──
-    if "Sponsored Display Campaigns" in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name="Sponsored Display Campaigns")
-        df.columns = df.columns.str.strip()
-        _numericize(df)
-        result["sd"] = df
-        if "Entity" in df.columns and len(df) > 0:
-            result["sd_campaigns"] = df[df["Entity"] == "Campaign"].copy()
-        else:
-            result["sd_campaigns"] = pd.DataFrame()
-
-    # ── SP Search Term Report ──
-    if "SP Search Term Report" in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name="SP Search Term Report")
-        df.columns = df.columns.str.strip()
-        _numericize(df)
-        result["sp_str"] = df
-
-    # ── SB Search Term Report ──
-    if "SB Search Term Report" in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name="SB Search Term Report")
-        df.columns = df.columns.str.strip()
-        _numericize(df)
-        result["sb_str"] = df
-
-    return result
-
-
-# ── Metric aggregation helpers ──────────────────────────────────────────────
-
-def _sum_metrics(df):
-    """Return dict with Spend, Sales, Impressions, Clicks, Orders from df."""
-    if df is None or len(df) == 0:
-        return {"Spend": 0, "Sales": 0, "Impressions": 0, "Clicks": 0, "Orders": 0}
-    return {
-        "Spend": df["Spend"].sum() if "Spend" in df.columns else 0,
-        "Sales": df["Sales"].sum() if "Sales" in df.columns else 0,
-        "Impressions": df["Impressions"].sum() if "Impressions" in df.columns else 0,
-        "Clicks": df["Clicks"].sum() if "Clicks" in df.columns else 0,
-        "Orders": df["Orders"].sum() if "Orders" in df.columns else 0,
-    }
-
-
-def _acos(spend, sales):
-    return (spend / sales * 100) if sales > 0 else 0
-
-
-def _seg_row(label, df):
-    """Build a segment metrics row dict from a DataFrame."""
-    if df is None or len(df) == 0:
-        return {
-            "Segmento": label, "# Targets": 0, "Spend": 0, "Sales": 0,
-            "ACoS": 0, "Clicks": 0, "Orders": 0, "Impressions": 0,
-            "CTR": 0, "CVR": 0, "CPC": 0, "% Spend": 0,
-        }
-    s = df["Spend"].sum() if "Spend" in df.columns else 0
-    sa = df["Sales"].sum() if "Sales" in df.columns else 0
-    cl = df["Clicks"].sum() if "Clicks" in df.columns else 0
-    im = df["Impressions"].sum() if "Impressions" in df.columns else 0
-    od = df["Orders"].sum() if "Orders" in df.columns else 0
-    return {
-        "Segmento": label,
-        "# Targets": len(df),
-        "Spend": round(s, 2),
-        "Sales": round(sa, 2),
-        "ACoS": round(_acos(s, sa), 1),
-        "Clicks": int(cl),
-        "Orders": int(od),
-        "Impressions": int(im),
-        "CTR": round((cl / im * 100) if im > 0 else 0, 2),
-        "CVR": round((od / cl * 100) if cl > 0 else 0, 2),
-        "CPC": round((s / cl) if cl > 0 else 0, 2),
-        "% Spend": 0,  # filled after
-    }
-
-
-def _color_acos(val):
-    """Style callback for ACoS column."""
-    try:
-        v = float(val)
-    except (ValueError, TypeError):
-        return ""
-    if v <= 0:
-        return "color:#999"
-    if v <= 30:
-        return "background:#e6f4ed;color:#2a6e4e"
-    if v <= 55:
-        return "background:#fdf3e3;color:#c07a1a"
-    return "background:#fbeae7;color:#c8402a"
-
-
-def _build_segment_table(rows, total_spend):
-    """Convert list of seg_row dicts to a styled DataFrame."""
-    for r in rows:
-        r["% Spend"] = round((r["Spend"] / total_spend * 100) if total_spend > 0 else 0, 1)
-    df = pd.DataFrame(rows)
-    col_order = [
-        "Segmento", "# Targets", "Spend", "Sales", "ACoS",
-        "Clicks", "Orders", "CTR", "CVR", "CPC", "% Spend",
-    ]
-    df = df[[c for c in col_order if c in df.columns]]
-    return df
-
-
-def _analyze_target_graduation(sp_kw_df, sp_camp_df, brand_terms=None):
-    """Analyze targets with 0 impressions in campaigns that DO have traffic."""
-    if sp_kw_df is None or len(sp_kw_df) == 0:
-        return pd.DataFrame()
-
-    required = ["Campaign ID", "Impressions"]
-    if not all(c in sp_kw_df.columns for c in required):
-        return pd.DataFrame()
-
-    # 1. Total impressions per campaign (across all entities in that campaign)
-    camp_imp = sp_kw_df.groupby("Campaign ID")["Impressions"].sum()
-
-    # 2. Targets with 0 impressions
-    zero_imp = sp_kw_df[sp_kw_df["Impressions"] == 0].copy()
-    if zero_imp.empty:
-        return pd.DataFrame()
-
-    # 3. Map campaign-level impressions
-    zero_imp["Campaign Impressions"] = zero_imp["Campaign ID"].map(camp_imp).fillna(0)
-
-    # 4. Only those in campaigns WITH traffic
-    orphans = zero_imp[zero_imp["Campaign Impressions"] > 0].copy()
-    if orphans.empty:
-        return pd.DataFrame()
-
-    # 5. Classify recommendation
-    bt = [t.lower() for t in brand_terms] if brand_terms else []
-
-    def _recommend(row):
-        state = str(row.get("State", "")).lower()
-        spend = float(row.get("Spend", 0) or 0)
-        sales = float(row.get("Sales", 0) or 0)
-        orders = float(row.get("Orders", 0) or 0)
-        kw_text = str(row.get("Keyword Text", "")).lower()
-
-        if state != "enabled":
-            return "⏸️ YA PAUSADO"
-
-        # Brand terms → always keep
-        if bt and any(t in kw_text for t in bt):
-            return "🛡️ MANTENER — keyword de marca"
-
-        # Had sales historically → bid too low
-        if sales > 0 or orders > 0:
-            return "🔼 SUBIR BID — tuvo ventas, bid probable bajo"
-
-        # Spent but never converted → pause
-        if spend > 0 and orders == 0:
-            return "🔴 PAUSAR — gastó sin convertir"
-
-        # Never had anything → graduate
-        return "🟡 GRADUAR A SKAG — mover a campaña propia con bid más alto"
-
-    orphans["Recomendación"] = orphans.apply(_recommend, axis=1)
-    return orphans
-
-
-def _build_audit_excel(
-    kpi_dict, seg_sp_df, seg_sb_df, seg_sd_df,
-    top5_camps_df, classif_df, dupes_df,
-    audit_mixed, audit_target_was, audit_st_was,
-    graduation_df=None,
-):
-    """Generate multi-sheet audit Excel. Returns bytes."""
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        # Sheet 1 — Resumen KPIs
-        kpi_rows = [[k, v] for k, v in kpi_dict.items()]
-        pd.DataFrame(kpi_rows, columns=["Metrica", "Valor"]).to_excel(
-            writer, sheet_name="Resumen KPIs", index=False,
-        )
-
-        # Sheet 2 — Performance Segmento
-        parts = []
-        if seg_sp_df is not None and len(seg_sp_df) > 0:
-            parts.append(seg_sp_df)
-        if seg_sb_df is not None and len(seg_sb_df) > 0:
-            sep = pd.DataFrame([{"Segmento": ""}])
-            parts.append(sep)
-            parts.append(seg_sb_df)
-        if seg_sd_df is not None and len(seg_sd_df) > 0:
-            sep = pd.DataFrame([{"Segmento": ""}])
-            parts.append(sep)
-            parts.append(seg_sd_df)
-        if parts:
-            pd.concat(parts, ignore_index=True).to_excel(
-                writer, sheet_name="Performance Segmento", index=False,
-            )
-
-        # Sheet 3 — Auditoría
-        audit_rows = []
-        audit_rows.append(["Check", "Resultado", "Detalle"])
-        audit_rows.append(["Match Types Mixtos", audit_mixed[0], audit_mixed[1]])
-        audit_rows.append(["Target WAS", audit_target_was[0], audit_target_was[1]])
-        audit_rows.append(["Search Term WAS", audit_st_was[0], audit_st_was[1]])
-        pd.DataFrame(audit_rows[1:], columns=audit_rows[0]).to_excel(
-            writer, sheet_name="Auditoria", index=False,
-        )
-
-        # Sheet 4 — Top Campañas
-        if top5_camps_df is not None and len(top5_camps_df) > 0:
-            top5_camps_df.to_excel(writer, sheet_name="Top Campanas", index=False)
-
-        # Sheet 5 — Clasificación Targets
-        if classif_df is not None and len(classif_df) > 0:
-            classif_df.to_excel(writer, sheet_name="Clasificacion Targets", index=False)
-
-        # Sheet 6 — Duplicación Targets
-        if dupes_df is not None and len(dupes_df) > 0:
-            dupes_df.to_excel(writer, sheet_name="Duplicacion Targets", index=False)
-
-        # Sheet 7 — Target Graduation
-        if graduation_df is not None and len(graduation_df) > 0:
-            grad_cols = [
-                c for c in [
-                    "Campaign Name", "Ad Group Name", "Keyword Text", "Match Type",
-                    "Bid", "Spend", "Sales", "Orders", "Campaign Impressions",
-                    "Recomendación",
-                ] if c in graduation_df.columns
-            ]
-            graduation_df[grad_cols].to_excel(
-                writer, sheet_name="Target Graduation", index=False,
-            )
-
-    return buf.getvalue()
-
-
-# ── Render ──────────────────────────────────────────────────────────────────
 
 def render():
-    st.markdown(
-        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
-        "<span style='font-size:2rem;'>🛡️</span>"
-        "<div><div style='font-size:1.3rem;font-weight:700;'>PPC Audit Pro</div>"
-        "<div style='font-size:0.82rem;color:#888;'>"
-        "Auditoría profunda desde Bulk File de Amazon Advertising</div>"
-        "</div></div>",
-        unsafe_allow_html=True,
-    )
-    st.divider()
-
-    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown("**🎯 Para qué sirve**")
-            st.caption("Auditoría completa de la estructura de campañas desde Bulk File multi-hoja. Breakdown real SP/SB/SD, 10 segmentos y 5 deep checks.")
-        with col2:
-            st.markdown("**📂 Archivo necesario**")
-            st.caption("Campaign Manager → Bulk Operations → Create Custom Spreadsheet (.xlsx). BR opcional para TACoS y Revenue total.")
-        with col3:
-            st.markdown("**➡️ Siguiente paso**")
-            st.caption("PPC Insights (M18) para health score por ASIN o Bid Optimizer (M9) para ajustar bids.")
-        st.markdown("**▶️ Pasos:**")
-        st.markdown(
-            "1. Subí el Bulk File (.xlsx) con las 5 hojas (SP/SB/SD Campaigns + SP/SB STR)\n"
-            "2. Subí el BR opcional + ingresá brand terms para clasificar targets\n"
-            "3. Revisá Tab 1 KPIs → Tab 2 Estructura → Tab 3 Performance → Tab 4 Deep Checks → Tab 6 Target Graduation\n"
-            "4. Descargá el Excel con 6 hojas (KPIs + Segmentos + Auditoría + Top + Duplicados + Graduation)"
-        )
-
-    # ── Uploads ─────────────────────────────────────────────────
-    col_u1, col_u2 = st.columns(2)
-    with col_u1:
-        bulk_file = st.file_uploader(
-            "📦 Bulk File (.xlsx)", type=["xlsx"], key="audit_bulk",
-        )
-    with col_u2:
-        br_file = st.file_uploader(
-            "💰 Business Report (.xlsx/.csv) — opcional",
-            type=["xlsx", "csv"], key="audit_br",
-        )
-
-    if not bulk_file:
-        st.markdown(
-            "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:2rem;"
-            "text-align:center;background:#FFF3E0;margin-top:1rem;'>"
-            "<div style='font-size:1.5rem;'>📦</div>"
-            "<div style='font-weight:600;margin-top:0.5rem;'>Subí el Bulk File</div>"
-            "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
-            "Amazon Advertising → Campaign Manager → Bulk Operations "
-            "→ Create spreadsheet for download</div>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+    _header()
+    _how_to_use()
+    source = render_audit_source()
+    if source is None:
+        app_chat.withdraw_selection()
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
         return
 
-    # ── Parse bulk ──────────────────────────────────────────────
-    bulk = _parse_bulk(bulk_file.getvalue(), bulk_file.name)
+    brand_col, report_col = st.columns(2)
+    with brand_col:
+        brand_input = st.text_input("Brand terms (separados por coma)",
+                                    placeholder="ej: 360 essentials, escape plus, freedom plus", key=BRAND_TERMS_KEY)
+    with report_col:
+        report_file = st.file_uploader("💰 Business Report (.xlsx/.csv) — opcional", type=["xlsx", "csv"],
+                                       key=BR_UPLOADER_KEY)
+    brand_terms = tuple(term.strip().lower() for term in (brand_input or "").split(",") if term.strip())
+    business_report = _read_business_report(report_file)
 
-    # ── Brand terms ─────────────────────────────────────────────
-    brand_input = st.text_input(
-        "Brand terms (separados por coma)",
-        placeholder="ej: 360 essentials, escape plus, freedom plus",
-        key="audit_brand_terms",
-    )
-    brand_terms = (
-        [t.strip().lower() for t in brand_input.split(",") if t.strip()]
-        if brand_input else []
-    )
+    frames = source.frames
+    result = run_audit(frames, brand_terms=brand_terms, business_report=business_report)
+    st.success(_loaded_line(frames))
 
-    # ── Parse BR ────────────────────────────────────────────────
-    br_df = None
-    if br_file:
-        buf_br = io.BytesIO(br_file.getvalue())
-        br_df = (
-            pd.read_excel(buf_br)
-            if br_file.name.endswith(".xlsx")
-            else pd.read_csv(buf_br)
-        )
-        br_df.columns = br_df.columns.str.strip()
-
-    # ── Reference DataFrames ────────────────────────────────────
-    sp_camps = bulk.get("sp_campaigns", pd.DataFrame())
-    sp_kws = bulk.get("sp_keywords", pd.DataFrame())
-    sp_pts = bulk.get("sp_pt", pd.DataFrame())
-    sp_neg_kw = bulk.get("sp_neg_kw", pd.DataFrame())
-    sp_str_df = bulk.get("sp_str", pd.DataFrame())
-
-    sb_df = bulk.get("sb", pd.DataFrame())
-    sb_camps = bulk.get("sb_campaigns", pd.DataFrame())
-    sb_kws = bulk.get("sb_keywords", pd.DataFrame())
-    sb_str_df = bulk.get("sb_str", pd.DataFrame())
-
-    sd_df = bulk.get("sd", pd.DataFrame())
-    sd_camps = bulk.get("sd_campaigns", pd.DataFrame())
-
-    n_sp = len(sp_camps)
-    n_sb = len(sb_camps)
-    n_sd = len(sd_camps)
-
-    st.success(
-        f"✅ Bulk cargado — SP: {n_sp} campañas, {len(sp_kws)} keywords, "
-        f"{len(sp_pts)} PT | SB: {n_sb} campañas | SD: {n_sd} campañas | "
-        f"SP STR: {len(sp_str_df)} terms"
-    )
-
-    # ── Tabs ────────────────────────────────────────────────────
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab_kpis, tab_structure, tab_segments, tab_deep, tab_export, tab_graduation, tab_ai = st.tabs([
         "📊 KPIs Overview",
         "🛠️ Auditoría Estructura",
         "🎯 Performance Segmento",
         "🔍 Deep Checks",
         "📥 Export",
         "🎯 Target Graduation",
+        "🤖 Análisis IA",
     ])
+    with tab_kpis:
+        _render_kpis(result, frames)
+    with tab_structure:
+        _render_structure_checks(result, frames)
+    with tab_segments:
+        _render_segments(result, frames)
+    with tab_deep:
+        _render_deep_checks(result, frames, brand_terms)
+    with tab_export:
+        _render_export(result, source)
+    with tab_graduation:
+        _render_graduation(result, frames)
+    with tab_ai:
+        _render_ai_tab(source, result, brand_terms)
+    app_chat.share_selection(screen_selection(source, brand_terms))
 
-    # ════════════════════════════════════════════════════════════
-    # TAB 1 — KPIs Overview
-    # ════════════════════════════════════════════════════════════
-    with tab1:
-        sp_m = _sum_metrics(sp_camps)
-        sb_m = _sum_metrics(sb_camps)
-        sd_m = _sum_metrics(sd_camps)
 
-        total_spend = sp_m["Spend"] + sb_m["Spend"] + sd_m["Spend"]
-        total_sales = sp_m["Sales"] + sb_m["Sales"] + sd_m["Sales"]
-        total_imps = sp_m["Impressions"] + sb_m["Impressions"] + sd_m["Impressions"]
-        total_clicks = sp_m["Clicks"] + sb_m["Clicks"] + sd_m["Clicks"]
-        total_orders = sp_m["Orders"] + sb_m["Orders"] + sd_m["Orders"]
-        acos_overall = _acos(total_spend, total_sales)
+def screen_selection(source: AuditSource, brand_terms: tuple[str, ...]) -> ScreenSelection:
+    """What the chat reads about this screen: the account, the days, the brand terms and the call behind the audit."""
+    values = (("brand terms", ", ".join(brand_terms) or "ninguno"),)
+    if not source.from_amazon_ads:
+        return ScreenSelection(module=MODULE_LABEL, account=source.label, source=FROM_HAND_UPLOAD, values=values,
+                               notes=(HAND_UPLOAD_NOTE,))
+    call = ToolCall("ppc_audit", account_window(source.profile_id, source.window_start, source.window_end)
+                    + ((("brand_terms", list(brand_terms)),) if brand_terms else ()))
+    return ScreenSelection(module=MODULE_LABEL, account=source.label, source=FROM_AMAZON_ADS,
+                           profile_id=source.profile_id, window_start=source.window_start,
+                           window_end=source.window_end, values=values, calls=(call,),
+                           notes=(OLDER_DATA_NOTE,) if source.older_data else ())
 
-        # BR-derived metrics
-        revenue_total = 0
-        has_br = br_df is not None and len(br_df) > 0
-        if has_br:
-            rev_col = None
-            for candidate in [
-                "Ordered Product Sales",
-                "Ordered Product Sales Amount",
-                "ordered product sales",
-            ]:
-                if candidate in br_df.columns:
-                    rev_col = candidate
-                    break
-            if rev_col is None:
-                for c in br_df.columns:
-                    if "ordered" in c.lower() and "sales" in c.lower():
-                        rev_col = c
-                        break
-            if rev_col:
-                revenue_total = _to_num(br_df[rev_col]).sum()
 
-        tacos = (total_spend / revenue_total * 100) if revenue_total > 0 else 0
-        organic_sales = max(0, revenue_total - total_sales) if has_br else 0
-        organic_pct = (organic_sales / revenue_total * 100) if revenue_total > 0 else 0
+def _header():
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.75rem;margin-bottom:0.25rem;'>"
+        "<span style='font-size:2rem;'>🛡️</span>"
+        "<div><div style='font-size:1.3rem;font-weight:700;'>PPC Audit Pro</div>"
+        "<div style='font-size:0.82rem;color:#888;'>"
+        "Auditoría de la estructura y el rendimiento de las campañas de Amazon Advertising</div>"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+    st.divider()
 
-        if has_br and revenue_total > 0:
-            # 6 cards
-            r1 = st.columns(3)
-            with r1[0]:
-                st.markdown(
-                    kpi_card("Revenue Total", f"${revenue_total:,.2f}"),
-                    unsafe_allow_html=True,
-                )
-            with r1[1]:
-                st.markdown(
-                    kpi_card(
-                        "Ventas Orgánicas",
-                        f"${organic_sales:,.2f}",
-                        delta=organic_pct,
-                    ),
-                    unsafe_allow_html=True,
-                )
-                st.caption(f"{organic_pct:.1f}% del revenue")
-            with r1[2]:
-                tacos_delta = tacos - 15  # benchmark 15%
-                st.markdown(
-                    kpi_card("TACoS", f"{tacos:.1f}%", delta=tacos_delta, delta_good=False),
-                    unsafe_allow_html=True,
-                )
-                if tacos < 10:
-                    st.markdown(_badge("Excelente", "ok"), unsafe_allow_html=True)
-                elif tacos < 20:
-                    st.markdown(_badge("Saludable", "ok"), unsafe_allow_html=True)
-                elif tacos < 35:
-                    st.markdown(_badge("Alto", "warn"), unsafe_allow_html=True)
-                else:
-                    st.markdown(_badge("Crítico", "crit"), unsafe_allow_html=True)
 
-            r2 = st.columns(3)
-        else:
-            st.info(
-                "💡 Subí el Business Report para ver TACoS, Revenue y Ventas Orgánicas."
-            )
-            r2 = st.columns(3)
-
-        # ACoS / Impressions / Spend+Sales — always shown
-        with r2[0]:
-            st.markdown(
-                kpi_card("ACoS Overall", f"{acos_overall:.1f}%"),
-                unsafe_allow_html=True,
-            )
-            breakdown = []
-            if sp_m["Sales"] > 0:
-                breakdown.append(f"SP {_acos(sp_m['Spend'], sp_m['Sales']):.1f}%")
-            if sb_m["Sales"] > 0:
-                breakdown.append(f"SB {_acos(sb_m['Spend'], sb_m['Sales']):.1f}%")
-            if sd_m["Sales"] > 0:
-                breakdown.append(f"SD {_acos(sd_m['Spend'], sd_m['Sales']):.1f}%")
-            if breakdown:
-                st.caption(" | ".join(breakdown))
-
-        with r2[1]:
-            st.markdown(
-                kpi_card("Impressions", f"{total_imps:,.0f}"),
-                unsafe_allow_html=True,
-            )
-            parts = []
-            if sp_m["Impressions"] > 0:
-                parts.append(
-                    f"SP {sp_m['Impressions'] / total_imps * 100:.0f}%"
-                    if total_imps > 0 else "SP —"
-                )
-            if sb_m["Impressions"] > 0:
-                parts.append(
-                    f"SB {sb_m['Impressions'] / total_imps * 100:.0f}%"
-                    if total_imps > 0 else "SB —"
-                )
-            if sd_m["Impressions"] > 0:
-                parts.append(
-                    f"SD {sd_m['Impressions'] / total_imps * 100:.0f}%"
-                    if total_imps > 0 else "SD —"
-                )
-            if parts:
-                st.caption(" | ".join(parts))
-
-        with r2[2]:
-            st.markdown(
-                kpi_card("PPC Spend", f"${total_spend:,.2f}"),
-                unsafe_allow_html=True,
-            )
-            st.caption(
-                f"Sales: ${total_sales:,.2f} | "
-                f"SP ${sp_m['Spend']:,.0f} / SB ${sb_m['Spend']:,.0f} / SD ${sd_m['Spend']:,.0f}"
-            )
-
-        # Extra row: Clicks, Orders, CTR/CVR
-        st.markdown("")
-        r3 = st.columns(4)
-        with r3[0]:
-            st.markdown(
-                kpi_card("Clicks", f"{total_clicks:,.0f}"), unsafe_allow_html=True,
-            )
-        with r3[1]:
-            st.markdown(
-                kpi_card("Orders", f"{total_orders:,.0f}"), unsafe_allow_html=True,
-            )
-        with r3[2]:
-            ctr_val = (total_clicks / total_imps * 100) if total_imps > 0 else 0
-            st.markdown(
-                kpi_card("CTR", f"{ctr_val:.2f}%"), unsafe_allow_html=True,
-            )
-        with r3[3]:
-            cvr_val = (total_orders / total_clicks * 100) if total_clicks > 0 else 0
-            st.markdown(
-                kpi_card("CVR", f"{cvr_val:.2f}%"), unsafe_allow_html=True,
-            )
-
-    # ════════════════════════════════════════════════════════════
-    # TAB 2 — Auditoría de Estructura
-    # ════════════════════════════════════════════════════════════
-    with tab2:
-        c1, c2, c3 = st.columns(3)
-
-        # ── Card 1: Match Types Mixtos ──────────────────────────
-        with c1:
-            st.markdown("**Match Types Mixtos**")
-
-            mixed_camps = []
-            if len(sp_kws) > 0 and "Campaign Name" in sp_kws.columns and "Match Type" in sp_kws.columns:
-                mt_per_camp = (
-                    sp_kws.groupby("Campaign Name")["Match Type"]
-                    .nunique()
-                    .reset_index()
-                    .rename(columns={"Match Type": "n_match"})
-                )
-                mixed_camps = mt_per_camp[mt_per_camp["n_match"] > 1]["Campaign Name"].tolist()
-
-            n_mixed = len(mixed_camps)
-            if n_mixed == 0:
-                st.markdown(_badge("OK — 0 campañas mixtas", "ok"), unsafe_allow_html=True)
-            else:
-                st.markdown(
-                    _badge(f"REVISAR — {n_mixed} campañas mixtas", "warn"),
-                    unsafe_allow_html=True,
-                )
-                with st.expander(f"Ver {n_mixed} campañas mixtas"):
-                    for camp_name in mixed_camps[:20]:
-                        st.caption(f"• {camp_name}")
-
-            # Match type distribution
-            st.markdown("")
-            st.caption("Distribución SP Keywords:")
-            if len(sp_kws) > 0 and "Match Type" in sp_kws.columns:
-                mt_dist = sp_kws["Match Type"].value_counts()
-                for mt, cnt in mt_dist.items():
-                    st.caption(f"  {mt}: {cnt}")
-            else:
-                st.caption("  Sin datos")
-
-            # SB match types
-            if len(sb_kws) > 0 and "Match Type" in sb_kws.columns:
-                st.caption("Distribución SB Keywords:")
-                mt_dist_sb = sb_kws["Match Type"].value_counts()
-                for mt, cnt in mt_dist_sb.items():
-                    st.caption(f"  {mt}: {cnt}")
-
-        # ── Card 2: Target WAS ──────────────────────────────────
-        with c2:
-            st.markdown("**Target WAS (Wasted Ad Spend)**")
-
-            # SP Manual: keywords + product targeting with spend > 0 and sales == 0
-            sp_manual_targets = pd.concat([sp_kws, sp_pts], ignore_index=True)
-            sp_manual_was = 0
-            sp_manual_spend = 0
-            sp_was_count = 0
-            if len(sp_manual_targets) > 0 and "Spend" in sp_manual_targets.columns and "Sales" in sp_manual_targets.columns:
-                sp_manual_spend = sp_manual_targets["Spend"].sum()
-                mask = (sp_manual_targets["Spend"] > 0) & (sp_manual_targets["Sales"] == 0)
-                sp_manual_was = sp_manual_targets.loc[mask, "Spend"].sum()
-                sp_was_count = mask.sum()
-
-            # SB keywords
-            sb_was = 0
-            sb_was_count = 0
-            if len(sb_kws) > 0 and "Spend" in sb_kws.columns and "Sales" in sb_kws.columns:
-                mask_sb = (sb_kws["Spend"] > 0) & (sb_kws["Sales"] == 0)
-                sb_was = sb_kws.loc[mask_sb, "Spend"].sum()
-                sb_was_count = mask_sb.sum()
-
-            # SD: ad groups + audience targeting
-            sd_was = 0
-            sd_was_count = 0
-            if len(sd_df) > 0 and "Entity" in sd_df.columns and "Spend" in sd_df.columns and "Sales" in sd_df.columns:
-                sd_targets = sd_df[sd_df["Entity"].isin(["Ad Group", "Audience Targeting"])]
-                if len(sd_targets) > 0:
-                    mask_sd = (sd_targets["Spend"] > 0) & (sd_targets["Sales"] == 0)
-                    sd_was = sd_targets.loc[mask_sd, "Spend"].sum()
-                    sd_was_count = mask_sd.sum()
-
-            total_was = sp_manual_was + sb_was + sd_was
-            total_target_spend = sp_manual_spend + (
-                sb_kws["Spend"].sum() if len(sb_kws) > 0 and "Spend" in sb_kws.columns else 0
-            )
-            was_pct = (total_was / total_target_spend * 100) if total_target_spend > 0 else 0
-
-            if was_pct < 20:
-                st.markdown(_badge(f"OK — {was_pct:.1f}% waste", "ok"), unsafe_allow_html=True)
-            elif was_pct < 40:
-                st.markdown(_badge(f"REVISAR — {was_pct:.1f}% waste", "warn"), unsafe_allow_html=True)
-            else:
-                st.markdown(_badge(f"CRÍTICO — {was_pct:.1f}% waste", "crit"), unsafe_allow_html=True)
-
-            st.markdown(f"**${total_was:,.2f}** desperdicio en targets")
-            st.caption(f"SP: ${sp_manual_was:,.2f} ({sp_was_count} targets)")
-            st.caption(f"SB: ${sb_was:,.2f} ({sb_was_count} targets)")
-            st.caption(f"SD: ${sd_was:,.2f} ({sd_was_count} targets)")
-
-        # ── Card 3: Search Term WAS ─────────────────────────────
-        with c3:
-            st.markdown("**Search Term WAS**")
-
-            # SP STR
-            sp_st_was = 0
-            sp_st_was_count = 0
-            sp_st_spend_total = 0
-            if len(sp_str_df) > 0 and "Spend" in sp_str_df.columns and "Sales" in sp_str_df.columns:
-                sp_st_spend_total = sp_str_df["Spend"].sum()
-                mask_sp_st = (sp_str_df["Spend"] > 0) & (sp_str_df["Sales"] == 0)
-                sp_st_was = sp_str_df.loc[mask_sp_st, "Spend"].sum()
-                sp_st_was_count = mask_sp_st.sum()
-
-            # SB STR
-            sb_st_was = 0
-            sb_st_was_count = 0
-            if len(sb_str_df) > 0 and "Spend" in sb_str_df.columns and "Sales" in sb_str_df.columns:
-                mask_sb_st = (sb_str_df["Spend"] > 0) & (sb_str_df["Sales"] == 0)
-                sb_st_was = sb_str_df.loc[mask_sb_st, "Spend"].sum()
-                sb_st_was_count = mask_sb_st.sum()
-
-            total_st_was = sp_st_was + sb_st_was
-            st_was_pct = (sp_st_was / sp_st_spend_total * 100) if sp_st_spend_total > 0 else 0
-
-            if st_was_pct < 25:
-                st.markdown(_badge(f"OK — {st_was_pct:.1f}% SP ST waste", "ok"), unsafe_allow_html=True)
-            elif st_was_pct < 40:
-                st.markdown(_badge(f"REVISAR — {st_was_pct:.1f}% SP ST waste", "warn"), unsafe_allow_html=True)
-            else:
-                st.markdown(_badge(f"CRÍTICO — {st_was_pct:.1f}% SP ST waste", "crit"), unsafe_allow_html=True)
-
-            st.markdown(f"**${total_st_was:,.2f}** desperdicio en search terms")
-            st.caption(f"SP: ${sp_st_was:,.2f} ({sp_st_was_count} terms)")
-            st.caption(f"SB: ${sb_st_was:,.2f} ({sb_st_was_count} terms)")
-
-            # Top 5 search terms sin ventas
-            if sp_st_was_count > 0:
-                st.markdown("")
-                st.caption("Top 5 SP search terms sin ventas:")
-                top5_cols = ["Customer Search Term", "Spend", "Clicks", "Impressions"]
-                available = [c for c in top5_cols if c in sp_str_df.columns]
-                if "Customer Search Term" not in sp_str_df.columns:
-                    for c in sp_str_df.columns:
-                        if "search" in c.lower() and "term" in c.lower():
-                            available = [c] + [x for x in available if x != "Customer Search Term"]
-                            break
-                top5 = (
-                    sp_str_df[(sp_str_df["Spend"] > 0) & (sp_str_df["Sales"] == 0)]
-                    .sort_values("Spend", ascending=False)
-                    .head(5)
-                )
-                if len(available) > 0 and len(top5) > 0:
-                    display_cols = [c for c in available if c in top5.columns]
-                    if display_cols:
-                        st.dataframe(
-                            top5[display_cols],
-                            use_container_width=True,
-                            hide_index=True,
-                            height=min(38 + 35 * len(top5), 220),
-                        )
-
-    # ════════════════════════════════════════════════════════════
-    # TAB 3 — Performance por Segmento
-    # ════════════════════════════════════════════════════════════
-    with tab3:
-        sp_total_spend = sp_camps["Spend"].sum() if len(sp_camps) > 0 and "Spend" in sp_camps.columns else 0
-
-        # ── SP Segments ─────────────────────────────────────────
+def _how_to_use():
+    with st.expander("❓ ¿Cómo usar este módulo?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Para qué sirve**")
+            st.caption("Auditoría completa de la estructura de campañas: breakdown real SP/SB/SD, segmentos, deep "
+                       "checks y Target Graduation, también de los keywords y targets sin tráfico.")
+        with col2:
+            st.markdown("**📂 De dónde salen los datos**")
+            st.caption("De la cuenta de Amazon Ads conectada que elijas. Sin cuenta conectada, o si preferís, del "
+                       "Bulk File (.xlsx) de Campaign Manager → Bulk Operations. El Business Report es opcional, "
+                       "para TACoS y revenue.")
+        with col3:
+            st.markdown("**➡️ Siguiente paso**")
+            st.caption("PPC Insights (M18) para health score por ASIN o Bid Optimizer (M9) para ajustar bids.")
+        st.markdown("**▶️ Pasos:**")
         st.markdown(
-            "<div style='background:#1d4b8f;color:white;padding:6px 14px;"
-            "border-radius:8px;font-weight:600;margin-bottom:0.5rem;'>"
-            "Sponsored Products</div>",
-            unsafe_allow_html=True,
+            "1. Elegí la cuenta, el país y el período (o subí el Bulk File a mano)\n"
+            "2. Ingresá los brand terms y, si querés, subí el Business Report\n"
+            "3. Revisá KPIs → Estructura → Performance → Deep Checks → Target Graduation\n"
+            "4. Análisis IA: qué hallazgos atender primero\n"
+            "5. Descargá el Excel de la auditoría"
         )
 
-        sp_seg_rows = []
-        has_mt = "Match Type" in sp_kws.columns if len(sp_kws) > 0 else False
-        if has_mt:
-            sp_seg_rows.append(_seg_row("KW Exact", sp_kws[sp_kws["Match Type"] == "Exact"]))
-            sp_seg_rows.append(_seg_row("KW Phrase", sp_kws[sp_kws["Match Type"] == "Phrase"]))
-            sp_seg_rows.append(_seg_row("KW Broad", sp_kws[sp_kws["Match Type"] == "Broad"]))
 
-        has_pte = "Product Targeting Expression" in sp_pts.columns if len(sp_pts) > 0 else False
-        if has_pte:
-            sp_seg_rows.append(_seg_row(
-                "PT ASIN Targeting",
-                sp_pts[sp_pts["Product Targeting Expression"].astype(str).str.contains("asin", case=False, na=False)],
-            ))
-            sp_seg_rows.append(_seg_row(
-                "PT Category Targeting",
-                sp_pts[sp_pts["Product Targeting Expression"].astype(str).str.contains("category", case=False, na=False)],
-            ))
+def _read_business_report(uploaded) -> pd.DataFrame | None:
+    if uploaded is None:
+        return None
+    buffer = io.BytesIO(uploaded.getvalue())
+    try:
+        report = pd.read_excel(buffer) if uploaded.name.endswith(".xlsx") else pd.read_csv(buffer)
+    except (ValueError, UnicodeDecodeError, OSError) as exc:
+        log.warning("ppc audit: business report %s could not be read: %s", uploaded.name, exc)
+        st.error("No se pudo leer el Business Report. Subilo tal como lo exporta Seller Central (.csv o .xlsx).")
+        return None
+    report.columns = report.columns.str.strip()
+    return report
 
-        # AUTO segments from SP STR
-        auto_camp_ids = set()
-        if len(sp_camps) > 0 and "Targeting Type" in sp_camps.columns and "Campaign ID" in sp_camps.columns:
-            auto_camp_ids = set(
-                sp_camps[sp_camps["Targeting Type"].astype(str).str.lower() == "auto"]["Campaign ID"].dropna()
-            )
-        elif len(sp_camps) > 0 and "Targeting Type" in sp_camps.columns and "Campaign Name" in sp_camps.columns:
-            auto_camp_ids = set(
-                sp_camps[sp_camps["Targeting Type"].astype(str).str.lower() == "auto"]["Campaign Name"].dropna()
-            )
 
-        if len(sp_str_df) > 0 and "Product Targeting Expression" in sp_str_df.columns:
-            # Determine join key
-            join_col = None
-            if "Campaign ID" in sp_str_df.columns and len(auto_camp_ids) > 0:
-                join_col = "Campaign ID"
-            elif "Campaign Name" in sp_str_df.columns and len(auto_camp_ids) > 0:
-                join_col = "Campaign Name"
+def _loaded_line(frames: AuditFrames) -> str:
+    origin = "Bulk cargado" if frames.from_file else "Datos de Amazon Ads cargados"
+    return (f"✅ {origin} — SP: {len(frames.sp_campaigns)} campañas, {len(frames.sp_keywords)} keywords, "
+            f"{len(frames.sp_product_targets)} PT | SB: {len(frames.sb_campaigns)} campañas | "
+            f"SD: {len(frames.sd_campaigns)} campañas | SP STR: {len(frames.sp_search_terms)} terms")
 
-            if join_col and auto_camp_ids:
-                auto_str = sp_str_df[sp_str_df[join_col].isin(auto_camp_ids)]
-            else:
-                # Fallback: use PTE to detect auto terms
-                auto_str = sp_str_df[sp_str_df["Product Targeting Expression"].astype(str).str.strip() != ""]
 
-            pte = auto_str["Product Targeting Expression"].astype(str).str.lower().str.strip()
-            sp_seg_rows.append(_seg_row("AUTO Close Match", auto_str[pte == "close-match"]))
-            sp_seg_rows.append(_seg_row("AUTO Loose Match", auto_str[pte == "loose-match"]))
-            sp_seg_rows.append(_seg_row("AUTO Substitutes", auto_str[pte.str.contains("substitutes", na=False)]))
-            sp_seg_rows.append(_seg_row("AUTO Complements", auto_str[pte.str.contains("complements", na=False)]))
+def _badge(text, level="ok"):
+    """HTML badge. level: ok | warn | crit."""
+    styles = {
+        "ok": "background:#e6f4ed;color:#2a6e4e;",
+        "warn": "background:#fdf3e3;color:#c07a1a;",
+        "crit": "background:#fbeae7;color:#c8402a;",
+    }
+    return (f"<span style='{styles.get(level, styles['ok'])}padding:3px 10px;border-radius:6px;"
+            f"font-weight:600;font-size:0.82rem;'>{text}</span>")
 
-        # TOTAL SP row
-        sp_seg_rows.append(_seg_row("TOTAL SP", sp_camps))
 
-        seg_sp_df = _build_segment_table(sp_seg_rows, sp_total_spend)
+def _styled_figures(frame: pd.DataFrame):
+    # A Styler prints six decimals unless told otherwise.
+    counts = [column for column in COUNT_COLUMNS if column in frame.columns]
+    return (frame.style.format(precision=2, thousands=",", na_rep="—")
+            .format("{:,.0f}", subset=counts, na_rep="—"))
 
-        if len(seg_sp_df) > 0:
-            styled_sp = seg_sp_df.style.map(_color_acos, subset=["ACoS"])
-            st.dataframe(styled_sp, use_container_width=True, hide_index=True, height=min(38 + 35 * len(seg_sp_df), 500))
+
+def _color_acos(val):
+    """Style callback for the ACoS column."""
+    try:
+        value = float(val)
+    except (ValueError, TypeError):
+        return ""
+    if value <= 0:
+        return "color:#999"
+    if value <= 30:
+        return "background:#e6f4ed;color:#2a6e4e"
+    if value <= 55:
+        return "background:#fdf3e3;color:#c07a1a"
+    return "background:#fbeae7;color:#c8402a"
+
+
+def _markdown_money(value: float, currency_code: str) -> str:
+    # Two dollar signs in one Streamlit markdown string read as LaTeX.
+    return money(value, currency_code).replace("$", "\\$")
+
+
+def _band(product: str) -> None:
+    st.markdown(
+        f"<div style='background:{PRODUCT_BAND_COLORS[product]};color:white;padding:6px 14px;"
+        f"border-radius:8px;font-weight:600;margin-bottom:0.5rem;'>{PRODUCT_NAMES[product]}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_kpis(result: AuditResult, frames: AuditFrames):
+    currency = frames.currency_code
+    totals = result.totals
+    known = any(t.campaigns > t.unknown for t in totals.values())
+    report = result.business_report
+    if report is not None:
+        first_row = st.columns(3)
+        with first_row[0]:
+            st.markdown(kpi_card("Revenue Total", money(report.revenue, currency)), unsafe_allow_html=True)
+        with first_row[1]:
+            st.markdown(kpi_card("Ventas Orgánicas", money(report.organic_sales, currency),
+                                 delta=report.organic_pct), unsafe_allow_html=True)
+            st.caption(f"{report.organic_pct:.1f}% del revenue")
+        with first_row[2]:
+            st.markdown(kpi_card("TACoS", f"{report.tacos:.1f}%", delta=report.tacos - 15, delta_good=False),
+                        unsafe_allow_html=True)
+            st.markdown(_tacos_badge(report.tacos), unsafe_allow_html=True)
+    else:
+        st.info("💡 Subí el Business Report para ver TACoS, Revenue y Ventas Orgánicas.")
+
+    second_row = st.columns(3)
+    with second_row[0]:
+        st.markdown(kpi_card("ACoS Overall", f"{result.acos:.1f}%" if known else "—"), unsafe_allow_html=True)
+        breakdown = [f"{product} {acos(totals[product].spend, totals[product].sales):.1f}%"
+                     for product in PRODUCTS if totals[product].sales > 0]
+        if breakdown:
+            st.caption(" | ".join(breakdown))
+    with second_row[1]:
+        st.markdown(kpi_card("Impressions", f"{result.impressions:,.0f}" if known else "—"), unsafe_allow_html=True)
+        shares = [f"{product} {totals[product].impressions / result.impressions * 100:.0f}%"
+                  for product in PRODUCTS if totals[product].impressions > 0 and result.impressions > 0]
+        if shares:
+            st.caption(" | ".join(shares))
+    with second_row[2]:
+        st.markdown(kpi_card("PPC Spend", money(result.spend, currency) if known else "—"), unsafe_allow_html=True)
+        if known:
+            spends = " / ".join(f"{product} {_markdown_money(totals[product].spend, currency)}"
+                                for product in PRODUCTS)
+            st.caption(f"Sales: {_markdown_money(result.sales, currency)} | {spends}")
+
+    st.markdown("")
+    third_row = st.columns(4)
+    ctr = (result.clicks / result.impressions * 100) if result.impressions > 0 else 0
+    cvr = (result.orders / result.clicks * 100) if result.clicks > 0 else 0
+    for column, (label, value) in zip(third_row, (("Clicks", f"{result.clicks:,.0f}"),
+                                                  ("Orders", f"{result.orders:,.0f}"),
+                                                  ("CTR", f"{ctr:.2f}%"), ("CVR", f"{cvr:.2f}%"))):
+        with column:
+            st.markdown(kpi_card(label, value if known else "—"), unsafe_allow_html=True)
+
+    for note in _kpi_notes(result, frames, known):
+        st.caption(note)
+
+
+def _tacos_badge(tacos: float) -> str:
+    if tacos < 10:
+        return _badge("Excelente", "ok")
+    if tacos < 20:
+        return _badge("Saludable", "ok")
+    if tacos < 35:
+        return _badge("Alto", "warn")
+    return _badge("Crítico", "crit")
+
+
+def _kpi_notes(result: AuditResult, frames: AuditFrames, known: bool) -> list[str]:
+    notes = []
+    if not known and any(t.campaigns for t in result.totals.values()):
+        notes.append("Las métricas de campañas del período todavía no se sincronizaron: los KPIs quedan vacíos, "
+                     "no en cero.")
+    else:
+        unknown = sum(t.unknown for t in result.totals.values())
+        if unknown:
+            notes.append(f"{unknown} campañas sin métricas del período todavía (por ejemplo, Sponsored Brands del "
+                         "formato anterior): no suman en los KPIs.")
+    if SB_SD_CAMPAIGNS in frames.unavailable:
+        notes.append(frames.unavailable[SB_SD_CAMPAIGNS])
+    return notes
+
+
+def _render_structure_checks(result: AuditResult, frames: AuditFrames):
+    currency = frames.currency_code
+    card_mixed, card_targets, card_terms = st.columns(3)
+
+    with card_mixed:
+        st.markdown("**Match Types Mixtos**")
+        mixed = result.mixed_match_campaigns
+        if not mixed:
+            st.markdown(_badge("OK — 0 campañas mixtas", "ok"), unsafe_allow_html=True)
         else:
-            st.caption("Sin datos SP")
+            st.markdown(_badge(f"REVISAR — {len(mixed)} campañas mixtas", "warn"), unsafe_allow_html=True)
+            with st.expander(f"Ver {len(mixed)} campañas mixtas"):
+                for name in mixed[:20]:
+                    st.caption(f"• {name}")
+        st.markdown("")
+        st.caption("Distribución SP Keywords (habilitadas):")
+        if result.sp_match_types:
+            for match_type, count in result.sp_match_types.items():
+                st.caption(f"  {match_type}: {count}")
+        else:
+            st.caption("  Sin datos")
+        if result.sb_match_types:
+            st.caption("Distribución SB Keywords (habilitadas):")
+            for match_type, count in result.sb_match_types.items():
+                st.caption(f"  {match_type}: {count}")
+        st.caption(RUNNING_NOTE)
 
-        # ── SB Segments ─────────────────────────────────────────
-        seg_sb_df = pd.DataFrame()
-        if n_sb > 0:
+    with card_targets:
+        st.markdown("**Target WAS (Wasted Ad Spend)**")
+        waste = result.target_waste
+        st.markdown(_waste_badge(waste.pct, "waste", (20, 40)), unsafe_allow_html=True)
+        st.markdown(f"**{_markdown_money(waste.total_waste, currency)}** desperdicio en targets")
+        for product, line, part in (("SP", waste.sp, SP_TARGETS), ("SB", waste.sb, SB_KEYWORDS),
+                                    ("SD", waste.sd, SD_TARGETS)):
+            st.caption(_waste_caption(product, line, "targets", currency, _missing(frames, part, product)))
+
+    with card_terms:
+        st.markdown("**Search Term WAS**")
+        terms = result.search_term_waste
+        st.markdown(_waste_badge(terms.pct, "SP ST waste", (25, 40)), unsafe_allow_html=True)
+        st.markdown(f"**{_markdown_money(terms.total_waste, currency)}** desperdicio en search terms")
+        st.caption(_waste_caption("SP", terms.sp, "terms", currency, ""))
+        st.caption(_waste_caption("SB", terms.sb, "terms", currency, frames.unavailable.get(SB_SEARCH_TERMS, "")))
+        if not terms.top_terms.empty:
             st.markdown("")
-            st.markdown(
-                "<div style='background:#6b2d8f;color:white;padding:6px 14px;"
-                "border-radius:8px;font-weight:600;margin-bottom:0.5rem;'>"
-                "Sponsored Brands</div>",
-                unsafe_allow_html=True,
-            )
+            st.caption("Top 5 SP search terms sin ventas:")
+            st.dataframe(terms.top_terms, use_container_width=True, hide_index=True,
+                         height=min(38 + 35 * len(terms.top_terms), 220))
 
-            sb_seg_rows = []
-            has_sb_mt = "Match Type" in sb_kws.columns if len(sb_kws) > 0 else False
-            if has_sb_mt:
-                sb_seg_rows.append(_seg_row("KW Exact", sb_kws[sb_kws["Match Type"] == "Exact"]))
-                sb_seg_rows.append(_seg_row("KW Phrase", sb_kws[sb_kws["Match Type"] == "Phrase"]))
-                sb_seg_rows.append(_seg_row("KW Broad", sb_kws[sb_kws["Match Type"] == "Broad"]))
 
-            sb_total_spend = sb_camps["Spend"].sum() if len(sb_camps) > 0 and "Spend" in sb_camps.columns else 0
-            sb_seg_rows.append(_seg_row("TOTAL SB", sb_camps))
-            seg_sb_df = _build_segment_table(sb_seg_rows, sb_total_spend)
+def _missing(frames: AuditFrames, part: str, product: str) -> str:
+    if product == "SP":
+        return frames.unavailable.get(SP_TARGETS) or frames.unavailable.get(SP_TARGET_METRICS, "")
+    return frames.unavailable.get(part, "")
 
-            styled_sb = seg_sb_df.style.map(_color_acos, subset=["ACoS"])
-            st.dataframe(styled_sb, use_container_width=True, hide_index=True, height=min(38 + 35 * len(seg_sb_df), 300))
-        else:
-            st.caption("Sin datos de SB en este Bulk File")
 
-        # ── SD Segments ─────────────────────────────────────────
-        seg_sd_df = pd.DataFrame()
-        if n_sd > 0:
-            st.markdown("")
-            st.markdown(
-                "<div style='background:#2a6e4e;color:white;padding:6px 14px;"
-                "border-radius:8px;font-weight:600;margin-bottom:0.5rem;'>"
-                "Sponsored Display</div>",
-                unsafe_allow_html=True,
-            )
+def _waste_badge(pct: float, label: str, limits: tuple[int, int]) -> str:
+    if pct < limits[0]:
+        return _badge(f"OK — {pct:.1f}% {label}", "ok")
+    if pct < limits[1]:
+        return _badge(f"REVISAR — {pct:.1f}% {label}", "warn")
+    return _badge(f"CRÍTICO — {pct:.1f}% {label}", "crit")
 
-            sd_seg_rows = []
-            if len(sd_df) > 0 and "Entity" in sd_df.columns and "Campaign Name" in sd_df.columns:
-                # Classify by campaign name patterns
-                sd_camp_entities = sd_df[sd_df["Entity"] == "Campaign"].copy()
-                cn = sd_camp_entities["Campaign Name"].astype(str).str.lower()
 
-                retarget_mask = cn.str.contains("retarget|remarketing", na=False)
-                audience_mask = cn.str.contains("audience", na=False) & ~retarget_mask
-                product_mask = ~retarget_mask & ~audience_mask
+def _waste_caption(product: str, line: WasteLine | None, unit: str, currency: str, reason: str) -> str:
+    if line is None:
+        return f"{product}: sin dato — {reason}" if reason else f"{product}: sin dato"
+    return f"{product}: {money(line.waste, currency)} ({line.count} {unit})"
 
-                sd_seg_rows.append(_seg_row("SD Retargeting", sd_camp_entities[retarget_mask]))
-                sd_seg_rows.append(_seg_row("SD Audiences", sd_camp_entities[audience_mask]))
-                sd_seg_rows.append(_seg_row("SD Product Targeting", sd_camp_entities[product_mask]))
 
-            sd_total_spend = sd_camps["Spend"].sum() if len(sd_camps) > 0 and "Spend" in sd_camps.columns else 0
-            sd_seg_rows.append(_seg_row("TOTAL SD", sd_camps))
-            seg_sd_df = _build_segment_table(sd_seg_rows, sd_total_spend)
+def _render_segments(result: AuditResult, frames: AuditFrames):
+    _band("SP")
+    _segment_table(result.sp_segments, 500)
+    for note in _sp_segment_notes(result, frames):
+        st.caption(note)
 
-            styled_sd = seg_sd_df.style.map(_color_acos, subset=["ACoS"])
-            st.dataframe(styled_sd, use_container_width=True, hide_index=True, height=min(38 + 35 * len(seg_sd_df), 300))
-        else:
-            st.caption("Sin datos de SD en este Bulk File")
+    for product, segments, campaigns in (("SB", result.sb_segments, frames.sb_campaigns),
+                                         ("SD", result.sd_segments, frames.sd_campaigns)):
+        st.markdown("")
+        if campaigns.empty:
+            st.caption(_no_product_caption(product, frames))
+            continue
+        _band(product)
+        _segment_table(segments, 300)
+        if product == "SB" and SB_KEYWORDS in frames.unavailable:
+            st.caption(f"Los segmentos por keyword quedan vacíos: {frames.unavailable[SB_KEYWORDS]}")
 
-    # ════════════════════════════════════════════════════════════
-    # TAB 4 — Deep Checks
-    # ════════════════════════════════════════════════════════════
-    with tab4:
 
-        # ── Check 1: Top 5 Campañas por Spend ──────────────────
-        st.markdown("**Top 5 Campañas SP por Spend**")
-        top5_camps_df = pd.DataFrame()
-        if len(sp_camps) > 0 and "Spend" in sp_camps.columns:
-            top5_cols_want = ["Campaign Name", "Targeting Type", "Spend", "Sales", "ACOS", "Orders"]
-            top5_cols_avail = [c for c in top5_cols_want if c in sp_camps.columns]
-            top5_camps_df = sp_camps.sort_values("Spend", ascending=False).head(5)[top5_cols_avail].copy()
-            if len(top5_camps_df) > 0:
-                st.dataframe(top5_camps_df, use_container_width=True, hide_index=True)
-            else:
-                st.caption("Sin campañas SP con spend")
-        else:
-            st.caption("Sin datos de campañas SP")
+def _segment_table(segments: pd.DataFrame, max_height: int):
+    if segments.empty:
+        st.caption("Sin datos")
+        return
+    st.dataframe(_styled_figures(segments).map(_color_acos, subset=["ACoS"]), use_container_width=True,
+                 hide_index=True, height=min(38 + 35 * len(segments), max_height))
 
-        st.markdown("---")
 
-        # ── Check 2: Clasificación de Targets ──────────────────
-        st.markdown("**Clasificación de Targets**")
-        classif_df = pd.DataFrame()
-        if not brand_terms:
-            st.info("Ingresá brand terms arriba para clasificar targets por tipo (own brand, competitor, generic)")
-        else:
-            # Gather all targets
-            all_targets = []
+def _sp_segment_notes(result: AuditResult, frames: AuditFrames) -> list[str]:
+    notes = []
+    missing = frames.unavailable.get(SP_TARGETS) or frames.unavailable.get(SP_TARGET_METRICS)
+    if missing:
+        notes.append(f"Los segmentos de keywords, product targeting y AUTO quedan vacíos: {missing}")
+    auto_rows = result.sp_segments[result.sp_segments["Segmento"].str.startswith("AUTO")]
+    if auto_rows["# Targets"].sum() > 0:
+        if result.auto_segments_source == AUTO_FROM_TARGETING:
+            notes.append("AUTO: métricas de los grupos de targeting automático (close-match, loose-match, "
+                         "substitutes, complements), con todo su tráfico.")
+        elif result.auto_segments_source == AUTO_FROM_SEARCH_TERMS:
+            notes.append("AUTO: search terms de las campañas automáticas. El Search Term Report sólo trae términos "
+                         "con clicks, así que sus impresiones quedan cortas.")
+    return notes
 
-            # Keywords
-            if len(sp_kws) > 0 and "Keyword Text" in sp_kws.columns:
-                kw_df = sp_kws[["Keyword Text", "Spend", "Sales", "Clicks", "Orders"]].copy()
-                kw_df.columns = ["Target", "Spend", "Sales", "Clicks", "Orders"]
-                kw_text_lower = kw_df["Target"].astype(str).str.lower()
-                kw_df["Tipo"] = "generic"
-                kw_df.loc[kw_text_lower.apply(lambda t: any(bt in t for bt in brand_terms)), "Tipo"] = "own_brand"
-                all_targets.append(kw_df)
 
-            # Product Targeting
-            if len(sp_pts) > 0 and "Product Targeting Expression" in sp_pts.columns:
-                pt_df = sp_pts[["Product Targeting Expression", "Spend", "Sales", "Clicks", "Orders"]].copy()
-                pt_df.columns = ["Target", "Spend", "Sales", "Clicks", "Orders"]
-                pte_lower = pt_df["Target"].astype(str).str.lower()
+def _no_product_caption(product: str, frames: AuditFrames) -> str:
+    if frames.from_file:
+        return f"Sin datos de {product} en este Bulk File"
+    if SB_SD_CAMPAIGNS in frames.unavailable:
+        return f"Sin datos de {product}: {frames.unavailable[SB_SD_CAMPAIGNS]}"
+    return f"La cuenta no tiene campañas de {PRODUCT_NAMES[product]}."
 
-                # Detect own ASINs from BR
-                own_asins = set()
-                if br_df is not None and len(br_df) > 0:
-                    for c in br_df.columns:
-                        if "asin" in c.lower():
-                            own_asins.update(br_df[c].dropna().astype(str).str.strip().str.upper())
-                            break
 
-                pt_df["Tipo"] = "generic"
-                for idx, row in pt_df.iterrows():
-                    expr = str(row["Target"]).lower()
-                    if "asin" in expr:
-                        # Extract ASIN
-                        import re
-                        asin_match = re.search(r"[A-Z0-9]{10}", str(row["Target"]).upper())
-                        if asin_match:
-                            asin_val = asin_match.group()
-                            if asin_val in own_asins:
-                                pt_df.at[idx, "Tipo"] = "own_asin"
-                            else:
-                                pt_df.at[idx, "Tipo"] = "competitor_asin"
-                all_targets.append(pt_df)
+def _render_deep_checks(result: AuditResult, frames: AuditFrames, brand_terms: tuple[str, ...]):
+    st.markdown("**Top 5 Campañas SP por Spend**")
+    if frames.sp_campaigns.empty:
+        st.caption("Sin datos de campañas SP")
+    elif result.top_campaigns.empty:
+        st.caption("Sin campañas SP con spend")
+    else:
+        st.dataframe(result.top_campaigns, use_container_width=True, hide_index=True)
 
-            if all_targets:
-                combined = pd.concat(all_targets, ignore_index=True)
-                for col in ["Spend", "Sales", "Clicks", "Orders"]:
-                    combined[col] = pd.to_numeric(combined[col], errors="coerce").fillna(0)
+    st.markdown("---")
+    st.markdown("**Clasificación de Targets**")
+    if not brand_terms:
+        st.info("Ingresá brand terms arriba para clasificar targets por tipo (own brand, competitor, generic)")
+    elif result.target_types.empty:
+        st.caption("Sin keywords ni PT para clasificar")
+    else:
+        st.dataframe(_styled_figures(result.target_types).map(_color_acos, subset=["ACoS"]), use_container_width=True,
+                     hide_index=True)
+        if not frames.from_file:
+            st.caption("ASINs propios: los que la cuenta anuncia en Sponsored Products, más los del Business Report.")
 
-                classif_df = combined.groupby("Tipo").agg(
-                    Targets=("Tipo", "count"),
-                    Spend=("Spend", "sum"),
-                    Sales=("Sales", "sum"),
-                ).reset_index().rename(columns={"Tipo": "Tipo"})
-                classif_df["ACoS"] = classif_df.apply(
-                    lambda r: round(_acos(r["Spend"], r["Sales"]), 1), axis=1,
-                )
-                total_classif_spend = classif_df["Spend"].sum()
-                classif_df["% Spend"] = classif_df["Spend"].apply(
-                    lambda s: round((s / total_classif_spend * 100) if total_classif_spend > 0 else 0, 1),
-                )
-                classif_df = classif_df.sort_values("Spend", ascending=False)
-                st.dataframe(
-                    classif_df.style.map(_color_acos, subset=["ACoS"]),
-                    use_container_width=True, hide_index=True,
-                )
-            else:
-                st.caption("Sin keywords ni PT para clasificar")
+    st.markdown("---")
+    st.markdown("**Duplicación de Targets (Keywords en 2+ campañas)**")
+    if frames.sp_keywords.empty:
+        st.caption("Sin datos suficientes de keywords SP")
+    elif result.duplicates.empty:
+        st.caption("No se detectaron keywords duplicadas entre campañas")
+    else:
+        st.dataframe(result.duplicates, use_container_width=True, hide_index=True)
+    st.caption(RUNNING_NOTE)
 
-        st.markdown("---")
+    st.markdown("---")
+    st.markdown("**Bid Adjustments por Placement**")
+    if result.placements.empty:
+        st.caption("Sin datos de Bid Adjustments" if frames.from_file else PLACEMENTS_NOT_LISTED)
+    else:
+        st.dataframe(result.placements, use_container_width=True, hide_index=True)
+        st.caption("Campañas habilitadas; Con_Ajuste cuenta las que suben el bid en ese placement.")
+    if not result.bidding_strategies.empty:
+        st.caption("Distribución Bidding Strategy (campañas habilitadas):")
+        st.dataframe(result.bidding_strategies, use_container_width=True, hide_index=True)
 
-        # ── Check 3: Duplicación de Targets ────────────────────
-        st.markdown("**Duplicación de Targets (Keywords en 2+ campañas)**")
-        dupes_df = pd.DataFrame()
-        if len(sp_kws) > 0 and "Keyword Text" in sp_kws.columns and "Campaign Name" in sp_kws.columns and "Match Type" in sp_kws.columns:
-            kw_dedup = sp_kws.copy()
-            kw_dedup["_kw_lower"] = kw_dedup["Keyword Text"].astype(str).str.lower().str.strip()
-            kw_dedup["_mt"] = kw_dedup["Match Type"].astype(str).str.strip()
+    st.markdown("---")
+    st.markdown("**SKAG vs Bolsa (targets por campaña manual)**")
+    if result.skag.empty:
+        st.caption("Sin campañas manuales habilitadas con targets activos")
+    else:
+        st.dataframe(result.skag, use_container_width=True, hide_index=True)
+        st.caption("Campañas manuales habilitadas, por cuántos keywords y product targets corren en ellas.")
 
-            grouped = kw_dedup.groupby(["_kw_lower", "_mt"]).agg(
-                n_camps=("Campaign Name", "nunique"),
-                Spend_Total=("Spend", "sum"),
-                Sales_Total=("Sales", "sum"),
-            ).reset_index()
-            dupes = grouped[grouped["n_camps"] >= 2].sort_values("Spend_Total", ascending=False).head(10)
 
-            if len(dupes) > 0:
-                dupes_df = dupes.rename(columns={
-                    "_kw_lower": "Keyword", "_mt": "Match Type",
-                    "n_camps": "# Campañas",
-                }).copy()
-                dupes_df["Spend_Total"] = dupes_df["Spend_Total"].round(2)
-                dupes_df["Sales_Total"] = dupes_df["Sales_Total"].round(2)
-                st.dataframe(dupes_df, use_container_width=True, hide_index=True)
-            else:
-                st.caption("No se detectaron keywords duplicadas entre campañas")
-        else:
-            st.caption("Sin datos suficientes de keywords SP")
+def _render_export(result: AuditResult, source: AuditSource):
+    today = date.today().isoformat()
+    try:
+        excel_bytes = build_audit_excel(result, kpi_rows(result, source, today))
+    except (ValueError, OSError) as exc:
+        log.exception("ppc audit: the Excel could not be built for %s", source.label)
+        st.error(f"No se pudo generar el Excel: {exc}")
+        return
+    st.download_button(
+        "⬇️ Descargar Auditoría Completa (Excel)",
+        data=excel_bytes,
+        file_name=f"PPC_Audit_{today}.xlsx",
+        mime=XLSX_MIME,
+        use_container_width=True,
+        key=DOWNLOAD_KEY,
+    )
 
-        st.markdown("---")
 
-        # ── Check 4: Bid Adjustments por Placement ─────────────
-        st.markdown("**Bid Adjustments por Placement**")
-        sp_bid_adj = bulk.get("sp_bid_adj", pd.DataFrame())
-        if len(sp_bid_adj) > 0 and "Placement" in sp_bid_adj.columns and "Percentage" in sp_bid_adj.columns:
-            sp_bid_adj["Percentage"] = pd.to_numeric(sp_bid_adj["Percentage"], errors="coerce").fillna(0)
+def kpi_rows(result: AuditResult, source: AuditSource, today: str) -> dict[str, str]:
+    currency = source.frames.currency_code
+    rows = {
+        "Total PPC Spend": money(result.spend, currency),
+        "Total PPC Sales": money(result.sales, currency),
+        "ACoS Overall": f"{result.acos:.1f}%",
+        "Impressions": f"{result.impressions:,.0f}",
+        "Clicks": f"{result.clicks:,.0f}",
+        "Orders": f"{result.orders:,.0f}",
+        "SP Campañas": str(result.totals["SP"].campaigns),
+        "SB Campañas": str(result.totals["SB"].campaigns),
+        "SD Campañas": str(result.totals["SD"].campaigns),
+        "Fuente": "Amazon Ads" if source.from_amazon_ads else "Bulk File subido a mano",
+        "Cuenta": source.label,
+        "Fecha": today,
+    }
+    if source.window_start and source.window_end:
+        rows["Período"] = date_range_label(source.window_start, source.window_end)
+    report = result.business_report
+    if report is not None:
+        rows["Revenue Total"] = money(report.revenue, currency)
+        rows["TACoS"] = f"{report.tacos:.1f}%"
+        rows["Ventas Orgánicas"] = money(report.organic_sales, currency)
+    return rows
 
-            placement_agg = sp_bid_adj.groupby("Placement").agg(
-                Campañas=("Placement", "count"),
-                Promedio=("Percentage", "mean"),
-                Min=("Percentage", "min"),
-                Max=("Percentage", "max"),
-            ).reset_index()
-            placement_agg["Promedio"] = placement_agg["Promedio"].round(1)
-            # Filter only rows with adjustments > 0
-            placement_with_adj = sp_bid_adj[sp_bid_adj["Percentage"] > 0]
-            if len(placement_with_adj) > 0:
-                placement_active = placement_with_adj.groupby("Placement").agg(
-                    Con_Ajuste=("Placement", "count"),
-                ).reset_index()
-                placement_agg = placement_agg.merge(placement_active, on="Placement", how="left")
-                placement_agg["Con_Ajuste"] = placement_agg["Con_Ajuste"].fillna(0).astype(int)
 
-            st.dataframe(placement_agg, use_container_width=True, hide_index=True)
+def build_audit_excel(result: AuditResult, kpis: dict[str, str]) -> bytes:
+    """The audit as a workbook: KPIs, segments, the three structure checks, top campaigns, target types,
+    duplicates and Target Graduation."""
+    target_waste, term_waste = result.target_waste, result.search_term_waste
+    mixed = result.mixed_match_campaigns
+    audit_rows = [
+        ["Match Types Mixtos", f"{len(mixed)} campañas mixtas",
+         ", ".join(mixed[:5]) + ("..." if len(mixed) > 5 else "") if mixed else "Ninguna"],
+        ["Target WAS", f"{target_waste.total_waste:,.2f} ({target_waste.pct:.1f}%)",
+         " | ".join(f"{product}: {_excel_waste(line)}" for product, line in
+                    (("SP", target_waste.sp), ("SB", target_waste.sb), ("SD", target_waste.sd)))],
+        ["Search Term WAS", f"{term_waste.total_waste:,.2f} ({term_waste.pct:.1f}%)",
+         " | ".join(f"{product}: {_excel_waste(line, ' terms')}" for product, line in
+                    (("SP", term_waste.sp), ("SB", term_waste.sb)))],
+    ]
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        pd.DataFrame(list(kpis.items()), columns=["Metrica", "Valor"]).to_excel(
+            writer, sheet_name="Resumen KPIs", index=False)
+        segments = [part for segment in (result.sp_segments, result.sb_segments, result.sd_segments)
+                    if not segment.empty for part in (pd.DataFrame([{"Segmento": ""}]), segment)][1:]
+        if segments:
+            pd.concat(segments, ignore_index=True).to_excel(writer, sheet_name="Performance Segmento", index=False)
+        pd.DataFrame(audit_rows, columns=["Check", "Resultado", "Detalle"]).to_excel(
+            writer, sheet_name="Auditoria", index=False)
+        for sheet_name, table in (("Top Campanas", result.top_campaigns),
+                                  ("Clasificacion Targets", result.target_types),
+                                  ("Duplicacion Targets", result.duplicates)):
+            if not table.empty:
+                table.to_excel(writer, sheet_name=sheet_name, index=False)
+        if not result.graduation.empty:
+            columns = [column for column in GRADUATION_EXPORT_COLUMNS if column in result.graduation.columns]
+            result.graduation[columns].to_excel(writer, sheet_name="Target Graduation", index=False)
+        # Keywords and campaign names are text: one that starts with "=" must never run as a formula.
+        force_text_cells(writer.book)
+    return buffer.getvalue()
 
-            # Bidding Strategy distribution
-            if "Bidding Strategy" in sp_bid_adj.columns:
-                st.caption("Distribución Bidding Strategy:")
-                bs_dist = sp_bid_adj["Bidding Strategy"].dropna().value_counts().reset_index()
-                bs_dist.columns = ["Bidding Strategy", "Count"]
-                st.dataframe(bs_dist, use_container_width=True, hide_index=True)
-        else:
-            st.caption("Sin datos de Bid Adjustments")
 
-        st.markdown("---")
+def _excel_waste(line: WasteLine | None, unit: str = "") -> str:
+    if line is None:
+        return "sin dato"
+    return f"{line.waste:,.2f}" + (f" ({line.count}{unit})" if unit else "")
 
-        # ── Check 5: SKAG vs Bolsa ─────────────────────────────
-        st.markdown("**SKAG vs Bolsa (targets por campaña manual)**")
-        if len(sp_kws) > 0 and "Campaign Name" in sp_kws.columns:
-            # Combine KW + PT for manual campaigns
-            manual_targets = pd.concat([sp_kws, sp_pts], ignore_index=True)
-            if "Spend" in manual_targets.columns:
-                active_targets = manual_targets[manual_targets["Spend"] > 0].copy()
-            else:
-                active_targets = manual_targets.copy()
 
-            if len(active_targets) > 0 and "Campaign Name" in active_targets.columns:
-                targets_per_camp = active_targets.groupby("Campaign Name").agg(
-                    n_targets=("Campaign Name", "count"),
-                    Spend=("Spend", "sum") if "Spend" in active_targets.columns else ("Campaign Name", "count"),
-                ).reset_index()
-
-                def _classify_skag(n):
-                    if n == 1:
-                        return "SKAG (1 target)"
-                    if n <= 10:
-                        return "Normal (2-10)"
-                    return "Bolsa (11+)"
-
-                targets_per_camp["Tipo"] = targets_per_camp["n_targets"].apply(_classify_skag)
-                skag_summary = targets_per_camp.groupby("Tipo").agg(
-                    Campañas=("Tipo", "count"),
-                    Spend_Total=("Spend", "sum"),
-                ).reset_index()
-                total_skag_spend = skag_summary["Spend_Total"].sum()
-                skag_summary["% Spend"] = skag_summary["Spend_Total"].apply(
-                    lambda s: round((s / total_skag_spend * 100) if total_skag_spend > 0 else 0, 1),
-                )
-                skag_summary["Spend_Total"] = skag_summary["Spend_Total"].round(2)
-                st.dataframe(skag_summary, use_container_width=True, hide_index=True)
-            else:
-                st.caption("Sin targets activos con spend")
-        else:
-            st.caption("Sin datos de keywords SP")
-
-    # ════════════════════════════════════════════════════════════
-    # TAB 5 — Export
-    # ════════════════════════════════════════════════════════════
-    with tab5:
-        from datetime import date
-        _today = date.today().isoformat()
-
-        # Build KPI dict for export
-        kpi_dict = {
-            "Total PPC Spend": f"${total_spend:,.2f}",
-            "Total PPC Sales": f"${total_sales:,.2f}",
-            "ACoS Overall": f"{acos_overall:.1f}%",
-            "Impressions": f"{total_imps:,.0f}",
-            "Clicks": f"{total_clicks:,.0f}",
-            "Orders": f"{total_orders:,.0f}",
-            "SP Campañas": str(n_sp),
-            "SB Campañas": str(n_sb),
-            "SD Campañas": str(n_sd),
-            "Fecha": _today,
-        }
-        if has_br and revenue_total > 0:
-            kpi_dict["Revenue Total"] = f"${revenue_total:,.2f}"
-            kpi_dict["TACoS"] = f"{tacos:.1f}%"
-            kpi_dict["Ventas Orgánicas"] = f"${organic_sales:,.2f}"
-
-        # Audit summary tuples for export
-        audit_mixed = (
-            f"{len(mixed_camps)} campañas mixtas",
-            ", ".join(mixed_camps[:5]) + ("..." if len(mixed_camps) > 5 else "") if mixed_camps else "Ninguna",
+def _render_graduation(result: AuditResult, frames: AuditFrames):
+    st.markdown("#### Targets con 0 impresiones en campañas activas")
+    st.caption("Identifica keywords/targets que no reciben tráfico aunque su campaña sí. "
+               "Posibles causas: bid muy bajo, keyword irrelevante o duplicada.")
+    if not frames.from_file:
+        st.caption(API_GRADUATION_NOTE)
+    missing = frames.unavailable.get(SP_TARGETS) or frames.unavailable.get(SP_TARGET_METRICS)
+    if missing:
+        st.info(missing)
+        return
+    graduation = result.graduation
+    if graduation.empty:
+        st.markdown(
+            "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:2rem;"
+            "text-align:center;background:#FFF3E0;margin-top:1rem;'>"
+            "<div style='font-size:1.5rem;'>✅</div>"
+            "<div style='font-weight:600;margin-top:0.5rem;'>Sin targets huérfanos</div>"
+            "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
+            "Todos los targets en campañas activas tienen impresiones</div>"
+            "</div>", unsafe_allow_html=True,
         )
-        audit_target_was = (
-            f"${total_was:,.2f} ({was_pct:.1f}%)",
-            f"SP: ${sp_manual_was:,.2f} | SB: ${sb_was:,.2f} | SD: ${sd_was:,.2f}",
-        )
-        audit_st_was = (
-            f"${total_st_was:,.2f} ({st_was_pct:.1f}%)",
-            f"SP: ${sp_st_was:,.2f} ({sp_st_was_count} terms) | SB: ${sb_st_was:,.2f} ({sb_st_was_count} terms)",
-        )
+        return
 
-        # Reuse seg DataFrames from tab3 scope — rebuild if needed
-        # (they were computed in tab3 but Streamlit executes all tabs)
-        try:
-            _seg_sp = seg_sp_df
-        except NameError:
-            _seg_sp = pd.DataFrame()
-        try:
-            _seg_sb = seg_sb_df
-        except NameError:
-            _seg_sb = pd.DataFrame()
-        try:
-            _seg_sd = seg_sd_df
-        except NameError:
-            _seg_sd = pd.DataFrame()
-        try:
-            _top5 = top5_camps_df
-        except NameError:
-            _top5 = pd.DataFrame()
-        try:
-            _classif = classif_df
-        except NameError:
-            _classif = pd.DataFrame()
-        try:
-            _dupes = dupes_df
-        except NameError:
-            _dupes = pd.DataFrame()
+    recommendations = graduation[RECOMMENDATION]
+    total = len(graduation)
+    raise_bid = int(recommendations.str.contains("SUBIR BID", na=False).sum())
+    pause = int(recommendations.str.contains("PAUSAR", na=False).sum())
+    graduate = int(recommendations.str.contains("GRADUAR", na=False).sum())
+    keep = int(recommendations.str.contains("MANTENER", na=False).sum())
+    cards = st.columns(4)
+    for column, (label, value) in zip(cards, (("Targets sin impresiones", total), ("Subir Bid", raise_bid),
+                                              ("Pausar", pause),
+                                              ("Mantener (marca)" if keep else "Graduar a SKAG",
+                                               keep if keep else graduate))):
+        with column:
+            st.markdown(kpi_card(label, str(value)), unsafe_allow_html=True)
 
-        # Compute graduation for Excel (also used in tab6)
-        _grad_df = _analyze_target_graduation(sp_kws, sp_camps, brand_terms)
+    options = sorted(recommendations.unique().tolist())
+    selected = st.multiselect("Filtrar por recomendación", options=options, default=options,
+                              key=GRADUATION_FILTER_KEY)
+    shown = graduation[recommendations.isin(selected)]
+    columns = [column for column in GRADUATION_COLUMNS if column in shown.columns]
+    if columns:
+        styled = _styled_figures(shown[columns].reset_index(drop=True)).apply(_graduation_style, axis=1)
+        st.dataframe(styled, use_container_width=True, height=450)
+        st.caption(f"Mostrando {len(shown)} de {total} targets")
 
-        try:
-            excel_bytes = _build_audit_excel(
-                kpi_dict, _seg_sp, _seg_sb, _seg_sd,
-                _top5, _classif, _dupes,
-                audit_mixed, audit_target_was, audit_st_was,
-                graduation_df=_grad_df,
-            )
-        except Exception as e:
-            st.warning(f"Error generando Excel: {e}")
-            buf_fallback = io.BytesIO()
-            pd.DataFrame({"Error": [str(e)]}).to_excel(buf_fallback, index=False)
-            excel_bytes = buf_fallback.getvalue()
 
-        st.download_button(
-            "\u2b07\ufe0f Descargar Auditoría Completa (Excel)",
-            data=excel_bytes,
-            file_name=f"PPC_Audit_{_today}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            key="audit_dl",
-        )
+def _graduation_style(row):
+    recommendation = str(row.get(RECOMMENDATION, ""))
+    style = next((css for key, css in _GRAD_COLORS.items() if key in recommendation), "")
+    return [style] * len(row)
 
-    # ════════════════════════════════════════════════════════════
-    # TAB 6 — Target Graduation
-    # ════════════════════════════════════════════════════════════
-    with tab6:
-        st.markdown("#### Targets con 0 impresiones en campañas activas")
-        st.caption(
-            "Identifica keywords/targets que no reciben tráfico aunque su campaña sí. "
-            "Posibles causas: bid muy bajo, keyword irrelevante o duplicada."
-        )
 
-        grad_df = _analyze_target_graduation(sp_kws, sp_camps, brand_terms)
+def _render_ai_tab(source: AuditSource, result: AuditResult, brand_terms: tuple[str, ...]):
+    from ai.agents.ppc_audit import chat_document
+    from ai.config import AI_ENABLED
+    from core import ai_tab
 
-        if grad_df.empty:
-            st.markdown(
-                "<div style='border:2px dashed #FFD9B3;border-radius:12px;padding:2rem;"
-                "text-align:center;background:#FFF3E0;margin-top:1rem;'>"
-                "<div style='font-size:1.5rem;'>✅</div>"
-                "<div style='font-weight:600;margin-top:0.5rem;'>Sin targets huérfanos</div>"
-                "<div style='font-size:0.82rem;color:#888;margin-top:0.25rem;'>"
-                "Todos los targets en campañas activas tienen impresiones</div>"
-                "</div>", unsafe_allow_html=True,
-            )
-        else:
-            # KPI cards
-            total_orphans = len(grad_df)
-            n_subir = (grad_df["Recomendación"].str.contains("SUBIR BID", na=False)).sum()
-            n_pausar = (grad_df["Recomendación"].str.contains("PAUSAR", na=False)).sum()
-            n_graduar = (grad_df["Recomendación"].str.contains("GRADUAR", na=False)).sum()
-            n_mantener = (grad_df["Recomendación"].str.contains("MANTENER", na=False)).sum()
+    lang = ai_tab.app_language()
+    texts = _AI_TEXTS.get(lang, _AI_TEXTS["es"])
+    st.subheader(texts["title"])
+    st.caption(texts["caption"])
+    if not AI_ENABLED:
+        st.caption(texts["disabled"])
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
+    currency = source.frames.currency_code
+    analysis_input = build_analysis_input(
+        source.frames, result, account_label=source.label, period_label=_period_label(source),
+        currency_code=currency, attribution_days=source.attribution_days, brand_terms=brand_terms, lang=lang)
+    if analysis_input.data is None:
+        st.info(texts["no_rows"])
+        app_chat.withdraw_analysis(ANALYSIS_MODULE)
+        return
 
-            k1, k2, k3, k4 = st.columns(4)
-            with k1:
-                st.markdown(kpi_card("Targets sin impresiones", str(total_orphans)), unsafe_allow_html=True)
-            with k2:
-                st.markdown(kpi_card("Subir Bid", str(n_subir)), unsafe_allow_html=True)
-            with k3:
-                st.markdown(kpi_card("Pausar", str(n_pausar)), unsafe_allow_html=True)
-            with k4:
-                label_4 = "Mantener (marca)" if n_mantener > 0 else "Graduar a SKAG"
-                val_4 = str(n_mantener) if n_mantener > 0 else str(n_graduar)
-                st.markdown(kpi_card(label_4, val_4), unsafe_allow_html=True)
+    labels = ai_tab.ai_labels(lang, texts)
+    st.markdown(ai_tab.AI_CSS, unsafe_allow_html=True)
+    payload = analysis_input.data
+    analysis = ai_tab.resolve_analysis(slug=ANALYSIS_MODULE, payload=payload, file_signature=source.signature,
+                                       labels=labels, auto_fire=False)
+    records = analysis_input.records
+    if analysis is not None:
+        records = ai_tab.records_for_render(ANALYSIS_MODULE, analysis, payload, analysis_input.records)
+        ai_tab.render_analysis(analysis, slug=ANALYSIS_MODULE, labels=labels,
+                               render_result=partial(_render_ai_result, records=records, labels=labels,
+                                                     currency_code=currency))
+    ai_tab.publish_analysis_to_chat(
+        ANALYSIS_MODULE, analysis, payload, module_label=MODULE_LABEL, subject=source.label,
+        reading=lambda finished, _records=records: chat_document.reading_text(finished.result, _records),
+        annotate=partial(ai_tab.annotate_row_ids, labels_by_id=audit_row_labels(records)),
+        country_code=source.country_code, profile_id=source.profile_id)
 
-            # Filter by recommendation
-            rec_options = sorted(grad_df["Recomendación"].unique().tolist())
-            selected_recs = st.multiselect(
-                "Filtrar por recomendación",
-                options=rec_options,
-                default=rec_options,
-                key="audit_grad_filter",
-            )
 
-            grad_filtered = grad_df[grad_df["Recomendación"].isin(selected_recs)].copy()
+def _render_ai_result(result, analysis, *, records, labels, currency_code):
+    from core import ai_tab
 
-            # Display columns
-            show_cols = [
-                c for c in [
-                    "Campaign Name", "Ad Group Name", "Keyword Text", "Match Type",
-                    "Bid", "Spend", "Sales", "Campaign Impressions", "Recomendación",
-                ] if c in grad_filtered.columns
-            ]
+    opinions = result.get("hallazgos") or []
+    warnings = sum(1 for opinion in opinions if opinion.get("advertencia"))
+    st.markdown(ai_tab.ai_chips_html(warnings, labels["counts"].format(n=len(opinions)), analysis.elapsed, labels),
+                unsafe_allow_html=True)
+    row_labels = audit_row_labels(records)
+    synthesis = ai_tab.map_synthesis_text(result.get("synthesis") or {},
+                                          lambda text: ai_tab.annotate_row_ids(text, row_labels))
+    st.markdown(ai_tab.synthesis_html(synthesis, labels), unsafe_allow_html=True)
+    rows = audit_ai_rows(opinions, records, currency_code)
+    if rows:
+        st.markdown(ai_tab.opinion_table_html(rows, labels["table_title"], labels, _VERDICT_COLORS),
+                    unsafe_allow_html=True)
 
-            if show_cols:
-                # Color coding by recommendation
-                _GRAD_COLORS = {
-                    "SUBIR BID": "background:#E8F5E9;",
-                    "PAUSAR": "background:#FFEBEE;",
-                    "GRADUAR": "background:#FFF8E1;",
-                    "MANTENER": "background:#E3F2FD;",
-                    "YA PAUSADO": "background:#F5F5F5;",
-                }
 
-                def _style_grad(row):
-                    rec = str(row.get("Recomendación", ""))
-                    style = ""
-                    for key, css in _GRAD_COLORS.items():
-                        if key in rec:
-                            style = css
-                            break
-                    return [style] * len(row)
+def audit_ai_rows(opinions: list, records: list, currency_code: str) -> list[dict]:
+    """Display rows for the opinion table: the campaign, keyword or term, its group, its figures and the AI's read."""
+    by_id = dict(zip(audit_row_labels(records), records))
+    rows = []
+    for opinion in opinions:
+        row_id = str(opinion.get("row_id", ""))
+        record = by_id.get(row_id)
+        if record is None:
+            continue
+        rows.append({
+            "row_id": row_id,
+            "item": row_item(record),
+            "type_tag": _GROUP_TAGS.get(record.get("grupo"), ""),
+            "metrics": _row_metrics(record, currency_code),
+            "badges": [opinion.get("veredicto", "")],
+            "confidence": str(opinion.get("confianza", "")).upper(),
+            "warning": opinion.get("advertencia") or "",
+            "reasoning": opinion.get("razon", ""),
+        })
+    return rows
 
-                styled = grad_filtered[show_cols].reset_index(drop=True).style.apply(
-                    _style_grad, axis=1,
-                )
-                st.dataframe(styled, use_container_width=True, height=450)
 
-                st.caption(f"Mostrando {len(grad_filtered)} de {total_orphans} targets")
+def _row_metrics(record: dict, currency_code: str) -> list[str]:
+    metrics = []
+    if record.get("match_types"):
+        metrics += [str(record["match_types"]), f"{record.get('keywords')} keywords"]
+    if record.get("spend") is not None:
+        metrics.append(f"gasto {money(record['spend'], currency_code)}")
+    if record.get("sales") is not None:
+        metrics.append(f"ventas {money(record['sales'], currency_code)}")
+    if record.get("acos") is not None:
+        metrics.append(f"ACoS {record['acos']}%")
+    if record.get("campanas") is not None:
+        metrics.append(f"{record['campanas']} campañas")
+    if record.get("impresiones_campana") is not None:
+        metrics.append(f"{record['impresiones_campana']:,} impresiones de su campaña")
+    if record.get("recomendacion"):
+        metrics.append(str(record["recomendacion"]))
+    return metrics
+
+
+def _period_label(source: AuditSource) -> str:
+    if source.window_start is None or source.window_end is None:
+        return ""
+    return date_range_label(source.window_start, source.window_end)

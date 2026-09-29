@@ -13,7 +13,7 @@ import pytest
 
 _AGENTS = Path("ai/agents")
 _SLUGS = ["str", "sqp", "datadive", "bulk_campaigns", "ppc_insights", "funnel", "sbh", "ppc_forecast",
-          "account_pulse", "weekly_report", "cross_analysis"]
+          "account_pulse", "weekly_report", "cross_analysis", "ppc_audit"]
 
 
 def _block(slug: str) -> str:

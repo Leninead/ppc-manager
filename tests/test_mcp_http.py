@@ -38,7 +38,7 @@ def test_health_lists_the_tools_so_a_deploy_can_be_verified_from_outside(client)
     assert set(client.get(HEALTH_PATH).json()["tools"]) == {
         "list_accounts", "list_analyses", "get_analysis", "top_search_terms", "daily_metrics", "metrics_by_group",
         "accounts_overview", "campaign_health", "idle_targets", "campaign_structure", "funnel_coverage",
-        "search_term_candidates", "bid_suggestions", "asin_health", "account_action_plan"}
+        "search_term_candidates", "bid_suggestions", "asin_health", "account_action_plan", "ppc_audit"}
 
 
 def test_the_mcp_endpoint_without_a_token_is_rejected(client):

@@ -9,7 +9,11 @@ import pytest
 import requests
 
 from core.amazon_ads.api_client import AdsApiClient, AdsApiError
-from core.amazon_ads.product_rows import SB_LEGACY_CAMPAIGN_SPEC
+from core.amazon_ads.product_rows import (
+    SB_LEGACY_CAMPAIGN_SPEC,
+    SB_LEGACY_SEARCH_TERM_SPEC,
+    SB_SEARCH_TERM_SPEC,
+)
 from core.amazon_ads.report_fetcher import (
     CREATE_CONTENT_TYPE,
     REPORT_COLUMNS,
@@ -311,11 +315,11 @@ class _FakeV2Session:
         return self._outcomes.pop(0)
 
 
-def _v2_fetcher(api_outcomes=()):
+def _v2_fetcher(api_outcomes=(), spec=SB_LEGACY_CAMPAIGN_SPEC):
     session = _FakeV2Session(api_outcomes)
     api = AdsApiClient(region="NA", client_id="client-abc", token_source=lambda force: "token", session=session,
                        sleep=lambda seconds: None)
-    return SbV2ReportFetcher(api, session=_FakeDownloadSession(None), spec=SB_LEGACY_CAMPAIGN_SPEC), session
+    return SbV2ReportFetcher(api, session=_FakeDownloadSession(None), spec=spec), session
 
 
 def _redirect(location: str) -> _FakeResponse:
@@ -370,3 +374,33 @@ def test_a_v2_status_reads_in_v3_words(amazon_status, status):
     assert (report.status, report.url) == (status, "")
     assert report.failure_reason == ("Report generation failed" if status == "FAILED" else "")
     assert len(session.calls) == 1
+
+
+def test_the_v2_search_term_report_asks_keywords_split_by_query_and_reads_the_query_without_asking_it():
+    created = _FakeResponse(202, {"reportId": "amzn1.clicksAPI.v1.p1.Q", "status": "IN_PROGRESS"})
+    fetcher, session = _v2_fetcher([created], spec=SB_LEGACY_SEARCH_TERM_SPEC)
+
+    assert fetcher.create("555", date(2026, 9, 16), date(2026, 9, 16)) == "amzn1.clicksAPI.v1.p1.Q"
+
+    [call] = session.calls
+    assert (call["method"], call["url"]) == ("POST", "https://advertising-api.amazon.com/v2/hsa/keywords/report")
+    # The query comes back as the segment of every row: asked as a metric too, v2 would refuse it.
+    assert call["json"] == {"reportDate": "20260916", "creativeType": "all", "segment": "query",
+                            "metrics": "campaignId,adGroupId,keywordId,impressions,clicks,cost,"
+                                       "attributedConversions14d,attributedSales14d"}
+
+
+def test_the_v3_sb_search_term_report_goes_through_reporting_v3():
+    api_session = _FakeApiSession([_FakeResponse(200, {"reportId": "r-sb", "status": "PENDING"})])
+    api = AdsApiClient(region="NA", client_id="client-abc", token_source=lambda force: "token",
+                       session=api_session, sleep=lambda seconds: None)
+
+    ReportFetcher(api, session=_FakeDownloadSession(None), spec=SB_SEARCH_TERM_SPEC).create(
+        "555", date(2026, 9, 1), date(2026, 9, 14))
+
+    call = api_session.calls[0]
+    assert call["url"].endswith("/reporting/reports")
+    configuration = call["json"]["configuration"]
+    assert (configuration["adProduct"], configuration["reportTypeId"], configuration["groupBy"]) == (
+        "SPONSORED_BRANDS", "sbSearchTerm", ["searchTerm"])
+    assert configuration["columns"] == list(SB_SEARCH_TERM_SPEC.columns)

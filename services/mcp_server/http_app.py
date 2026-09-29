@@ -38,7 +38,7 @@ INSTRUCTIONS = (
     "sola: no hace falta bajar todo. Para hablar de las campañas de una cuenta —cuáles pausar, escalar o "
     "revisar, cuáles no entregan—, campaign_health. Lo que calcula cada módulo de la app sobre una cuenta sale "
     "con sus mismas reglas: funnel_coverage (Análisis de Funnel), search_term_candidates (Search Term Report), "
-    "bid_suggestions (Bid Optimizer) y asin_health (PPC Insights).\n\n"
+    "bid_suggestions (Bid Optimizer), asin_health (PPC Insights) y ppc_audit (PPC Audit Pro).\n\n"
     "Las respuestas vienen paginadas. Cuando una trae el campo `note` diciendo que hay más filas, "
     "hay más: pedí la página siguiente con el offset que te indica o acotá la consulta. Nunca "
     "respondas como si la página que ves fueran todos los datos.\n\n"

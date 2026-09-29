@@ -17,6 +17,8 @@ from core.amazon_ads.product_provider import (
     PRODUCT_FRAME_COLUMNS,
     PURCHASES_CLICKS,
     SALES_CLICKS,
+    SB_SEARCH_TERM_COLUMNS,
+    SB_SEARCH_TERMS_RPC,
     ProductProvider,
     with_click_columns,
 )
@@ -245,3 +247,100 @@ def test_the_sp_frame_gets_its_own_numbers_as_the_click_only_columns():
 
     assert (frame.iloc[0][PURCHASES_CLICKS], frame.iloc[0][SALES_CLICKS]) == (5, 99.5)
     assert list(frame.columns) == list(PRODUCT_FRAME_COLUMNS)
+
+
+def test_archived_sb_and_sd_campaigns_stay_out_unless_asked_for():
+    rest = _FakeRest({PRODUCT_CAMPAIGNS_RPC: _csv(CAMPAIGN_HEADER, _campaign(campaign_id="301"),
+                                                  _campaign(campaign_id="302", state="archived"))})
+
+    default = ProductProvider(rest).campaigns("p-1", START, END)
+    with_archived = ProductProvider(rest).campaigns("p-1", START, END, include_archived=True)
+
+    assert list(default.frame["Campaign ID"]) == ["301"]
+    assert list(with_archived.frame["Campaign ID"]) == ["301", "302"]
+    assert list(with_archived.frame["State"]) == ["ENABLED", "ARCHIVED"]
+
+
+# ── SB search terms ──────────────────────────────────────────────────────────────
+
+SEARCH_TERM_COUNTS = ("impressions", "clicks", "purchases", "purchases_clicks")
+SEARCH_TERM_AMOUNTS = ("cost", "sales", "sales_clicks")
+
+
+def _search_term(**overrides) -> dict:
+    row = {"campaign_id": "301", "campaign_name": "Demo SB - Headline", "ad_group_id": "401", "keyword_id": "501",
+           "keyword_text": "demo keyword", "match_type": "EXACT", "search_term": "demo search term",
+           "impressions": "900", "clicks": "12", "cost": "8.4", "purchases": "3", "sales": "89.97",
+           "purchases_clicks": "2", "sales_clicks": "59.98", "currency_code": "USD"}
+    row.update(overrides)
+    return row
+
+
+def _search_terms(*rows):
+    rest = _FakeRest({SB_SEARCH_TERMS_RPC: _csv(list(SB_SEARCH_TERM_COLUMNS), *rows)})
+    return ProductProvider(rest).sb_search_terms("p-1", START, END), rest
+
+
+def test_sb_search_terms_come_in_their_columns_with_counts_as_integers_and_money_as_floats():
+    terms, rest = _search_terms(_search_term())
+
+    assert list(terms.columns) == list(SB_SEARCH_TERM_COLUMNS)
+    assert rest.calls == [(SB_SEARCH_TERMS_RPC, {"p_profile_id": "p-1", "p_from": "2026-09-10", "p_to": "2026-09-16"},
+                           READ_TIMEOUT_SECONDS)]
+    assert {column: str(terms[column].dtype) for column in SEARCH_TERM_COUNTS + SEARCH_TERM_AMOUNTS} == {
+        **{column: "int64" for column in SEARCH_TERM_COUNTS}, **{column: "float64" for column in SEARCH_TERM_AMOUNTS}}
+    assert terms.iloc[0].to_dict() == {
+        "campaign_id": "301", "campaign_name": "Demo SB - Headline", "ad_group_id": "401", "keyword_id": "501",
+        "keyword_text": "demo keyword", "match_type": "EXACT", "search_term": "demo search term", "impressions": 900,
+        "clicks": 12, "cost": 8.4, "purchases": 3, "sales": 89.97, "purchases_clicks": 2, "sales_clicks": 59.98,
+        "currency_code": "USD"}
+
+
+def test_sb_search_term_text_comes_back_as_written():
+    # PostgREST's CSV doubles every backslash inside a field; "NA" is a term, not a missing value.
+    terms, _ = _search_terms(_search_term(search_term="NA", campaign_name="Demo \\\\ SB", keyword_text="a\\\\b"))
+
+    row = terms.iloc[0]
+    assert (row["search_term"], row["campaign_name"], row["keyword_text"]) == ("NA", "Demo \\ SB", "a\\b")
+
+
+def test_sb_search_terms_read_in_one_fixed_order():
+    terms, _ = _search_terms(
+        _search_term(campaign_name="Zeta", campaign_id="9"),
+        _search_term(campaign_name="Alpha", campaign_id="8", search_term="b term"),
+        _search_term(campaign_name="Alpha", campaign_id="8", search_term="a term", keyword_id="502"),
+        _search_term(campaign_name="Alpha", campaign_id="8", search_term="c term"),
+        _search_term(campaign_name="Alpha", campaign_id="7"),
+    )
+
+    assert list(zip(terms["campaign_id"], terms["keyword_id"], terms["search_term"])) == [
+        ("7", "501", "demo search term"), ("8", "501", "b term"), ("8", "501", "c term"), ("8", "502", "a term"),
+        ("9", "501", "demo search term")]
+
+
+def test_no_sb_search_term_in_the_range_is_an_empty_frame_with_the_same_columns():
+    terms = ProductProvider(_FakeRest({SB_SEARCH_TERMS_RPC: b""})).sb_search_terms("p-1", START, END)
+
+    assert terms.empty and list(terms.columns) == list(SB_SEARCH_TERM_COLUMNS)
+    assert all(str(terms[column].dtype) == "int64" for column in SEARCH_TERM_COUNTS)
+
+
+def test_sb_search_terms_before_their_migration_are_none():
+    response = requests.Response()
+    response.status_code = 404
+    response._content = b'{"code":"PGRST202","message":"Could not find the function"}'
+
+    rest = _FakeRest(fail_with=requests.HTTPError(response=response))
+
+    assert ProductProvider(rest).sb_search_terms("p-1", START, END) is None
+
+
+def test_a_failed_sb_search_term_read_is_a_read_error():
+    with pytest.raises(ReportReadError):
+        ProductProvider(_FakeRest(fail_with=requests.ConnectionError("rest-gateway down"))).sb_search_terms(
+            "p-1", START, END)
+    with pytest.raises(ReportReadError):
+        _search_terms(_search_term(clicks="many"))
+    with pytest.raises(ReportReadError):
+        ProductProvider(_FakeRest({SB_SEARCH_TERMS_RPC: b"campaign_id,search_term\n301,demo\n"})).sb_search_terms(
+            "p-1", START, END)

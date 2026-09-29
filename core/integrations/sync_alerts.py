@@ -54,6 +54,8 @@ _KIND_LABELS = {"sp_search_terms": "términos de búsqueda", "portfolio_names": 
                 "sb_campaigns": "métricas de campañas SB", "sb_targeting": "métricas de targeting SB",
                 "sd_campaigns": "métricas de campañas SD", "sd_targeting": "métricas de targeting SD",
                 "sb_legacy_campaigns": "métricas de campañas SB del formato anterior",
+                "sb_search_terms": "términos de búsqueda SB",
+                "sb_legacy_search_terms": "términos de búsqueda SB del formato anterior",
                 "ai_str_analysis": "análisis IA de términos de búsqueda",
                 "ai_bulk_campaigns_analysis": "análisis IA de campañas",
                 "ai_ppc_insights_analysis": "análisis IA de PPC Insights"}

@@ -49,6 +49,69 @@ keywords con clicks, y no verificaba el estado del ad group.
   que falta el precio en vez de culpar a los IDs. 🔍 INVESTIGAR se dispara: el Opportunity Score del plan pasa a 0-100,
   la escala de la Tab 1 y la de su regla (antes iba de 0 a 1 y ninguna query llegaba a 40).
 
+### Changed — PPC Audit Pro lee la cuenta de Amazon Ads, audita también lo que no tuvo tráfico y suma Análisis IA y la herramienta `ppc_audit` del chat (IT-44, 2026-09-28)
+
+**Por qué.** La auditoría sólo leía un Bulk File de cinco hojas subido a mano; la estructura sincronizada de la cuenta
+no le llegaba. Y un reporte sólo trae lo que tuvo actividad: medido en producción el 22/09 (IT-50), el 85,2% de los
+keywords y targets SP habilitados no tiene ninguna fila de `spTargeting` en 60 días, justo lo que Target Graduation
+tiene que encontrar. Además varios checks contaban mal: Match Types Mixtos, Duplicación y SKAG agrupaban por nombre de
+campaña, SKAG contaba sólo targets con gasto e incluía las campañas automáticas, y el porcentaje de Target WAS dejaba
+afuera el gasto de SD.
+
+**Ahora.**
+- **Cuenta en lugar de archivo.** El picker del Search Term Report elige cuenta, país y período, y el bloque «Estructura
+  de las campañas» lee esa misma cuenta y ventana: la estructura SP del listado diario (campañas con sus placements, ad
+  groups, keywords, product targets y product ads, con o sin tráfico y con el bid efectivo), las campañas SB y SD (una
+  archivada que gastó en el período suma en los KPIs), los keywords SB, los targets SD y los search terms SB. El bloque
+  dice cuándo se listó la cuenta, qué trae y hasta qué día llegan las métricas cuando terminan antes que el período. Sin
+  cuentas conectadas, o con «Subir Bulk File a mano», audita el Bulk File como antes.
+- **Lo que falta no es cero.** Si la fuente no tiene una parte (la cuenta sin listar, el targeting sin sincronizar, los
+  search terms SB pendientes), la página, la IA y el chat dicen por qué en su lugar; nunca muestran 0 ni «Sin targets
+  huérfanos». Las campañas sin métricas (SB del formato anterior, reportes pendientes) no suman en los KPIs y se cuentan
+  aparte.
+- **Los checks cuentan lo que corre.** Match Types Mixtos, Duplicación y SKAG cuentan los keywords y targets habilitados
+  de campañas y ad groups habilitados, agrupados por Campaign ID; SKAG vs Bolsa mira las campañas manuales. Target WAS
+  suma SD al denominador. Target Graduation deja afuera los ad groups pausados o archivados. AUTO sale de los grupos de
+  targeting automático, con todo su tráfico, y con la API los segmentos suman el TOTAL SP (medido en la base local, Mott
+  & Bow US: $4,683.43 de $4,683.43). El Top 5 calcula el ACoS de spend y sales, los ASINs propios salen también de los
+  product ads de la cuenta y Bid Adjustments cuenta las campañas habilitadas con los nombres de Campaign Manager.
+- **Análisis IA.** Pestaña nueva con el agente `ppc_audit`: lee las campañas con match types mixtos, las top, los
+  targets duplicados, Target Graduation accionable y los search terms sin ventas (filas `U01…`), y dice ACTUAR, ESPERAR
+  o INVESTIGAR con su confianza, sin recalcular cifras ni proponer bids. Corre sólo con «Analizar con IA» y se comparte
+  con el chat.
+- **Chat.** La página le pasa al chat la cuenta, las fechas, los brand terms y la llamada. La herramienta nueva
+  `ppc_audit` del MCP da cualquier sección de la auditoría (segmentos, match mixto, duplicados, graduation, search terms
+  sin ventas, top campañas, tipos de target, placements y SKAG) con las mismas lecturas y reglas, más las cifras de la
+  cuenta (`summary`) y lo que falta (`missing`).
+- **Tablas legibles.** Segmentos, tipos de target y Target Graduation muestran montos y porcentajes con dos decimales
+  (antes, seis) y los conteos sin decimales; donde no hay dato, «—».
+- Las reglas pasaron de la página a `core/ppc_audit/checks.py`, que leen la página, el Excel, la IA y el MCP. Medido en
+  la base local con Mott & Bow US: 1.671 search terms en 0,39 s, 4.403 filas de estructura en 0,54 s y la auditoría en
+  0,04 s.
+
+**Search terms de Sponsored Brands.** Dos reportes nuevos por cuenta con SB (migración 021, aditiva): `sb_search_terms`
+(Reporting v3 `sbSearchTerm`) y `sb_legacy_search_terms` (v2 `/v2/hsa/keywords/report` por query, un día por reporte),
+para las campañas del formato anterior que v3 deja afuera; un término nunca cuenta dos veces. Cargan 60 días de historia
+una vez y después los últimos 14 cada noche, como los otros reportes SB, y el v2 sólo si la cuenta tiene campañas del
+formato anterior. Cualquier módulo los lee con `ProductProvider.sb_search_terms(...)`. **Probados contra la API real
+el 29/09 (sólo lectura):** Amazon aceptó los dos pedidos, devolvió exactamente los campos pedidos y el parser leyó
+todas las filas. v3 en Mott & Bow US del 15 al 21/09: 31 términos con 39 clicks y $44.67, lo mismo que sus 11
+campañas SB esos días; Amazon tardó ~21 minutos en entregarlo (el worker espera hasta 3 h 20 min). v2 en Shapermint US
+del 20/09: 2.051 términos en ~41 s; en sus 28 campañas del formato anterior suman $1,764.74 contra $1,764.76 de
+gasto de esas campañas. El v2 trae también las del formato nuevo (191 campañas, $3,429.47): por eso el día guarda del
+v2 sólo las del formato anterior. Si Amazon rechaza un pedido, el job falla con su mensaje en el Registro de
+solicitudes, la cuenta queda con la alerta y PPC Audit muestra los search terms SB «sin dato».
+
+**Qué queda afuera.** Los negativos: ningún check los usa y una cuenta grande tiene cientos de miles.
+
+**Deploy.** Migración 021, aditiva: una tabla y dos funciones nuevas, nada existente cambia, y la imagen anterior
+funciona sobre ella. Jenkins levanta la imagen antes de «DB migrate», en el mismo pipeline: un job de search terms SB
+que guarde en esa ventana falla y se reintenta a los 5 minutos, y PPC Audit muestra los search terms SB «sin dato» por
+falta de la migración. Si hay que volver a la imagen anterior con la 021 ya aplicada, cancelar antes los jobs de
+`sb_search_terms` y `sb_legacy_search_terms` en cola: la imagen anterior no conoce esos tipos, los marca fallidos y cada
+cuenta queda con una alerta por 24 h. El smoke de la base prueba `ads_sb_search_term_daily`. La imagen del MCP copia
+`core/ppc_audit/` sin `analysis.py`.
+
 ### Changed — Account Pulse y Weekly Client Report leen la publicidad de la cuenta de Amazon Ads y suman Análisis IA (IT-45, 2026-09-28)
 
 **Por qué.** Los dos pedían un «Campaign CSV» subido a mano. En Account Pulse el TACoS dividía el spend de ese CSV (el

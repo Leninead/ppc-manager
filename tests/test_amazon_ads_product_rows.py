@@ -15,6 +15,10 @@ from core.amazon_ads.product_rows import (
     SB_CAMPAIGN_SPEC,
     SB_LEGACY_CAMPAIGN_ROWS,
     SB_LEGACY_CAMPAIGN_SPEC,
+    SB_LEGACY_SEARCH_TERM_ROWS,
+    SB_LEGACY_SEARCH_TERM_SPEC,
+    SB_SEARCH_TERM_ROWS,
+    SB_SEARCH_TERM_SPEC,
     SB_TARGETING_ROWS,
     SB_TARGETING_SPEC,
     SD_CAMPAIGN_ROWS,
@@ -767,3 +771,213 @@ def test_a_campaign_twice_in_a_v2_report_is_summed():
     rows = _v2_rows([_v2_row(cost=10.0, impressions=100), _v2_row(cost=2.5, impressions=20)])
 
     assert [(row["cost"], row["impressions"]) for row in rows] == [(12.5, 120)]
+
+
+# ── SB search terms: v3's report and v2's keywords report split by query ─────────
+
+SEARCH_TERM_METRICS = ("impressions", "clicks", "cost", "purchases", "sales", "purchases_clicks", "sales_clicks")
+# No ad_product and no source: the table is SB's alone, and the source travels as the day's RPC argument.
+SEARCH_TERM_COLUMNS = frozenset({"profile_id", "report_date", "campaign_id", "ad_group_id", "keyword_id",
+                                 "keyword_text", "match_type", "search_term", *SEARCH_TERM_METRICS, "currency_code"})
+
+
+def _sb_search_term_row(**overrides) -> dict:
+    row = {
+        "date": "2026-09-08",
+        "campaignId": 106,
+        "adGroupId": 206,
+        "keywordId": 306,
+        "keywordText": "demo sleeping bag",
+        "matchType": "phrase",
+        "searchTerm": "demo sleeping bag for toddlers",
+        "impressions": 420,
+        "clicks": 9,
+        "cost": 6.3,
+        "purchases": 2,
+        "sales": 59.98,
+        "purchasesClicks": 1,
+        "salesClicks": 29.99,
+        "campaignBudgetCurrencyCode": "USD",
+    }
+    row.update(overrides)
+    return row
+
+
+def _v2_search_term_row(**overrides) -> dict:
+    row = {"campaignId": 144268751860314311, "adGroupId": 144268751860314312, "keywordId": 144268751860314313,
+           "query": "demo sleeping bag", "impressions": 310, "clicks": 7, "cost": 5.6, "attributedConversions14d": 2,
+           "attributedSales14d": 64.5}
+    row.update(overrides)
+    return row
+
+
+SB_SEARCH_TERMS = _Report(SB_SEARCH_TERM_ROWS, _sb_search_term_row,
+                          {"campaign_id": "campaignId", "ad_group_id": "adGroupId", "keyword_id": "keywordId"},
+                          SEARCH_TERM_COLUMNS)
+
+
+def _v2_search_term_rows(api_rows, day=WINDOW_START, **overrides):
+    options = {"profile_id": "555", "currency_code": "USD", "window_start": day, "window_end": day}
+    options.update(overrides)
+    return SB_LEGACY_SEARCH_TERM_ROWS.rows_by_day(api_rows, **options)[day]
+
+
+def test_the_sb_search_term_reports_ask_for_exactly_what_the_table_stores():
+    assert SB_SEARCH_TERM_ROWS.spec is SB_SEARCH_TERM_SPEC
+    assert (SB_SEARCH_TERM_SPEC.report_type_id, SB_SEARCH_TERM_SPEC.ad_product, SB_SEARCH_TERM_SPEC.group_by,
+            SB_SEARCH_TERM_SPEC.time_unit, SB_SEARCH_TERM_SPEC.retention_days) == (
+        "sbSearchTerm", "SPONSORED_BRANDS", ("searchTerm",), "DAILY", 60)
+    # searchTerm, as Amazon's column reference names it for sbSearchTerm; an older spec example says `query`.
+    assert SB_SEARCH_TERM_SPEC.columns == (
+        "date", "campaignId", "adGroupId", "keywordId", "keywordText", "matchType", "searchTerm", "impressions",
+        "clicks", "cost", "purchases", "sales", "purchasesClicks", "salesClicks", "campaignBudgetCurrencyCode")
+    assert SB_LEGACY_SEARCH_TERM_ROWS.spec is SB_LEGACY_SEARCH_TERM_SPEC
+    assert (SB_LEGACY_SEARCH_TERM_SPEC.ad_product, SB_LEGACY_SEARCH_TERM_SPEC.retention_days,
+            SB_LEGACY_SEARCH_TERM_SPEC.record_type, SB_LEGACY_SEARCH_TERM_SPEC.segment) == (
+        "SPONSORED_BRANDS", 60, "keywords", "query")
+    # Ids and numbers only, as the v2 campaign report: a name or a state makes v2 answer every entity ever made.
+    assert SB_LEGACY_SEARCH_TERM_SPEC.columns == (
+        "campaignId", "adGroupId", "keywordId", "query", "impressions", "clicks", "cost", "attributedConversions14d",
+        "attributedSales14d")
+
+
+def test_an_sb_search_term_parser_cannot_drift_from_its_spec():
+    with_a_name = dataclasses.replace(SB_SEARCH_TERM_SPEC, columns=(*SB_SEARCH_TERM_SPEC.columns, "campaignName"))
+    without_the_term = dataclasses.replace(SB_LEGACY_SEARCH_TERM_SPEC, columns=SB_LEGACY_SEARCH_TERM_SPEC.columns[:3])
+
+    with pytest.raises(ValueError, match="campaignName"):
+        dataclasses.replace(SB_SEARCH_TERM_ROWS, spec=with_a_name)
+    with pytest.raises(ValueError, match="query"):
+        dataclasses.replace(SB_LEGACY_SEARCH_TERM_ROWS, spec=without_the_term)
+
+
+def test_an_sb_search_term_lands_on_its_own_table_with_the_upper_case_match_type():
+    row = _row(SB_SEARCH_TERMS, _sb_search_term_row(), currency_code="mxn")
+
+    assert row == {
+        "profile_id": "555",
+        "report_date": "2026-09-08",
+        "campaign_id": "106",
+        "ad_group_id": "206",
+        "keyword_id": "306",
+        "keyword_text": "demo sleeping bag",
+        "match_type": "PHRASE",
+        "search_term": "demo sleeping bag for toddlers",
+        "impressions": 420,
+        "clicks": 9,
+        "cost": 6.3,
+        "purchases": 2,
+        "sales": 59.98,
+        "purchases_clicks": 1,
+        "sales_clicks": 29.99,
+        # The report's own currency wins over the profile's.
+        "currency_code": "USD",
+    }
+
+
+def test_an_sb_search_term_without_a_currency_takes_the_profiles():
+    row = _row(SB_SEARCH_TERMS, _sb_search_term_row(campaignBudgetCurrencyCode=None), currency_code="mxn")
+
+    assert row["currency_code"] == "MXN"
+
+
+def test_a_sparse_sb_search_term_still_carries_every_column_of_its_table():
+    sparse = _row(SB_SEARCH_TERMS, {"date": "2026-09-08", "campaignId": 7})
+
+    assert set(sparse) == SEARCH_TERM_COLUMNS
+    assert all(sparse[column] == 0 for column in SEARCH_TERM_METRICS)
+    assert (sparse["ad_group_id"], sparse["keyword_id"], sparse["keyword_text"], sparse["match_type"],
+            sparse["search_term"]) == ("", "", "", "", "")
+    json.dumps(sparse)
+
+
+def test_the_same_term_of_the_same_keyword_is_summed_within_a_day():
+    (merged,) = _mapped(SB_SEARCH_TERMS, [_sb_search_term_row(clicks=4, cost=1.25),
+                                          _sb_search_term_row(clicks=5, cost=2.5)])[WINDOW_START]
+
+    assert (merged["clicks"], merged["cost"], merged["impressions"]) == (9, 3.75, 840)
+
+
+@pytest.mark.parametrize("field, other", [("searchTerm", "another term"), ("keywordId", 399), ("adGroupId", 299),
+                                          ("campaignId", 199)])
+def test_a_term_is_its_own_row_for_each_campaign_ad_group_and_keyword_that_reached_it(field, other):
+    rows = _mapped(SB_SEARCH_TERMS, [_sb_search_term_row(), _sb_search_term_row(**{field: other})])[WINDOW_START]
+
+    assert len(rows) == 2 and [row["clicks"] for row in rows] == [9, 9]
+
+
+def test_the_same_term_on_another_day_is_another_row():
+    by_day = _mapped(SB_SEARCH_TERMS, [_sb_search_term_row(), _sb_search_term_row(date="2026-09-09")])
+
+    assert [len(by_day[day]) for day in sorted(by_day)] == [1, 1, 0]
+
+
+def test_sb_search_term_values_below_zero_are_stored_as_zero_with_one_warning(caplog):
+    with caplog.at_level("WARNING", logger="core.amazon_ads.product_rows"):
+        (row,) = _mapped(SB_SEARCH_TERMS, [_sb_search_term_row(impressions=-2, cost=-0.5, salesClicks=-1)])[
+            WINDOW_START]
+
+    assert (row["impressions"], row["cost"], row["sales_clicks"]) == (0, 0.0, 0.0)
+    warnings = [record for record in caplog.records if record.name == "core.amazon_ads.product_rows"]
+    assert len(warnings) == 1 and "3 values below zero" in caplog.text and "first: campaign 106" in caplog.text
+
+
+@pytest.mark.parametrize("missing", [None, "", _ABSENT], ids=["null", "empty", "absent"])
+def test_an_sb_search_term_without_its_campaign_is_refused(missing):
+    api_row = _sb_search_term_row(campaignId=missing)
+    if missing is _ABSENT:
+        del api_row["campaignId"]
+
+    with pytest.raises(ReportRowsError, match="sbSearchTerm report row 1 has no campaign id"):
+        _mapped(SB_SEARCH_TERMS, [_sb_search_term_row(), api_row])
+
+
+def test_sb_search_term_ids_are_exact_text_even_at_eighteen_digits(tmp_path):
+    big_ids = {"campaignId": 144000000000000101, "adGroupId": 144000000000000102, "keywordId": 144000000000000103}
+    report_path = tmp_path / "report.json.gz"
+    with gzip.open(report_path, "wt", encoding="utf-8") as report_file:
+        json.dump([_sb_search_term_row(**big_ids)], report_file)
+
+    report_rows = SB_SEARCH_TERM_ROWS.load_compact_report(report_path)
+    (row,) = SB_SEARCH_TERM_ROWS.day_rows(report_rows, [0], profile_id="555", currency_code="USD", day=WINDOW_START)
+
+    assert (row["campaign_id"], row["ad_group_id"], row["keyword_id"]) == (
+        "144000000000000101", "144000000000000102", "144000000000000103")
+
+
+def test_a_v2_search_term_fills_both_sale_pairs_and_leaves_the_keyword_to_the_read():
+    (row,) = _v2_search_term_rows([_v2_search_term_row()], currency_code="mxn")
+
+    assert row == {
+        "profile_id": "555", "report_date": "2026-09-08", "campaign_id": "144268751860314311",
+        "ad_group_id": "144268751860314312", "keyword_id": "144268751860314313", "keyword_text": "",
+        "match_type": "", "search_term": "demo sleeping bag", "impressions": 310, "clicks": 7, "cost": 5.6,
+        # v2 refuses view-attributed metrics: its 14-day sales are click-only, so they fill both pairs.
+        "purchases": 2, "sales": 64.5, "purchases_clicks": 2, "sales_clicks": 64.5,
+        # v2 has no currency field: the profile's is used.
+        "currency_code": "MXN",
+    }
+
+
+def test_a_v2_search_term_report_is_one_day_and_its_rows_carry_that_day():
+    (row,) = _v2_search_term_rows([_v2_search_term_row()], day=date(2026, 9, 16))
+
+    assert row["report_date"] == "2026-09-16"
+    with pytest.raises(ReportRowsError, match="hsaSearchTerm report covers one day"):
+        SB_LEGACY_SEARCH_TERM_ROWS.rows_by_day([_v2_search_term_row()], profile_id="555", currency_code="USD",
+                                               window_start=WINDOW_START, window_end=WINDOW_END)
+
+
+def test_v2_merges_a_repeated_term_and_keeps_the_others_apart():
+    rows = _v2_search_term_rows([_v2_search_term_row(cost=1.5, attributedSales14d=10.0),
+                                 _v2_search_term_row(cost=2.0, attributedSales14d=5.0),
+                                 _v2_search_term_row(query="another term")])
+
+    assert [(row["search_term"], row["cost"], row["sales"], row["sales_clicks"]) for row in rows] == [
+        ("demo sleeping bag", 3.5, 15.0, 15.0), ("another term", 5.6, 64.5, 64.5)]
+
+
+def test_v2_search_term_values_below_zero_are_stored_as_zero():
+    (row,) = _v2_search_term_rows([_v2_search_term_row(impressions=-3, attributedSales14d=-2.0)])
+
+    assert (row["impressions"], row["sales"], row["sales_clicks"]) == (0, 0.0, 0.0)

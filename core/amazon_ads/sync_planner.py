@@ -47,6 +47,9 @@ SD_CAMPAIGNS_KIND = "sd_campaigns"
 SD_TARGETING_KIND = "sd_targeting"
 # SB campaigns of the old format, from the v2 report: v3's SB reports leave them out while in preview.
 SB_LEGACY_KIND = "sb_legacy_campaigns"
+# SB search terms, from v3's report and, for the campaigns of the old format, from v2's.
+SB_SEARCH_TERMS_KIND = "sb_search_terms"
+SB_LEGACY_SEARCH_TERMS_KIND = "sb_legacy_search_terms"
 # The advertised product of every SP ad group: the only source of the ASIN behind a search term.
 SP_PRODUCT_ADS_KIND = "sp_product_ads"
 # SP structure no report carries: ad groups with their default bid, and negatives at both levels.
@@ -83,6 +86,9 @@ PRODUCT_REPORTS = (
     ProductReportPlan(SB_CAMPAIGNS_KIND, history_days=60, entity_kind=SB_ENTITIES_KIND),
     ProductReportPlan(SB_TARGETING_KIND, history_days=60, entity_kind=SB_ENTITIES_KIND),
     ProductReportPlan(SB_LEGACY_KIND, history_days=60, entity_kind=SB_ENTITIES_KIND, needs_legacy_sb=True),
+    ProductReportPlan(SB_SEARCH_TERMS_KIND, history_days=60, entity_kind=SB_ENTITIES_KIND),
+    ProductReportPlan(SB_LEGACY_SEARCH_TERMS_KIND, history_days=60, entity_kind=SB_ENTITIES_KIND,
+                      needs_legacy_sb=True),
 )
 PRODUCT_REPORT_KINDS = tuple(plan.job_kind for plan in PRODUCT_REPORTS)
 PRODUCT_KINDS = PRODUCT_ENTITY_KINDS + PRODUCT_REPORT_KINDS

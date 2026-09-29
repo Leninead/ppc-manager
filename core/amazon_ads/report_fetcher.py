@@ -1,6 +1,6 @@
 """Reporting v3 reports of any ad product: create, poll, download. What differs travels in a ReportSpec.
 
-Plus Sponsored Brands' v2 campaign report, which answers the same three calls in its own way.
+Plus Sponsored Brands' v2 reports, which answer the same three calls in their own way.
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ REPORT_COLUMNS = [
 ]
 DUPLICATE_STATUS = 425
 DOWNLOAD_TIMEOUT_SECONDS = 300
-SB_V2_REPORT_PATH = "/v2/hsa/campaigns/report"
+SB_V2_REPORT_PATH = "/v2/hsa/{record_type}/report"
 V2_REPORTS_PATH = "/v2/reports"
 # v2's statuses in the words the worker already reads from v3.
 _V2_STATUSES = {"SUCCESS": "COMPLETED", "IN_PROGRESS": "PROCESSING", "FAILURE": "FAILED"}
@@ -67,6 +67,9 @@ class ReportSpec:
     ad_product: str = "SPONSORED_PRODUCTS"
     # How far back Amazon keeps this report's data. It differs by ad product: 60 days for Sponsored Brands.
     retention_days: int = RETENTION_DAYS
+    # Sponsored Brands' v2 reports only: the record type their path names, and the segment that splits its rows.
+    record_type: str = ""
+    segment: str = ""
 
 
 SEARCH_TERM_SPEC = ReportSpec(
@@ -177,7 +180,7 @@ class ReportFetcher:
 
 
 class SbV2ReportFetcher(ReportFetcher):
-    """Sponsored Brands' v2 campaign report, the only one with the campaigns v3 leaves out while in preview
+    """Sponsored Brands' v2 reports, the only ones with the campaigns v3 leaves out while in preview
     (isMultiAdGroupsEnabled = false). One day per report; creativeType "all" brings video and the rest."""
 
     def create(self, profile_id: str, start: date, end: date) -> str:
@@ -185,10 +188,9 @@ class SbV2ReportFetcher(ReportFetcher):
             raise ValueError(f"a v2 report covers one day, not {start}..{end}")
         response = self._api.request(
             "POST",
-            SB_V2_REPORT_PATH,
+            SB_V2_REPORT_PATH.format(record_type=self._spec.record_type),
             profile_id=profile_id,
-            json_body={"reportDate": start.strftime("%Y%m%d"), "metrics": ",".join(self._spec.columns),
-                       "creativeType": "all"},
+            json_body=_v2_create_body(self._spec, start),
             content_type="application/json",
             expected=(200, 202),
         )
@@ -196,7 +198,8 @@ class SbV2ReportFetcher(ReportFetcher):
         if not report_id:
             raise AdsApiError(f"create v2 report for profile {profile_id} returned no reportId",
                               status=response.status_code, body=(response.text or "")[:2000])
-        log.info("amazon_ads: profile %s %s v2 report %s created", profile_id, start, report_id)
+        log.info("amazon_ads: profile %s %s v2 %s report %s created", profile_id, start, self._spec.record_type,
+                 report_id)
         return report_id
 
     def status(self, profile_id: str, report_id: str) -> ReportStatus:
@@ -250,6 +253,16 @@ def _create_body(spec: ReportSpec, start: date, end: date) -> dict:
             "format": "GZIP_JSON",
         },
     }
+
+
+def _v2_create_body(spec: ReportSpec, day: date) -> dict:
+    # The segment comes back as a field of every row, so it is read like a column but never asked as a metric.
+    body = {"reportDate": day.strftime("%Y%m%d"),
+            "metrics": ",".join(column for column in spec.columns if column != spec.segment),
+            "creativeType": "all"}
+    if spec.segment:
+        body["segment"] = spec.segment
+    return body
 
 
 def _json_object(response: requests.Response) -> dict:

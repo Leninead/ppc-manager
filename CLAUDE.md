@@ -99,7 +99,7 @@ corre la suite entera sobre un checkout limpio.
 | 13 | 📢 SBH Recommendation | Research | ✅ conectado 2026-03-27 (targets SBH cruzando MKL+SQP); IT-49 2026-09-25: «En SP» del listado SP de la cuenta + Análisis IA |
 | 14 | 🔎 PPC Insights | Research | ✅ conectado 2026-03-27 (health score por ASIN, 824 líneas) |
 | 15 | 📈 PPC Forecast | Research | ✅ conectado 2026-03-27 (proyección ventas + estacionalidad); IT-47 2026-09-25: ventas de ads de la cuenta de Amazon Ads (SP+SB+SD) en lugar del Campaign CSV, fin de semana contado una vez + Análisis IA |
-| 16 | 🛡️ PPC Audit | Research | ✅ conectado 2026-03-27 (auditoría integral score 0-100) |
+| 16 | 🛡️ PPC Audit | Research | ✅ conectado 2026-03-27 (auditoría integral score 0-100); IT-44 2026-09-28: lee la cuenta de Amazon Ads (estructura SP con keywords y targets sin tráfico, placements, SB y SD con sus search terms) o el Bulk File a mano + Análisis IA + herramienta `ppc_audit` del chat |
 | 17 | 📊 Account Pulse | Research | ✅ conectado 2026-03-27 (monitor salud diaria + festivos MX); IT-45 2026-09-28: ACoS/TACoS de cada semana y campañas de la cuenta de Amazon Ads (SP+SB+SD) en lugar del Campaign CSV + Análisis IA |
 | 18 | 🔬 Reportes Atom 11 | Account | ✅ completo |
 | 19 | 🛡️ Reportes MerchanSpring | Account | ✅ completo |

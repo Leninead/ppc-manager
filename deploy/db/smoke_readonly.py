@@ -60,6 +60,8 @@ TABLES = [
     ("ads_campaign", "placement_top_pct"),   # the column proves 018 reached a table older than it
     ("ads_listing_snapshot", "profile_id"),
     ("integration_sync_jobs", "progress"),   # idem, for the negatives listed in parts
+    # Amazon Ads SB search terms (PPC Audit) — 021_sb_search_terms.sql.
+    ("ads_sb_search_term_daily", "profile_id"),
     # Meli API bridge (M36) — 003_meli_api.sql + 004_meli_ads_unique.sql.
     ("meli_auth_identities", "id"),         # refresh_token_sealed idem
     ("meli_ingestion_runs", "id"),

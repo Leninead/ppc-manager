@@ -38,6 +38,7 @@ from services.mcp_server.tools import (
     daily_series,
     metrics_by_group,
     module_results,
+    ppc_audit,
 )
 
 log = logging.getLogger(__name__)
@@ -331,6 +332,19 @@ def build_tools(rest) -> list:
               "neutro. target_acos reemplaza el guardado de la cuenta. sort_by=health_score los ordena del peor "
               "health score al mejor." + ACCOUNT_HINT + ALL_ACCOUNTS_HINT,
               partial(module_results.asin_health, rest)),
+        _tool("ppc_audit",
+              "PPC Audit Pro de una cuenta de Amazon Ads, con las mismas lecturas y reglas del módulo: sus KPIs por "
+              "producto (SP, SB y SD), el gasto sin ventas de sus targets y de sus search terms, el rendimiento por "
+              "segmento (keywords por match type, product targeting por ASIN y por categoría, los grupos "
+              "automáticos, y SB y SD), y sus checks de estructura sobre lo que corre, también los keywords sin "
+              "tráfico: campañas con match types mixtos (section=mixed_match), keywords duplicadas entre campañas "
+              "(duplicates), keywords sin impresiones en campañas con tráfico con su recomendación de Target "
+              "Graduation (graduation), search terms sin ventas (wasted_search_terms), campañas por gasto "
+              "(top_campaigns), tipos de target con brand_terms (target_types), ajustes por placement "
+              "(placements) y campañas manuales por forma, SKAG, normal o bolsa (skag). section elige la lista; "
+              "summary trae las cifras de toda la cuenta y la ventana, y missing lo que la fuente todavía no "
+              "tiene. Para lo que el AM ve en pantalla, usá su date_from, date_to y brand_terms." + ACCOUNT_HINT,
+              partial(ppc_audit.ppc_audit, rest)),
     ]
 
 

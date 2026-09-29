@@ -1,9 +1,10 @@
-"""Targeting reports of Sponsored Products, Brands and Display, and the Brands and Display campaign reports,
-mapped to `ads_target_daily` and `ads_sb_sd_campaign_daily`, grouped by report day.
+"""Targeting reports of Sponsored Products, Brands and Display, the Brands and Display campaign reports and the
+Brands search term reports, mapped to `ads_target_daily`, `ads_sb_sd_campaign_daily` and `ads_sb_search_term_daily`,
+grouped by report day.
 
-Six reports feed two tables and differ only in which report field holds which column, so one parser reads them
-all and each report is a field mapping: five of Reporting v3, and SB's v2 campaign report for the campaigns v3
-leaves out. A row carries every column of its table, also one its report lacks (0 for
+Eight reports feed three tables and differ only in which report field holds which column, so one parser reads them
+all and each report is a field mapping: six of Reporting v3, and SB's v2 campaign and search term reports for the
+campaigns v3 leaves out. A row carries every column of its table, also one its report lacks (0 for
 a metric, None for a fact): the day is written with jsonb_populate_recordset, where a missing key lands as NULL.
 
 SP campaigns stay in `campaign_rows`: they have their own table, with 7 and 14 day attribution.
@@ -27,10 +28,18 @@ MONEY_DECIMALS = 4
 
 @dataclass(frozen=True)
 class _Table:
-    entity: str                 # what a row is about, as messages name it
-    key: str                    # the column a day's repeated rows are merged on
+    entity: str                 # what the key identifies, as messages call it
+    key: str                    # the id every row has; a day's rows repeating it and its subkeys are merged
     metrics: tuple[str, ...]    # summed and never below zero; 0 where a report does not carry one
     optionals: tuple[str, ...]  # facts where unknown is not zero; None where a report does not carry one
+    # The other columns that tell two rows of one key apart.
+    subkeys: tuple[str, ...] = ()
+    # False for a table of one ad product, which has no such column.
+    has_ad_product: bool = True
+
+    @property
+    def merged_on(self) -> tuple[str, ...]:
+        return (self.key, *self.subkeys)
 
 
 _TARGET_TABLE = _Table(
@@ -47,6 +56,15 @@ _CAMPAIGN_TABLE = _Table(
     metrics=("impressions", "clicks", "cost", "purchases", "sales", "purchases_clicks", "sales_clicks",
              "new_to_brand_purchases", "new_to_brand_sales", "viewable_impressions"),
     optionals=("budget_amount", "top_of_search_is"),
+)
+# One term reaches a campaign through several ad groups and keywords, each its own row.
+_SEARCH_TERM_TABLE = _Table(
+    entity="campaign",
+    key="campaign_id",
+    metrics=("impressions", "clicks", "cost", "purchases", "sales", "purchases_clicks", "sales_clicks"),
+    optionals=(),
+    subkeys=("ad_group_id", "keyword_id", "search_term"),
+    has_ad_product=False,
 )
 _MONEY_COLUMNS = frozenset({"cost", "sales_7d", "sales_14d", "sales", "sales_clicks", "new_to_brand_sales"})
 _OPTIONAL_NAMES = {"budget_amount": "budget", "top_of_search_is": "share"}
@@ -93,6 +111,12 @@ def _campaign_cost_type(texts: Mapping[str, str]) -> dict:
 
 def _unknown_cost_type(texts: Mapping[str, str]) -> dict:
     return {"cost_type": ""}
+
+
+def _search_term(texts: Mapping[str, str]) -> dict:
+    # v2 rows name neither the keyword nor its match type: the read takes both from the SB keyword list.
+    return {"keyword_text": texts.get("keyword", ""), "match_type": texts.get("match_type", "").upper(),
+            "search_term": texts["search_term"]}
 
 
 # Compared by identity: there is one parser per report, and its mappings are dicts.
@@ -190,12 +214,13 @@ class _Parser:
     def day_rows(self, report_rows: Sequence[tuple], positions: Iterable[int], *, profile_id: str,
                  currency_code: str, day: date) -> list[dict]:
         """One day's table rows from rows checked by `day_row_positions`; rows repeating a key are summed."""
-        merged: dict[str, dict] = {}
+        merged: dict[tuple, dict] = {}
         for position in positions:
             row = self._table_row(report_rows[position], position, profile_id, currency_code, day)
-            existing = merged.get(row[self.table.key])
+            key = tuple(row[column] for column in self.table.merged_on)
+            existing = merged.get(key)
             if existing is None:
-                merged[row[self.table.key]] = row
+                merged[key] = row
             else:
                 self._add_metrics(existing, row)
         return list(merged.values())
@@ -206,7 +231,9 @@ class _Parser:
 
     def _table_row(self, report_row: tuple, position: int, profile_id: str, currency_code: str,
                    report_day: date) -> dict:
-        row: dict = {"profile_id": profile_id, "report_date": report_day.isoformat(), "ad_product": self.ad_product}
+        row: dict = {"profile_id": profile_id, "report_date": report_day.isoformat()}
+        if self.table.has_ad_product:
+            row["ad_product"] = self.ad_product
         for column, name in self.ids.items():
             row[column] = _id_text(report_row[self._index[name]])
         row.update(self.describe({purpose: self._text(report_row, names) for purpose, names in self.texts.items()}))
@@ -224,7 +251,8 @@ class _Parser:
 
     def _add_metrics(self, existing: dict, duplicate: dict) -> None:
         # The share is weighted by each row's own impressions, so it is merged before they are summed.
-        existing["top_of_search_is"] = _merged_share(existing, duplicate)
+        if "top_of_search_is" in existing:
+            existing["top_of_search_is"] = _merged_share(existing, duplicate)
         if "budget_amount" in existing:
             existing["budget_amount"] = max((value for value in (existing["budget_amount"], duplicate["budget_amount"])
                                              if value is not None), default=None)
@@ -359,6 +387,27 @@ SB_LEGACY_CAMPAIGN_SPEC = ReportSpec(
              "attributedOrdersNewToBrand14d", "attributedSalesNewToBrand14d"),
     ad_product="SPONSORED_BRANDS",
     retention_days=60,
+    record_type="campaigns",
+)
+# SB's search terms from v3's sbSearchTerm, and the old-format campaigns' from v2's keywords report split by query,
+# ids and numbers only. v2 returns the new-format campaigns too, so their v2 rows are dropped when a day is saved.
+SB_SEARCH_TERM_SPEC = ReportSpec(
+    report_type_id="sbSearchTerm",
+    group_by=("searchTerm",),
+    columns=("date", "campaignId", "adGroupId", "keywordId", "keywordText", "matchType", "searchTerm", "impressions",
+             "clicks", "cost", "purchases", "sales", "purchasesClicks", "salesClicks", "campaignBudgetCurrencyCode"),
+    ad_product="SPONSORED_BRANDS",
+    retention_days=60,
+)
+SB_LEGACY_SEARCH_TERM_SPEC = ReportSpec(
+    report_type_id="hsaSearchTerm",
+    group_by=(),
+    columns=("campaignId", "adGroupId", "keywordId", "query", "impressions", "clicks", "cost",
+             "attributedConversions14d", "attributedSales14d"),
+    ad_product="SPONSORED_BRANDS",
+    retention_days=60,
+    record_type="keywords",
+    segment="query",
 )
 
 # Brands and Display name their metrics alike.
@@ -371,6 +420,17 @@ _BRANDS_DISPLAY_METRICS = {
     "purchases_clicks": "purchasesClicks",
     "sales_clicks": "salesClicks",
 }
+# v2's click-only 14-day sales are all the sales it has, so they fill both pairs, as SB's reports do without views.
+_SB_V2_METRICS = {
+    "impressions": "impressions",
+    "clicks": "clicks",
+    "cost": "cost",
+    "purchases": "attributedConversions14d",
+    "sales": "attributedSales14d",
+    "purchases_clicks": "attributedConversions14d",
+    "sales_clicks": "attributedSales14d",
+}
+_SEARCH_TERM_IDS = {"campaign_id": "campaignId", "ad_group_id": "adGroupId", "keyword_id": "keywordId"}
 
 SP_TARGETING_ROWS = _Parser(
     spec=SP_TARGETING_SPEC,
@@ -435,12 +495,27 @@ SB_LEGACY_CAMPAIGN_ROWS = _Parser(
     ids={"campaign_id": "campaignId"},
     texts={},
     describe=_unknown_cost_type,
-    # Click-only sales are all the sales it has, so they fill both pairs, as SB's own reports do when no view
-    # attributes one.
-    metrics={"impressions": "impressions", "clicks": "clicks", "cost": "cost",
-             "purchases": "attributedConversions14d", "sales": "attributedSales14d",
-             "purchases_clicks": "attributedConversions14d", "sales_clicks": "attributedSales14d",
-             "new_to_brand_purchases": "attributedOrdersNewToBrand14d",
+    metrics={**_SB_V2_METRICS, "new_to_brand_purchases": "attributedOrdersNewToBrand14d",
              "new_to_brand_sales": "attributedSalesNewToBrand14d"},
+    dated=False,
+)
+SB_SEARCH_TERM_ROWS = _Parser(
+    spec=SB_SEARCH_TERM_SPEC,
+    ad_product="SB",
+    table=_SEARCH_TERM_TABLE,
+    ids=_SEARCH_TERM_IDS,
+    texts={"keyword": ("keywordText",), "match_type": ("matchType",), "search_term": ("searchTerm",)},
+    describe=_search_term,
+    metrics=_BRANDS_DISPLAY_METRICS,
+    currency_field="campaignBudgetCurrencyCode",
+)
+SB_LEGACY_SEARCH_TERM_ROWS = _Parser(
+    spec=SB_LEGACY_SEARCH_TERM_SPEC,
+    ad_product="SB",
+    table=_SEARCH_TERM_TABLE,
+    ids=_SEARCH_TERM_IDS,
+    texts={"search_term": ("query",)},
+    describe=_search_term,
+    metrics=_SB_V2_METRICS,
     dated=False,
 )

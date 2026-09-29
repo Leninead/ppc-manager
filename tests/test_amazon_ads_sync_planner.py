@@ -12,12 +12,15 @@ from core.amazon_ads.sync_planner import (
     CAMPAIGN_ENTITIES_KIND,
     CAMPAIGNS_KIND,
     PORTFOLIOS_KIND,
+    PRODUCT_CAMPAIGN_KINDS,
     PRODUCT_ENTITY_KINDS,
     PRODUCT_KINDS,
     PRODUCT_REPORT_KINDS,
     SB_CAMPAIGNS_KIND,
     SB_ENTITIES_KIND,
     SB_LEGACY_KIND,
+    SB_LEGACY_SEARCH_TERMS_KIND,
+    SB_SEARCH_TERMS_KIND,
     SB_TARGETING_KIND,
     SD_CAMPAIGNS_KIND,
     SD_ENTITIES_KIND,
@@ -520,3 +523,64 @@ def test_a_history_is_recognized_by_its_window_whatever_its_trigger():
     assert is_product_history(SB_TARGETING_KIND, date(2026, 7, 16), date(2026, 9, 13))
     assert not is_product_history(SEARCH_TERMS_KIND, date(2026, 7, 11), date(2026, 9, 13))
     assert not is_product_history(SP_TARGETING_KIND, None, date(2026, 9, 13))
+
+
+def test_sb_search_terms_wait_for_that_days_sb_list_to_find_campaigns():
+    now = _utc(2026, 9, 14, 17)
+    both = {SB_SEARCH_TERMS_KIND, SB_LEGACY_SEARCH_TERMS_KIND}
+
+    waiting = _product_jobs(plan_jobs(_state(has_legacy_sb=True), now))
+    none_found = _product_jobs(plan_jobs(_state(entity_rows_today={SB_ENTITIES_KIND: 0}, has_legacy_sb=True), now))
+    found = _product_jobs(plan_jobs(_state(entity_rows_today={SB_ENTITIES_KIND: 5}, has_legacy_sb=True), now))
+
+    assert not both & set(waiting) and not both & set(none_found)
+    assert both <= set(found)
+
+
+def test_sb_search_terms_load_amazons_sixty_days_first():
+    now = _utc(2026, 9, 14, 17)
+
+    history = _product_jobs(plan_jobs(_state(entity_rows_today={SB_ENTITIES_KIND: 5}), now))[SB_SEARCH_TERMS_KIND]
+
+    assert history.trigger == "backfill"
+    assert (history.window_start, history.window_end) == (date(2026, 7, 16), date(2026, 9, 13))
+    assert history.dedupe_key == "amazon_ads:p-100:sb_search_terms-history:2026-09-14"
+
+
+def test_the_v2_search_terms_are_asked_only_where_there_are_old_format_campaigns():
+    now = _utc(2026, 9, 14, 17)
+    listed = {SB_ENTITIES_KIND: 5}
+
+    without = _product_jobs(plan_jobs(_state(entity_rows_today=listed), now))
+    with_legacy = _product_jobs(plan_jobs(_state(entity_rows_today=listed, has_legacy_sb=True), now))
+
+    assert SB_LEGACY_SEARCH_TERMS_KIND not in without and SB_SEARCH_TERMS_KIND in without
+    history = with_legacy[SB_LEGACY_SEARCH_TERMS_KIND]
+    assert (history.trigger, history.window_start, history.window_end) == (
+        "backfill", date(2026, 7, 16), date(2026, 9, 13))
+
+
+def test_after_their_histories_the_sb_search_terms_ask_the_last_fourteen_days():
+    now = _utc(2026, 9, 14, 17)
+    both = (SB_SEARCH_TERMS_KIND, SB_LEGACY_SEARCH_TERMS_KIND)
+    state = _state(entity_rows_today={SB_ENTITIES_KIND: 5}, has_legacy_sb=True,
+                   product_histories_done=frozenset(both))
+
+    jobs = _product_jobs(plan_jobs(state, now))
+
+    for kind in both:
+        assert (jobs[kind].trigger, jobs[kind].window_start, jobs[kind].window_end) == (
+            "scheduled_daily", date(2026, 8, 31), date(2026, 9, 13))
+
+
+def test_the_sb_search_terms_history_is_sixty_days_and_writes_no_campaign_day():
+    for kind in (SB_SEARCH_TERMS_KIND, SB_LEGACY_SEARCH_TERMS_KIND):
+        assert is_product_history(kind, date(2026, 7, 16), date(2026, 9, 13)), kind
+        assert not is_product_history(kind, date(2026, 8, 31), date(2026, 9, 13)), kind
+        # Whatever reads SB and SD campaigns reads again after one of these; a search term day changes none.
+        assert kind not in PRODUCT_CAMPAIGN_KINDS, kind
+
+
+def test_every_planned_report_has_a_report_kind_that_ingests_it():
+    for kind in PRODUCT_REPORT_KINDS:
+        assert report_kinds.by_job_kind(kind) is not None, kind

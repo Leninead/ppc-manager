@@ -41,6 +41,8 @@ from core.amazon_ads.sync_planner import (
     SB_CAMPAIGNS_KIND,
     SB_ENTITIES_KIND,
     SB_LEGACY_KIND,
+    SB_LEGACY_SEARCH_TERMS_KIND,
+    SB_SEARCH_TERMS_KIND,
     SB_TARGETING_KIND,
     SD_CAMPAIGNS_KIND,
     SD_ENTITIES_KIND,
@@ -65,6 +67,7 @@ TARGETS = "ads_target"
 TARGET_DAILY = "ads_target_daily"
 PRODUCT_CAMPAIGNS = "ads_sb_sd_campaign"
 PRODUCT_CAMPAIGN_DAILY = "ads_sb_sd_campaign_daily"
+SB_SEARCH_TERM_DAILY = "ads_sb_search_term_daily"
 AD_GROUPS = "ads_ad_group"
 NEGATIVES = "ads_negative"
 LISTING_SNAPSHOTS = "ads_listing_snapshot"
@@ -364,6 +367,24 @@ class _FakePostgrest:
         return self._replace_product_day(PRODUCT_CAMPAIGN_DAILY, p_profile_id, p_ad_product, p_day, p_rows,
                                          source=p_source)
 
+    def _replace_sb_search_term_day(self, p_profile_id, p_day, p_rows, p_source="v3"):
+        # 021: a source rewrites only its own rows of the day, and from v2 only the old-format SB campaigns enter.
+        self._require(SB_SEARCH_TERM_DAILY)
+
+        def is_that_day(row):
+            return (row["profile_id"], row["report_date"], row["source"]) == (p_profile_id, p_day, p_source)
+
+        if not p_rows:
+            return -1 if any(is_that_day(row) for row in self.tables[SB_SEARCH_TERM_DAILY]) else 0
+        if p_source == "v2":
+            legacy = {row["campaign_id"] for row in self.tables[PRODUCT_CAMPAIGNS]
+                      if row.get("ad_product") == "SB" and row.get("is_multi_ad_groups") is False}
+            p_rows = [row for row in p_rows if row["campaign_id"] in legacy]
+        self.tables[SB_SEARCH_TERM_DAILY] = [row for row in self.tables[SB_SEARCH_TERM_DAILY] if not is_that_day(row)]
+        self.tables[SB_SEARCH_TERM_DAILY].extend({**row, "profile_id": p_profile_id, "report_date": p_day,
+                                                  "source": p_source} for row in p_rows)
+        return len(p_rows)
+
     def _replace_product_day(self, table, p_profile_id, p_ad_product, p_day, p_rows, *, source=None):
         # 015: the day is replaced for one ad product only, never for the others of the same profile, and for
         # one source only: v2 never erases v3's rows of the day, nor v3 v2's.
@@ -448,6 +469,9 @@ class _FakeAmazon:
         # SB's v2 campaign report, by day: it has no date field of its own.
         self.v2_rows_by_day: dict[str, list[dict]] = {}
         self.v2_creates: list[tuple[str, str, dict]] = []
+        # SB's v2 keywords report split by query, by day, and its creates apart from the campaign report's.
+        self.v2_search_terms_by_day: dict[str, list[dict]] = {}
+        self.v2_search_term_creates: list[tuple[str, str, dict]] = []
         self.empty_days: set[str] = set()
         self.created: list[tuple[str, str, str]] = []
         self.campaign_creates: list[tuple[str, str, str]] = []
@@ -492,8 +516,8 @@ class _FakeAmazon:
             start_index = int(path.split("startIndex=", 1)[1].split("&", 1)[0]) if "startIndex=" in path else 0
             listed = self.sd_campaigns if path.startswith("/sd/campaigns") else self.sd_ad_groups
             return _FakeResponse(200, listed if start_index == 0 else [])
-        if (method, path) == ("POST", "/v2/hsa/campaigns/report"):
-            return self._create_v2(kwargs["headers"], kwargs["json"])
+        if method == "POST" and path in ("/v2/hsa/campaigns/report", "/v2/hsa/keywords/report"):
+            return self._create_v2(kwargs["headers"], kwargs["json"], record_type=path.split("/")[3])
         if method == "GET" and path.startswith("/v2/reports/"):
             return self._v2_status_or_file(path.removeprefix("/v2/reports/"), kwargs)
         raise AssertionError(f"unexpected Amazon call {method} {path}")
@@ -511,14 +535,16 @@ class _FakeAmazon:
             page["nextToken"] = f"page-{end}"
         return _FakeResponse(200, page)
 
-    def _create_v2(self, headers: dict, body: dict) -> _FakeResponse:
+    def _create_v2(self, headers: dict, body: dict, record_type: str) -> _FakeResponse:
         profile_id = headers["Amazon-Advertising-API-Scope"]
         day = f"{body['reportDate'][:4]}-{body['reportDate'][4:6]}-{body['reportDate'][6:]}"
-        self.v2_creates.append((profile_id, day, body))
+        creates = self.v2_creates if record_type == "campaigns" else self.v2_search_term_creates
+        creates.append((profile_id, day, body))
         report_id = f"amzn1.clicksAPI.v1.p1.{len(self.reports) + 1:08d}"
         self.reports[report_id] = {"profile_id": profile_id, "start": day, "end": day, "statuses": ["SUCCESS"],
-                                   "v2": True}
-        return _FakeResponse(202, {"reportId": report_id, "recordType": "campaign", "status": "IN_PROGRESS"})
+                                   "v2": record_type}
+        return _FakeResponse(202, {"reportId": report_id, "recordType": record_type.removesuffix("s"),
+                                   "status": "IN_PROGRESS"})
 
     def _v2_status_or_file(self, rest_of_path: str, kwargs: dict) -> _FakeResponse:
         report_id, _, action = rest_of_path.partition("/")
@@ -574,7 +600,8 @@ class _FakeAmazon:
         # Campaign reports are empty unless a test asks for rows, so they never reach the
         # search-term counts the rest of this suite asserts.
         if report.get("v2"):
-            return self.v2_rows_by_day.get(report["start"], [])
+            by_day = self.v2_rows_by_day if report["v2"] == "campaigns" else self.v2_search_terms_by_day
+            return by_day.get(report["start"], [])
         if report.get("product"):
             return [row for row in self.product_report_rows.get(report["product"], [])
                     if report["start"] <= row["date"] <= report["end"]]
@@ -2071,6 +2098,56 @@ def test_old_format_sb_campaigns_load_from_the_v2_report_a_day_at_a_time(tmp_pat
     assert (legacy["cost"], legacy["purchases"], legacy["purchases_clicks"], legacy["sales"], legacy["sales_clicks"],
             legacy["new_to_brand_sales"]) == (30.5, 3, 3, 99.0, 99.0, 33.0)
     assert by_campaign["602"]["cost"] == 7.0
+
+
+def _sb_search_term_row(day: str, campaign_id: int) -> dict:
+    return {"date": day, "campaignId": campaign_id, "adGroupId": 702, "keywordId": 802, "keywordText": "demo bag",
+            "matchType": "exact", "searchTerm": "demo bag for kids", "impressions": 300, "clicks": 6, "cost": 4.2,
+            "purchases": 1, "sales": 30.0, "purchasesClicks": 1, "salesClicks": 30.0,
+            "campaignBudgetCurrencyCode": "USD"}
+
+
+def _v2_search_term_row(campaign_id: int) -> dict:
+    return {"campaignId": campaign_id, "adGroupId": 701, "keywordId": 801, "query": "demo bag", "impressions": 200,
+            "clicks": 4, "cost": 3.5, "attributedConversions14d": 1, "attributedSales14d": 25.0}
+
+
+def test_sb_search_terms_load_from_v3_and_the_old_format_ones_from_v2_without_moving_the_str(tmp_path,
+                                                                                               with_products):
+    rest, amazon = _FakePostgrest(NOW), _FakeAmazon()
+    # Refreshed today: no search term day job runs, so whatever moves the STR's freshness would be these jobs.
+    _connect_profile(rest, profile_row=_backfilled(refreshed_on="2026-09-14"))
+    amazon.sb_campaigns = [_sb_campaign("601", old_format=True), _sb_campaign("602", old_format=False)]
+    amazon.product_report_rows["sbSearchTerm"] = [_sb_search_term_row(YESTERDAY, 602)]
+    # v2 also brings the new-format campaign, which v3 reports: it must not be stored twice.
+    amazon.v2_search_terms_by_day[YESTERDAY] = [_v2_search_term_row(601), _v2_search_term_row(602)]
+    ingestion = _ingestion(rest, amazon, tmp_path)
+
+    _tick_until_closed(ingestion, rest, (SB_SEARCH_TERMS_KIND, SB_LEGACY_SEARCH_TERMS_KIND))
+
+    for kind in (SB_SEARCH_TERMS_KIND, SB_LEGACY_SEARCH_TERMS_KIND):
+        job = _only(rest.rows(JOBS, job_kind=kind))
+        assert (job["status"], job["trigger"], job["rows_written"]) == ("completed", "backfill", 1)
+    days = sorted(day for _, day, _ in amazon.v2_search_term_creates)
+    assert (days[0], days[-1], len(days)) == ("2026-07-16", YESTERDAY, 60)
+    assert {(body["segment"], body["creativeType"]) for *_, body in amazon.v2_search_term_creates} == {
+        ("query", "all")}
+    # v3 asks Amazon's 60 days in two reports of up to 31.
+    assert sorted(create[2:] for create in amazon.product_creates if create[0] == "sbSearchTerm") == [
+        ("2026-07-16", "2026-08-13"), ("2026-08-14", YESTERDAY)]
+    by_campaign = {row["campaign_id"]: row for row in rest.tables[SB_SEARCH_TERM_DAILY]}
+    # Each source rewrote only its own rows of the day: v2 kept v3's campaign, and v3 kept v2's.
+    assert {campaign_id: row["source"] for campaign_id, row in by_campaign.items()} == {"601": "v2", "602": "v3"}
+    legacy, current = by_campaign["601"], by_campaign["602"]
+    assert (legacy["search_term"], legacy["keyword_id"], legacy["keyword_text"], legacy["match_type"],
+            legacy["cost"], legacy["purchases_clicks"], legacy["sales"], legacy["sales_clicks"]) == (
+        "demo bag", "801", "", "", 3.5, 1, 25.0, 25.0)
+    assert (current["search_term"], current["keyword_text"], current["match_type"], current["cost"]) == (
+        "demo bag for kids", "demo bag", "EXACT", 4.2)
+    # ads_profile_sync is the STR picker's freshness: only SP search terms move it.
+    profile = _only(rest.rows(PROFILES))
+    assert (profile["refreshed_on"], profile["data_through"], profile["last_success_at"]) == (
+        "2026-09-14", None, None)
 
 
 def test_an_account_without_old_format_sb_campaigns_never_asks_the_v2_report(tmp_path, with_products):

@@ -19,6 +19,8 @@ from core.amazon_ads.sync_planner import (
     PRODUCT_CHUNK_DAYS,
     SB_CAMPAIGNS_KIND,
     SB_LEGACY_KIND,
+    SB_LEGACY_SEARCH_TERMS_KIND,
+    SB_SEARCH_TERMS_KIND,
     SB_TARGETING_KIND,
     SD_CAMPAIGNS_KIND,
     SD_TARGETING_KIND,
@@ -34,6 +36,8 @@ SB_TARGETING_REPORT = "sb_targeting"
 SD_CAMPAIGNS_REPORT = "sd_campaigns"
 SD_TARGETING_REPORT = "sd_targeting"
 SB_LEGACY_REPORT = "sb_legacy_campaigns"
+SB_SEARCH_TERMS_REPORT = "sb_search_terms"
+SB_LEGACY_SEARCH_TERMS_REPORT = "sb_legacy_search_terms"
 
 
 @dataclass(frozen=True)
@@ -87,7 +91,7 @@ CAMPAIGNS = ReportKind(
 
 
 def _product_kind(name: str, job_kind: str, spec: ReportSpec, parser, replace_day_rpc: str,
-                  ad_product: str) -> ReportKind:
+                  **rpc_args) -> ReportKind:
     # Each report of the new grains gets the same small slice as campaigns: they share Amazon's rate limit.
     return ReportKind(
         name=name,
@@ -101,32 +105,41 @@ def _product_kind(name: str, job_kind: str, spec: ReportSpec, parser, replace_da
         max_inflight_reports=3,
         max_creates_per_tick=3,
         max_saves_per_tick=3,
-        rpc_args={"p_ad_product": ad_product},
+        rpc_args=rpc_args,
     )
 
 
-SP_TARGETING = _product_kind(SP_TARGETING_REPORT, SP_TARGETING_KIND, product_rows.SP_TARGETING_SPEC,
-                             product_rows.SP_TARGETING_ROWS, "replace_target_day", "SP")
-SD_CAMPAIGNS = _product_kind(SD_CAMPAIGNS_REPORT, SD_CAMPAIGNS_KIND, product_rows.SD_CAMPAIGN_SPEC,
-                             product_rows.SD_CAMPAIGN_ROWS, "replace_sb_sd_campaign_day", "SD")
-SD_TARGETING = _product_kind(SD_TARGETING_REPORT, SD_TARGETING_KIND, product_rows.SD_TARGETING_SPEC,
-                             product_rows.SD_TARGETING_ROWS, "replace_target_day", "SD")
-SB_CAMPAIGNS = _product_kind(SB_CAMPAIGNS_REPORT, SB_CAMPAIGNS_KIND, product_rows.SB_CAMPAIGN_SPEC,
-                             product_rows.SB_CAMPAIGN_ROWS, "replace_sb_sd_campaign_day", "SB")
-SB_TARGETING = _product_kind(SB_TARGETING_REPORT, SB_TARGETING_KIND, product_rows.SB_TARGETING_SPEC,
-                             product_rows.SB_TARGETING_ROWS, "replace_target_day", "SB")
-# The v2 report is one day each, and its rows go to the SB day as the v2 source: they never erase v3's. A history is
-# 60 reports, most ready in a minute but some after ten: twice the slots keeps one slow day from holding the rest.
-SB_LEGACY_CAMPAIGNS = dataclasses.replace(
-    _product_kind(SB_LEGACY_REPORT, SB_LEGACY_KIND, product_rows.SB_LEGACY_CAMPAIGN_SPEC,
-                  product_rows.SB_LEGACY_CAMPAIGN_ROWS, "replace_sb_sd_campaign_day", "SB"),
-    chunk_days=1, fetcher=SbV2ReportFetcher, rpc_args={"p_ad_product": "SB", "p_source": "v2"},
-    max_inflight_reports=6, max_creates_per_tick=6, max_saves_per_tick=6,
-)
+def _sb_v2(kind: ReportKind) -> ReportKind:
+    """A v2 report is one day each, and its rows go to the day as the v2 source: they never erase v3's. A history is
+    60 reports, most ready in a minute but some after ten: twice the slots keeps one slow day from holding the rest."""
+    return dataclasses.replace(kind, chunk_days=1, fetcher=SbV2ReportFetcher,
+                               rpc_args={**kind.rpc_args, "p_source": "v2"},
+                               max_inflight_reports=6, max_creates_per_tick=6, max_saves_per_tick=6)
 
-# Search terms go first: the agency's week depends on them.
+
+SP_TARGETING = _product_kind(SP_TARGETING_REPORT, SP_TARGETING_KIND, product_rows.SP_TARGETING_SPEC,
+                             product_rows.SP_TARGETING_ROWS, "replace_target_day", p_ad_product="SP")
+SD_CAMPAIGNS = _product_kind(SD_CAMPAIGNS_REPORT, SD_CAMPAIGNS_KIND, product_rows.SD_CAMPAIGN_SPEC,
+                             product_rows.SD_CAMPAIGN_ROWS, "replace_sb_sd_campaign_day", p_ad_product="SD")
+SD_TARGETING = _product_kind(SD_TARGETING_REPORT, SD_TARGETING_KIND, product_rows.SD_TARGETING_SPEC,
+                             product_rows.SD_TARGETING_ROWS, "replace_target_day", p_ad_product="SD")
+SB_CAMPAIGNS = _product_kind(SB_CAMPAIGNS_REPORT, SB_CAMPAIGNS_KIND, product_rows.SB_CAMPAIGN_SPEC,
+                             product_rows.SB_CAMPAIGN_ROWS, "replace_sb_sd_campaign_day", p_ad_product="SB")
+SB_TARGETING = _product_kind(SB_TARGETING_REPORT, SB_TARGETING_KIND, product_rows.SB_TARGETING_SPEC,
+                             product_rows.SB_TARGETING_ROWS, "replace_target_day", p_ad_product="SB")
+SB_LEGACY_CAMPAIGNS = _sb_v2(_product_kind(SB_LEGACY_REPORT, SB_LEGACY_KIND, product_rows.SB_LEGACY_CAMPAIGN_SPEC,
+                                           product_rows.SB_LEGACY_CAMPAIGN_ROWS, "replace_sb_sd_campaign_day",
+                                           p_ad_product="SB"))
+# SB's search terms have a table of their own, so their day takes no ad product.
+SB_SEARCH_TERMS = _product_kind(SB_SEARCH_TERMS_REPORT, SB_SEARCH_TERMS_KIND, product_rows.SB_SEARCH_TERM_SPEC,
+                                product_rows.SB_SEARCH_TERM_ROWS, "replace_sb_search_term_day")
+SB_LEGACY_SEARCH_TERMS = _sb_v2(_product_kind(SB_LEGACY_SEARCH_TERMS_REPORT, SB_LEGACY_SEARCH_TERMS_KIND,
+                                              product_rows.SB_LEGACY_SEARCH_TERM_SPEC,
+                                              product_rows.SB_LEGACY_SEARCH_TERM_ROWS, "replace_sb_search_term_day"))
+
+# SP search terms go first: the agency's week depends on them.
 ALL = (SEARCH_TERMS, CAMPAIGNS, SP_TARGETING, SD_CAMPAIGNS, SD_TARGETING, SB_CAMPAIGNS, SB_TARGETING,
-       SB_LEGACY_CAMPAIGNS)
+       SB_LEGACY_CAMPAIGNS, SB_SEARCH_TERMS, SB_LEGACY_SEARCH_TERMS)
 _BY_NAME = {kind.name: kind for kind in ALL}
 _BY_JOB_KIND = {kind.job_kind: kind for kind in ALL}
 REPORT_JOB_KINDS = tuple(_BY_JOB_KIND)

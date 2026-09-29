@@ -329,6 +329,24 @@ def test_the_sp_structure_listings_read_in_english_too(monkeypatch):
     assert page.request_subline(negatives, None, NOW) == "1 negative"
 
 
+@pytest.mark.parametrize("job_kind, spanish, english", [
+    ("sb_search_terms", "Search terms SB", "SB search terms"),
+    ("sb_legacy_search_terms", "Search terms SB del formato anterior", "Old-format SB search terms"),
+])
+def test_the_sb_search_term_reports_read_like_the_other_reports_in_the_log(monkeypatch, job_kind, spanish, english):
+    report = _job(job_kind=job_kind, trigger="backfill")
+    closed = _job(job_kind=job_kind, status="completed", rows_written=1234,
+                  warning="día vacío: Amazon no devolvió términos para 2026-09-01")
+
+    assert page.request_title(report) == f"Primera carga · {spanish}"
+    # A report job: its window, not a count, under the title, and its rows in the rows column.
+    assert page.request_subline(_job(job_kind=job_kind, status="failed"), None, NOW) == "31 ago → 13 sep · 14 días"
+    assert page.rows_text(closed, None) == "1.234"
+    assert page.status_label("completed", "", closed.warning, job_kind) == "Completada · día vacío"
+    monkeypatch.setattr(i18n, "current_lang", lambda: "en")
+    assert page.request_title(report) == f"First load · {english}"
+
+
 def test_rows_of_an_open_job_come_from_its_saved_reports():
     running = _job(status="running", phase="waiting")
     assert page.rows_text(running, page.ReportProgress(2, 5, 24310)) == "24.310"

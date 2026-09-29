@@ -1208,31 +1208,93 @@ resultado desaparecía en cualquier rerun, y con él la pestaña IA.
 ---
 
 ## M20 — PPC Audit Pro
-**Archivo:** modules/pages/ppc_audit.py (~1,077 líneas)
-**Sección sidebar:** Intelligence
-**Session state prefix:** audit_
+**Archivo:** modules/pages/ppc_audit.py (la página), modules/pages/audit_source.py (el bloque de datos). Reglas en
+`core/ppc_audit/checks.py`, las dos fuentes en `core/ppc_audit/frames.py` y `core/ppc_audit/bulk_file.py`, la lectura de
+Amazon Ads en `core/ppc_audit/synced_reads.py`, payload IA en `core/ppc_audit/analysis.py`, agente en
+`ai/agents/ppc_audit/`, herramienta del chat en `services/mcp_server/tools/ppc_audit.py`.
+**Sección sidebar:** Research
+**Session state prefix:** `audit_` (picker del STR `audit_src_*`, bloque de estructura `audit_structure_src_*`, uploader
+`audit_bulk`, `audit_br`, `audit_brand_terms`, `audit_grad_filter`, `audit_dl`), IA `ppc_audit_ai_*`
 
 ### Propósito
-Auditoría integral desde Bulk File multi-hoja. Breakdown real SP/SB/SD, 10 segmentos, 5 deep checks.
+Auditoría de la estructura y el rendimiento de las campañas: KPIs SP/SB/SD, gasto sin ventas de targets y search terms,
+rendimiento por segmento, deep checks y Target Graduation, también de los keywords y targets sin tráfico.
 
-### Arquitectura
-Parser Bulk 5-hoja → 6 tabs Excel: KPIs, Auditoría Estructura, Performance Segmento, Deep Checks (5), Target Graduation, Export
+### Fuente de datos (IT-44, 2026-09-28)
+- **Con cuentas conectadas:** el picker del STR (`render_source_picker("audit", allow_manual=False)`) elige cuenta, país
+  y período, y el bloque «Estructura de las campañas» lee esa misma cuenta y ventana (una sola elección, como Funnel):
+  `read_synced_audit` junta la estructura SP (`StructureProvider.sp_structure` con campaign, bidding_adjustment,
+  ad_group, keyword, product_targeting y product_ad; sin negativos, que en una cuenta grande son cientos de miles), las
+  campañas SB/SD (`ProductProvider.campaigns(include_archived=True)`: una archivada que gastó en el período suma en los
+  KPIs), los keywords SB y targets SD (`StructureProvider.sb_sd_targets`) y los search terms SB
+  (`ProductProvider.sb_search_terms`, migración 021). Todo baja a `AuditFrames`, con los headers del Bulk File.
+- **Bulk File a mano:** sin cuentas conectadas o con «Subir Bulk File a mano» (reusa el flag `manual` del picker, que con
+  `allow_manual=False` no lo lee). `frames_from_bulk_file` lee las cinco hojas como siempre, con los IDs como texto y SD
+  en el grano del target.
+- **Lo que falta no es cero.** `AuditFrames.unavailable` (parte → motivo) marca lo que la fuente no tiene: keywords sin
+  listar (`SP_TARGETS`), métricas de targeting sin sincronizar (`SP_TARGET_METRICS`, se detecta porque toda la familia
+  vino sin métricas), SB/SD sin la migración, search terms SB sin sincronizar. La página y el MCP dicen el motivo en su
+  lugar; nunca muestran 0 ni «Sin targets huérfanos» por falta de datos. Las campañas sin métricas (SB del formato
+  anterior, reportes pendientes) no suman en los KPIs y se cuentan aparte; si ninguna tiene métricas, los KPIs son «—».
+- Estados del bloque: no se pudo leer (error + subir Bulk), sin la migración 018, sin listar (se lista una vez por día),
+  listado rechazado por Amazon (el aviso del job), listado (hora + conteos + «métricas hasta…» cuando campañas o
+  targeting terminan antes que el período). «Actualizar ahora» del picker sólo vuelve a pedir los search terms.
 
-### Reglas de negocio
-- Parser: SP Campaigns, SB Campaigns, SD Campaigns, SP STR, SB STR
-- Segmentación SP: 10 tipos (KW Exact/Phrase/Broad + PT ASIN/Category + AUTO Close/Loose/Substitutes/Complements)
-- Match Type Mixto: >1 match por campaign → badge REVISAR
-- Target WAS: spend>0, sales=0
-- ACoS semáforo: verde ≤30%, amarillo 31-55%, rojo >55%
+### Reglas de negocio (movidas sin cambios salvo lo marcado)
+- Segmentos SP: KW Exact/Phrase/Broad, PT ASIN/Category (la expresión contiene «asin» / «category»), AUTO y TOTAL SP;
+  SB por match type; SD por nombre de campaña (retarget|remarketing, audience, resto). ACoS semáforo ≤30 / 31-55 / >55.
+- **AUTO (IT-44):** de los grupos de targeting automático (close-match, loose-match, substitutes, complements) cuando la
+  fuente los lista, con todo su tráfico; si no, de los search terms de las campañas Auto (sólo términos con clicks). Con
+  la API los segmentos suman el TOTAL SP (medido en Mott & Bow US: $4,683.43 de $4,683.43).
+- **Lo que corre (IT-44):** Match Types Mixtos, su distribución, Duplicación y SKAG cuentan keywords/targets habilitados
+  de campañas y ad groups habilitados (un ad group o una campaña que la fuente no lista cuenta como habilitado, igual que
+  Target Graduation). Agrupan por Campaign ID, no por nombre.
+- **SKAG vs Bolsa (IT-44):** campañas manuales habilitadas por cuántos targets corren en ellas (1 / 2-10 / 11+), con o sin
+  tráfico. Antes contaba «targets con gasto» e incluía las automáticas.
+- **Target WAS:** spend > 0 y sales = 0 en keywords + product targets SP, keywords SB y targets SD; el porcentaje es sobre
+  el gasto de los tres (antes el denominador dejaba afuera a SD).
+- **Target Graduation:** keywords con 0 impresiones en campañas con impresiones; recomendación en este orden: no
+  habilitado → YA PAUSADO, brand term → MANTENER, ventas u órdenes → SUBIR BID, gasto sin órdenes → PAUSAR, resto →
+  GRADUAR A SKAG. **IT-44:** se excluyen los keywords de ad groups pausados o archivados; con la API el bid es el
+  efectivo (`ads_target_bid`).
+- Top 5: ACoS calculado de spend/sales (la API no trae la columna). Clasificación: ASINs propios del BR y, con la API,
+  de los product ads de la cuenta. Bid Adjustments: sobre las campañas habilitadas, con los códigos de la API como los
+  nombra Campaign Manager (`PLACEMENT_LABELS`); la distribución de bidding strategy cuenta cada campaña una vez.
+
+### Capa IA
+Agente `ppc_audit`, en memoria (`ai_tab.resolve_analysis`, `auto_fire=False`), con las dos fuentes. Payload: Parámetros
+(las cifras de toda la cuenta, lo que falta y los topes) + segmentos sin row_id + filas `U01…` en una sola numeración:
+campañas con match types mixtos (20), top campañas (10), duplicadas (20), Graduation accionable (40: SUBIR BID, PAUSAR,
+GRADUAR, MANTENER; sin las ya pausadas) y search terms sin ventas (20). Salida: `hallazgos[]` (razón → ACTUAR / ESPERAR /
+INVESTIGAR → confianza → advertencia) + la síntesis canónica. Nunca recalcula ni propone bids. Prefijo U: A ya es de Bid
+Optimizer. Se publica con `publish_analysis_to_chat` (profile_id y país de la cuenta, o el nombre del archivo).
+
+### Chat y MCP
+- La página publica su selección (cuenta, fechas, brand terms y la llamada `ppc_audit(...)`); con Bulk File, la nota de
+  archivo a mano.
+- MCP `ppc_audit`: las mismas lecturas y reglas; `section` = segments, mixed_match, duplicates, graduation,
+  wasted_search_terms, top_campaigns, target_types (con `brand_terms`), placements o skag; `summary` trae las cifras de
+  la cuenta y `missing` lo que falta. La imagen del MCP copia `core/ppc_audit/{frames,checks,synced_reads}.py`, nunca
+  `analysis.py` (importa los agentes).
 
 ### Inputs
-- Bulk File (.xlsx) — requerido (Campaign Manager → Bulk Operations)
-- Business Report (.xlsx, .csv) — opcional (para TACoS, Revenue)
-- Brand terms (texto) — clasificación targets
+- Datos de Amazon Ads (cuenta + país + período) o Bulk File (.xlsx) a mano
+- Business Report (.xlsx, .csv) — opcional (TACoS, revenue, ASINs propios)
+- Brand terms (texto) — Clasificación de targets y MANTENER en Graduation
+
+### Tests
+`tests/test_ppc_audit_checks.py` (reglas), `tests/test_ppc_audit_frames.py` (las dos fuentes y `read_synced_audit`, con
+el PostgREST en memoria que reusan los demás), `tests/test_ppc_audit_agent.py`, `tests/test_ppc_audit_page.py` (AppTest),
+`tests/test_mcp_ppc_audit.py`.
 
 ### Anti-patterns
-- NO confundir Bulk File (.xlsx Campaign Manager) con Campaign CSV
-- _build_audit_excel() DEBE estar fuera de render()
+- ❌ NO calcular un check en la página: va en `core/ppc_audit/checks.py`, que leen la página, el Excel, la IA y el MCP.
+- ❌ NO mostrar 0 cuando la fuente no tiene una parte: `unavailable` dice por qué.
+- ❌ NO leer los negativos en la estructura del audit: ningún check los usa y una cuenta grande tiene cientos de miles.
+- ❌ NO agrupar por nombre de campaña: dos campañas pueden llamarse igual; Campaign ID está en todas las filas.
+- ❌ NO usar el prefijo A para las filas: es de Bid Optimizer y el chat puede tener los dos análisis.
+- ❌ NO pasar un Styler a `st.dataframe` sin `_styled_figures`: imprime seis decimales.
+- `build_audit_excel()` va fuera de `render()`.
 
 ---
 
@@ -2107,10 +2169,11 @@ lista no tiene ninguna fila de `spTargeting` en 60 días (el 98,9% de los pausad
   los listados nuevos (en local, contra la API real, lo medido está en «Negativos por partes» y en `sp_structure_counts`).
 - **Qué queda afuera.** SB y SD: `ads_ad_group` y `ads_negative` tienen `ad_product` en la clave, pero hoy sólo se
   escribe SP. Lo archivado: ad groups, targets, anuncios y negativos archivados no se listan (las campañas archivadas
-  sí). Las etiquetas de bulk de Placement. Y los consumidores: Atom11 (IT-42) y PPC Audit (IT-44) todavía no la leen,
-  son sus tickets. La leen SBH Recommendation (IT-49), para las keywords que ya corren en SP
-  (`core/amazon_ads/active_keywords.py`, ver M23), y desde IT-51 Análisis Cruzado (las Exact habilitadas de INV-11.2) y
-  el bulk de negativos de M2 (Exact habilitadas, keywords propias y estado de cada ad group).
+  sí). Las etiquetas de bulk de Placement. Y un consumidor: Atom11 (IT-42) todavía no la lee, es su ticket. La leen
+  SBH Recommendation (IT-49), para las keywords que ya corren en SP (`core/amazon_ads/active_keywords.py`, ver M23),
+  desde IT-51 Análisis Cruzado (las Exact habilitadas de INV-11.2) y el bulk de negativos de M2 (Exact habilitadas,
+  keywords propias y estado de cada ad group), y PPC Audit Pro (IT-44), la estructura entera sin negativos, con los
+  placements y los targets sin tráfico (`core/ppc_audit/synced_reads.py`, ver M20).
 - **Cuándo se puede leer.** `core/amazon_ads/structure_listing.py`: `family_listing` dice cuándo se listó una familia
   (su fila más nueva, o un pedido completado sin filas) o por qué no (el aviso de un listado que Amazon rechazó), y
   `read_keyword_listing` arma `KeywordListing` (campañas, ad groups y keywords): conocido cuando se listaron campañas y
@@ -2136,6 +2199,32 @@ lista no tiene ninguna fila de `spTargeting` en 60 días (el 98,9% de los pausad
 - Tests: `tests/test_sp_structure_migration.py` (la 018, por texto), `tests/test_amazon_ads_structure_provider.py`
   (parseo, `frame` y contrato con los lectores de Bulk), `tests/test_mcp_campaign_structure.py`, y los de `ad_entities`,
   `campaign_entities`, `sync_planner`, `ingestion_job` y `sync_jobs`.
+
+**Search terms de Sponsored Brands (IT-44, 2026-09-28, migración 021).** El search term report sincronizado era sólo
+de SP; PPC Audit necesita también el de SB para su gasto sin ventas.
+- **Dos pedidos, como las campañas SB:** `sb_search_terms` (Reporting v3 `sbSearchTerm`, agrupado por `searchTerm`) y
+  `sb_legacy_search_terms` (v2 `/v2/hsa/keywords/report` con `segment: "query"` y `creativeType: "all"`, un día por
+  reporte, sólo ids y números) para las campañas del formato anterior que v3 deja afuera. Se planifican como los otros
+  reportes SB: esperan la lista del día de SB con campañas, cargan 60 días de historia una vez y después 14 cada noche;
+  el v2 sólo si la cuenta tiene SB del formato anterior (`needs_legacy_sb`). v3 comparte el cupo de 3 reportes en vuelo;
+  v2 usa 6 lugares, como `sb_legacy_campaigns`.
+- **Tabla `ads_sb_search_term_daily`**, con `source` (v3/v2) en la clave: `replace_sb_search_term_day` reescribe sólo las
+  filas de su fuente del día, y de v2 entran sólo las campañas listadas con `is_multi_ad_groups = false`, así un término
+  nunca cuenta dos veces. El parser comparte `_Parser` con los otros reportes: `_Table` ganó `subkeys` (una fila es
+  campaña + ad group + keyword + término) y `has_ad_product`.
+- **Lectura:** `sb_search_terms_between` suma el rango por campaña, ad group, keyword y término, con el nombre de la
+  campaña de la lista SB y, en las filas v2, el texto y el match type del keyword de la lista de targets SB. Las filas v2
+  cuentan recién cuando terminó su historia (la misma regla que `sb_legacy_history_done`). Desde Python:
+  `ProductProvider.sb_search_terms(profile_id, desde, hasta)` → `SB_SEARCH_TERM_COLUMNS`, o `None` sin la 021.
+- Alertas y Registro de solicitudes los nombran («search terms SB», «… del formato anterior»); el smoke de la base prueba
+  `ads_sb_search_term_daily`.
+- **Probados contra la API real el 29/09 (sólo lectura):** los dos pedidos aceptados, los campos devueltos exactamente
+  los pedidos (el término de v3 es `searchTerm`) y todas las filas leídas por el parser. v3, Mott & Bow US 15-21/09:
+  clicks y gasto iguales a los de sus campañas SB; Amazon tardó ~21 min. v2, Shapermint US 20/09: en las campañas del
+  formato anterior, $1,764.74 contra $1,764.76 de gasto de esas campañas, y trae también las del formato nuevo (191),
+  que el día descarta. Si Amazon rechaza un pedido, el job falla con su mensaje en el Registro de solicitudes y la
+  cuenta queda con la alerta; PPC Audit muestra el SB de search terms «sin dato».
+- ❌ NO guardar filas v2 de search terms SB con la fuente v3: el reemplazo del día de v3 las borraría.
 
 **Operación.** Horarios: diaria de 14 días a las 03:00 del perfil (lunes a sábado), 42 días los domingos, carga
 inicial de 65 días (la retención de `spSearchTerm`) apenas aparece una cuenta, reintentos hasta las 23:00 del perfil.
