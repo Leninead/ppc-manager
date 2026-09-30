@@ -10,4 +10,5 @@ PRICING_CLIENTS: dict[str, str] = {
     "Setex": "setex",
     "Mott & Bow": "mott-bow",
     "OPTIPET": "optipet",
+    "Gamboa": "gamboa",
 }

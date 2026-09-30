@@ -401,3 +401,10 @@ def test_6_import_no_side_effects():
     assert not bogus.exists(), (
         f"Importar core.persistence creó {bogus} (side effect prohibido)"
     )
+
+
+def test_gamboa_guarda_bajo_el_slug_que_ya_usa_sku_progress():
+    # Without Gamboa in the list, its snapshots were saved under whichever client the selector showed.
+    from core.pricing_clients import PRICING_CLIENTS
+
+    assert PRICING_CLIENTS["Gamboa"] == "gamboa"
