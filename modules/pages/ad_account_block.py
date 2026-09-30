@@ -130,6 +130,7 @@ def render_ad_account_block(key_prefix: str, texts: AdAccountTexts) -> AdAccount
         return _render_manual_mode(key_prefix, texts)
 
     groups = group_by_label(profiles)
+    search_term_source.follow_shared_profile(key_prefix, profiles)
     card_key = picker_key(key_prefix, "card")
     st.markdown(search_term_source._card_css(card_key), unsafe_allow_html=True)
     with st.container(border=True, key=card_key):
@@ -137,6 +138,7 @@ def render_ad_account_block(key_prefix: str, texts: AdAccountTexts) -> AdAccount
         account_col, country_col = st.columns([2.2, 1.3])
         account = _choose_account(account_col, key_prefix, list(groups))
         if account is None:
+            search_term_source.share_user_choice(key_prefix, None)
             header.markdown(_block_header(texts, "idle", "Sin cuenta elegida"), unsafe_allow_html=True)
             st.caption(texts.choose_account)
             campaign_source._render_upload_action(key_prefix)
@@ -144,8 +146,10 @@ def render_ad_account_block(key_prefix: str, texts: AdAccountTexts) -> AdAccount
 
         countries = country_labels(groups[account])
         profile_id = search_term_source._resolve_choice(key_prefix, "profile", list(countries), fallback=None)
+        search_term_source.share_user_choice(key_prefix, profile_id)
         country_col.segmented_control("País", options=list(countries), format_func=countries.get,
-                                      key=picker_key(key_prefix, "profile"))
+                                      key=picker_key(key_prefix, "profile"),
+                                      on_change=search_term_source.mark_user_choice, args=(key_prefix,))
         option = next(profile for profile in groups[account] if profile.profile_id == profile_id)
         now = datetime.now(timezone.utc)
         try:
@@ -291,7 +295,8 @@ def _choose_account(column, key_prefix: str, accounts: list[str]) -> str | None:
     key = picker_key(key_prefix, "account")
     if st.session_state.get(key) not in accounts:
         st.session_state[key] = None
-    return column.selectbox("Cuenta", accounts, index=None, placeholder=ACCOUNT_PLACEHOLDER, key=key)
+    return column.selectbox("Cuenta", accounts, index=None, placeholder=ACCOUNT_PLACEHOLDER, key=key,
+                            on_change=search_term_source.mark_user_choice, args=(key_prefix,))
 
 
 def _block_header(texts: AdAccountTexts, kind: str, label: str) -> str:

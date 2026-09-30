@@ -48,8 +48,10 @@ KEY_NAMES = (
     "account", "profile", "profile_last", "period", "custom_range", "custom_range_last", "pinned", "loaded",
     "last_source", "manual", "refresh", "refresh_retrying", "refresh_busy", "refresh_feedback", "load_newer",
     "newer_box", "go_accounts", "upload_manual", "upload_meanwhile", "upload_failed", "back_to_api", "file",
-    "file_account", "file_account_last",
+    "file_account", "file_account_last", "shared_seen", "user_choice",
 )
+# The account and country the AM last picked in any module: every other picker opens on it.
+SHARED_PROFILE_KEY = "amazon_ads_chosen_profile"
 # Choices re-stored every run: a run that does not draw them (a failed accounts read, manual mode) keeps them.
 _KEPT_CHOICES = ("account", "profile", "period", "file_account")
 LOADED_SOURCES_PER_PICKER = 4
@@ -485,12 +487,14 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption], *,
                        allow_manual: bool) -> SearchTermSource | None:
     now = datetime.now(timezone.utc)
     groups = group_by_label(profiles)
+    follow_shared_profile(key_prefix, profiles)
     last_profile_id = st.session_state.get(picker_key(key_prefix, "profile_last"))
     last_label = next((option.label for option in profiles if option.profile_id == last_profile_id), None)
     account_label = _resolve_choice(key_prefix, "account", list(groups), fallback=last_label)
     account_profiles = groups[account_label]
     countries = country_labels(account_profiles)
     profile_id = _resolve_choice(key_prefix, "profile", list(countries), fallback=last_profile_id)
+    share_user_choice(key_prefix, profile_id)
     current = next(option for option in account_profiles if option.profile_id == profile_id)
     pinned = _pinned_option(key_prefix, current)
     state = source_state(current, _latest_job(profile_id), now)
@@ -503,9 +507,11 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption], *,
         status_block(key_prefix, profile_id, allow_manual)
 
         account_col, country_col, period_col = st.columns([2.2, 1.3, 1.6])
-        account_col.selectbox("Cuenta", list(groups), key=picker_key(key_prefix, "account"))
+        account_col.selectbox("Cuenta", list(groups), key=picker_key(key_prefix, "account"),
+                              on_change=mark_user_choice, args=(key_prefix,))
         country_col.segmented_control("País", options=list(countries), format_func=countries.get,
-                                      key=picker_key(key_prefix, "profile"))
+                                      key=picker_key(key_prefix, "profile"),
+                                      on_change=mark_user_choice, args=(key_prefix,))
         st.session_state[picker_key(key_prefix, "profile_last")] = profile_id
         if pinned.data_through is None:
             # The first load and its failure offer their own upload inside the status fragment.
@@ -723,6 +729,33 @@ def _resolve_choice(key_prefix: str, name: str, options: list[str], *, fallback:
     resolved = value if value in options else (fallback if fallback in options else options[0])
     st.session_state[key] = resolved
     return resolved
+
+
+def follow_shared_profile(key_prefix: str, profiles: list[ProfileOption]) -> None:
+    """Moves this picker to the profile last picked in another module, once per new pick; its own pick wins."""
+    if st.session_state.get(picker_key(key_prefix, "user_choice")):
+        return
+    shared = st.session_state.get(SHARED_PROFILE_KEY)
+    seen_key = picker_key(key_prefix, "shared_seen")
+    if shared is None or st.session_state.get(seen_key) == shared:
+        return
+    st.session_state[seen_key] = shared
+    option = next((profile for profile in profiles if profile.profile_id == shared), None)
+    if option is not None:
+        st.session_state[picker_key(key_prefix, "account")] = option.label
+        st.session_state[picker_key(key_prefix, "profile")] = option.profile_id
+
+
+def mark_user_choice(key_prefix: str) -> None:
+    """on_change of the account and country widgets: only what the AM picks travels to other modules."""
+    st.session_state[picker_key(key_prefix, "user_choice")] = True
+
+
+def share_user_choice(key_prefix: str, profile_id: str | None) -> None:
+    if not st.session_state.pop(picker_key(key_prefix, "user_choice"), False) or profile_id is None:
+        return
+    st.session_state[SHARED_PROFILE_KEY] = profile_id
+    st.session_state[picker_key(key_prefix, "shared_seen")] = profile_id
 
 
 def _keep_choices(key_prefix: str) -> None:

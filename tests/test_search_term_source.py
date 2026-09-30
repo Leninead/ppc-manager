@@ -645,6 +645,28 @@ class TestPickerApp:
         assert app.selectbox(key="str_src_account").value == "Luna"
         assert app.session_state["test_result_str"][0] == "Luna · MX"
 
+    def test_the_account_and_country_picked_in_one_module_open_every_other_module(self, monkeypatch):
+        fake = _FakeRest([_profile_row(profile_id="1", cliente="Acme", country_code="US", currency_code="USD"),
+                          _profile_row(profile_id="2", cliente="Luna", country_code="MX"),
+                          _profile_row(profile_id="3", cliente="Luna", country_code="US", currency_code="USD")],
+                         search_term_rows=_SEARCH_TERM_ROWS)
+        app = _picker_app(monkeypatch, fake, prefixes=("str", "bid"))
+        app.run()
+        assert app.session_state["test_result_bid"][0] == "Acme · US"
+        assert picker.SHARED_PROFILE_KEY not in app.session_state  # a default is not a pick
+
+        app.selectbox(key="str_src_account").set_value("Luna").run()
+        app.button_group(key="str_src_profile").set_value("3").run()
+        assert not app.exception
+        assert app.session_state["test_result_str"][0] == "Luna · US"
+        assert app.session_state["test_result_bid"][0] == "Luna · US"
+
+        # The other module's own pick wins from then on, and travels back.
+        app.selectbox(key="bid_src_account").set_value("Acme").run()
+        app.run()
+        assert app.session_state["test_result_bid"][0] == "Acme · US"
+        assert app.session_state["test_result_str"][0] == "Acme · US"
+
     def test_chosen_period_stays_when_the_next_account_offers_fewer_periods(self, monkeypatch):
         yesterday = _profile_today() - timedelta(days=1)
         fake = _FakeRest([_profile_row(profile_id="1", cliente="Acme", country_code="US"),

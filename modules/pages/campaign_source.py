@@ -144,6 +144,7 @@ def read_campaign_file(file_bytes: bytes, file_name: str) -> pd.DataFrame:
 
 def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption]) -> CampaignInput | None:
     groups = group_by_label(profiles)
+    search_term_source.follow_shared_profile(key_prefix, profiles)
     last_profile_id = st.session_state.get(picker_key(key_prefix, "profile_last"))
     last_label = next((option.label for option in profiles if option.profile_id == last_profile_id), None)
     account_label = search_term_source._resolve_choice(key_prefix, "account", list(groups), fallback=last_label)
@@ -151,6 +152,7 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption]) -> Campai
     countries = country_labels(account_profiles)
     profile_id = search_term_source._resolve_choice(key_prefix, "profile", list(countries),
                                                     fallback=last_profile_id)
+    search_term_source.share_user_choice(key_prefix, profile_id)
     option = next(profile for profile in account_profiles if profile.profile_id == profile_id)
     now = datetime.now(timezone.utc)
 
@@ -171,9 +173,11 @@ def _render_amazon_ads(key_prefix: str, profiles: list[ProfileOption]) -> Campai
             option, sync_error is not None, polling)
 
         account_col, country_col, period_col = st.columns([2.2, 1.3, 1.6])
-        account_col.selectbox("Cuenta", list(groups), key=picker_key(key_prefix, "account"))
+        account_col.selectbox("Cuenta", list(groups), key=picker_key(key_prefix, "account"),
+                              on_change=search_term_source.mark_user_choice, args=(key_prefix,))
         country_col.segmented_control("País", options=list(countries), format_func=countries.get,
-                                      key=picker_key(key_prefix, "profile"))
+                                      key=picker_key(key_prefix, "profile"),
+                                      on_change=search_term_source.mark_user_choice, args=(key_prefix,))
         st.session_state[picker_key(key_prefix, "profile_last")] = profile_id
 
         if sync_error is not None:

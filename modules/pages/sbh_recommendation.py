@@ -237,6 +237,7 @@ def _render_sp_keywords() -> SpKeywordCoverage:
         return _render_manual_mode()
 
     groups = group_by_label(profiles)
+    search_term_source.follow_shared_profile(KEY_PREFIX, profiles)
     card_key = picker_key(KEY_PREFIX, "card")
     st.markdown(search_term_source._card_css(card_key), unsafe_allow_html=True)
     with st.container(border=True, key=card_key):
@@ -244,6 +245,7 @@ def _render_sp_keywords() -> SpKeywordCoverage:
         account_col, country_col = st.columns([2.2, 1.3])
         account = _choose_account(account_col, list(groups))
         if account is None:
+            search_term_source.share_user_choice(KEY_PREFIX, None)
             header.markdown(_block_header("idle", "Sin cuenta elegida"), unsafe_allow_html=True)
             st.caption(CHOOSE_ACCOUNT_NOTE)
             _render_upload_action()
@@ -251,8 +253,10 @@ def _render_sp_keywords() -> SpKeywordCoverage:
 
         countries = country_labels(groups[account])
         profile_id = search_term_source._resolve_choice(KEY_PREFIX, "profile", list(countries), fallback=None)
+        search_term_source.share_user_choice(KEY_PREFIX, profile_id)
         country_col.segmented_control("País", options=list(countries), format_func=countries.get,
-                                      key=picker_key(KEY_PREFIX, "profile"))
+                                      key=picker_key(KEY_PREFIX, "profile"),
+                                      on_change=search_term_source.mark_user_choice, args=(KEY_PREFIX,))
         option = next(profile for profile in groups[account] if profile.profile_id == profile_id)
         unknown = SpKeywordCoverage(account_label=_account_label(option), profile_id=option.profile_id,
                                     country_code=option.country_code)
@@ -340,7 +344,8 @@ def _choose_account(column, accounts: list[str]) -> str | None:
     key = picker_key(KEY_PREFIX, "account")
     if st.session_state.get(key) not in accounts:
         st.session_state[key] = None
-    return column.selectbox("Cuenta", accounts, index=None, placeholder=ACCOUNT_PLACEHOLDER, key=key)
+    return column.selectbox("Cuenta", accounts, index=None, placeholder=ACCOUNT_PLACEHOLDER, key=key,
+                            on_change=search_term_source.mark_user_choice, args=(KEY_PREFIX,))
 
 
 def _block_header(kind: str, label: str) -> str:
