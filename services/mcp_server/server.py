@@ -91,7 +91,9 @@ ALL_ACCOUNTS_HINT = (" all_accounts=true la corre en todas las cuentas sincroniz
                      "parámetros guardados, y trae en by_currency las filas de todas rankeadas juntas, una lista por "
                      "moneda, con la cuenta y el profile_id de cada fila; counts suma los conteos de todas y accounts "
                      "dice cuáles tuvieron filas, cuáles no y cuáles no tienen datos. Es lo que contesta una pregunta "
-                     "sobre todas las cuentas en una llamada, sin recorrerlas una por una.")
+                     "sobre todas las cuentas en una llamada, sin recorrerlas una por una. offset trae la página "
+                     "siguiente de cada moneda, hasta su fila 200; cuando una moneda tiene más filas, next_offset "
+                     "dice desde cuál seguir.")
 ACCOUNT_HINT = (" account, en lugar de profile_id, toma la cuenta por parte de su nombre; si nombra a varias, vuelve "
                 "candidates con el gasto de cada una para elegir.")
 
@@ -324,10 +326,12 @@ def build_tools(rest) -> list:
         _tool("asin_health",
               "PPC Insights de una cuenta de Amazon Ads, con las mismas reglas del módulo: el health score (0-100) de "
               "cada ASIN con sus partes, su gasto, ACoS, CVR, lo que gastaron todos sus términos sin órdenes "
-              "(spend_without_sales) y la parte de sus 10 términos sin órdenes más caros (top_unsold_terms_spend), de "
-              "mayor a menor gasto. Cada ASIN dice de dónde salió la mayor parte de su gasto (attributed_by: de ad "
-              "groups de ese solo ASIN o del ASIN en el nombre de la campaña) y en cuántas campañas tiene un anuncio "
-              "propio (advertised_in), y totals lo que no se pudo atribuir a ningún ASIN. Sin el SQP, el Business "
+              "(spend_without_sales), la parte de sus 10 términos sin órdenes más caros, de más de 5 cada uno "
+              "(top_unsold_terms_spend), y los search terms que más vendieron, hasta 5, con sus ventas y órdenes "
+              "(top_selling_terms; uno sin ventas nunca entra), de mayor a menor gasto. Cada ASIN dice de dónde salió "
+              "la mayor parte de su gasto (attributed_by: de ad groups de ese solo ASIN o del ASIN en el nombre de "
+              "la campaña) y en cuántas campañas tiene un anuncio propio (advertised_in), y totals lo que no se pudo "
+              "atribuir a ningún ASIN. Sin el SQP, el Business "
               "Report ni el Campaign CSV, que se suben a mano en el módulo: esas partes del score valen su punto "
               "neutro. target_acos reemplaza el guardado de la cuenta. sort_by=health_score los ordena del peor "
               "health score al mejor." + ACCOUNT_HINT + ALL_ACCOUNTS_HINT,

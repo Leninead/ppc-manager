@@ -164,13 +164,67 @@ def test_the_rank_gets_the_arguments_of_the_call():
 @pytest.mark.parametrize("call, message", [
     ({"profile_id": "1"}, "sin profile_id ni account"),
     ({"account": "alfa"}, "sin profile_id ni account"),
-    ({"offset": 15}, "no hay páginas"),
+    ({"offset": 200}, "hasta la fila 200"),
 ])
 def test_all_accounts_refuses_what_only_makes_sense_for_one_account(call, message):
     decorated = answers_all_accounts(what="campañas", rank=lambda rows, arguments: rows)(_tool)
 
     with pytest.raises(ValueError, match=message):
         decorated(_ProfilesRest(), all_accounts=True, **call)
+
+
+def _ranked_by_spend(rows, call):
+    return _by_spend(rows)
+
+
+def test_offset_brings_the_next_page_of_every_currency():
+    """The chat paged the third negative of the bulk with offset=7 and got a bare error, so nobody found it."""
+    decorated = answers_all_accounts(what="campañas", rank=_ranked_by_spend)(_tool)
+
+    first = decorated(_ProfilesRest(), all_accounts=True, limit=2)
+    second = decorated(_ProfilesRest(), all_accounts=True, limit=2, offset=2)
+
+    assert [row["spend"] for row in first["by_currency"][0]["rows"]] == [80.0, 50.0]
+    assert [row["spend"] for row in second["by_currency"][0]["rows"]] == [10.0, 5.0]
+    assert second["by_currency"][0]["offset"] == 2
+    assert second["by_currency"][1]["rows"] == []
+    assert "desde la fila 3" in second["note"]
+
+
+def test_each_currency_says_where_its_next_page_starts():
+    decorated = answers_all_accounts(what="campañas", rank=_ranked_by_spend)(_tool)
+
+    usd, mxn = decorated(_ProfilesRest(), all_accounts=True, limit=2)["by_currency"]
+
+    assert usd["next_offset"] == 2 and "offset=2" in usd["note"]
+    assert "next_offset" not in mxn and "note" not in mxn
+
+
+def test_a_page_asks_every_account_for_the_rows_up_to_its_end():
+    asked = []
+
+    def per_account(profile_id, offset, limit):
+        asked.append((profile_id, offset, limit))
+        return _per_account(profile_id, offset, limit)
+
+    run_on_all_accounts(_ProfilesRest(), per_account, rank=_by_spend, rows_per_currency=2, what="campañas",
+                        offset=2)
+
+    assert ("1", 0, 4) in asked and ("3", 0, 4) in asked
+
+
+def test_the_last_page_stops_at_the_row_limit():
+    asked = []
+
+    def spy(rest, *, profile_id: str = "", account: str = "", sort_by: str = "spend", offset: int = 0,
+            limit: int = 50) -> dict:
+        asked.append(offset + limit)
+        return _per_account(profile_id, offset, limit)
+
+    answers_all_accounts(what="campañas", rank=_ranked_by_spend)(spy)(_ProfilesRest(), all_accounts=True,
+                                                                      offset=190, limit=50)
+
+    assert max(asked) == 200
 
 
 def test_the_payload_limit_stays_under_the_providers_cut():

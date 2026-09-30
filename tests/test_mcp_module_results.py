@@ -477,11 +477,20 @@ class TestAsinHealth:
         assert [row["asin"] for row in payload["rows"]] == ["B0CYLMJJJC", "B0CYLM4L23"]
         first = payload["rows"][0]
         assert first["health_score"] == health_score(86 / 450 * 100, 20, 9 / 98 * 100, None, None, None)
-        assert first["top_search_terms"][0] == "luna pajamas"
+        assert first["top_selling_terms"][0]["search_term"] == "luna pajamas"
         assert payload["asin_source"] == "attributed"
         assert payload["parameters"]["target_acos"] == 20
         assert first["spend_without_sales"] == 56.0
         assert payload["unsold_spend_note"] == module_results.UNSOLD_SPEND_NOTE
+
+    def test_the_selling_terms_carry_their_sales_and_leave_out_the_terms_that_did_not_sell(self):
+        """The chat told the AM to review an ASIN's two converting terms as unsold: the top 5 by sales came as bare
+        names, filled with terms that sold nothing."""
+        payload = module_results.asin_health(FakeRest(), profile_id="111")
+
+        first = payload["rows"][0]
+        assert first["asin"] == "B0CYLMJJJC"
+        assert first["top_selling_terms"] == [{"search_term": "luna pajamas", "sales": 450, "orders": 9}]
 
     def test_spend_without_sales_adds_every_term_without_orders_not_only_the_costliest(self):
         """The chat told a client $86.03 of an ASIN went to searches that did not sell; they had spent $517.43."""
