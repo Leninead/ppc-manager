@@ -6,6 +6,23 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Fixed — El chat ya no pierde la pregunta al cambiar de módulo mientras responde (2026-09-30)
+
+**Por qué.** Si el AM cambiaba de módulo (o la página se relanzaba) antes de que llegara la respuesta, Streamlit cortaba
+la corrida y se perdían la pregunta y la respuesta: en producción, tres envíos seguidos de la misma pregunta nunca
+llegaron a `chat_turns`.
+
+**Qué cambia.** `core/chat/panel.py` responde en un hilo propio y guarda la respuesta aparte; el chat la levanta
+cuando llega, esté el AM en el módulo que esté. Mientras responde, el botón Enviar queda deshabilitado. El chat ofrece
+3 ideas para preguntar en lugar de 5.
+
+### Changed — La cuenta y el país de Amazon Ads se mantienen entre módulos (2026-09-30)
+
+La cuenta y el país que el AM elige en un picker de Amazon Ads (Search Term Report, Bid Optimizer, Bulk Campañas,
+Funnel, Cruzado, PPC Insights, PPC Audit, SBH y el bloque de cuenta de Forecast, Account Pulse y Weekly Client Report)
+quedan elegidos al abrir cualquier otro módulo. Sólo viaja lo que el AM elige, no la cuenta que un picker muestra por
+defecto (`follow_shared_profile` / `share_user_choice` en `modules/pages/search_term_source.py`).
+
 ### Added — Tablas de Seller Central con una sola escritura para la carga manual y la SP-API (IT-59, 2026-09-29)
 
 **Por qué.** Los AMs vuelven a subir el mismo Business Report y el mismo SQP en cada módulo, y nada queda guardado.

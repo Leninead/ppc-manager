@@ -12,16 +12,25 @@ bubble shows on every tab.
 """
 import html
 import json
+import logging
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 from ai import runtime
 from ai.client import AIError
 from core.chat import components as chat_components
 from core.chat.components.base import ACCENT, esc, prose_html
+
+log = logging.getLogger(__name__)
+
+ANSWER_POLL_SECONDS = 0.3
+ANSWER_WATCH_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -408,6 +417,99 @@ def _start_screen(stage, labels: dict, questions: list[str], start_key: str, ide
                       on_click=_pick, args=(pick_key, question))
 
 
+def _start_answer(agent: str, question: str, sending: ChatTurn, thread: list[dict], effort: str,
+                  session_id: str | None, labels: dict, context_key: str | None,
+                  on_turn_finished: Callable | None) -> dict:
+    """Answers `question` on a thread of its own, so a page change mid-answer loses nothing."""
+    pending = {"question": question, "asked": [], "failed": [], "done": False, "reply": None, "answer": None,
+               "context_key": context_key, "finish": on_turn_finished}
+    threading.Thread(target=_answer, args=(pending, agent, question, sending, thread, effort, session_id, labels),
+                     daemon=True).start()
+    return pending
+
+
+def _answer(pending: dict, agent: str, question: str, sending: ChatTurn, thread: list[dict], effort: str,
+            session_id: str | None, labels: dict) -> None:
+    try:
+        reply = None
+        for event in runtime.stream_followup(
+                agent, session_id, question, ads_scope=sending.ads_scope,
+                context_docs=sending.documents, note=sending.note, thread=thread, effort=effort):
+            if event["type"] == "reply":
+                reply = event["reply"]
+            elif event["type"] == "tool_result":
+                if not event["ok"]:
+                    pending["failed"].append(event["name"])
+            else:
+                pending["asked"].append(event["name"])
+        if reply is None:
+            raise AIError("el provider no devolvió la respuesta")
+        # Annotated once, against the analyses it was answered
+        # from: the page shown later may reuse the same row ids.
+        blocks = reply.blocks
+        if blocks and sending.annotate:
+            blocks = chat_components.map_strings(blocks, sending.annotate)
+        if blocks:
+            shown = chat_components.plain_text(blocks)
+        else:
+            shown = sending.annotate(reply.text) if sending.annotate else reply.text
+        pending["reply"] = reply
+        pending["answer"] = {"role": "assistant", "text": reply.text, "shown": shown,
+                             "blocks": blocks, "tools": _tool_labels(reply.tool_calls, labels),
+                             "tools_failed": _failed_labels(reply.tool_calls, reply.failed_tools, labels)}
+    except Exception as exc:  # the thread has no one else to report to: every failure becomes the answer
+        if not isinstance(exc, AIError):
+            log.exception("Chat answer failed")
+        failure = f"{labels['error']}: {exc}"
+        pending["answer"] = {"role": "assistant", "text": failure, "shown": failure, "error": True}
+    finally:
+        pending["done"] = True
+
+
+def _chips(pending: dict, labels: dict) -> tuple[list[str], list[str]]:
+    asked, failed = list(pending["asked"]), list(pending["failed"])
+    return _tool_labels(asked, labels), _failed_labels(asked, failed, labels)
+
+
+def _wait_for_answer(pending: dict, stage, heartbeat, history: list[dict], labels: dict) -> None:
+    """Shows the tools the answer reads as they arrive; the heartbeat lets a page change interrupt the wait."""
+    shown = None
+    while not pending["done"]:
+        chips = _chips(pending, labels)
+        if chips != shown:
+            shown = chips
+            stage.markdown(_thread_box(history, labels, _pending_turn(pending["question"], chips, labels)),
+                           unsafe_allow_html=True)
+        heartbeat.empty()
+        time.sleep(ANSWER_POLL_SECONDS)
+
+
+def _collect_answer(pending: dict, history: list[dict], sid_key: str, context_key_key: str) -> None:
+    reply = pending["reply"]
+    # The documents changed while it was answering: the next question opens a new session anyway.
+    if reply is not None and st.session_state.get(context_key_key) == pending["context_key"]:
+        st.session_state[sid_key] = reply.session_id
+    if pending["finish"] is not None:
+        pending["finish"](pending["question"], reply, pending["answer"]["shown"])
+    history.append({"role": "user", "text": pending["question"]})
+    history.append(pending["answer"])
+
+
+def _transcript(history: list[dict], title: str, user_label: str) -> str:
+    """The conversation as the copy button hands it over."""
+    if not history:
+        return ""
+    return title + "\n\n" + "\n\n".join(
+        (f"{user_label}: " + turn["text"]) if turn["role"] == "user"
+        else (f"{title}: " + turn.get("shown", turn["text"]))
+        for turn in history)
+
+
+def _in_fragment_rerun() -> bool:
+    ctx = get_script_run_ctx()
+    return bool(ctx and ctx.fragment_ids_this_run)
+
+
 def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | None],
                   turn: Callable[[], ChatTurn], title: str | None = None, lang: str = "es",
                   on_turn_finished: Callable[[str, runtime.ChatReply | None, str], None] | None = None,
@@ -435,6 +537,7 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
     hist_key = f"aichat_{chat_id}_hist"
     sid_key = f"aichat_{chat_id}_sid"
     context_key_key = f"aichat_{chat_id}_context"
+    pending_key = f"aichat_{chat_id}_pending"
     history = st.session_state.setdefault(hist_key, [])
 
     def _sync_session() -> None:
@@ -562,22 +665,29 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
 
             # Fragment scope: answering re-renders only the chat, so the
             # panel stays open through the round trip.
-            @st.fragment
+            # An answer left pending by a page change is waited for by the chat alone, never by the page.
+            @st.fragment(run_every=ANSWER_WATCH_SECONDS if st.session_state.get(pending_key) else None)
             def _chat_body():
                 user_lbl = (st.session_state.get("name")
                             or st.session_state.get("username") or "AM")
-                plain = (title + "\n\n" + "\n\n".join(
-                    (f"{user_lbl}: " + t["text"]) if t["role"] == "user"
-                    else (f"{title}: " + t.get("shown", t["text"]))
-                    for t in history)) if history else ""
                 picked = st.session_state.pop(pick_key, "")
-                _chat_header(title, plain, L["copy"], L["close"])
+                pending = st.session_state.get(pending_key)
+                if pending is not None and pending["done"]:
+                    _collect_answer(st.session_state.pop(pending_key), history, sid_key, context_key_key)
+                    pending = None
+                header = st.empty()
+                with header.container():
+                    _chat_header(title, _transcript(history, title, user_lbl), L["copy"], L["close"])
                 # Declared before the input so the thread, with the exchange
                 # being answered at its bottom, renders ABOVE it.
                 stage = st.empty()
-                if history or picked:
-                    pending = _pending_turn(picked, ([], []), L) if picked else ""
-                    stage.markdown(_thread_box(history, L, pending), unsafe_allow_html=True)
+                heartbeat = st.empty()
+                if pending is not None:
+                    stage.markdown(_thread_box(history, L, _pending_turn(pending["question"], _chips(pending, L), L)),
+                                   unsafe_allow_html=True)
+                elif history or picked:
+                    waiting = _pending_turn(picked, ([], []), L) if picked else ""
+                    stage.markdown(_thread_box(history, L, waiting), unsafe_allow_html=True)
                 else:
                     _start_screen(stage, L, starters() if starters else [], start_key, ideas_key, pick_key)
                 # A form, not st.chat_input. Inside a popover that also holds a
@@ -595,11 +705,12 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                 with st.form(f"aichat_{chat_id}_form", border=False,
                              enter_to_submit=False, clear_on_submit=True):
                     question = st.text_area(
-                        L["placeholder"], key=f"aichat_{chat_id}_q_{len(history)}",
+                        L["placeholder"], key=f"aichat_{chat_id}_q_{len(history) + (2 if pending else 0)}",
                         placeholder=L["placeholder"], height=72,
                         label_visibility="collapsed")
                     sent = st.form_submit_button(L["send"], icon=":material/arrow_upward:",
-                                                 type="primary", help=L["send_hint"])
+                                                 type="primary", help=L["send_hint"],
+                                                 disabled=pending is not None)
                 _enter_sends(panel)
                 # Outside the form so a starter question also runs at the level on screen;
                 # the CSS lays it over the composer's bar, left of the send button.
@@ -609,61 +720,24 @@ def floating_chat(*, chat_id: str, agent: str, session_key: Callable[[], str | N
                         format_func=L["efforts"].get, key=f"aichat_{chat_id}_effort",
                         help=L["effort_help"])
                 question = (question or "").strip() if sent else picked
-                if question:
+                just_asked = bool(question) and pending is None
+                if just_asked:
                     _sync_session()
-                    sending = turn()
-                    sid = st.session_state.get(sid_key)
-                    asked: list[str] = []
-                    failed_calls: list[str] = []
-                    reading: tuple[list[str], list[str]] = ([], [])
-                    # The stage is rewritten on every tool the provider reports,
-                    # while the answer is still being worked out.
-                    stage.markdown(_thread_box(history, L, _pending_turn(question, reading, L)),
-                                   unsafe_allow_html=True)
-                    try:
-                        reply = None
-                        for event in runtime.stream_followup(
-                                agent, sid, question, ads_scope=sending.ads_scope,
-                                context_docs=sending.documents, note=sending.note,
-                                thread=list(history), effort=effort):
-                            if event["type"] == "reply":
-                                reply = event["reply"]
-                                continue
-                            if event["type"] == "tool_result":
-                                if not event["ok"]:
-                                    failed_calls.append(event["name"])
-                            else:
-                                asked.append(event["name"])
-                            chips = (_tool_labels(asked, L), _failed_labels(asked, failed_calls, L))
-                            if chips != reading:
-                                reading = chips
-                                stage.markdown(_thread_box(history, L, _pending_turn(question, reading, L)),
-                                               unsafe_allow_html=True)
-                        if reply is None:
-                            raise AIError("el provider no devolvió la respuesta")
-                        st.session_state[sid_key] = reply.session_id
-                        # Annotated once, against the analyses it was answered
-                        # from: the page shown later may reuse the same row ids.
-                        blocks = reply.blocks
-                        if blocks and sending.annotate:
-                            blocks = chat_components.map_strings(blocks, sending.annotate)
-                        if blocks:
-                            shown = chat_components.plain_text(blocks)
-                        else:
-                            shown = sending.annotate(reply.text) if sending.annotate else reply.text
-                        answer = {"role": "assistant", "text": reply.text, "shown": shown,
-                                  "blocks": blocks, "tools": _tool_labels(reply.tool_calls, L),
-                                  "tools_failed": _failed_labels(reply.tool_calls, reply.failed_tools, L)}
-                    except AIError as e:
-                        reply = None
-                        failure = f"{L['error']}: {e}"
-                        answer = {"role": "assistant", "text": failure, "shown": failure,
-                                  "error": True}
-                    if on_turn_finished is not None:
-                        on_turn_finished(question, reply, answer["shown"])
-                    history.append({"role": "user", "text": question})
-                    history.append(answer)
-                    st.rerun(scope="fragment")
+                    pending = _start_answer(agent, question, turn(), list(history), effort,
+                                            st.session_state.get(sid_key), L,
+                                            st.session_state.get(context_key_key), on_turn_finished)
+                    st.session_state[pending_key] = pending
+                # A full page run that waited here would keep the previous page's leftovers on screen until the
+                # answer lands; the fragment's own watch picks it up instead.
+                if pending is not None and (just_asked or _in_fragment_rerun()):
+                    _wait_for_answer(pending, stage, heartbeat, history, L)
+                    _collect_answer(st.session_state.pop(pending_key), history, sid_key, context_key_key)
+                    if _in_fragment_rerun():
+                        st.rerun(scope="fragment")
+                    # A full run can only rerun the whole page, which would close the panel: redraw in place.
+                    stage.markdown(_thread_box(history, L), unsafe_allow_html=True)
+                    with header.container():
+                        _chat_header(title, _transcript(history, title, user_lbl), L["copy"], L["close"])
 
             with st.container(key=panel):
                 _chat_body()
