@@ -61,10 +61,9 @@ _L = {
            "tool_failed": "falló",
            "wait_long": "Sigue trabajando. Puede tardar unos minutos.",
            "effort": "Nivel de esfuerzo",
-           "effort_help": "Cuánto analiza el asistente antes de responder. Con más esfuerzo tarda "
-                          "más, pero revisa y cruza más fuentes, así que sus conclusiones son más "
-                          "confiables. Usá Rápido para consultas puntuales y Profundo para números "
-                          "que vas a compartir.",
+           "effort_help": "**Rápido:** consultas puntuales.  \n"
+                          "**Equilibrado:** preguntas sobre un módulo.  \n"
+                          "**Profundo:** análisis que cruzan módulos y exigen precisión.",
            "efforts": {"low": "Rápido", "medium": "Equilibrado", "xhigh": "Profundo"},
            "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive", "src_ppc_manager": "Agency OS",
            "reads": {"reports": "Reportes", "ad_groups": "Ad groups", "targets": "Targets",
@@ -93,10 +92,9 @@ _L = {
            "tool_failed": "failed",
            "wait_long": "Still working. This can take a few minutes.",
            "effort": "Effort level",
-           "effort_help": "How much the assistant analyzes before answering. More effort takes "
-                          "longer, but it checks and crosses more sources, so its conclusions are "
-                          "more reliable. Use Fast for quick lookups and Deep for numbers you will "
-                          "share.",
+           "effort_help": "**Fast:** quick lookups.  \n"
+                          "**Balanced:** questions about one module.  \n"
+                          "**Deep:** analysis that crosses modules and needs precision.",
            "efforts": {"low": "Fast", "medium": "Balanced", "xhigh": "Deep"},
            "src_amazon_ads": "Amazon Ads", "src_datadive": "DataDive", "src_ppc_manager": "Agency OS",
            "reads": {"reports": "Reports", "ad_groups": "Ad groups", "targets": "Targets",

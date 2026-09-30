@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from starlette.testclient import TestClient
 
 from services.mcp_server.http_app import (
@@ -100,6 +101,38 @@ def test_the_account_tools_take_the_account_by_its_id_or_by_its_name():
     assert tools["get_analysis"]["required"] == ["module"]
     assert tools["metrics_by_group"]["required"] == ["by"]
     assert tools["list_accounts"].get("required", []) == []      # el punto de entrada no pide nada
+
+
+def _refusing_tool(*, limit: int = 15) -> dict:
+    raise ValueError("Pedí menos filas.")
+
+
+def _crashing_tool(*, limit: int = 15) -> dict:
+    raise RuntimeError("detalle interno")
+
+
+def test_a_refusal_reaches_the_model_with_what_to_ask_instead():
+    """The SDK shows only a ToolError's text: the model read «Error executing tool bid_suggestions» and gave up."""
+    server = build_server([{"name": "refuses", "description": "x", "fn": _refusing_tool}])
+
+    with pytest.raises(ToolError, match="Pedí menos filas") as raised:
+        asyncio.run(server.call_tool("refuses", {}))
+    assert not isinstance(raised.value, UnexpectedToolError)
+
+
+def test_a_crash_keeps_its_details_on_the_server():
+    server = build_server([{"name": "crashes", "description": "x", "fn": _crashing_tool}])
+
+    with pytest.raises(UnexpectedToolError) as raised:
+        asyncio.run(server.call_tool("crashes", {}))
+    assert "detalle interno" not in str(raised.value)
+
+
+def test_all_accounts_past_its_last_page_says_to_ask_for_one_account():
+    server = build_server(build_tools(object()))
+
+    with pytest.raises(ToolError, match="hasta la fila 200"):
+        asyncio.run(server.call_tool("search_term_candidates", {"all_accounts": True, "offset": 500}))
 
 
 def test_metrics_by_group_offers_its_dimensions_and_metrics_as_closed_lists():

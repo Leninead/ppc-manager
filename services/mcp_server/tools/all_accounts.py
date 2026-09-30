@@ -6,8 +6,8 @@ tool, and ranked what came back by reasoning over it. Here that lap is code. The
 parallel, each with its own saved parameters and its own window, and its rows come back ranked the way the tool ranks
 them, one list per currency: amounts in different currencies are never compared.
 
-Each account already returns its rows in the tool's order, so the first `limit` rows of every account are enough to
-build the exact first `limit` of the ranking.
+Each account already returns its rows in the tool's order, so the first `offset + limit` rows of every account are
+enough to build the exact page of the ranking that starts at `offset`.
 """
 from __future__ import annotations
 
@@ -64,18 +64,19 @@ def answers_all_accounts(*, what: str, rank: RankRows):
                 return tool(rest, **call)
             if str(call.get("profile_id") or "").strip() or str(call.get("account") or "").strip():
                 raise ValueError("all_accounts corre en todas las cuentas: pedilo sin profile_id ni account.")
-            if call.get("offset"):
-                raise ValueError("Con all_accounts no hay páginas: pedí más filas por moneda con limit (hasta "
-                                 f"{MAX_ROWS}), o el detalle de una cuenta sin all_accounts.")
-            wanted = max(1, min(int(call.pop("limit", DEFAULT_ROWS_PER_CURRENCY)), MAX_ROWS))
-            for per_account in ("profile_id", "account", "offset"):
+            first_row = max(0, int(call.pop("offset", 0) or 0))
+            if first_row >= MAX_ROWS:
+                raise ValueError(f"Con all_accounts cada moneda llega hasta la fila {MAX_ROWS}: para seguir, pedí el "
+                                 "detalle de una cuenta sin all_accounts, con su profile_id.")
+            wanted = max(1, min(int(call.pop("limit", DEFAULT_ROWS_PER_CURRENCY)), MAX_ROWS - first_row))
+            for per_account in ("profile_id", "account"):
                 call.pop(per_account, None)
 
             def run_account(profile_id: str, offset: int, limit: int) -> dict:
                 return tool(rest, **call, profile_id=profile_id, offset=offset, limit=limit)
 
             return run_on_all_accounts(rest, run_account, rank=lambda rows: rank(rows, call),
-                                       rows_per_currency=wanted, what=what)
+                                       rows_per_currency=wanted, what=what, offset=first_row)
 
         flag = inspect.Parameter("all_accounts", inspect.Parameter.KEYWORD_ONLY, default=False, annotation=bool)
         run.__signature__ = signature.replace(parameters=[*signature.parameters.values(), flag])
@@ -92,21 +93,23 @@ def rank_by_sort_arguments(rows: list[dict], call: dict) -> list[dict]:
 
 
 def run_on_all_accounts(rest, run_account: Callable[[str, int, int], dict], *,
-                        rank: Callable[[list[dict]], list[dict]], rows_per_currency: int, what: str) -> dict:
-    """Every synced account through `run_account`, merged: the ranked rows per currency, the summed counts, and which
-    accounts had rows, had none, had no data or failed. No account is dropped without saying so."""
+                        rank: Callable[[list[dict]], list[dict]], rows_per_currency: int, what: str,
+                        offset: int = 0) -> dict:
+    """Every synced account through `run_account`, merged: the ranked rows per currency from `offset`, the summed
+    counts, and which accounts had rows, had none, had no data or failed. No account is dropped without saying so."""
     started = time.monotonic()
     profiles = ReportProvider(rest).profiles()
     labels = account_labels(profiles)
+    rows_per_account = offset + rows_per_currency
     with ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="all-accounts") as pool:
         results = list(pool.map(
-            lambda profile: _account_result(run_account, profile, labels[profile.profile_id], rows_per_currency),
+            lambda profile: _account_result(run_account, profile, labels[profile.profile_id], rows_per_account),
             profiles))
     answered = [result for result in results if result.payload]
     log.info("all_accounts %s: %d accounts, %d with rows, %d skipped, %d failed in %.1fs", what, len(results),
              sum(1 for result in answered if result.total), sum(1 for result in results if result.skipped),
              sum(1 for result in results if result.failed), time.monotonic() - started)
-    ranked = _ranked_by_currency(answered, rank, rows_per_currency)
+    ranked = _ranked_by_currency(answered, rank, rows_per_currency, offset)
     payload = {
         "scope": "all_accounts",
         "total": sum(result.total for result in answered),
@@ -124,7 +127,7 @@ def run_on_all_accounts(rest, run_account: Callable[[str, int, int], dict], *,
         },
         "note": (f"Hay {sum(result.total for result in answered)} {what} en "
                  f"{sum(1 for result in answered if result.total)} cuentas; cada moneda trae hasta "
-                 f"{rows_per_currency}. {ALL_ACCOUNTS_NOTE}"),
+                 f"{rows_per_currency}{f' desde la fila {offset + 1}' if offset else ''}. {ALL_ACCOUNTS_NOTE}"),
     }
     _fill_rows(payload, ranked, rows_per_currency)
     return payload
@@ -151,8 +154,10 @@ def _account_result(run_account, profile: ProfileOption, label: str, wanted: int
     return AccountResult(profile, label, payload=payload, rows=rows, total=total)
 
 
-def _ranked_by_currency(answered: list[AccountResult], rank, rows_per_currency: int) -> list[tuple[dict, list]]:
-    """Each currency's header and its ranked rows: the currency with the most accounts first, then the most rows."""
+def _ranked_by_currency(answered: list[AccountResult], rank, rows_per_currency: int,
+                        offset: int) -> list[tuple[dict, list]]:
+    """Each currency's header and its ranked rows from `offset`: the currency with the most accounts first, then the
+    most rows."""
     groups: dict[str, list[AccountResult]] = {}
     for result in answered:
         if result.total:
@@ -164,9 +169,9 @@ def _ranked_by_currency(answered: list[AccountResult], rank, rows_per_currency: 
         rows = [{"account": result.label, "profile_id": result.profile.profile_id, **row}
                 for result in results for row in result.rows]
         header = {"currency": currency, "accounts": len(results), "total": sum(result.total for result in results),
-                  "showing": 0, "totals": _summed_totals(result.payload.get("totals") for result in results),
-                  "rows": []}
-        ranked.append((header, rank(rows)[:rows_per_currency]))
+                  "showing": 0, "offset": offset,
+                  "totals": _summed_totals(result.payload.get("totals") for result in results), "rows": []}
+        ranked.append((header, rank(rows)[offset:offset + rows_per_currency]))
     return ranked
 
 
@@ -184,9 +189,16 @@ def _fill_rows(payload: dict, ranked: list[tuple[dict, list]], rows_per_currency
         longest["rows"].pop()
     for header, rows in ranked:
         header["showing"] = len(header["rows"])
-        if header["showing"] < min(header["total"], rows_per_currency):
+        following = header["offset"] + header["showing"]
+        if following >= header["total"]:
+            continue
+        header["next_offset"] = following
+        if header["showing"] < min(header["total"] - header["offset"], rows_per_currency):
             header["note"] = (f"Esta moneda muestra {header['showing']} de {header['total']} filas para que la "
-                              "respuesta entre entera: acotá la consulta, o pedí el detalle de una cuenta.")
+                              f"respuesta entre entera: seguí con offset={following}, o acotá la consulta.")
+        else:
+            header["note"] = (f"Esta moneda tiene {header['total']} filas y trae de la {header['offset'] + 1} a la "
+                              f"{following}: seguí con offset={following}.")
 
 
 def _windows(answered: list[AccountResult]) -> list[dict]:

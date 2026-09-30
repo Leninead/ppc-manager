@@ -530,8 +530,16 @@ def _bid_row(row, columns: dict, asin_column: str) -> dict:
             "status": str(row["Estado"]).split(" ", 1)[-1]}
 
 
+def _selling_terms(top_terms) -> list[dict]:
+    # PPC Insights fills its top 5 by sales with unsold terms when fewer sold; a bare name read as a term to cut.
+    if top_terms.empty:
+        return []
+    sold = top_terms[top_terms["Sales"] > 0]
+    return [{"search_term": str(row["Search Term"]), "sales": _number(row["Sales"]),
+             "orders": _number(row.get("Orders"))} for _, row in sold.iterrows()]
+
+
 def _asin_row(asin, metrics: dict, grouped_asins: int | None, spend_without_sales: float) -> dict:
-    top_terms = metrics["top_kws"]
     row = {"asin": str(asin), "health_score": metrics["health_score"],
            "health_parts": {part: _number(points) for part, points in metrics["health_parts"].items()},
            "spend": _number(metrics["spend"]) or 0, "sales": _number(metrics["sales"]),
@@ -539,7 +547,7 @@ def _asin_row(asin, metrics: dict, grouped_asins: int | None, spend_without_sale
            "acos": _number(metrics["acos"]), "cvr": _number(metrics["cvr"]),
            "spend_without_sales": _number(spend_without_sales),
            "top_unsold_terms_spend": _number(metrics["wasted_spend"]),
-           "top_search_terms": [] if top_terms.empty else top_terms["Search Term"].astype(str).tolist()}
+           "top_selling_terms": _selling_terms(metrics["top_kws"])}
     if metrics["n_campaigns"] is not None:
         row["campaign_structure"] = {"campaigns": metrics["n_campaigns"], "types": metrics["campaign_types"],
                                      "funnel": "completo" if metrics["funnel_complete"] else "parcial"}

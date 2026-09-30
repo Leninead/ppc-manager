@@ -9,10 +9,12 @@ lo haga, así que no se apaga: la lista se declara por entorno, y un host que no
 """
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -55,13 +57,32 @@ def allowed_hosts() -> list[str]:
 def build_server(tools: list) -> MCPServer:
     server = MCPServer(name=SERVER_NAME, instructions=INSTRUCTIONS)
     for tool in tools:
-        server.add_tool(tool["fn"], name=tool["name"], description=tool["description"])
+        server.add_tool(refusals_reach_the_model(tool["fn"]), name=tool["name"], description=tool["description"])
 
     @server.custom_route(HEALTH_PATH, methods=["GET"])
     async def health(_request):
         return JSONResponse({"service": SERVER_NAME, "tools": [tool["name"] for tool in tools]})
 
     return server
+
+
+def refusals_reach_the_model(fn):
+    """The tool with its ValueError raised as a ToolError, under the same signature, so the SDK publishes the same
+    schema.
+
+    The SDK shows the model the text of a ToolError only: anything else arrives as a bare «Error executing tool», and
+    a ValueError is how the tools say what to ask instead (another window, one account, the next page).
+    """
+    def run(**arguments):
+        try:
+            return fn(**arguments)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
+
+    run.__name__ = getattr(fn, "__name__", "tool")
+    run.__doc__ = getattr(fn, "__doc__", None)
+    run.__signature__ = inspect.signature(fn, eval_str=True)
+    return run
 
 
 class BearerMiddleware(BaseHTTPMiddleware):
