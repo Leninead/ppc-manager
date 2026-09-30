@@ -6,6 +6,25 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Fixed — Pricing Dashboard lee los archivos reales de Amazon (2026-09-29)
+
+**Por qué.** Con los archivos de Gamboa que subió Marcos, «Analizar» reventaba en el AWD, y aun sin AWD ningún SKU
+recibía las fees del archivo de Fees: los parsers se escribieron contra los formatos de las notas del HTML, que no son
+los que baja Seller Central. Gamboa tampoco estaba en el selector de clientes.
+
+**Ahora.**
+- El campo Fees lee el FBA Fee Preview de Norteamérica: se limpia el `?` que Amazon pega antes del primer encabezado
+  y se usan solo las filas de la tienda US, porque el archivo trae US, CA y MX, cada una en su moneda. El formato
+  anterior (`MSKU`) sigue funcionando.
+- Con los archivos de Gamboa: 582 de 589 SKUs con fulfillment y referral reales (antes 0), y 3 sin margen calculado
+  (antes 256). Los 7 que no están en el Fee Preview de US siguen con fees estimadas por subcategoría.
+- El PPC por unidad, que el Fee Preview no trae, se estima por subcategoría aunque las otras fees sean reales, y
+  entra en el margen neto y en el precio mínimo de liquidación.
+- El AWD se lee salteando las líneas `Timestamp`, `Merchant ID` y la vacía que trae arriba de los títulos. Todavía no
+  suma stock al análisis: el lookup de AWD sigue pendiente.
+- Gamboa está en la lista de clientes (slug `gamboa`, el de SKU Progress). También aparece en el selector de stock
+  del Weekly Client Report.
+
 ### Changed — Bot de Slack: el chat corre en su propio servicio, y el bot ya no ve la base ni el provider (2026-10-02)
 
 **Por qué.** El bot tenía la clave de la base (web_user) y el secreto del provider, y compartía red con los dos,

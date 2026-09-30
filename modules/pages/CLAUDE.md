@@ -1912,15 +1912,23 @@ Scoring de pricing semanal por SKU: clasifica cada SKU en bajar / subir / liquid
 - **Umbrales asimétricos**: `score <= -50` → bajar; `score >= 20` → subir; is_liquidar PRECEDE a la clasificación por score.
 - **Bug 30-vs-37 (heredado, NO arreglar)**: `_enrich_record` setea restock con PATH-37 (`round(daily_rate*37)`, msg "a FBA desde"); el PATH-30 de `_compute_score` (`*30`, "desde", guard `not restock_alert`) queda dead-code.
 - **Rounding**: `_round_half_up` (=floor(x+0.5)) replica `Math.round` (NO `round()` nativo). `_to_fixed`/`_js_num` para strings.
-- **Separador CSV** autodetectado (;/, en primera línea) + utf-8-sig; NO replica el parseCSV custom del HTML (trim/descarte <2 campos) — divergencia conocida congelada en `TestCsvDivergenciasHTML`.
+- **Separador CSV** autodetectado (;/, en primera línea) + encoding de `core.csv_io.encoding_csv` (utf-8-sig primero, después cp1252); NO replica el parseCSV custom del HTML (trim/descarte <2 campos) — divergencia conocida congelada en `TestCsvDivergenciasHTML`.
 - **current_month** desde config (fallback `date.today().month`) para isOffSeason determinístico.
 
+### Archivos reales de Amazon (2026-09-29)
+Los parsers de F3.2 se escribieron contra los formatos documentados en las notas de Marcos; los archivos que baja Seller Central son otros.
+- **Fees = FBA Fee Preview de Norteamérica** (`sku`, `amazon-store`, `expected-fulfillment-fee-per-unit`, `estimated-referral-fee-per-unit`). `_parse_fee` limpia el `?` ASCII pegado al primer header (`_clean_fee_header`). `_build_fee_lookup` lo detecta por encabezados y filtra `amazon-store == US` (`_FEE_PREVIEW_STORE`) ANTES de agrupar: el archivo trae US, CA y MX, cada uno en su moneda. El formato `MSKU` del HTML sigue soportado.
+- **PPC por unidad**: el Fee Preview no lo trae. `_enrich_record` lo estima por subcategoría (`ppc_fee_est`) aunque fulfillment y referral sean reales, y recalcula el margen neto. Diverge del HTML (L897), que sólo lo estimaba si faltaba otra fee.
+- **AWD**: el export trae `Timestamp`, `Merchant ID` y una línea vacía arriba de los títulos. `_parse_awd` toma como encabezado la primera línea (de las primeras 10) con un campo `SKU`.
+- **Clientes**: `core/pricing_clients.PRICING_CLIENTS` (compartido con el selector de stock del Weekly Client Report) incluye Gamboa, slug `gamboa`, el de SKU Progress.
+
 ### Deuda / gaps conocidos
-- **AWD/Izzi sin builder**: `_parse_awd/_parse_izzi` devuelven DataFrame crudo; no hay builder df→lookup `{sku: unidades}`. La tab AWD/FBA es un panel pendiente (`st.warning`), backup stock = 0. Diferido (F3.2→F3.3 nunca lo construyó).
+- **AWD/Izzi sin builder**: `_parse_awd/_parse_izzi` devuelven DataFrame crudo; no hay builder df→lookup `{sku: unidades}`. La tab AWD/FBA es un panel pendiente (`st.warning`), backup stock = 0. Diferido a F3.3.
 - **F3.5 (export XLSX) pendiente**.
 
 ### Anti-patterns / reglas
-- ❌ NO tocar parsers/lookups/scoring de F3.2-F3.3 (cerrados, reviewer-aprobados).
+- ❌ NO cambiar parsers, lookups ni scoring sin un archivo real de Amazon que lo justifique: los formatos documentados en el HTML no son los que baja Seller Central (ver «Archivos reales de Amazon»).
+- ❌ NO agrupar el Fee Preview sin filtrar `amazon-store`: mezcla monedas.
 - ❌ NO crear helpers de persistencia nuevos — todo I/O via `core.persistence` verbatim.
 - ❌ NO normalizar strings de Amazon ('Excess','Invierno'...) — verbatim.
 - ❌ NO usar `round()` nativo donde el HTML usa `Math.round` — usar `_round_half_up`.
