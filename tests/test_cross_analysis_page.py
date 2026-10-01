@@ -6,6 +6,7 @@ tab runs disabled except where a test fakes the provider.
 """
 import csv
 import io
+import json
 import time
 from datetime import date, datetime, timedelta, timezone
 
@@ -13,6 +14,7 @@ import openpyxl
 import pandas as pd
 import pytest
 import requests
+from streamlit.dataframe_util import convert_arrow_bytes_to_pandas_df
 from streamlit.proto.WidgetStates_pb2 import WidgetState
 from streamlit.testing.v1 import AppTest
 from streamlit.testing.v1.element_tree import ButtonGroup
@@ -22,6 +24,7 @@ import ai.runtime as ai_runtime
 import modules.pages.search_term_source as search_term_source
 from core.amazon_ads.structure_provider import CAMPAIGN, KEYWORD, ROW_COLUMNS
 from core.cross_analysis.action_plan import ACTION_DEFEND
+from core.cross_analysis.asin_summary import ACOS, AD_SALES, AD_SPEND, ASIN, BR_SALES, BR_SESSIONS, CVR
 from modules.pages import analisis_cruzado
 from tests.cross_analysis_data import SEARCH_TERM_COLUMNS, sqp, sqp_row, term_row
 from tests.test_bulk_parser import _asegurar_fixture as synthetic_bulk_file
@@ -41,6 +44,8 @@ BULK_SQP = sqp(sqp_row("organic cotton sleep sack", purchases=40, brand_purchase
                sqp_row("nordic sleep bag", purchases=20, brand_share=50.0))
 TAB_LABELS = ["🔗 Análisis Cruzado", "🎯 Plan de Acción", "📊 PPC Insights por ASIN", "🤖 Análisis IA"]
 BULK_FILE_KEY = "cruzado_src_file"
+BUSINESS_REPORT_KEY = "cruzado_br_asin"
+BUSINESS_REPORT_COLUMNS = ["(Parent) ASIN", "(Child) ASIN", "Title", "Sessions - Total", "Ordered Product Sales"]
 UPLOAD_BUTTON_KEY = "cruzado_bulk_src_upload_manual"
 ZERO_IMPRESSION_ITEMS = "Campaign items with zero impressions"
 ANSWER = {"synthesis": {"situation": "La marca vende por queries que no captura.", "week_actions": ["Revisar X01"],
@@ -107,9 +112,9 @@ def _csv(columns, rows) -> bytes:
 class _FakeRest:
     """The profiles, the sync jobs, the search terms, the SP listing and the product ads the page reads."""
 
-    def __init__(self, *, profiles=True, synced=True, listing=LISTING,
+    def __init__(self, *, profiles=True, synced=True, search_terms=SEARCH_TERMS, listing=LISTING,
                  product_ads=({"ad_group_id": "4001", "asin": "B0CYLMJJJC"},), unreadable=()):
-        self._profiles, self._synced = profiles, synced
+        self._profiles, self._synced, self._search_terms = profiles, synced, list(search_terms)
         self._listing, self._product_ads, self._unreadable = list(listing), list(product_ads), set(unreadable)
         self.jobs = [_job_row(7, "sp_search_terms")]
         self.reads: list[str] = []
@@ -135,7 +140,7 @@ class _FakeRest:
         if name in self._unreadable:
             raise requests.ConnectionError(f"{name} is down")
         if name == "search_terms_between":
-            return _csv(SEARCH_TERM_COLUMNS, SEARCH_TERMS)
+            return _csv(SEARCH_TERM_COLUMNS, self._search_terms)
         assert name == "sp_structure_between"
         return _csv(ROW_COLUMNS, self._listing)
 
@@ -181,12 +186,14 @@ render()
 """
 
 
-def _page(monkeypatch, fake, *, sqp_uploaded=True, bulk=None, sqp_table=SQP, brand="luna", session=None,
-          ai_enabled=False, downloads=None) -> AppTest:
+def _page(monkeypatch, fake, *, sqp_uploaded=True, bulk=None, business_report=None, sqp_table=SQP, brand="luna",
+          session=None, ai_enabled=False, downloads=None) -> AppTest:
     import streamlit
     uploads = {"sqp_x": _Upload("sqp.csv")} if sqp_uploaded else {}
     if bulk is not None:
         uploads[BULK_FILE_KEY] = bulk
+    if business_report is not None:
+        uploads[BUSINESS_REPORT_KEY] = business_report
     monkeypatch.setattr(streamlit, "file_uploader", lambda label, *args, key=None, **kwargs: uploads.get(key))
     monkeypatch.setattr(analisis_cruzado, "read_sqp", lambda file: sqp_table.copy())
     monkeypatch.setattr(analisis_cruzado, "extract_sqp_brand", lambda file: brand)
@@ -411,6 +418,30 @@ def test_the_asin_tab_gives_each_term_the_asin_its_ad_group_advertises(monkeypat
     table = app.tabs[2].dataframe[0].value
     assert list(table["ASIN"]) == ["B0CYLMJJJC"]
     assert "El 75.0% sin ASIN no entra en las cards." in _text(app)
+
+
+def test_the_asin_table_shows_one_decimal_percents_and_the_sessions_with_thousands_separators(monkeypatch):
+    search_terms = [term_row("luna pajamas", keyword_type="EXACT", cost=8.6, sales=100.0, orders=11, clicks=200),
+                    term_row("sleep sack", campaign_id="3002", ad_group_id="4002", keyword_id="5002", cost=12.0,
+                             clicks=30)]
+    product_ads = ({"ad_group_id": "4001", "asin": "B0CYLMJJJC"}, {"ad_group_id": "4002", "asin": "B0LUNA0002"})
+    business_report = _Upload("br.csv", _csv(BUSINESS_REPORT_COLUMNS, [
+        {"(Parent) ASIN": "B0LUNA0000", "(Child) ASIN": "B0CYLMJJJC", "Title": "Luna Pajamas",
+         "Sessions - Total": "2,900", "Ordered Product Sales": "$1,234.56"}]))
+
+    app = _page(monkeypatch, _FakeRest(search_terms=search_terms, product_ads=product_ads),
+                business_report=business_report)
+
+    table = app.tabs[2].dataframe[0]
+    formats = {column: config["type_config"]["format"] for column, config in json.loads(table.proto.columns).items()
+               if "format" in config.get("type_config", {})}
+    assert formats == {AD_SPEND: "$%.2f", AD_SALES: "$%.2f", ACOS: "%.1f%%", CVR: "%.1f%%", BR_SALES: "$%.2f"}
+    styler_text = convert_arrow_bytes_to_pandas_df(table.proto.styler.display_values)
+    assert styler_text[BR_SESSIONS].tolist() == ["", "2,900"]
+    rows = table.value
+    assert rows[ASIN].tolist() == ["B0LUNA0002", "B0CYLMJJJC"]
+    assert pd.isna(rows[ACOS].iloc[0]) and rows[[ACOS, CVR]].iloc[1].tolist() == [8.6, 5.5]
+    assert "#E8F5E9" in table.proto.styler.styles
 
 
 def test_the_campaign_builder_plan_is_a_file_campaign_builder_reads_without_what_already_runs(monkeypatch):

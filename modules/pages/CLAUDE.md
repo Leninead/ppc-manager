@@ -416,6 +416,9 @@ IA falso). Datos sintéticos por el provider real: `tests/cross_analysis_data.py
 - ❌ NO repartir el gasto de un ad group de varios ASINs ni tomar su primer ASIN.
 - ❌ NO mezclar el bulk de Amazon con el plan de Campaign Builder: Amazon rechaza columnas propias (INV-5.5) y Campaign
   Builder lee `Keyword` en la primera hoja.
+- ❌ NO pasar un Styler a `st.dataframe` sin formato en cada columna numérica: Streamlit la imprime con seis decimales.
+  El formato de `column_config` gana sobre el del Styler, pero su printf no agrupa miles: en la Tab 3, ACoS y CVR van
+  con `%.1f%%` y las sesiones del BR con `{:,.0f}` en el Styler.
 
 ---
 

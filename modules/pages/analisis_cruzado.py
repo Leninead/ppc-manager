@@ -76,6 +76,8 @@ from core.cross_analysis.asin_summary import (
     ASIN,
     ASINS_WITH_TOP_TERMS,
     BR_SALES,
+    BR_SESSIONS,
+    CVR,
     AsinSummary,
     asin_summary,
     business_report_by_asin,
@@ -847,12 +849,14 @@ def _render_asin_tab(search_terms: pd.DataFrame, sqp: pd.DataFrame, structure: _
     k2.metric("Impression Share global", f"{brand_share:.1f}%" if brand_share is not None else "—")
     total_spend, total_sales = float(rows[AD_SPEND].sum()), float(rows[AD_SALES].sum())
     k3.metric("ACoS promedio", f"{total_spend / total_sales * 100:.1f}%" if total_sales > 0 else "—")
-    symbol = currency_symbol(currency_code)
+    money_column = st.column_config.NumberColumn(format=f"{currency_symbol(currency_code)}%.2f")
+    percent_column = st.column_config.NumberColumn(format="%.1f%%")
     st.dataframe(
-        rows.style.map(_acos_color, subset=[ACOS]),
+        # printf formats can't group thousands, so the sessions take theirs from the Styler.
+        rows.style.format("{:,.0f}", subset=[BR_SESSIONS], na_rep="").map(_acos_color, subset=[ACOS]),
         use_container_width=True, hide_index=True,
-        column_config={column: st.column_config.NumberColumn(format=f"{symbol}%.2f")
-                       for column in (AD_SPEND, AD_SALES, BR_SALES)},
+        column_config={AD_SPEND: money_column, AD_SALES: money_column, ACOS: percent_column, CVR: percent_column,
+                       BR_SALES: money_column},
     )
     st.caption("ACoS y CVR vacíos = el ASIN no registró ventas (o clicks) en el período: no es un 0, es ausencia de "
                "dato. «Agrupa» = el ASIN salió del nombre de la campaña en ad groups que anuncian varios ASINs: es la "
