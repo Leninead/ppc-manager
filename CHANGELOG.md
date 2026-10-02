@@ -36,6 +36,14 @@ AI provider, o uno nuevo con `sh scripts/mint_jwt.sh integ_provider`). Sin esa v
 herramientas `live_*`. El contenedor corre ahora como uid 10001, monta la clave de sellado en sólo lectura e instala
 `cryptography`.
 
+### Fixed — PPC Insights por ASIN de Análisis Cruzado muestra ACoS, CVR y sesiones sin seis decimales (2026-10-01)
+
+La tabla de la pestaña «📊 PPC Insights por ASIN» mostraba «ACoS %», «CVR %» y «Sessions (BR)» con seis decimales
+(8.600000, 5.500000, 2900.000000): la tabla pasa por un Styler para colorear el ACoS, y Streamlit imprime así toda
+columna numérica sin formato propio. Ahora ACoS y CVR van con un decimal y su % (8.6%, 5.5%) y las sesiones sin
+decimales y con separador de miles (2,900). El color del ACoS no cambia, y un ACoS, CVR o sesiones sin dato siguen
+vacíos, nunca 0.
+
 ### Fixed — El chat ya no pierde la pregunta al cambiar de módulo mientras responde (2026-09-30)
 
 **Por qué.** Si el AM cambiaba de módulo (o la página se relanzaba) antes de que llegara la respuesta, Streamlit cortaba
