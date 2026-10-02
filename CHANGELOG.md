@@ -6,6 +6,30 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — Bot de Slack: el chat de PPC Manager en un hilo de Slack (2026-10-02)
+
+**Por qué.** El equipo quiere preguntarle al chat desde Slack y debatir alrededor de sus respuestas, con las mismas
+respuestas que da la app.
+
+**Qué cambia.** Servicio nuevo `services/slack_bot/` (contenedor `agency-slack-bot`, misma imagen, Socket Mode).
+PPC Manager no cambia: el bot llama al mismo turno del chat (`ai.runtime._followup_call` + `ai.client.ask_stream`),
+con el agente, las reglas, los skills y las herramientas de siempre, y convierte los componentes a Slack: Block Kit
+para text, kpis, table, alert y action, y PNG para bars, pie y trend.
+- Responde solo cuando lo mencionan (en los mensajes directos, siempre) y siempre en un hilo, con una sesión por
+  hilo.
+- Lo que preguntan mientras responde se junta en un solo turno, que devuelve una respuesta por pregunta. Lee el hilo
+  desde Slack en cada ciclo, así que el debate sin arroba entra como contexto y valen las ediciones.
+- Perímetro: solo canales permitidos y miembros del workspace; nunca invitados ni canales compartidos con otras
+  organizaciones.
+- Freno propio: 2 turnos a la vez, en ronda entre hilos, y un tope de preguntas por persona cada 24 horas.
+- El estado de cada hilo sobrevive a un reinicio (SQLite en el volumen `slack_bot_state`), y al arrancar relee los
+  canales en busca de menciones perdidas. Las respuestas de un turno se guardan junto con su marca de agua y se
+  publican paso a paso: si algo se corta a mitad de camino, se retoman sin volver a preguntarle al modelo.
+
+Puesta en marcha y variables: `docs/SLACK-BOT.md`. Sin `SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN`, el contenedor queda en
+espera. Además: `slack_bolt`/`slack_sdk` en `requirements.txt`, `data/slack_bot` en el `Dockerfile` y la guarda de
+rollback del servicio en el `Jenkinsfile`.
+
 ### Fixed — Lo que mostraron las pruebas del chat con Amazon Ads en vivo en producción (2026-10-02)
 
 **Por qué.** 13 preguntas vagas en app.capybaras.agency, ya con las herramientas `live_*` desplegadas, mostraron

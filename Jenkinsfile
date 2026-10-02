@@ -187,6 +187,9 @@ pipeline {
                   if docker compose config --services | grep -qx ads-ai-worker; then
                     docker run --rm --entrypoint python "$IMAGE:$PREV" -c "import core.ai_analysis.worker" >/dev/null 2>&1 || docker compose stop ads-ai-worker
                   fi
+                  if docker compose config --services | grep -qx slack-bot; then
+                    docker run --rm --entrypoint python "$IMAGE:$PREV" -c "import services.slack_bot.bot" >/dev/null 2>&1 || docker compose stop slack-bot
+                  fi
                 '''
               }
               error("Rolled back to ${env.PREV}: deploy of ${env.SHA} failed the health gate.")

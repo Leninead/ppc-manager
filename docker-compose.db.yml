@@ -202,6 +202,48 @@ services:
     networks: [web, ai-net]
     mem_limit: 1536m
 
+  # Slack bridge to the app chat (services/slack_bot, docs/SLACK-BOT.md): the same agent, tools and components,
+  # answered in threads. Socket Mode, so nothing is published. Same image; its own small volume for thread state.
+  slack-bot:
+    image: ppc-manager:${IMAGE_TAG:-latest}
+    container_name: agency-slack-bot
+    command: ["python", "-m", "services.slack_bot"]
+    restart: unless-stopped
+    # A turn in flight is not resumed: its thread keeps its watermark and is answered again after the restart.
+    stop_grace_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    environment:
+      # web_user, like the app: chat skills, the account directory and the chat_turns rows.
+      SUPABASE_URL: http://rest-gateway
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
+      AGENCY_OS_AH_BACKEND: supabase
+      CLAUDE_PROVIDER_URL: http://ai-provider:3111
+      CLAUDE_PROVIDER_SECRET: ${CLAUDE_PROVIDER_SECRET:-}
+      AI_LOG_DIR: /tmp/ai-log
+      # soft default: without both tokens the bot logs once and idles
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      SLACK_ALLOWED_CHANNELS: ${SLACK_ALLOWED_CHANNELS:-}
+      SLACK_CHANNEL_ACCOUNTS: ${SLACK_CHANNEL_ACCOUNTS:-}
+      SLACK_ALLOW_DIRECT_MESSAGES: ${SLACK_ALLOW_DIRECT_MESSAGES:-true}
+      SLACK_MAX_PARALLEL_TURNS: ${SLACK_MAX_PARALLEL_TURNS:-2}
+      SLACK_DAILY_QUESTIONS_PER_USER: ${SLACK_DAILY_QUESTIONS_PER_USER:-40}
+      SLACK_EFFORT: ${SLACK_EFFORT:-}
+      SLACK_STATE_PATH: /app/data/slack_bot/state.sqlite3
+      IMAGE_TAG: ${IMAGE_TAG:-latest}
+    volumes:
+      - slack_bot_state:/app/data/slack_bot
+    # The image's healthcheck probes Streamlit, which this container does not run.
+    healthcheck:
+      disable: true
+    depends_on: [rest-gateway]
+    networks: [web, ai-net]
+    mem_limit: 768m
+
 networks:
   web: {}
   ai-net:
@@ -212,3 +254,4 @@ volumes:
   pgadmin_data: {}
   integrations_keys: {}
   ads_raw: {}
+  slack_bot_state: {}
