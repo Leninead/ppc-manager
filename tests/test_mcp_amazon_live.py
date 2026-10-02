@@ -324,6 +324,24 @@ def test_live_store_reads_several_metrics_at_once_as_one_row_per_day_and_reports
     assert [error["part"] for error in payload["errors"]] == ["ORDERS"]
 
 
+def test_live_store_by_source_skips_new_to_store_and_names_metrics_without_rows(monkeypatch):
+    asked = []
+    monkeypatch.setattr(live_reads, "stores", lambda api, live: [{"name": "Acme", "brand_entity_id": "E1"}])
+
+    def insights(api, live, entity, metric, dimension, start, end):
+        asked.append(metric)
+        return [] if metric == "VISITORS" else [{"source": "ORGANIC", metric.lower(): 1}]
+
+    monkeypatch.setattr(live_reads, "store_insights", insights)
+
+    payload = amazon_live.live_store(_FakeRest(), profile_id="111", dimension="SOURCE",
+                                     metrics=["VISITS", "VISITORS", "NEW_TO_STORE"])
+
+    assert asked == ["VISITS", "VISITORS"] and payload["metrics"] == ["VISITS", "VISITORS"]
+    assert payload["skipped"]["metrics"] == ["NEW_TO_STORE"] and payload["without_rows"] == ["VISITORS"]
+    assert payload["rows"] == [{"source": "ORGANIC", "visits": 1}]
+
+
 def test_live_store_without_metrics_reads_them_all(monkeypatch):
     asked = []
     monkeypatch.setattr(live_reads, "stores", lambda api, live: [{"name": "Acme", "brand_entity_id": "E1"}])

@@ -32,6 +32,8 @@ HistoryChange = Literal["", "BID_AMOUNT", "BUDGET_AMOUNT", "STATUS", "IN_BUDGET"
 StoreMetric = Literal["VISITS", "VISITORS", "VIEWS", "SALES", "ORDERS", "UNITS", "NEW_TO_STORE", "BOUNCE_RATE",
                       "DWELL_TIME"]
 StoreDimension = Literal["DATE", "PAGE", "SOURCE"]
+# Asked by page or by source, Amazon answers 422: "provided dimension is not valid for provided metrics".
+DAILY_ONLY_STORE_METRICS = ("NEW_TO_STORE",)
 
 SOURCE = "Amazon Ads, en vivo"
 MAX_PRODUCTS = 600
@@ -330,7 +332,9 @@ def live_store(rest, *, profile_id: str = "", account: str = "", metrics: list[S
     span = min(max(int(days), 1), 100)
     end = date.today() - timedelta(days=1)
     start = end - timedelta(days=span - 1)
-    asked = list(dict.fromkeys(metrics or live_reads.STORE_METRICS))
+    wanted = list(dict.fromkeys(metrics or live_reads.STORE_METRICS))
+    daily_only = [metric for metric in wanted if dimension != "DATE" and metric in DAILY_ONLY_STORE_METRICS]
+    asked = [metric for metric in wanted if metric not in daily_only]
     # Amazon answers one metric per request and throttles parallel ones: live_reads sends them one at a time.
     results, errors = _run_all({metric: partial(live_reads.store_insights, api, live, picked["brand_entity_id"],
                                                 metric, dimension, start, end) for metric in asked})
@@ -338,6 +342,11 @@ def live_store(rest, *, profile_id: str = "", account: str = "", metrics: list[S
     payload = {**_head(live), "store": picked.get("name"), "stores": [item.get("name") for item in stores],
                "metrics": asked, "dimension": dimension, "window": {"from": start.isoformat(), "to": end.isoformat()},
                **page(rows).as_payload(what="filas")}
+    if daily_only:
+        payload["skipped"] = {"metrics": daily_only, "why": "Amazon las da sólo por día (dimension DATE)."}
+    without_rows = [metric for metric in asked if metric in results and not results[metric]]
+    if without_rows:
+        payload["without_rows"] = without_rows
     if errors:
         payload["errors"] = errors
     if not rows:

@@ -414,10 +414,10 @@ def live_tools(rest) -> list:
               partial(amazon_live.live_invoices, rest)),
         _tool("live_store",
               "La Store de marca de una cuenta, en vivo y en una sola llamada: visitas, visitantes, vistas, ventas, "
-              "órdenes, unidades, nuevos en la Store, rebote y tiempo de permanencia (metrics; sin metrics trae "
-              "todas), por día, por página o por fuente de tráfico (dimension), en los últimos days días, hasta 100. "
-              "Cada fila trae todas las métricas pedidas. store elige una Store por su nombre cuando la cuenta tiene "
-              "varias, y stores lista las que tiene." + LIVE_HINT + ACCOUNT_HINT,
+              "órdenes, unidades, nuevos en la Store (sólo por día), rebote y tiempo de permanencia (metrics; sin "
+              "metrics trae todas), por día, por página o por fuente de tráfico (dimension), en los últimos days días, "
+              "hasta 100. Cada fila trae todas las métricas pedidas. store elige una Store por su nombre cuando la "
+              "cuenta tiene varias, y stores lista las que tiene." + LIVE_HINT + ACCOUNT_HINT,
               partial(amazon_live.live_store, rest)),
     ]
 

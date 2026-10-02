@@ -17,6 +17,9 @@ respuestas buenas y cinco fallas de las herramientas.
 - `live_store` trae varias métricas en una llamada (`metrics`, todas si no se piden) y vuelven en una fila por día,
   página o fuente. El chat hacía 7 llamadas para una pregunta. Amazon contesta una métrica por pedido y responde 429
   si van en paralelo, así que salen de a una por cuenta: las 9 tardaron 4,5 s en producción.
+- `live_store` no pide «nuevos en la Store» por página ni por fuente: Amazon la da sólo por día y respondía 422
+  («provided dimension is not valid for provided metrics»). Probado en producción con las 27 combinaciones. También
+  nombra las métricas que vuelven sin filas, como visitantes por página o por fuente, para que no se lean como cero.
 - `live_change_history` lee el historial de una cuenta de a una consulta: Amazon respondía 429 cuando el modelo pedía
   varias a la vez y el chat se quedaba sin parte del historial.
 - `live_budget` nombra el total de su lista (`counts.limited_last_7_days_or_now`): el chat decía «111 campañas sin
