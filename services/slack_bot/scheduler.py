@@ -43,13 +43,12 @@ class TurnScheduler:
         with self._cond:
             return next((index for index, (queued, _) in enumerate(self._queue) if queued == key), len(self._queue))
 
-    def all_busy(self) -> bool:
+    def waiting_behind(self, key: Key) -> tuple[int, int] | None:
+        """(threads queued ahead, turns running) when this thread will not get a worker right away, else None."""
         with self._cond:
-            return len(self._running) >= self._workers
-
-    def running(self) -> int:
-        with self._cond:
-            return len(self._running)
+            ahead = next((index for index, (queued, _) in enumerate(self._queue) if queued == key), len(self._queue))
+            running = len(self._running)
+            return (ahead, running) if ahead + running >= self._workers else None
 
     def start(self) -> None:
         for index in range(self._workers):

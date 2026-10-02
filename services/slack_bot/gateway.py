@@ -148,10 +148,11 @@ class Gateway:
         key = (channel, thread_ts)
         log.info("question in %s/%s%s", channel, thread_ts, " (direct)" if direct else "")
         if self._registry.mention(channel, thread_ts, direct):
-            busy = self._scheduler.all_busy()
             self._scheduler.submit(key, delay=self._settings.gather_seconds)
-            if busy:
-                self._say(channel, thread_ts, texts.queued(self._scheduler.ahead_of(key), self._scheduler.running()))
+            # Threads still gathering count too: five mentions within seconds would otherwise all look free.
+            waiting = self._scheduler.waiting_behind(key)
+            if waiting:
+                self._say(channel, thread_ts, texts.queued(*waiting))
         self._persist(key)
 
     def _over_limit(self, user: str) -> bool:

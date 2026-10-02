@@ -6,6 +6,17 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Bot de Slack: 5 turnos a la vez y aviso de la cola en ráfagas (2026-10-02)
+
+**Por qué.** Con 2 turnos a la vez, 5 preguntas en canales distintos esperaban hasta tres tandas, y las que llegaban
+casi juntas, antes de que arrancara el primer turno, esperaban sin aviso: solo veían 👀.
+
+**Qué cambia.**
+- `SLACK_MAX_PARALLEL_TURNS` pasa de 2 a 5 por defecto (código y `docker-compose.db.yml`).
+- El aviso de la cola sale cada vez que una pregunta no va a arrancar enseguida: cuenta también los hilos que todavía
+  están juntando menciones, y dice cuántas conversaciones tiene por delante y en cuántas está respondiendo.
+- Un test fija que dos canales nunca comparten conversación: cada uno con su lote, su sesión y su respuesta.
+
 ### Added — Bot de Slack: el chat de PPC Manager en un hilo de Slack (2026-10-02)
 
 **Por qué.** El equipo quiere preguntarle al chat desde Slack y debatir alrededor de sus respuestas, con las mismas

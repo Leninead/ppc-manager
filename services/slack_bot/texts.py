@@ -26,10 +26,12 @@ def reading(labels: list[str]) -> str:
 
 
 def queued(ahead: int, running: int) -> str:
-    answering = f"Estoy respondiendo en {_conversations(running)}"
     if ahead <= 0:
-        return f"{answering}; sigo con esta apenas termine una."
-    return f"{answering} y hay {_conversations(ahead)} esperando antes que esta; las respondo en orden."
+        return f"Estoy respondiendo en {_conversations(running)}; sigo con esta apenas termine una."
+    waiting = f"hay {_conversations(ahead)} esperando antes que esta; las respondo en orden."
+    if running <= 0:
+        return waiting[0].upper() + waiting[1:]
+    return f"Estoy respondiendo en {_conversations(running)} y {waiting}"
 
 
 def _conversations(count: int) -> str:

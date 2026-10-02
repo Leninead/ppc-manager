@@ -62,6 +62,11 @@ class Bot:
     def answer(self, thread_ts=ROOT, channel=CHANNEL):
         self.answerer.handle((channel, thread_ts))
 
+    def recovery(self, **extra):
+        return Recovery(slack=self.slack, poster=self.poster, answerer=self.answerer, registry=self.registry,
+                        scheduler=self.scheduler, store=self.store, settings=self.settings, identity=BOT,
+                        access=self.access, **extra)
+
 
 # --- The door ---
 
@@ -133,10 +138,21 @@ def test_over_the_daily_limit_the_mention_is_refused_and_kept_out_of_the_batch(t
 
 def test_a_busy_bot_says_how_many_threads_are_ahead(tmp_path):
     bot = Bot(tmp_path)
-    bot.scheduler.busy, bot.scheduler.ahead, bot.scheduler.in_flight = True, 1, 2
+    bot.scheduler.waiting = (1, 2)
     bot.mention(ROOT, "U1", "¿gasto?")
     assert bot.slack.texts() == [
         "Estoy respondiendo en 2 conversaciones y hay 1 conversación esperando antes que esta; las respondo en orden."]
+
+
+def test_mentions_in_a_burst_hear_their_place_in_line_even_before_any_turn_starts(tmp_path):
+    from services.slack_bot.scheduler import TurnScheduler
+
+    bot = Bot(tmp_path, allowed_channels=frozenset({"C1", "C2", "C3"}))
+    bot.gateway._scheduler = TurnScheduler(2, handle=lambda key: None)
+    for index, channel in enumerate(("C1", "C2", "C3")):
+        bot.mention(f"10{index}.0", "U1", "¿gasto?", thread_ts=f"10{index}.0", channel=channel)
+    assert bot.slack.texts() == ["Hay 2 conversaciones esperando antes que esta; las respondo en orden."]
+    assert bot.slack.posted[0]["channel"] == "C3"
 
 
 def test_direct_messages_need_no_mention_and_ignore_edits_and_bots(tmp_path):
@@ -359,8 +375,7 @@ def test_after_a_restart_threads_that_owed_answers_are_queued_again(tmp_path):
     bot = Bot(tmp_path)
     bot.mention(ROOT, "U1", "¿gasto?")
     fresh = Bot(tmp_path)
-    queued = Recovery(slack=fresh.slack, poster=fresh.poster, answerer=fresh.answerer, registry=fresh.registry,
-                      scheduler=fresh.scheduler, store=fresh.store, settings=fresh.settings, identity=BOT, access=fresh.access).run()
+    queued = fresh.recovery().run()
     assert queued == 1
     assert fresh.scheduler.submitted == [((CHANNEL, ROOT), 0.0)]
 
@@ -374,9 +389,7 @@ def test_mentions_sent_while_the_bot_was_away_are_found_and_read_from_there(tmp_
         {"ts": "1999999994.0", "user": "U3", "text": "sin mención"}]
     bot.slack.add(CHANNEL, "1999999993.0", "1999999993.0", "U2", "hilo viejo")
     bot.slack.add(CHANNEL, "1999999993.0", "1999999996.0", "U3", "<@UBOT> ¿y esto?")
-    recovery = Recovery(slack=bot.slack, poster=bot.poster, answerer=bot.answerer, registry=bot.registry,
-                        scheduler=bot.scheduler, store=bot.store, settings=bot.settings, identity=BOT, access=bot.access,
-                        clock=lambda: 2_000_000_000.0)
+    recovery = bot.recovery(clock=lambda: 2_000_000_000.0)
     assert recovery.run() == 2
     assert {key for key, _ in bot.scheduler.submitted} == {(CHANNEL, "1999999995.0"), (CHANNEL, "1999999993.0")}
     assert bot.registry.snapshot((CHANNEL, "1999999993.0")).watermark == "1999999990.0"
@@ -385,8 +398,7 @@ def test_mentions_sent_while_the_bot_was_away_are_found_and_read_from_there(tmp_
 def test_a_first_start_does_not_scan_channels(tmp_path):
     bot = Bot(tmp_path)
     bot.slack.history[CHANNEL] = [{"ts": "1.0", "user": "U1", "text": "<@UBOT> vieja"}]
-    recovery = Recovery(slack=bot.slack, poster=bot.poster, answerer=bot.answerer, registry=bot.registry,
-                        scheduler=bot.scheduler, store=bot.store, settings=bot.settings, identity=BOT, access=bot.access)
+    recovery = bot.recovery()
     assert recovery.run() == 0
 
 
@@ -402,6 +414,30 @@ def test_access_verdicts(tmp_path):
     assert check(CHANNEL, "UEXT", False) == Verdict.EXTERNAL
     assert check(CHANNEL, "UNOBODY", False) == Verdict.UNKNOWN
     assert check("D1", "U1", True) == Verdict.DIRECT_DISABLED
+
+
+# --- Separate channels never share a conversation ---
+
+def test_two_channels_are_answered_in_separate_turns_and_sessions(tmp_path):
+    turn = TurnScript(outcome(text_answer(["q1"], "Respuesta de cuentas"), session_id="S-cuentas"),
+                      outcome(text_answer(["q1"], "Respuesta de general"), session_id="S-general"),
+                      outcome(text_answer(["q1"], "Seguimiento de cuentas"), session_id="S-cuentas"))
+    bot = Bot(tmp_path, turn=turn, allowed_channels=frozenset({"CCUENTAS", "CGENERAL"}))
+    bot.mention("1.0", "U1", "¿cómo viene LTD?", thread_ts="1.0", channel="CCUENTAS")
+    bot.mention("2.0", "U2", "¿qué es el TACoS?", thread_ts="2.0", channel="CGENERAL")
+    bot.answer(thread_ts="1.0", channel="CCUENTAS")
+    bot.answer(thread_ts="2.0", channel="CGENERAL")
+    bot.mention("1.5", "U1", "¿y la semana pasada?", thread_ts="1.0", channel="CCUENTAS")
+    bot.answer(thread_ts="1.0", channel="CCUENTAS")
+
+    cuentas, general, follow_up = turn.calls
+    assert "LTD" in cuentas["prompt"] and "TACoS" not in cuentas["prompt"]
+    assert "TACoS" in general["prompt"] and "LTD" not in general["prompt"]
+    assert (cuentas["session_id"], general["session_id"]) == (None, None)
+    assert follow_up["session_id"] == "S-cuentas"
+    assert "TACoS" not in follow_up["prompt"]
+    assert {post["channel"]: post["text"].split(" ", 1)[1] for post in bot.slack.posted[:2]} == {
+        "CCUENTAS": "Respuesta de cuentas", "CGENERAL": "Respuesta de general"}
 
 
 # --- Fixes from the code review ---
@@ -436,9 +472,7 @@ def test_answers_survive_a_crash_between_the_turn_and_slack_and_the_model_is_not
 
     restarted = Bot(tmp_path)
     restarted.slack.threads = bot.slack.threads
-    Recovery(slack=restarted.slack, poster=restarted.poster, answerer=restarted.answerer,
-             registry=restarted.registry, scheduler=restarted.scheduler, store=restarted.store,
-             settings=restarted.settings, identity=BOT, access=restarted.access).run()
+    restarted.recovery().run()
     assert restarted.scheduler.submitted == [((CHANNEL, ROOT), 0.0)]
     restarted.answer()
     assert restarted.turn.calls == []
@@ -559,8 +593,5 @@ def test_with_every_channel_allowed_recovery_reads_the_channels_the_bot_is_in(tm
     bot.store.set_meta(LAST_EVENT_TS, "1999999990.0")
     bot.slack.member_of = [{"id": "COTHER", "name": "random"}]
     bot.slack.history["COTHER"] = [{"ts": "1999999995.0", "user": "U1", "text": "<@UBOT> ¿gasto?"}]
-    recovery = Recovery(slack=bot.slack, poster=bot.poster, answerer=bot.answerer, registry=bot.registry,
-                        scheduler=bot.scheduler, store=bot.store, settings=bot.settings, identity=BOT,
-                        access=bot.access, clock=lambda: 2_000_000_000.0)
-    assert recovery.run() == 1
+    assert bot.recovery(clock=lambda: 2_000_000_000.0).run() == 1
     assert bot.scheduler.submitted == [(("COTHER", "1999999995.0"), 0.0)]

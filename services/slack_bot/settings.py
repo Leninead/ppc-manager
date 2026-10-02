@@ -28,7 +28,7 @@ class BotSettings:
     allowed_channels: frozenset[str] = frozenset()
     channel_accounts: Mapping[str, ChannelAccount] = field(default_factory=dict)
     allow_direct_messages: bool = True
-    max_parallel_turns: int = 2
+    max_parallel_turns: int = 5
     batch_max_questions: int = 8
     batch_max_chars: int = 12_000
     gather_seconds: float = 3.0

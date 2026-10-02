@@ -122,23 +122,15 @@ def outcome(*answers, skipped=None, missing=(), session_id="S1", tools=("mcp__pp
 
 
 class FakeScheduler:
-    def __init__(self, busy=False, ahead=0, running=0):
+    def __init__(self, waiting=None):
         self.submitted: list[tuple[tuple[str, str], float]] = []
-        self.busy = busy
-        self.ahead = ahead
-        self.in_flight = running
-
-    def running(self):
-        return self.in_flight
+        self.waiting = waiting
 
     def submit(self, key, delay=0.0):
         self.submitted.append((key, delay))
 
-    def all_busy(self):
-        return self.busy
-
-    def ahead_of(self, key):
-        return self.ahead
+    def waiting_behind(self, key):
+        return self.waiting
 
 
 class TurnScript:
