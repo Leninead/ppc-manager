@@ -118,6 +118,8 @@ services:
     command: ["python", "-m", "services.mcp_server.server"]
     restart: unless-stopped
     init: true
+    # The sealing key is 0600 to the workers' uid; the live_* tools read it as that uid, like the AI provider.
+    user: "10001:10001"
     logging:
       driver: json-file
       options:
@@ -128,6 +130,10 @@ services:
       MCP_JWT: ${SUPABASE_KEY:-}
       MCP_TOKEN: ${MCP_TOKEN:-}   # same value as PPC_MCP_TOKEN in the provider's .env
       MCP_PORT: "8790"
+      # Role integ_provider (sh scripts/mint_jwt.sh integ_provider). Empty = no live_* tools.
+      ADS_TOKENS_JWT: ${ADS_TOKENS_JWT:-}
+    volumes:
+      - integrations_keys:/app/data/integrations:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8790/health', timeout=4)"]
       interval: 30s

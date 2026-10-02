@@ -6,6 +6,36 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Added — El chat consulta Amazon Ads en vivo: presupuesto, productos, cambios, bids, benchmark, facturas y Store (2026-10-01)
+
+**Por qué.** Amazon calcula datos que la app no guarda y que el AM pregunta: cuánto se pierde por quedarse sin
+presupuesto, qué ASIN anunciado está sin stock, qué cambió en una campaña, qué bid sugiere y qué share de impresiones
+tiene la cuenta en cada keyword. El MCP de Amazon no tiene ninguno de estos endpoints, y todos responden al momento:
+medidos con 15 cuentas reales, de 0,3 a 2,5 s.
+
+**Qué cambia.** El MCP de ppc-manager suma 7 herramientas `live_*` (`services/mcp_server/tools/amazon_live.py`) que
+leen una cuenta por llamada con `core/amazon_ads/live_reads.py`:
+- `live_budget`: presupuesto sugerido, % del tiempo con presupuesto, ventas, clics e impresiones perdidas (7 días), uso
+  de hoy, reglas de presupuesto y uso de portfolios.
+- `live_products`: stock, precio, BSR y elegibilidad de los ASINs anunciados.
+- `live_change_history`: historial de cambios con valor anterior y nuevo.
+- `live_keyword_bids`: bid sugerido por target, y share y rank de impresiones por keyword.
+- `live_category_benchmark`: la marca contra su categoría en SB.
+- `live_invoices`: facturas, también el detalle por campaña.
+- `live_store`: métricas de la Store.
+
+**Errores y reintentos.**
+- 5 s por intento y 2 reintentos ante 429, 5xx o caídas de red, con espera de 2 s como máximo (`AdsApiClient` ganó
+  `max_retry_after_s`).
+- Cada falla llega al chat como una frase.
+- Si falla una parte, el resto responde igual y la parte fallida va en `errors`.
+- Bids y keywords de SP se reusan hasta 6 horas, porque Amazon los limita mucho.
+
+**Para activarlo en la VPS.** Agregar `ADS_TOKENS_JWT` al `.env`, con el JWT del rol `integ_provider` (el mismo del
+AI provider, o uno nuevo con `sh scripts/mint_jwt.sh integ_provider`). Sin esa variable, el MCP arranca igual, sin las
+herramientas `live_*`. El contenedor corre ahora como uid 10001, monta la clave de sellado en sólo lectura e instala
+`cryptography`.
+
 ### Fixed — PPC Insights por ASIN de Análisis Cruzado muestra ACoS, CVR y sesiones sin seis decimales (2026-10-01)
 
 La tabla de la pestaña «📊 PPC Insights por ASIN» mostraba «ACoS %», «CVR %» y «Sessions (BR)» con seis decimales

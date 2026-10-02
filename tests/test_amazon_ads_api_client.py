@@ -205,6 +205,16 @@ def test_throttle_caps_retry_after_at_thirty_seconds():
     assert sleeps == [30.0]
 
 
+def test_a_caller_someone_waits_on_caps_every_wait_between_attempts():
+    session = _FakeSession([_FakeResponse(429, headers={"Retry-After": "45"}), _FakeResponse(429),
+                            _FakeResponse(429), _FakeResponse(200)])
+    client, sleeps = _client(session, max_retry_after_s=2.0)
+
+    client.request("GET", "/x")
+
+    assert sleeps == [2.0, 2.0, 2.0]
+
+
 def test_throttle_without_retry_after_uses_backoff():
     session = _FakeSession([_FakeResponse(429), _FakeResponse(429), _FakeResponse(200)])
     client, sleeps = _client(session)
