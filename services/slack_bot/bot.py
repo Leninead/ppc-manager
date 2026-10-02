@@ -8,8 +8,8 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from services.slack_bot.access import AccessPolicy
-from services.slack_bot.account_scope import AccountScopes
 from services.slack_bot.answering import BotIdentity, ThreadAnswerer
+from services.slack_bot.chat_client import ChatClient
 from services.slack_bot.conversations import ConversationRegistry
 from services.slack_bot.gateway import Gateway
 from services.slack_bot.poster import SlackPoster
@@ -35,7 +35,8 @@ def run(settings: BotSettings) -> None:
     answerer: ThreadAnswerer | None = None
     scheduler = TurnScheduler(settings.max_parallel_turns, handle=lambda key: answerer.handle(key))
     answerer = ThreadAnswerer(slack=app.client, poster=poster, registry=registry, scheduler=scheduler, store=store,
-                              access=access, scopes=AccountScopes(settings), settings=settings, identity=identity)
+                              access=access, settings=settings, identity=identity,
+                              chat=ChatClient(settings.chat_api_url, settings.chat_api_token))
     Gateway(poster=poster, access=access, registry=registry, scheduler=scheduler, store=store, settings=settings,
             identity=identity).register(app)
     Recovery(slack=app.client, poster=poster, answerer=answerer, registry=registry, scheduler=scheduler,

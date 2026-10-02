@@ -187,8 +187,13 @@ pipeline {
                   if docker compose config --services | grep -qx ads-ai-worker; then
                     docker run --rm --entrypoint python "$IMAGE:$PREV" -c "import core.ai_analysis.worker" >/dev/null 2>&1 || docker compose stop ads-ai-worker
                   fi
+                  if docker compose config --services | grep -qx chat-api; then
+                    docker run --rm --entrypoint python "$IMAGE:$PREV" -c "import services.chat_api.server" >/dev/null 2>&1 || docker compose stop chat-api
+                  fi
+                  # An image from before the chat API has a bot that calls the database and the provider itself,
+                  # which this compose no longer lets it reach.
                   if docker compose config --services | grep -qx slack-bot; then
-                    docker run --rm --entrypoint python "$IMAGE:$PREV" -c "import services.slack_bot.bot" >/dev/null 2>&1 || docker compose stop slack-bot
+                    docker run --rm --entrypoint python "$IMAGE:$PREV" -c "import services.slack_bot.chat_client" >/dev/null 2>&1 || docker compose stop slack-bot
                   fi
                 '''
               }

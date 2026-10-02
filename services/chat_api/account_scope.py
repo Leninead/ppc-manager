@@ -1,7 +1,7 @@
-"""Which Amazon Ads region a thread reads live, and the account that opens it: the app's rules, minus Streamlit.
+"""Which Amazon Ads region a turn reads live, and the account that opens it: the app's rules, minus Streamlit.
 
-`core.chat.ads_scope.request_scope()` reads the username from `st.session_state`; the pure functions it
-builds on are reused here with a cache of their own.
+`core.chat.ads_scope.request_scope()` reads the username from `st.session_state`; the pure functions it builds on
+are reused here with a cache of their own.
 """
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from ai import config as ai_config
 from core.chat import ads_scope
 from core.integrations.store import open_stores
-from services.slack_bot.settings import BotSettings, ChannelAccount
 
 log = logging.getLogger(__name__)
 
@@ -22,30 +21,28 @@ REGION_COUNTRIES = {"NA": "US, CA, MX, BR", "EU": "Europa, Medio Oriente e India
 
 
 @dataclass(frozen=True)
-class ThreadScope:
+class TurnScope:
     ads_scope: dict | None
     region: str | None
-    account: ChannelAccount | None
 
 
 class AccountScopes:
-    def __init__(self, settings: BotSettings, load_vehicles=None, clock=time.monotonic):
-        self._settings = settings
+    def __init__(self, load_vehicles=None, clock=time.monotonic):
         self._load = load_vehicles or _load_vehicles
         self._clock = clock
         self._vehicles: tuple[float, list[ads_scope.AccountVehicle]] | None = None
         self._lock = threading.Lock()
 
-    def for_thread(self, channel: str, requested_by: str) -> ThreadScope:
-        account = self._settings.channel_accounts.get(channel)
+    def for_country(self, country: str, requested_by: str) -> TurnScope:
+        """The account that opens a live Amazon Ads session in the country's region, or the busiest region."""
         if not ai_config.AI_ENABLED:
-            return ThreadScope(None, None, account)
-        vehicle = ads_scope.pick_vehicle(self._cached_vehicles(), account.country if account else None)
+            return TurnScope(None, None)
+        vehicle = ads_scope.pick_vehicle(self._cached_vehicles(), country or None)
         if vehicle is None:
-            return ThreadScope(None, None, account)
+            return TurnScope(None, None)
         scope = {"account_id": vehicle.account_id, "profile_id": vehicle.profile_id,
                  "requested_by": requested_by, "dynamic": True}
-        return ThreadScope(scope, vehicle.region, account)
+        return TurnScope(scope, vehicle.region)
 
     def _cached_vehicles(self) -> list[ads_scope.AccountVehicle]:
         with self._lock:

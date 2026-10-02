@@ -6,8 +6,7 @@ from decimal import Decimal
 from slack_sdk.errors import SlackApiError
 
 from services.slack_bot.answering import BotIdentity
-from services.slack_bot.batch_reply import BatchAnswer, BatchReply
-from services.slack_bot.turn import TurnOutcome
+from services.slack_bot.chat_client import BatchAnswer, BatchReply, ChatOutcome
 
 BOT = BotIdentity(user_id="UBOT", bot_id="BBOT", team_id="T1")
 MEMBERS = {
@@ -116,9 +115,11 @@ def text_answer(question_ids, text):
     return BatchAnswer(tuple(question_ids), [{"kind": "text", "text": text}])
 
 
-def outcome(*answers, skipped=None, missing=(), session_id="S1", tools=("mcp__ppc_manager__daily_metrics",)):
-    return TurnOutcome(reply=BatchReply(tuple(answers), skipped or {}, tuple(missing)), session_id=session_id,
-                       tool_calls=tuple(tools), failed_tools=(), model="claude-opus-5-5", cost_usd=0.42)
+def outcome(*answers, skipped=None, missing=(), session_id="S1", region="NA", new_session=True,
+            sources=("Serie diaria · Agency OS",)):
+    return ChatOutcome(reply=BatchReply(tuple(answers), skipped or {}, tuple(missing)), session_id=session_id,
+                       region=region, new_session=new_session, sources=tuple(sources), tool_count=len(sources),
+                       cost_usd=0.42)
 
 
 class FakeScheduler:
@@ -133,16 +134,16 @@ class FakeScheduler:
         return self.waiting
 
 
-class TurnScript:
-    """Plays the provider: one scripted outcome or exception per call, and remembers what each call asked."""
+class ChatScript:
+    """Plays PPC Manager's chat API: one scripted outcome or error per turn, and remembers each payload sent."""
 
     def __init__(self, *results):
         self.results = list(results)
         self.calls: list[dict] = []
 
-    def __call__(self, **kwargs):
-        self.calls.append(kwargs)
-        kwargs["on_tool"]("mcp__amazon_ads__campaign_management-query_campaign", None)
+    def turn(self, payload, on_source):
+        self.calls.append(payload)
+        on_source("Campañas · Amazon Ads")
         result = self.results.pop(0)
         if isinstance(result, Exception):
             raise result

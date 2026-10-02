@@ -25,6 +25,8 @@ class ChannelAccount:
 class BotSettings:
     bot_token: str = ""
     app_token: str = ""
+    chat_api_url: str = "http://chat-api:8800"
+    chat_api_token: str = ""
     allowed_channels: frozenset[str] = frozenset()
     channel_accounts: Mapping[str, ChannelAccount] = field(default_factory=dict)
     allow_direct_messages: bool = True
@@ -39,7 +41,7 @@ class BotSettings:
 
     @property
     def configured(self) -> bool:
-        return bool(self.bot_token and self.app_token)
+        return bool(self.bot_token and self.app_token and self.chat_api_token)
 
     @property
     def every_channel(self) -> bool:
@@ -55,6 +57,8 @@ class BotSettings:
         return cls(
             bot_token=env.get("SLACK_BOT_TOKEN", "").strip(),
             app_token=env.get("SLACK_APP_TOKEN", "").strip(),
+            chat_api_url=env.get("CHAT_API_URL", "").strip() or defaults.chat_api_url,
+            chat_api_token=env.get("CHAT_API_TOKEN", "").strip(),
             allowed_channels=frozenset(_csv(env.get("SLACK_ALLOWED_CHANNELS", ""))),
             channel_accounts=_channel_accounts(env.get("SLACK_CHANNEL_ACCOUNTS", "")),
             allow_direct_messages=_flag(env.get("SLACK_ALLOW_DIRECT_MESSAGES"), defaults.allow_direct_messages),

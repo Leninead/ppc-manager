@@ -1,10 +1,33 @@
 # Bot de Slack — el chat de PPC Manager en Slack
 
-`services/slack_bot/` conecta Slack con el chat de la app. Usa el mismo agente (`orchestrator`), las mismas
-reglas, skills y herramientas (MCP de ppc-manager, Amazon Ads, DataDive) y los mismos componentes. Las respuestas
-salen iguales que en el panel; lo único que cambia es cómo se dibujan. PPC Manager no se modifica: el bot importa
-`ai.runtime`, `ai.client` y `core.chat.*` tal como están, y `tests/test_slack_bot_contract.py` falla si algo de eso
-cambia por debajo.
+El bot conecta Slack con el chat de la app. Usa el mismo agente (`orchestrator`), las mismas reglas, skills y
+herramientas (MCP de ppc-manager, Amazon Ads, DataDive) y los mismos componentes. Las respuestas salen iguales que
+en el panel; lo único que cambia es cómo se dibujan. PPC Manager no se modifica: el chat API importa `ai.runtime`,
+`ai.client` y `core.chat.*` tal como están, y `tests/test_chat_api.py` falla si algo de eso cambia por debajo.
+
+## Arquitectura
+
+Son dos piezas, cada una en su contenedor:
+
+```
+Slack ──Socket Mode──▶ slack-bot ──POST + token──▶ chat-api ──▶ AI provider ──▶ Claude + MCP de ppc-manager
+                       solo tokens de Slack         clave de la base (web_user)
+                       y CHAT_API_TOKEN             y secreto del provider
+```
+
+- **`slack-bot`** (`services/slack_bot/`) es la parte de Slack: escucha las menciones, arma el lote con el debate
+  del hilo, lleva la cola, el perímetro y el estado de cada hilo, y dibuja las respuestas en Slack. No tiene la clave
+  de la base ni el secreto del provider, y no importa nada que los use: `tests/test_slack_bot_contract.py` falla si
+  un import los vuelve a meter en su proceso. Su red interna (`slack-chat`) solo llega al chat API; la otra
+  (`slack-internet`) es su salida a Slack, y no la comparte con nadie.
+- **`chat-api`** (`services/chat_api/`) es el chat de la app como servicio interno: corre cada lote con el agente, las
+  reglas, las skills y las herramientas del chat, elige la región de Amazon Ads en vivo y deja el turno en
+  `chat_turns`. Atiende un solo pedido, `POST /v1/slack/turns`, con el token `CHAT_API_TOKEN`, valida lo que recibe y
+  responde un evento JSON por línea mientras el turno avanza. No publica ningún puerto.
+
+Si alguien tomara el bot, lo máximo que podría hacer es lo mismo que una persona en el canal: hacerle preguntas al
+chat, que solo lee. No puede leer la base, elegir otras herramientas, cambiar las instrucciones del agente ni
+escribir en `chat_turns` por su cuenta.
 
 ## Cómo responde
 
@@ -54,6 +77,8 @@ El MCP lee todas las cuentas con un token de servicio, así que el control de ac
 - Solo responde a miembros del workspace de la agencia: nunca a invitados ni a usuarios de otro workspace. Sus
   mensajes se descartan del lote, ni siquiera entran como contexto.
 - Las herramientas son de solo lectura: el bot no cambia nada en las cuentas.
+- El bot no habla con la base ni con el provider: le pasa el lote al chat API, que es el único con esas
+  credenciales (ver [Arquitectura](#arquitectura)).
 - Los mensajes del hilo viajan a Claude a través del provider, igual que lo que se escribe en el chat de la app.
 
 ## Puesta en marcha
@@ -65,14 +90,18 @@ El MCP lee todas las cuentas con un token de servicio, así que el control de ac
 3. **Instalar la app en el workspace**: *Install App*. Eso da el token del bot, `xoxb-…`.
 4. **Invitar al bot** a cada canal donde va a responder: `/invite @capyassistant`. Al arrancar, el bot lista en su log
    los canales donde está y si cada uno está habilitado, con su ID para `SLACK_ALLOWED_CHANNELS`.
-5. **Cargar en el `.env` del VPS** (`/srv/ppc-manager/.env`) las variables de abajo y desplegar. Sin los dos tokens,
-   el contenedor `agency-slack-bot` registra un aviso y queda en espera, así que se puede desplegar antes de crear
-   la app.
+5. **Generar el token entre el bot y el chat API**, en el VPS, sin que pase por ninguna pantalla:
+   `echo "CHAT_API_TOKEN=$(openssl rand -hex 32)" | sudo tee -a /srv/ppc-manager/.env >/dev/null`.
+6. **Cargar en el `.env` del VPS** (`/srv/ppc-manager/.env`) las variables de abajo y desplegar. Sin sus tokens, los
+   contenedores `agency-slack-bot` y `agency-chat-api` registran un aviso y quedan en espera, así que se puede
+   desplegar antes de crear la app.
 
 | Variable | Default | Qué hace |
 |---|---|---|
 | `SLACK_BOT_TOKEN` | — | Token del bot (`xoxb-…`) |
 | `SLACK_APP_TOKEN` | — | Token de Socket Mode (`xapp-…`) |
+| `CHAT_API_TOKEN` | — | Token que el bot le presenta al chat API; los dos contenedores leen el mismo |
+| `CHAT_API_URL` | `http://chat-api:8800` | Dónde el bot encuentra al chat API (solo para correrlo fuera de Docker) |
 | `SLACK_ALLOWED_CHANNELS` | vacío | IDs de canal separados por coma, o `*` para cualquier canal interno donde lo inviten. Vacío: solo mensajes directos |
 | `SLACK_CHANNEL_ACCOUNTS` | vacío | JSON `{"C0123": {"client": "Love To Dream", "country": "MX"}}`. Es el cliente por defecto del canal; el país elige la región de Amazon Ads en vivo |
 | `SLACK_ALLOW_DIRECT_MESSAGES` | `true` | Responder por mensaje directo |
@@ -86,9 +115,12 @@ El MCP lee todas las cuentas con un token de servicio, así que el control de ac
 
 ## Operación
 
-- **Logs:** `docker logs agency-slack-bot`.
-- **Costo y uso:** cada turno queda en `chat_turns` con `page = 'slack'`, con el costo que reporta el provider y las
-  herramientas que usó.
+- **Logs:** `docker logs agency-slack-bot` (Slack, la cola y las entregas) y `docker logs agency-chat-api` (los
+  turnos). El healthcheck de `agency-chat-api` queda en `unhealthy` mientras falte `CHAT_API_TOKEN`.
+- **Costo y uso:** el chat API deja cada turno en `chat_turns` con `page = 'slack'`, con el costo que reporta el
+  provider y las herramientas que usó.
+- **Si se reinicia el chat API** con un turno en curso, el bot ve que la respuesta se cortó y vuelve a pedir el lote,
+  igual que ante una falla del provider.
 - **Reinicios:** el estado de cada hilo (sesión, hasta dónde leyó, preguntas pendientes) vive en
   `/app/data/slack_bot/state.sqlite3`, en el volumen `slack_bot_state`, que pesa unos pocos KB. Al arrancar, el bot
   retoma los hilos que tenían preguntas pendientes y relee los canales habilitados desde el último evento que

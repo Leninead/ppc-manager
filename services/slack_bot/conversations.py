@@ -42,8 +42,9 @@ class Conversation:
     def key(self) -> Key:
         return (self.channel, self.thread_ts)
 
-    def session_to_resume(self, region: str | None, now: float) -> str | None:
-        if not self.session_id or region != self.region or now - self.session_started_at > SESSION_MAX_AGE_S:
+    def session_to_resume(self, now: float) -> str | None:
+        """The session while the provider still keeps it; the chat API drops it too if its region changed."""
+        if not self.session_id or now - self.session_started_at > SESSION_MAX_AGE_S:
             return None
         return self.session_id
 

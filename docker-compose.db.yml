@@ -202,14 +202,15 @@ services:
     networks: [web, ai-net]
     mem_limit: 1536m
 
-  # Slack bridge to the app chat (services/slack_bot, docs/SLACK-BOT.md): the same agent, tools and components,
-  # answered in threads. Socket Mode, so nothing is published. Same image; its own small volume for thread state.
-  slack-bot:
+  # The app chat as an internal HTTP service (services/chat_api, docs/SLACK-BOT.md): runs each Slack batch with the
+  # chat's agent, rules, skills and tools, and records it in chat_turns. The only piece of the Slack bridge with the
+  # database key and the provider secret. No published port: only the bot shares slack-chat with it.
+  chat-api:
     image: ppc-manager:${IMAGE_TAG:-latest}
-    container_name: agency-slack-bot
-    command: ["python", "-m", "services.slack_bot"]
+    container_name: agency-chat-api
+    command: ["python", "-m", "services.chat_api"]
     restart: unless-stopped
-    # A turn in flight is not resumed: its thread keeps its watermark and is answered again after the restart.
+    # A turn in flight is cut; the bot hears the stream end and asks again.
     stop_grace_period: 10s
     logging:
       driver: json-file
@@ -224,7 +225,39 @@ services:
       CLAUDE_PROVIDER_URL: http://ai-provider:3111
       CLAUDE_PROVIDER_SECRET: ${CLAUDE_PROVIDER_SECRET:-}
       AI_LOG_DIR: /tmp/ai-log
-      # soft default: without both tokens the bot logs once and idles
+      # soft default: without it the chat API logs once and idles, and the healthcheck reports it unhealthy
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
+      CHAT_API_PORT: "8800"
+      IMAGE_TAG: ${IMAGE_TAG:-latest}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8800/health', timeout=4)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 30s
+    depends_on: [rest-gateway]
+    networks: [web, ai-net, slack-chat]
+    mem_limit: 768m
+
+  # Slack bridge to the app chat (services/slack_bot, docs/SLACK-BOT.md): the same agent, tools and components,
+  # answered in threads. Socket Mode, so nothing is published. Same image; its own small volume for thread state.
+  # It holds no database key and no provider secret: it reaches Slack and the chat API, and nothing else.
+  slack-bot:
+    image: ppc-manager:${IMAGE_TAG:-latest}
+    container_name: agency-slack-bot
+    command: ["python", "-m", "services.slack_bot"]
+    restart: unless-stopped
+    # A turn in flight is not resumed: its thread keeps its watermark and is answered again after the restart.
+    stop_grace_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    environment:
+      CHAT_API_URL: http://chat-api:8800
+      # soft default: without the three tokens the bot logs once and idles
+      CHAT_API_TOKEN: ${CHAT_API_TOKEN:-}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       SLACK_ALLOWED_CHANNELS: ${SLACK_ALLOWED_CHANNELS:-}
@@ -240,14 +273,20 @@ services:
     # The image's healthcheck probes Streamlit, which this container does not run.
     healthcheck:
       disable: true
-    depends_on: [rest-gateway]
-    networks: [web, ai-net]
-    mem_limit: 768m
+    depends_on: [chat-api]
+    networks: [slack-chat, slack-internet]
+    # Measured ~50 MB with every chart kind drawn; the turns run in the chat API.
+    mem_limit: 256m
 
 networks:
   web: {}
   ai-net:
     external: true
+  # The bot and the chat API, and nobody else; internal, so it has no way out.
+  slack-chat:
+    internal: true
+  # The bot's way out to Slack. Nothing else joins it.
+  slack-internet: {}
 
 volumes:
   pgdata: {}

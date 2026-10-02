@@ -6,6 +6,28 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Changed — Bot de Slack: el chat corre en su propio servicio, y el bot ya no ve la base ni el provider (2026-10-02)
+
+**Por qué.** El bot tenía la clave de la base (web_user) y el secreto del provider, y compartía red con los dos,
+para algo que solo necesita hacerle preguntas al chat. Si alguien lo tomaba, tenía todo eso a mano.
+
+**Qué cambia.** Queda bot → chat de PPC Manager → provider.
+- Servicio nuevo `services/chat_api/` (contenedor `agency-chat-api`, misma imagen): corre cada lote con el turno del
+  chat de siempre (agente, reglas, skills, herramientas, región de Amazon Ads en vivo) y lo deja en `chat_turns`.
+  Atiende solo `POST /v1/slack/turns` con el token `CHAT_API_TOKEN`, valida el pedido y responde un evento JSON por
+  línea mientras el turno avanza. No publica puertos.
+- El bot (`agency-slack-bot`) se queda con los tokens de Slack y `CHAT_API_TOKEN`, y nada más: vive en una red
+  interna con el chat API y en otra que solo sale a Slack. No resuelve la base, el gateway, el provider ni el MCP, y
+  baja de 768 MB a 256 MB de límite (pesa ~50 MB).
+- `tests/test_slack_bot_contract.py` levanta el bot en un proceso aparte y falla si algún import le vuelve a meter
+  la base, el provider o Streamlit. `tests/test_chat_api.py` prueba el pedido, el turno, la puerta HTTP y el cliente
+  del bot contra el servidor real.
+- El rollback de Jenkins detiene el bot de una imagen anterior a este cambio, porque ese bot llama a la base y al
+  provider por su cuenta y esta red ya no se lo permite.
+
+Antes de desplegar hay que generar `CHAT_API_TOKEN` en el `.env` del VPS (`docs/SLACK-BOT.md`, paso 5); sin él los
+dos contenedores quedan en espera.
+
 ### Changed — Bot de Slack: 5 turnos a la vez y aviso de la cola en ráfagas (2026-10-02)
 
 **Por qué.** Con 2 turnos a la vez, 5 preguntas en canales distintos esperaban hasta tres tandas, y las que llegaban

@@ -1,5 +1,5 @@
-"""The Slack bot's batch: what people wrote, which of it the bot answers, and how the model's reply is read."""
-from services.slack_bot import batch, batch_reply, slack_text
+"""The Slack bot's batch: what people wrote, which of it the bot answers, and the history a new session reads."""
+from services.slack_bot import batch, slack_text
 
 BOT = "UBOT"
 NAMES = {"U1": "Lenin", "U2": "Marcos", "U3": "Ana"}
@@ -148,49 +148,3 @@ def test_history_keeps_the_last_turns_with_the_bot_as_the_assistant():
     document = batch.history_document(messages, before_ts="1.3", bot_user_id=BOT, name_of=name_of)
     assert document["title"] == batch.HISTORY_TITLE
     assert document["content"] == "Lenin: ¿gasto?\nAsistente: @Lenin $10\nMarcos: ok"
-
-
-# --- The model's reply ---
-
-def text_block(text):
-    return {"kind": "text", "text": text}
-
-
-def test_each_answer_keeps_its_questions_and_unknown_ids_are_dropped():
-    reply = batch_reply.read_reply({"answers": [
-        {"questions": ["q2", "q9"], "blocks": [text_block("segunda")]},
-        {"questions": ["q1"], "blocks": [text_block("primera")]}], "skipped": []}, ["q1", "q2"])
-    assert [(a.question_ids, a.blocks[0]["text"]) for a in reply.answers] == [(("q1",), "primera"),
-                                                                              (("q2",), "segunda")]
-    assert reply.missing == ()
-
-
-def test_unanswered_and_skipped_questions_are_told_apart():
-    reply = batch_reply.read_reply({"answers": [{"questions": ["q1"], "blocks": [text_block("a")]}],
-                                    "skipped": [{"question": "q2", "reason": "saludo"}]}, ["q1", "q2", "q3"])
-    assert reply.skipped == {"q2": "saludo"}
-    assert reply.missing == ("q3",)
-
-
-def test_an_answer_that_cannot_be_drawn_leaves_its_questions_unanswered():
-    reply = batch_reply.read_reply({"answers": [{"questions": ["q1"], "blocks": [{"kind": "kpis", "items": []}]}],
-                                    "skipped": []}, ["q1"])
-    assert reply.answers == ()
-    assert reply.missing == ("q1",)
-
-
-def test_a_reply_in_prose_answers_every_question_at_once():
-    reply = batch_reply.read_reply(None, ["q1", "q2"], fallback_text="Todo junto")
-    assert [(a.question_ids, a.blocks) for a in reply.answers] == [(("q1", "q2"), [text_block("Todo junto")])]
-
-
-def test_the_schema_offers_every_component_of_the_app():
-    from core.chat import components
-
-    item = batch_reply.SCHEMA["properties"]["answers"]["items"]["properties"]["blocks"]["items"]
-    assert item["anyOf"] == [component.schema() for component in components.CATALOG]
-    assert batch_reply.GUIDE.startswith(components.GUIDE)
-
-
-def test_the_bot_knows_its_name():
-    assert "Te llamás Capybaras Assistant" in batch_reply.GUIDE

@@ -4,9 +4,7 @@ import time
 
 import pytest
 
-from core.chat.ads_scope import AccountVehicle
 from services.slack_bot import __main__ as entry
-from services.slack_bot.account_scope import AccountScopes
 from services.slack_bot.conversations import SESSION_MAX_AGE_S, Conversation, ConversationRegistry, Stage
 from services.slack_bot.scheduler import TurnScheduler
 from services.slack_bot.settings import BotSettings, ChannelAccount
@@ -72,15 +70,10 @@ def test_idle_threads_nobody_wrote_in_are_forgotten_and_busy_ones_kept():
     assert registry.snapshot(("C1", "waiting")) is not None
 
 
-@pytest.mark.parametrize("change, resumed", [
-    ({}, "S1"),
-    ({"region": "EU"}, None),
-    ({"age": SESSION_MAX_AGE_S + 1}, None),
-])
-def test_a_session_is_resumed_only_in_its_region_and_before_the_provider_deletes_it(change, resumed):
+@pytest.mark.parametrize("age, resumed", [(60, "S1"), (SESSION_MAX_AGE_S + 1, None)])
+def test_a_session_is_resumed_only_before_the_provider_deletes_it(age, resumed):
     conversation = Conversation(*KEY, session_id="S1", session_started_at=1000.0, region="NA")
-    now = 1000.0 + change.get("age", 60)
-    assert conversation.session_to_resume(change.get("region", "NA"), now) == resumed
+    assert conversation.session_to_resume(1000.0 + age) == resumed
 
 
 # --- Scheduler ---
@@ -188,11 +181,13 @@ def test_old_conversations_are_pruned(tmp_path):
 
 def test_settings_read_the_environment_and_ignore_broken_values():
     settings = BotSettings.from_env({
-        "SLACK_BOT_TOKEN": "xoxb", "SLACK_APP_TOKEN": "xapp", "SLACK_ALLOWED_CHANNELS": "C1, C2,",
+        "SLACK_BOT_TOKEN": "xoxb", "SLACK_APP_TOKEN": "xapp", "CHAT_API_TOKEN": "chat",
+        "SLACK_ALLOWED_CHANNELS": "C1, C2,",
         "SLACK_CHANNEL_ACCOUNTS": '{"C1": {"client": "Love To Dream", "country": "mx"}, "C2": {"client": ""}}',
         "SLACK_MAX_PARALLEL_TURNS": "3", "SLACK_BATCH_MAX_QUESTIONS": "cero", "SLACK_GATHER_SECONDS": "-1",
         "SLACK_ALLOW_DIRECT_MESSAGES": "no", "SLACK_EFFORT": "medium"})
     assert settings.configured
+    assert settings.chat_api_url == "http://chat-api:8800"
     assert settings.allowed_channels == {"C1", "C2"}
     assert settings.channel_accounts == {"C1": ChannelAccount("Love To Dream", "MX")}
     assert (settings.max_parallel_turns, settings.batch_max_questions, settings.gather_seconds) == (3, 8, 3.0)
@@ -202,10 +197,11 @@ def test_settings_read_the_environment_and_ignore_broken_values():
 
 def test_without_tokens_the_bot_is_not_configured():
     assert not BotSettings.from_env({}).configured
+    assert not BotSettings.from_env({"SLACK_BOT_TOKEN": "xoxb", "SLACK_APP_TOKEN": "xapp"}).configured
 
 
 def test_without_tokens_the_entry_point_idles_instead_of_crashing(monkeypatch):
-    for name in ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"):
+    for name in ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "CHAT_API_TOKEN"):
         monkeypatch.delenv(name, raising=False)
 
     class Idled(Exception):
@@ -215,28 +211,8 @@ def test_without_tokens_the_entry_point_idles_instead_of_crashing(monkeypatch):
         raise Idled
 
     monkeypatch.setattr(entry.time, "sleep", sleep)
-    monkeypatch.setattr(entry, "quiet_streamlit", lambda: None)
     with pytest.raises(Idled):
         entry.main()
-
-
-def vehicle(region, country):
-    return AccountVehicle(account_id=1 if region == "NA" else 2, profile_id="9", region=region, country_code=country,
-                          client="X")
-
-
-def test_a_channels_country_picks_the_live_amazon_ads_region():
-    settings = BotSettings(channel_accounts={"CDE": ChannelAccount("Cliente DE", "DE")})
-    scopes = AccountScopes(settings, load_vehicles=lambda: [vehicle("NA", "US"), vehicle("NA", "MX"),
-                                                            vehicle("EU", "DE")])
-    eu = scopes.for_thread("CDE", "slack:Lenin")
-    assert (eu.region, eu.ads_scope["account_id"], eu.ads_scope["requested_by"]) == ("EU", 2, "slack:Lenin")
-    assert scopes.for_thread("COTRO", "slack:Lenin").region == "NA"
-
-
-def test_without_connected_accounts_the_turn_goes_without_live_amazon_ads():
-    scope = AccountScopes(BotSettings(), load_vehicles=lambda: []).for_thread("C1", "slack:Lenin")
-    assert (scope.ads_scope, scope.region) == (None, None)
 
 
 def test_a_dm_thread_first_seen_through_a_refused_mention_stays_direct():
