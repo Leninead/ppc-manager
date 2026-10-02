@@ -272,13 +272,22 @@ def _parse_period_str(period: str) -> tuple[int, int]:
 
 
 def _iso_week_dates(year: int, week_iso: int) -> tuple[date, date]:
-    """Devuelve (lunes, domingo) de la semana ISO."""
+    """Devuelve (domingo, sábado) de la semana N: el lunes ISO de N menos 1 día, +6.
+
+    Las semanas van de domingo a sábado, como el Business Report de Amazon y el
+    weekDates del HTML de Gamboa. El número de semana es el mismo que el ISO.
+    """
     try:
-        monday = date.fromisocalendar(year, week_iso, 1)
-        sunday = monday + timedelta(days=6)
-        return monday, sunday
+        sunday = date.fromisocalendar(year, week_iso, 1) - timedelta(days=1)
+        return sunday, sunday + timedelta(days=6)
     except (ValueError, OverflowError):
         return (date(year, 1, 1), date(year, 1, 7))
+
+
+def _week_of(d: date) -> tuple[int, int]:
+    """(año, semana) de una fecha con semanas domingo→sábado: el ISO de d + 1 día."""
+    year, week, _ = (d + timedelta(days=1)).isocalendar()
+    return year, week
 
 
 def _week_label_es(year: int, week_iso: int) -> str:

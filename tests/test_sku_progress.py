@@ -64,3 +64,40 @@ def test_coalesce_category_df_vacio():
 
     assert isinstance(out, pd.DataFrame)
     assert out.empty
+
+
+# Weeks run Sunday to Saturday, like Amazon's Business Report and the Gamboa HTML.
+from datetime import date
+
+import pytest
+
+from modules.pages.sku_progress_report import _week_label_es, _week_of
+
+
+@pytest.mark.parametrize(
+    "year, week, label",
+    [
+        (2026, 2, "Ene 4-10"),
+        (2026, 14, "Mar 29-Abr 4"),
+        (2026, 33, "Ago 9-15"),
+        (2026, 36, "Ago 30-Sep 5"),
+        (2026, 53, "Dic 27-Ene 2"),
+    ],
+)
+def test_week_label_va_de_domingo_a_sabado(year, week, label):
+    assert _week_label_es(year, week) == label
+
+
+@pytest.mark.parametrize(
+    "day, week",
+    [
+        (date(2026, 8, 9), (2026, 33)),    # Sunday opens week 33
+        (date(2026, 8, 15), (2026, 33)),   # Saturday closes it
+        (date(2026, 12, 26), (2026, 52)),
+        (date(2027, 1, 1), (2026, 53)),
+        (date(2027, 1, 3), (2027, 1)),
+        (date(2025, 12, 28), (2026, 1)),
+    ],
+)
+def test_week_of_cuenta_la_semana_desde_el_domingo(day, week):
+    assert _week_of(day) == week
