@@ -10,6 +10,7 @@ import pytest
 from core.amazon_ads import live_reads
 from core.amazon_ads.live_reads import LiveReadError
 from services.mcp_server import server
+from services.mcp_server.limits import Page
 from services.mcp_server.tools import amazon_live
 
 CATALOG_CSV = (
@@ -94,7 +95,8 @@ def test_live_budget_joins_amazon_recommendation_and_usage_by_campaign_and_order
     assert first["campaign"] == "Fajas Exact" and first["time_in_budget_pct"] == 60.0 and first["usage_pct_now"] == 40
     assert payload["rows"][-1]["recommendation"] == "sin recomendación"
     assert payload["counts"] == {"campaigns": 4, "limited_last_7_days": 2, "at_or_over_budget_now": 1,
-                                 "without_recommendation": 1, "budget_rules_active": 1}
+                                 "limited_last_7_days_or_now": 3, "without_recommendation": 1,
+                                 "budget_rules_active": 1}
     assert payload["totals"]["missed_sales"] == [130.0, 390.0]
     assert payload["portfolios"][0]["portfolio"] == "Marca"
     assert payload["account"] == "Acme · MX" and payload["source"] == "Amazon Ads, en vivo"
@@ -107,6 +109,17 @@ def test_live_budget_only_limited_keeps_the_campaigns_short_of_budget_now_or_in_
     payload = amazon_live.live_budget(_FakeRest(), profile_id="111", only_limited=True)
 
     assert {row["campaign_id"] for row in payload["rows"]} == {"c1", "c2", "c4"}
+    assert payload["total"] == payload["counts"]["limited_last_7_days_or_now"] == 3
+
+
+def test_a_paged_limited_list_names_what_its_total_counts(monkeypatch):
+    _budget_reads(monkeypatch)
+    monkeypatch.setattr(amazon_live, "page", lambda rows, offset=0: Page(rows=rows[:1], total=len(rows), offset=0))
+
+    payload = amazon_live.live_budget(_FakeRest(), profile_id="111", only_limited=True)
+
+    assert "Hay 3 campañas que se quedaron sin presupuesto en sus últimos 7 días o ya gastaron el de hoy" \
+        in payload["note"]
 
 
 def test_a_part_amazon_did_not_answer_goes_to_errors_and_the_rest_still_answers(monkeypatch):
@@ -287,9 +300,55 @@ def test_live_store_reads_the_store_named(monkeypatch):
 
     monkeypatch.setattr(live_reads, "store_insights", insights)
 
-    payload = amazon_live.live_store(_FakeRest(), profile_id="111", metric="SALES", store="kids")
+    payload = amazon_live.live_store(_FakeRest(), profile_id="111", metrics=["SALES"], store="kids")
 
     assert asked == {"entity": "E2", "metric": "SALES"} and payload["store"] == "Acme Kids"
+
+
+def test_live_store_reads_several_metrics_at_once_as_one_row_per_day_and_reports_the_one_that_failed(monkeypatch):
+    monkeypatch.setattr(live_reads, "stores", lambda api, live: [{"name": "Acme", "brand_entity_id": "E1"}])
+
+    def insights(api, live, entity, metric, dimension, start, end):
+        if metric == "ORDERS":
+            raise LiveReadError("Amazon está limitando las consultas de las métricas de la Store en esta cuenta.")
+        values = {"VISITS": (3, 5), "NEW_TO_STORE": (1, 2)}[metric]
+        return [{"date": day, metric.lower(): value} for day, value in zip(("2026-09-30", "2026-09-29"), values)]
+
+    monkeypatch.setattr(live_reads, "store_insights", insights)
+
+    payload = amazon_live.live_store(_FakeRest(), profile_id="111", metrics=["VISITS", "NEW_TO_STORE", "ORDERS"])
+
+    assert payload["rows"] == [{"date": "2026-09-29", "visits": 5, "new_to_store": 2},
+                               {"date": "2026-09-30", "visits": 3, "new_to_store": 1}]
+    assert payload["metrics"] == ["VISITS", "NEW_TO_STORE", "ORDERS"]
+    assert [error["part"] for error in payload["errors"]] == ["ORDERS"]
+
+
+def test_live_store_without_metrics_reads_them_all(monkeypatch):
+    asked = []
+    monkeypatch.setattr(live_reads, "stores", lambda api, live: [{"name": "Acme", "brand_entity_id": "E1"}])
+    monkeypatch.setattr(live_reads, "store_insights", lambda api, live, entity, metric, *args: asked.append(metric) or [])
+
+    payload = amazon_live.live_store(_FakeRest(), profile_id="111")
+
+    assert sorted(asked) == sorted(live_reads.STORE_METRICS) and payload["metrics"] == list(live_reads.STORE_METRICS)
+
+
+def test_live_store_prefers_the_exact_name_over_a_longer_one_listed_first(monkeypatch):
+    monkeypatch.setattr(live_reads, "stores", lambda api, live: [
+        {"name": "EMPETUA By Shapermint", "brand_entity_id": "E1"}, {"name": "Shapermint", "brand_entity_id": "E2"}])
+    monkeypatch.setattr(live_reads, "store_insights", lambda api, live, entity, *args: [{"entity": entity}])
+
+    payload = amazon_live.live_store(_FakeRest(), profile_id="111", store="shapermint")
+
+    assert payload["store"] == "Shapermint" and payload["rows"] == [{"entity": "E2"}]
+
+
+def test_live_store_names_the_stores_when_none_has_the_asked_name(monkeypatch):
+    monkeypatch.setattr(live_reads, "stores", lambda api, live: [{"name": "Acme", "brand_entity_id": "E1"}])
+
+    with pytest.raises(ValueError, match="no tiene una Store llamada «Zeta». Las que tiene son «Acme»"):
+        amazon_live.live_store(_FakeRest(), profile_id="111", store="Zeta")
 
 
 def test_the_server_offers_the_live_tools_only_when_it_can_open_the_tokens(monkeypatch):

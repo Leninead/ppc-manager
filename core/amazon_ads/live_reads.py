@@ -129,14 +129,32 @@ def remembered(key: tuple, fetch: Callable[[], object], ttl_s: float = RECOMMEND
     return value, fetched_at
 
 
+_history_locks: dict[str, threading.Lock] = {}
+_history_locks_guard = threading.Lock()
+
+
+def _history_lock(profile_id: str) -> threading.Lock:
+    with _history_locks_guard:
+        return _history_locks.setdefault(profile_id, threading.Lock())
+
+
+def _with_preposition(preposition: str, what: str) -> str:
+    # Spanish contracts "de el" into "del" and "a el" into "al".
+    if what.startswith("el "):
+        return {"de": "del", "a": "al"}[preposition] + what[2:]
+    return f"{preposition} {what}"
+
+
 def explain(exc: Exception, account: LiveAccount, what: str) -> LiveReadError:
     if isinstance(exc, AdsThrottled):
-        return LiveReadError(f"Amazon está limitando las consultas de {what} en esta cuenta: probá de nuevo en un minuto.")
+        return LiveReadError(f"Amazon está limitando las consultas {_with_preposition('de', what)} en esta cuenta: "
+                             "probá de nuevo en un minuto.")
     if isinstance(exc, (oauth.NeedsReauth, ConnectionUnavailable)):
         return LiveReadError(f"La autorización de Amazon Ads de {account.label} venció o está pausada: hay que "
                              "reconectarla en Integraciones.")
     if isinstance(exc, AdsAccessDenied):
-        return LiveReadError(f"La autorización de Amazon Ads de {account.label} no tiene acceso a {what}.")
+        return LiveReadError(f"La autorización de Amazon Ads de {account.label} no tiene acceso "
+                             f"{_with_preposition('a', what)}.")
     if isinstance(exc, oauth.OAuthError):
         return LiveReadError("No se pudo renovar el acceso a Amazon Ads: probá de nuevo en un rato.")
     if isinstance(exc, AdsApiError):
@@ -147,7 +165,8 @@ def explain(exc: Exception, account: LiveAccount, what: str) -> LiveReadError:
         detail = _amazon_message(exc.body)
         if "not supported" in detail.lower():
             return LiveReadError(f"Amazon no ofrece {what} en {account.country}.")
-        return LiveReadError(f"Amazon rechazó el pedido de {what} (HTTP {exc.status}): {detail or 'sin detalle'}.")
+        return LiveReadError(f"Amazon rechazó el pedido {_with_preposition('de', what)} (HTTP {exc.status}): "
+                             f"{detail or 'sin detalle'}.")
     return LiveReadError(f"No se pudo hablar con Amazon al pedir {what}: probá de nuevo en un rato.")
 
 
@@ -336,8 +355,10 @@ def change_history(api, account: LiveAccount, *, days: int, entities: Sequence[s
     body = {"fromDate": now_ms - span_days * 86_400_000, "toDate": now_ms, "count": min(max(int(count), 50), 200),
             "pageOffset": max(int(offset), 0), "sort": {"key": "DATE", "direction": "DESC"},
             "eventTypes": event_types}
-    result = _request(api, account, "el historial de cambios", "POST", "/history", body=body, media="application/json",
-                      accept="application/json", expected=(200,))
+    # Amazon answers 429 to parallel history reads of one account, and the model fans them out: one at a time.
+    with _history_lock(account.profile_id):
+        result = _request(api, account, "el historial de cambios", "POST", "/history", body=body,
+                          media="application/json", accept="application/json", expected=(200,))
     return {"events": [_event(event) for event in result.get("events") or []], "total": result.get("totalRecords")}
 
 
@@ -622,7 +643,7 @@ def _number(value):
 
 def _scaled(value, scale: int):
     number = _number(value)
-    return None if number is None else round(number * scale, 4)
+    return None if number is None else round(number * scale, 2)
 
 
 def _cents(value):

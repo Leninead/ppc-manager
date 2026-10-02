@@ -1,6 +1,8 @@
 """Live Amazon Ads reads: the request each one sends, what it keeps of the answer, and how a failure reads. No network."""
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 
 import pytest
@@ -150,6 +152,39 @@ def test_change_history_without_campaigns_asks_for_the_whole_advertiser():
     assert api.calls[0]["json_body"]["eventTypes"] == {"AD_GROUP": {"parents": [{"useProfileIdAdvertiser": True}]}}
 
 
+def test_parallel_history_reads_of_one_account_go_one_at_a_time():
+    guard, running, most = threading.Lock(), [0], [0]
+
+    class _SlowApi:
+        def request(self, method, path, **kwargs):
+            with guard:
+                running[0] += 1
+                most[0] = max(most[0], running[0])
+            time.sleep(0.05)
+            with guard:
+                running[0] -= 1
+            return _Response({"events": [], "totalRecords": 0})
+
+    readers = [threading.Thread(target=live_reads.change_history, args=(_SlowApi(), ACCOUNT), kwargs={"days": 7})
+               for _ in range(3)]
+    for reader in readers:
+        reader.start()
+    for reader in readers:
+        reader.join()
+
+    assert most[0] == 1
+
+
+@pytest.mark.parametrize("error, what, says", [
+    (AdsThrottled("x"), "el historial de cambios", "las consultas del historial de cambios"),
+    (AdsThrottled("x"), "los datos de los productos", "las consultas de los datos de los productos"),
+    (AdsAccessDenied("x", status=403), "el historial de cambios", "no tiene acceso al historial de cambios"),
+    (AdsApiError("x", status=400, body='{"message":"bad"}'), "el historial de cambios", "el pedido del historial"),
+])
+def test_a_failure_names_what_it_asked_with_del_and_al(error, what, says):
+    assert says in str(live_reads.explain(error, ACCOUNT, what))
+
+
 @pytest.mark.parametrize("kind, text, match, expected", [
     ("keyword", "fajas mujer", "EXACT", {"type": "KEYWORD_EXACT_MATCH", "value": "fajas mujer"}),
     ("auto", "close-match", "", {"type": "CLOSE_MATCH"}),
@@ -212,16 +247,18 @@ def test_display_bids_follow_the_campaign_cost_type_and_say_when_amazon_has_none
     assert body["costType"] == "vcpm" and body["bidOptimization"] == "reach"
 
 
-def test_category_benchmarks_put_acos_and_ctr_in_percent_and_say_when_pages_are_left():
+def test_category_benchmarks_put_acos_and_ctr_in_percent_with_two_decimals_and_say_when_pages_are_left():
     api = _FakeApi({"brandsAndCategories": [{"brandName": "Acme", "categoryName": "Beauty",
-                                             "acos": {"value": 0.32, "median": 0.28, "top-25pct": 0.2},
+                                             "acos": {"value": 0.480891, "median": 0.28, "top-25pct": 0.2},
+                                             "ctr": {"value": 0.0012345},
                                              "roas": {"value": 3.1}}], "nextPageToken": "n"})
 
     found = live_reads.sb_category_benchmarks(api, ACCOUNT, date(2026, 9, 1),
                                               date(2026, 9, 30), pages=1)
 
     row = found["rows"][0]
-    assert row["acos"]["brand"] == 32.0 and row["acos"]["median"] == 28.0 and row["acos"]["bottom_25"] is None
+    assert row["acos"]["brand"] == 48.09 and row["acos"]["median"] == 28.0 and row["acos"]["bottom_25"] is None
+    assert row["ctr"]["brand"] == 0.12
     assert row["roas"]["brand"] == 3.1
     assert found["more"] is True
 

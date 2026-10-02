@@ -8,6 +8,7 @@ model reads; when only one part fails, `errors` says which, next to what did ans
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
@@ -43,7 +44,11 @@ _HISTORY_ENTITIES = {"campaign": "CAMPAIGN", "ad_group": "AD_GROUP", "keyword": 
 BUDGET_NOTE = ("time_in_budget_pct es el % del tiempo de los últimos 7 días en que la campaña tuvo presupuesto (100 = "
                "nunca se quedó sin). missed_sales, missed_clicks y missed_impressions son lo que Amazon estima que se "
                "perdió por falta de presupuesto en esos 7 días, como rango [bajo, alto], en la moneda de la cuenta. "
-               "usage_pct_now es cuánto del presupuesto de hoy lleva gastado en este momento: puede pasar de 100.")
+               "usage_pct_now es cuánto del presupuesto de hoy lleva gastado en este momento: puede pasar de 100. "
+               "Con only_limited, la lista y su total son las campañas que se quedaron sin presupuesto en sus últimos 7 "
+               "días o ya gastaron el de hoy (counts.limited_last_7_days_or_now); counts.limited_last_7_days cuenta "
+               "sólo las de los últimos 7 días y counts.at_or_over_budget_now sólo las de hoy.")
+LIMITED_WHAT = "campañas que se quedaron sin presupuesto en sus últimos 7 días o ya gastaron el de hoy"
 BENCHMARK_NOTE = ("Cada fila es una marca de la cuenta en una categoría: brand es su cifra y median, top_25 y bottom_25 "
                   "los de las marcas de esa categoría en Sponsored Brands, como los da Amazon. acos y ctr en %, roas en "
                   "veces, impressions en cantidad.")
@@ -98,12 +103,14 @@ def live_budget(rest, *, profile_id: str = "", account: str = "", product: LiveP
     rows = [_budget_row(record, results, unknown) for record in chosen.to_dict("records")]
     limited = [row for row in rows if _is_limited(row)]
     shown = sorted(limited if only_limited else rows, key=_budget_order, reverse=True)
-    payload = {**_head(live), **page(shown, offset=offset).as_payload(what="campañas")}
+    what = LIMITED_WHAT if only_limited else "campañas"
+    payload = {**_head(live), **page(shown, offset=offset).as_payload(what=what)}
     rules = [rule for code in PRODUCTS for rule in results.get(f"reglas {code}") or []]
     payload["counts"] = {
         "campaigns": len(rows),
         "limited_last_7_days": sum(1 for row in rows if (row.get("time_in_budget_pct") or 100) < 100),
         "at_or_over_budget_now": sum(1 for row in rows if (row.get("usage_pct_now") or 0) >= 100),
+        "limited_last_7_days_or_now": len(limited),
         "without_recommendation": sum(1 for row in rows if row.get("recommendation") == "sin recomendación"),
         "budget_rules_active": sum(1 for rule in rules if rule.get("state") == "ACTIVE"),
     }
@@ -303,9 +310,9 @@ def live_invoices(rest, *, profile_id: str = "", account: str = "", count: int =
     return payload
 
 
-def live_store(rest, *, profile_id: str = "", account: str = "", metric: StoreMetric = "VISITS",
+def live_store(rest, *, profile_id: str = "", account: str = "", metrics: list[StoreMetric] | None = None,
                dimension: StoreDimension = "DATE", days: int = 30, store: str = "") -> dict:
-    """One metric of an account's brand store by day, page or traffic source."""
+    """An account's brand store by day, page or traffic source, every asked metric in one row."""
     live, candidates = _live_account(rest, profile_id, account)
     if candidates:
         return candidates
@@ -314,20 +321,51 @@ def live_store(rest, *, profile_id: str = "", account: str = "", metric: StoreMe
     if not stores:
         return {**_head(live), "rows": [], "total": 0, "showing": 0, "offset": 0,
                 "note": "La cuenta no tiene Stores en Amazon."}
-    wanted = store.strip().casefold()
-    picked = next((item for item in stores if wanted and wanted in str(item.get("name") or "").casefold()), stores[0])
+    picked = _store_named(stores, store) if store.strip() else stores[0]
+    if picked is None:
+        raise ValueError(f"La cuenta no tiene una Store llamada «{store.strip()}». Las que tiene son "
+                         + ", ".join(f"«{item.get('name')}»" for item in stores) + ".")
     if not picked.get("brand_entity_id"):
         raise ValueError("Amazon no devolvió la marca de esa Store, así que no se pueden leer sus métricas.")
     span = min(max(int(days), 1), 100)
     end = date.today() - timedelta(days=1)
     start = end - timedelta(days=span - 1)
-    rows = live_reads.store_insights(api, live, picked["brand_entity_id"], metric, dimension, start, end)
+    asked = list(dict.fromkeys(metrics or live_reads.STORE_METRICS))
+    # Amazon answers one metric per request: they go out at once.
+    results, errors = _run_all({metric: partial(live_reads.store_insights, api, live, picked["brand_entity_id"],
+                                                metric, dimension, start, end) for metric in asked})
+    rows = _store_rows(results)
     payload = {**_head(live), "store": picked.get("name"), "stores": [item.get("name") for item in stores],
-               "metric": metric, "dimension": dimension, "window": {"from": start.isoformat(), "to": end.isoformat()},
+               "metrics": asked, "dimension": dimension, "window": {"from": start.isoformat(), "to": end.isoformat()},
                **page(rows).as_payload(what="filas")}
+    if errors:
+        payload["errors"] = errors
     if not rows:
-        payload["note"] = "Amazon no tiene datos de esa métrica para la Store en esas fechas."
+        payload["note"] = "Amazon no tiene datos de esas métricas para la Store en esas fechas."
     return payload
+
+
+def _store_rows(by_metric: dict[str, list[dict]]) -> list[dict]:
+    """One row per day, page or source with every metric Amazon answered for it."""
+    merged: dict[tuple, dict] = {}
+    for metric, rows in by_metric.items():
+        for row in rows:
+            values = {key: value for key, value in row.items() if _bare(key) == _bare(metric)}
+            where = tuple((key, value) for key, value in row.items() if key not in values)
+            merged.setdefault(where, dict(where)).update(values)
+    return [merged[where] for where in sorted(merged, key=str)]
+
+
+def _bare(name: str) -> str:
+    return re.sub(r"[^a-z]", "", name.lower())
+
+
+def _store_named(stores: list[dict], name: str) -> dict | None:
+    """The store with exactly that name, else the first whose name contains it."""
+    wanted = name.strip().casefold()
+    named = [(str(item.get("name") or "").casefold(), item) for item in stores]
+    return next((item for found, item in named if found == wanted), None) \
+        or next((item for found, item in named if wanted in found), None)
 
 
 def _live_account(rest, profile_id: str, account: str) -> tuple[LiveAccount | None, dict | None]:

@@ -413,10 +413,11 @@ def live_tools(rest) -> list:
               "campaña, y cost_by_program lo suma por SP, SB y SD." + LIVE_HINT + ACCOUNT_HINT,
               partial(amazon_live.live_invoices, rest)),
         _tool("live_store",
-              "Una métrica de la Store de marca de una cuenta, en vivo: visitas, visitantes, vistas, ventas, órdenes, "
-              "unidades, nuevos en la Store, rebote o tiempo de permanencia (metric), por día, por página o por "
-              "fuente de tráfico (dimension), en los últimos days días, hasta 100. store elige una Store por su "
-              "nombre cuando la cuenta tiene varias." + LIVE_HINT + ACCOUNT_HINT,
+              "La Store de marca de una cuenta, en vivo y en una sola llamada: visitas, visitantes, vistas, ventas, "
+              "órdenes, unidades, nuevos en la Store, rebote y tiempo de permanencia (metrics; sin metrics trae "
+              "todas), por día, por página o por fuente de tráfico (dimension), en los últimos days días, hasta 100. "
+              "Cada fila trae todas las métricas pedidas. store elige una Store por su nombre cuando la cuenta tiene "
+              "varias, y stores lista las que tiene." + LIVE_HINT + ACCOUNT_HINT,
               partial(amazon_live.live_store, rest)),
     ]
 

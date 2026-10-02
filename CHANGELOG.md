@@ -6,6 +6,25 @@ Registro de cambios, mejoras y decisiones de diseño del PPC Manager.
 
 ## [Unreleased]
 
+### Fixed — Lo que mostraron las pruebas del chat con Amazon Ads en vivo en producción (2026-10-02)
+
+**Por qué.** 13 preguntas vagas en app.capybaras.agency, ya con las herramientas `live_*` desplegadas, mostraron
+respuestas buenas y cinco fallas de las herramientas.
+
+**Qué cambia.**
+- `live_store` elegía la Store por nombre parcial: al pedir «Shapermint» traía «EMPETUA By Shapermint». Ahora gana el
+  nombre exacto, y si ninguna se llama así responde con la lista de Stores de la cuenta en vez de leer otra.
+- `live_store` trae varias métricas en una llamada (`metrics`, todas si no se piden): Amazon contesta una por pedido,
+  así que salen a la vez y vuelven en una fila por día, página o fuente. El chat hacía 7 llamadas para una pregunta.
+- `live_change_history` lee el historial de una cuenta de a una consulta: Amazon respondía 429 cuando el modelo pedía
+  varias a la vez y el chat se quedaba sin parte del historial.
+- `live_budget` nombra el total de su lista (`counts.limited_last_7_days_or_now`): el chat decía «111 campañas sin
+  presupuesto» y más abajo «121», que eran las de la semana más las que ya gastaron el de hoy.
+- `live_category_benchmark` da ACoS, CTR y ROAS con dos decimales (antes 48.0891%).
+- Los errores dicen «del historial» y «al historial», no «de el» ni «a el».
+- El prompt del chat lleva «lo facturado» a las facturas en vivo: ante una pregunta de todas las cuentas, contesta con
+  lo guardado y ofrece abrir con la `live_*` la cuenta que más pesa.
+
 ### Added — El chat consulta Amazon Ads en vivo: presupuesto, productos, cambios, bids, benchmark, facturas y Store (2026-10-01)
 
 **Por qué.** Amazon calcula datos que la app no guarda y que el AM pregunta: cuánto se pierde por quedarse sin
