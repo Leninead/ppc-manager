@@ -152,7 +152,11 @@ def test_change_history_without_campaigns_asks_for_the_whole_advertiser():
     assert api.calls[0]["json_body"]["eventTypes"] == {"AD_GROUP": {"parents": [{"useProfileIdAdvertiser": True}]}}
 
 
-def test_parallel_history_reads_of_one_account_go_one_at_a_time():
+@pytest.mark.parametrize("read", [
+    lambda api: live_reads.change_history(api, ACCOUNT, days=7),
+    lambda api: live_reads.store_insights(api, ACCOUNT, "E1", "VISITS", "DATE", date(2026, 9, 1), date(2026, 9, 30)),
+])
+def test_parallel_history_and_store_reads_of_one_account_go_one_at_a_time(read):
     guard, running, most = threading.Lock(), [0], [0]
 
     class _SlowApi:
@@ -163,10 +167,9 @@ def test_parallel_history_reads_of_one_account_go_one_at_a_time():
             time.sleep(0.05)
             with guard:
                 running[0] -= 1
-            return _Response({"events": [], "totalRecords": 0})
+            return _Response({"events": [], "totalRecords": 0, "metricsDetails": []})
 
-    readers = [threading.Thread(target=live_reads.change_history, args=(_SlowApi(), ACCOUNT), kwargs={"days": 7})
-               for _ in range(3)]
+    readers = [threading.Thread(target=read, args=(_SlowApi(),)) for _ in range(3)]
     for reader in readers:
         reader.start()
     for reader in readers:

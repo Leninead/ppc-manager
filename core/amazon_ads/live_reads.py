@@ -129,13 +129,14 @@ def remembered(key: tuple, fetch: Callable[[], object], ttl_s: float = RECOMMEND
     return value, fetched_at
 
 
-_history_locks: dict[str, threading.Lock] = {}
-_history_locks_guard = threading.Lock()
+_serial_locks: dict[tuple[str, str], threading.Lock] = {}
+_serial_locks_guard = threading.Lock()
 
 
-def _history_lock(profile_id: str) -> threading.Lock:
-    with _history_locks_guard:
-        return _history_locks.setdefault(profile_id, threading.Lock())
+def _one_at_a_time(endpoint: str, profile_id: str) -> threading.Lock:
+    # Amazon answers 429 to parallel reads of these endpoints for one account, and the model fans them out.
+    with _serial_locks_guard:
+        return _serial_locks.setdefault((endpoint, profile_id), threading.Lock())
 
 
 def _with_preposition(preposition: str, what: str) -> str:
@@ -355,8 +356,7 @@ def change_history(api, account: LiveAccount, *, days: int, entities: Sequence[s
     body = {"fromDate": now_ms - span_days * 86_400_000, "toDate": now_ms, "count": min(max(int(count), 50), 200),
             "pageOffset": max(int(offset), 0), "sort": {"key": "DATE", "direction": "DESC"},
             "eventTypes": event_types}
-    # Amazon answers 429 to parallel history reads of one account, and the model fans them out: one at a time.
-    with _history_lock(account.profile_id):
+    with _one_at_a_time("history", account.profile_id):
         result = _request(api, account, "el historial de cambios", "POST", "/history", body=body,
                           media="application/json", accept="application/json", expected=(200,))
     return {"events": [_event(event) for event in result.get("events") or []], "total": result.get("totalRecords")}
@@ -583,10 +583,11 @@ def store_insights(api, account: LiveAccount, brand_entity_id: str, metric: str,
                    end: date) -> list[dict]:
     """One metric of a store by day, page or traffic source: Amazon answers one metric per request."""
     body = {"dimension": dimension, "metrics": [metric], "startDate": start.isoformat(), "endDate": end.isoformat()}
-    result = _request(api, account, "las métricas de la Store", "POST",
-                      f"/stores/{quote(brand_entity_id, safe='')}/insights", body=body,
-                      media="application/vnd.GetInsightsForStoreRequest.v1+json",
-                      accept="application/vnd.GetInsightsForStoreResponse.v1+json", expected=(200,))
+    with _one_at_a_time("store", account.profile_id):
+        result = _request(api, account, "las métricas de la Store", "POST",
+                          f"/stores/{quote(brand_entity_id, safe='')}/insights", body=body,
+                          media="application/vnd.GetInsightsForStoreRequest.v1+json",
+                          accept="application/vnd.GetInsightsForStoreResponse.v1+json", expected=(200,))
     rows = []
     for item in result.get("metricsDetails") or []:
         row = {}

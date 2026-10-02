@@ -331,7 +331,7 @@ def live_store(rest, *, profile_id: str = "", account: str = "", metrics: list[S
     end = date.today() - timedelta(days=1)
     start = end - timedelta(days=span - 1)
     asked = list(dict.fromkeys(metrics or live_reads.STORE_METRICS))
-    # Amazon answers one metric per request: they go out at once.
+    # Amazon answers one metric per request and throttles parallel ones: live_reads sends them one at a time.
     results, errors = _run_all({metric: partial(live_reads.store_insights, api, live, picked["brand_entity_id"],
                                                 metric, dimension, start, end) for metric in asked})
     rows = _store_rows(results)

@@ -14,8 +14,9 @@ respuestas buenas y cinco fallas de las herramientas.
 **Qué cambia.**
 - `live_store` elegía la Store por nombre parcial: al pedir «Shapermint» traía «EMPETUA By Shapermint». Ahora gana el
   nombre exacto, y si ninguna se llama así responde con la lista de Stores de la cuenta en vez de leer otra.
-- `live_store` trae varias métricas en una llamada (`metrics`, todas si no se piden): Amazon contesta una por pedido,
-  así que salen a la vez y vuelven en una fila por día, página o fuente. El chat hacía 7 llamadas para una pregunta.
+- `live_store` trae varias métricas en una llamada (`metrics`, todas si no se piden) y vuelven en una fila por día,
+  página o fuente. El chat hacía 7 llamadas para una pregunta. Amazon contesta una métrica por pedido y responde 429
+  si van en paralelo, así que salen de a una por cuenta: las 9 tardaron 4,5 s en producción.
 - `live_change_history` lee el historial de una cuenta de a una consulta: Amazon respondía 429 cuando el modelo pedía
   varias a la vez y el chat se quedaba sin parte del historial.
 - `live_budget` nombra el total de su lista (`counts.limited_last_7_days_or_now`): el chat decía «111 campañas sin
