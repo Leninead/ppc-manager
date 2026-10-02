@@ -290,6 +290,25 @@ def _week_of(d: date) -> tuple[int, int]:
     return year, week
 
 
+def _with_week_labels(history: pd.DataFrame) -> pd.DataFrame:
+    """Copia con week_label recalculado desde (year, week_iso).
+
+    Los snapshots guardan el rótulo como texto y hay de las dos reglas (lunes y
+    domingo). Si a una fila le falta year o week_iso, queda el rótulo guardado.
+    """
+    if history.empty or not {"year", "week_iso"} <= set(history.columns):
+        return history
+
+    def label(row):
+        if pd.isna(row["year"]) or pd.isna(row["week_iso"]):
+            return row.get("week_label")
+        return _week_label_es(int(row["year"]), int(row["week_iso"]))
+
+    out = history.copy()
+    out["week_label"] = out.apply(label, axis=1)
+    return out
+
+
 def _week_label_es(year: int, week_iso: int) -> str:
     """Genera label legible 'Mar 29-Abr 4' o 'Abr 5-11' (rango ES)."""
     start, end = _iso_week_dates(year, week_iso)
@@ -684,6 +703,7 @@ def _build_sku_progress_excel(
     if not _HAS_OPENPYXL:
         raise RuntimeError("openpyxl no disponible")
 
+    history = _with_week_labels(history)
     wb = Workbook()
     # Borrar default sheet
     wb.remove(wb.active)
@@ -817,9 +837,7 @@ def _dialog_add_sku(cliente: str):
             st.error(f"El SKU '{sku.strip()}' ya existe en el tracking.")
             return
         # added_at en formato period (YYYY-WW de hoy)
-        today = date.today()
-        iso_year, iso_week, _ = today.isocalendar()
-        added_period = _period_str(iso_year, iso_week)
+        added_period = _period_str(*_week_of(date.today()))
         config["skus"].append({
             "sku":       sku.strip(),
             "asin":      asin.strip(),
@@ -886,14 +904,8 @@ def _dialog_add_event(cliente: str, sku: str):
     # dropdown ofrece 8 semanas cerradas hacia atras, mas cualquier period que ya
     # tenga optimizaciones cargadas (para no perderlo del selector).
     # Se calcula restando dias reales -> maneja el cruce de anio solo.
-    prev_week_date = today - timedelta(days=7)
-    prev_year, prev_week, _ = prev_week_date.isocalendar()
-    prev_period = _period_str(prev_year, prev_week)
-    window = []
-    for i in range(8):
-        d = today - timedelta(days=7 * (i + 1))
-        y, w, _ = d.isocalendar()
-        window.append(_period_str(y, w))
+    prev_period = _period_str(*_week_of(today - timedelta(days=7)))
+    window = [_period_str(*_week_of(today - timedelta(days=7 * (i + 1)))) for i in range(8)]
     # Union con periods existentes; excluir cualquier semana posterior a la anterior
     # (saca la semana en curso y futuras). Orden descendente: la mas reciente arriba.
     options = sorted(
@@ -1072,6 +1084,25 @@ def _dialog_borrar_cliente(cliente: str):
 
 # ── Render por SKU (tab content) ────────────────────────────────────────
 
+def _weekly_table(sku_history: pd.DataFrame) -> pd.DataFrame:
+    """Tabla «Datos semanales detallados» (replica buildTab() L2554), con el rótulo
+    de cada semana calculado desde su número y año."""
+    sku_history = _with_week_labels(sku_history)
+    table_cols = ["week_iso", "week_label"] + _KPI_KEYS
+    table_cols = [c for c in table_cols if c in sku_history.columns]
+    return sku_history[table_cols].rename(columns={
+        "week_iso":              "Semana ISO",
+        "week_label":            "Fechas",
+        "sessions":              _KPI_LABELS["sessions"],
+        "page_views":            _KPI_LABELS["page_views"],
+        "units_ordered":         _KPI_LABELS["units_ordered"],
+        "total_order_items":     _KPI_LABELS["total_order_items"],
+        "unit_session_pct":      _KPI_LABELS["unit_session_pct"],
+        "ordered_product_sales": _KPI_LABELS["ordered_product_sales"],
+        "avg_price":             _KPI_LABELS["avg_price"],
+    })
+
+
 def _render_sku_tab(cliente: str, sku_meta: dict, history: pd.DataFrame,
                     optimizations: pd.DataFrame) -> None:
     """Renderiza el contenido de un tab por SKU.
@@ -1079,9 +1110,11 @@ def _render_sku_tab(cliente: str, sku_meta: dict, history: pd.DataFrame,
     Replica buildTab() del HTML L2457-2578: hero, KPI cards, charts, tabla.
     """
     sku = sku_meta["sku"]
-    sku_history = (history[history["sku"] == sku]
-                   .sort_values(["year", "week_iso"])
-                   .reset_index(drop=True)) if not history.empty else pd.DataFrame()
+    sku_history = _with_week_labels(
+        history[history["sku"] == sku]
+        .sort_values(["year", "week_iso"])
+        .reset_index(drop=True)
+    ) if not history.empty else pd.DataFrame()
     sku_events = (optimizations[optimizations["sku"] == sku]
                   .sort_values(["year", "week_iso"])
                   .reset_index(drop=True)) if not optimizations.empty else pd.DataFrame()
@@ -1297,23 +1330,8 @@ def _render_sku_tab(cliente: str, sku_meta: dict, history: pd.DataFrame,
     else:
         st.warning("Plotly no esta instalado — los graficos no se muestran.")
 
-    # Tabla detallada (replica buildTab() L2554)
     st.markdown("### 📋 Datos semanales detallados")
-    table_cols = ["week_iso", "week_label"] + _KPI_KEYS
-    table_cols = [c for c in table_cols if c in sku_history.columns]
-    display_df = sku_history[table_cols].copy()
-    display_df = display_df.rename(columns={
-        "week_iso":              "Semana ISO",
-        "week_label":            "Fechas",
-        "sessions":              _KPI_LABELS["sessions"],
-        "page_views":            _KPI_LABELS["page_views"],
-        "units_ordered":         _KPI_LABELS["units_ordered"],
-        "total_order_items":     _KPI_LABELS["total_order_items"],
-        "unit_session_pct":      _KPI_LABELS["unit_session_pct"],
-        "ordered_product_sales": _KPI_LABELS["ordered_product_sales"],
-        "avg_price":             _KPI_LABELS["avg_price"],
-    })
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(_weekly_table(sku_history), use_container_width=True, hide_index=True)
 
 
 # ── Render Tab Importar CSV ─────────────────────────────────────────────
@@ -1357,9 +1375,8 @@ def _render_import_tab(cliente: str, tracked_skus: list[dict]):
 
     # Detectar week_iso del filename, sino pedirla
     auto_week = _detect_week_from_filename(file.name)
-    today = date.today()
-    iso_year, iso_week, _ = today.isocalendar()
-    default_week = auto_week or iso_week
+    _, current_week = _week_of(date.today())
+    default_week = auto_week or current_week
 
     col_y, col_w, col_lbl = st.columns([1, 1, 2])
     with col_y:
@@ -1372,7 +1389,7 @@ def _render_import_tab(cliente: str, tracked_skus: list[dict]):
         )
     with col_w:
         week_iso = st.number_input(
-            "Semana ISO",
+            "Semana (dom–sáb)",
             min_value=1, max_value=53,
             value=int(default_week), step=1,
             key="sku_progress_import_week",
@@ -1565,11 +1582,9 @@ def render() -> None:
                 xlsx_bytes = _build_sku_progress_excel(
                     cliente, history, optimizations
                 )
-                today = date.today()
-                iso_year, iso_week, _ = today.isocalendar()
                 fname = (
                     f"{cliente}_SKU-Progress_"
-                    f"{_period_str(iso_year, iso_week)}.xlsx"
+                    f"{_period_str(*_week_of(date.today()))}.xlsx"
                 )
                 st.download_button(
                     "⬇️ Excel completo",

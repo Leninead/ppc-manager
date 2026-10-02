@@ -101,3 +101,26 @@ def test_week_label_va_de_domingo_a_sabado(year, week, label):
 )
 def test_week_of_cuenta_la_semana_desde_el_domingo(day, week):
     assert _week_of(day) == week
+
+
+def _stored_week(**over) -> dict:
+    row = {"sku": "SKU-A", "week_iso": 33, "year": 2026, "week_label": "Ago 10-16",
+           "sessions": 100, "units_ordered": 5}
+    row.update(over)
+    return row
+
+
+def test_la_tabla_rotula_desde_el_numero_y_el_anio_no_desde_el_texto_guardado():
+    from modules.pages.sku_progress_report import _weekly_table
+
+    table = _weekly_table(pd.DataFrame([_stored_week()]))
+
+    assert list(table["Fechas"]) == ["Ago 9-15"]
+
+
+def test_sin_anio_o_semana_queda_el_rotulo_guardado():
+    from modules.pages.sku_progress_report import _with_week_labels
+
+    old = pd.DataFrame([_stored_week(year=None), _stored_week(week_iso=None)])
+
+    assert list(_with_week_labels(old)["week_label"]) == ["Ago 10-16", "Ago 10-16"]
