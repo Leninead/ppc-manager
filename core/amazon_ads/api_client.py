@@ -54,8 +54,10 @@ class AdsApiClient:
         sleep: Callable[[float], None] = time.sleep,
         max_retries: int = 3,
         timeout_s: int = 60,
+        max_retry_after_s: float = MAX_RETRY_AFTER_SECONDS,
     ):
-        """Pass `client_id_source` when the client id can change while the client lives: it is read on every request."""
+        """Pass `client_id_source` when the client id can change while the client lives: it is read on every request.
+        A caller someone is waiting on lowers `max_retry_after_s`, the most it sleeps between attempts."""
         host = ADS_API_HOSTS.get(region)
         if host is None:
             raise ValueError(f"unknown Amazon Ads region: {region!r}")
@@ -73,6 +75,7 @@ class AdsApiClient:
         self._sleep = sleep
         self._max_retries = max_retries
         self._timeout_s = timeout_s
+        self._max_retry_after_s = max_retry_after_s
 
     def request(
         self,
@@ -155,7 +158,8 @@ class AdsApiClient:
 
     def _back_off(self, method: str, path: str, reason: str, attempt: int,
                   retry_after: float | None) -> None:
-        delay = min(retry_after, MAX_RETRY_AFTER_SECONDS) if retry_after is not None else 2.0 ** (attempt - 1)
+        backoff = retry_after if retry_after is not None else 2.0 ** (attempt - 1)
+        delay = min(backoff, self._max_retry_after_s)
         log.warning("amazon_ads: %s %s -> %s, retry %d/%d in %.1f s",
                     method, path, reason, attempt, self._max_retries, delay)
         self._sleep(delay)

@@ -46,6 +46,13 @@ def test_the_dockerfile_copies_the_read_layer_the_tools_use():
     assert {"core.amazon_ads", "core.ai_analysis", "services.mcp_server"} <= set(_copied_modules())
 
 
+def test_the_image_installs_what_opens_the_amazon_ads_tokens():
+    """The live_* tools unseal each account's token: without cryptography they fail on their first call."""
+    requirements = (ROOT / "services" / "mcp_server" / "requirements.txt").read_text(encoding="utf-8")
+
+    assert re.search(r"^cryptography\b", requirements, re.MULTILINE)
+
+
 def test_the_image_carries_how_rows_are_named_but_not_the_agents():
     copied = set(_copied_modules())
 

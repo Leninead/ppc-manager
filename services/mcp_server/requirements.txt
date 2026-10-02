@@ -5,5 +5,7 @@ mcp>=2.2.0
 uvicorn[standard]==0.32.1
 pandas>=2.2.0
 requests==2.34.2
+# Opens the sealed Amazon Ads tokens for the live_* tools (core/integrations/crypto.py).
+cryptography>=44.0.2
 # Before Python 3.12 pydantic accepts a TypedDict only from typing_extensions (the image runs 3.11).
 typing_extensions>=4.14.1

@@ -6,8 +6,10 @@ cada módulo nuevo multiplica el texto y el modelo termina respondiendo con lo q
 si algo se truncó. Acá el modelo ve QUÉ hay y baja sólo lo que necesita.
 
 QUÉ NO HACE
-- No escribe. Ninguna herramienta modifica nada: es una superficie de lectura.
-- No expone credenciales. `integration_credentials` y las columnas selladas no se tocan.
+- No escribe. Ninguna herramienta modifica nada: es una superficie de lectura, también en Amazon.
+- No expone credenciales. Las herramientas live_* abren el token de cada cuenta como el AI provider
+  (rol integ_provider + la clave de sellado montada en sólo lectura) para leer Amazon Ads en vivo,
+  y ningún token ni secreto sale en una respuesta ni en un log.
 - No devuelve respuestas de tamaño desconocido: todo pasa por services/mcp_server/limits.py.
 
 IDENTIDAD
@@ -21,6 +23,8 @@ Variables de entorno:
   MCP_JWT        JWT con rol web_user: sólo lectura.
   MCP_TOKEN      El secreto que el cliente presenta como Bearer. Sin esto, el servidor no arranca.
   MCP_PORT       Puerto HTTP (8790 por defecto).
+  ADS_TOKENS_JWT JWT con rol integ_provider para abrir los tokens de Amazon Ads. Sin esto, o sin la
+                 clave de sellado en INTEGRATIONS_KEY_FILE, las herramientas live_* no se ofrecen.
 """
 from __future__ import annotations
 
@@ -33,6 +37,7 @@ from core.integrations.store import _Rest
 from services.mcp_server.tools import (
     account_action_plan,
     amazon_ads,
+    amazon_live,
     analyses,
     campaign_structure,
     daily_series,
@@ -124,7 +129,7 @@ def build_tools(rest) -> list:
     """
     # partial y no lambda: el SDK lee la firma anotada de cada función para armar el schema que
     # ve el modelo; un lambda se la comería y las herramientas llegarían sin tipos.
-    return [
+    tools = [
         _tool("list_accounts",
               "Las cuentas de Amazon Ads sincronizadas, con país, moneda, hasta qué día tienen datos, qué día es "
               "hoy en cada una (today, en su zona horaria) y si sus datos están al día (up_to_date). Para un "
@@ -349,6 +354,70 @@ def build_tools(rest) -> list:
               "summary trae las cifras de toda la cuenta y la ventana, y missing lo que la fuente todavía no "
               "tiene. Para lo que el AM ve en pantalla, usá su date_from, date_to y brand_terms." + ACCOUNT_HINT,
               partial(ppc_audit.ppc_audit, rest)),
+    ]
+    if amazon_live.available():
+        tools.extend(live_tools(rest))
+    return tools
+
+
+LIVE_HINT = (" Va a Amazon Ads en el momento y para una sola cuenta: tarda de 1 a 3 segundos. Si Amazon limita o "
+             "falla, lo dice en una frase: contásela al AM y seguí con lo demás.")
+
+
+def live_tools(rest) -> list:
+    """Lo que Amazon calcula en este momento y la app no guarda. Sólo existen si el servidor puede abrir los tokens."""
+    return [
+        _tool("live_budget",
+              "El presupuesto de las campañas habilitadas de una cuenta según Amazon, en vivo: por campaña, cuánto "
+              "del presupuesto de hoy lleva gastado ahora (usage_pct_now), el presupuesto que Amazon sugiere, el % "
+              "del tiempo de los últimos 7 días en que tuvo presupuesto y las ventas, clicks e impresiones que estima "
+              "que se perdieron por quedarse sin, como rangos en la moneda de la cuenta, de SP, SB y SD; también las "
+              "reglas de presupuesto de la cuenta y el uso de sus portfolios. only_limited deja las que se quedaron "
+              "sin presupuesto en esos 7 días o ya lo gastaron hoy; ordena por ventas perdidas. product acota a SP, SB "
+              "o SD; campaign y portfolio, como en las demás. Es lo que contesta cuánto se pierde por presupuesto y "
+              "a qué campaña subírselo." + LIVE_HINT + ACCOUNT_HINT,
+              partial(amazon_live.live_budget, rest)),
+        _tool("live_products",
+              "Los productos anunciados de una cuenta según Amazon, en vivo: stock (availability), precio, precio de "
+              "lista, best seller rank y si se pueden anunciar (eligibility, con sus códigos) de cada ASIN con un "
+              "anuncio de Sponsored Products habilitado, o de los asins que pases (hasta 600). only_problems deja los "
+              "que no están IN_STOCK o no son elegibles, y counts los cuenta por stock y por elegibilidad. Es lo que "
+              "contesta qué ASINs anunciados están sin stock o no se pueden anunciar." + LIVE_HINT + ACCOUNT_HINT,
+              partial(amazon_live.live_products, rest)),
+        _tool("live_change_history",
+              "El historial de cambios de una cuenta en Amazon Ads, en vivo y del más nuevo al más viejo: bids, "
+              "presupuestos, estados, ajustes por placement, estrategia de puja, nombres, fechas y cuándo una campaña "
+              "entró o salió de presupuesto (IN_BUDGET), cada uno con el valor anterior y el nuevo (before, after), "
+              "de los últimos days días, hasta 89. entity acota a campaign, ad_group, keyword, product_target, "
+              "negative_keyword o ad; change, a un tipo de cambio; campaign, a una campaña o a las que tienen ese "
+              "texto, hasta 10. Amazon no dice quién hizo el cambio y no guarda historial de Sponsored Display. Es lo "
+              "que contesta qué cambió, cuándo y de cuánto a cuánto." + LIVE_HINT + ACCOUNT_HINT,
+              partial(amazon_live.live_change_history, rest)),
+        _tool("live_keyword_bids",
+              "El bid que Amazon sugiere para los keywords y targets habilitados de un ad group, en vivo, al lado del "
+              "bid actual: en SP con el share y el rank de impresiones de la cuenta en cada keyword (30 días) y las "
+              "keywords que Amazon propone sumar (keyword_ideas); en SB con su share y rank de 7 días y sus alertas; "
+              "en SD por target de producto o de categoría. campaign es obligatorio: su id o su nombre. ad_group "
+              "elige el ad group por id; sin él va el de más targets y other_ad_groups lista los demás. Amazon limita "
+              "mucho estas consultas: lo pedido se reusa hasta 6 horas, y cached y fetched_at lo dicen."
+              + LIVE_HINT + ACCOUNT_HINT,
+              partial(amazon_live.live_keyword_bids, rest)),
+        _tool("live_category_benchmark",
+              "Cómo le va a cada marca de una cuenta en Sponsored Brands contra su categoría, en vivo: ACoS, ROAS, CTR "
+              "e impresiones de la marca al lado de la mediana y los cuartiles de las marcas de esa categoría, en los "
+              "últimos days días, hasta 89." + LIVE_HINT + ACCOUNT_HINT,
+              partial(amazon_live.live_category_benchmark, rest)),
+        _tool("live_invoices",
+              "Las facturas de Amazon Ads de una cuenta, en vivo: período, estado (pagada o en curso), monto, "
+              "impuestos y saldo de las últimas count, hasta 100. Con invoice_id trae lo que cobró esa factura por "
+              "campaña, y cost_by_program lo suma por SP, SB y SD." + LIVE_HINT + ACCOUNT_HINT,
+              partial(amazon_live.live_invoices, rest)),
+        _tool("live_store",
+              "Una métrica de la Store de marca de una cuenta, en vivo: visitas, visitantes, vistas, ventas, órdenes, "
+              "unidades, nuevos en la Store, rebote o tiempo de permanencia (metric), por día, por página o por "
+              "fuente de tráfico (dimension), en los últimos days días, hasta 100. store elige una Store por su "
+              "nombre cuando la cuenta tiene varias." + LIVE_HINT + ACCOUNT_HINT,
+              partial(amazon_live.live_store, rest)),
     ]
 
 
